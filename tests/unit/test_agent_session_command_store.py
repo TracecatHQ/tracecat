@@ -9,10 +9,12 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import asyncpg
 import pytest
+from pydantic import JsonValue
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -25,12 +27,23 @@ from sqlalchemy.pool import NullPool
 from tests.conftest import TEST_ORG_ID
 from tests.database import TEST_DB_CONFIG
 from tracecat.agent.control.enums import CommandState, CommandType
-from tracecat.agent.control.store import PgSessionCommandStore, command_channel
-from tracecat.agent.control.types import (
+from tracecat.agent.control.payloads import (
+    AbortPayload,
     CommandPayload,
+    DecidePayload,
+    SteerPayload,
+    SubmitPayload,
+)
+from tracecat.agent.control.store import (
+    PgSessionCommandStore,
+    command_channel,
+    payload_hash,
+)
+from tracecat.agent.control.types import (
     RootSessionNotFoundError,
     SessionCommand,
     SessionCommandConflictError,
+    SessionCommandTypeMismatchError,
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.db.models import AgentSession, AgentSessionCommand, Workspace
@@ -86,22 +99,27 @@ async def root(
             await session.commit()
 
 
+def _approve(override_args: dict[str, JsonValue]) -> DecidePayload:
+    return DecidePayload(action="approve", override_args=override_args)
+
+
 def _command(
     root: AgentSession,
     request_id: str,
     payload: CommandPayload | None = None,
     *,
-    type: CommandType = CommandType.STEER,
+    type: CommandType | None = None,
     state: CommandState = CommandState.ACCEPTED,
     generation: uuid.UUID | None = None,
 ) -> SessionCommand:
     assert state in (CommandState.QUEUED, CommandState.ACCEPTED)
+    payload = payload if payload is not None else SteerPayload(text=request_id)
     return SessionCommand(
         root_session_id=root.id,
         session_id=root.id,
         request_id=request_id,
-        type=type,
-        payload=payload if payload is not None else {"text": request_id},
+        type=type if type is not None else payload.type,
+        payload=payload,
         state=state,
         turn_id=None if state == CommandState.QUEUED else uuid.uuid4(),
         generation=generation,
@@ -157,11 +175,14 @@ async def test_readmit_with_same_payload_returns_the_existing_row(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """A retried request ID returns its first row, even from another turn."""
-    first = await store.admit(_command(root, "req", {"text": "hi", "n": 1}))
+    first = await store.admit(_command(root, "req", _approve({"a": 1, "b": 2})))
     # Same payload with keys reordered and a different turn: still a retry.
-    retried = await store.admit(_command(root, "req", {"n": 1, "text": "hi"}))
+    retried = await store.admit(_command(root, "req", _approve({"b": 2, "a": 1})))
     concurrent = await asyncio.gather(
-        *(store.admit(_command(root, "req", {"text": "hi", "n": 1})) for _ in range(4))
+        *(
+            store.admit(_command(root, "req", _approve({"a": 1, "b": 2})))
+            for _ in range(4)
+        )
     )
 
     assert not first.existing
@@ -183,24 +204,56 @@ async def test_concurrent_first_admits_of_one_request_create_one_row(
 ) -> None:
     """Racing first admits of one request ID: exactly one creates the row."""
     admissions = await asyncio.gather(
-        *(store.admit(_command(root, "req", {"text": "hi"})) for _ in range(8))
+        *(store.admit(_command(root, "req", SteerPayload(text="hi"))) for _ in range(8))
     )
 
     assert sum(not admission.existing for admission in admissions) == 1
     assert {admission.row.id for admission in admissions} == {admissions[0].row.id}
 
 
-async def test_readmit_with_another_payload_conflicts(
-    store: PgSessionCommandStore, root: AgentSession
+@pytest.mark.parametrize("change", ["payload", "type", "session"])
+async def test_readmit_of_another_command_conflicts(
+    store: PgSessionCommandStore, root: AgentSession, change: str
 ) -> None:
-    """A request ID reused with a different payload is refused, not overwritten."""
-    first = await store.admit(_command(root, "req", {"text": "hi"}))
+    """A request ID reused for a different command is refused, not overwritten."""
+    first = await store.admit(_command(root, "req", SteerPayload(text="hi")))
+    retry = _command(root, "req", SteerPayload(text="hi"))
+    match change:
+        case "payload":
+            retry = _command(root, "req", SteerPayload(text="bye"))
+        case "type":
+            retry = _command(root, "req", SubmitPayload(input="hi"))
+        case _:
+            retry = replace(retry, session_id=uuid.uuid4())
 
     with pytest.raises(SessionCommandConflictError):
-        await store.admit(_command(root, "req", {"text": "bye"}))
+        await store.admit(retry)
 
     (row,) = await store.pending(root.id)
     assert row == first.row
+
+
+async def test_admit_refuses_a_type_that_disagrees_with_the_payload(
+    store: PgSessionCommandStore, root: AgentSession
+) -> None:
+    with pytest.raises(SessionCommandTypeMismatchError):
+        await store.admit(
+            _command(root, "req", SteerPayload(text="hi"), type=CommandType.SUBMIT)
+        )
+
+    assert await store.get(root.id, "req") is None
+
+
+async def test_rows_read_back_as_typed_payloads(
+    store: PgSessionCommandStore, root: AgentSession
+) -> None:
+    decide = _approve({"path": "/tmp/x"})
+    await store.admit(_command(root, "decide", decide))
+    await store.admit(_command(root, "abort", AbortPayload()))
+
+    stored = [row.payload for row in await store.pending(root.id)]
+
+    assert stored == [decide, AbortPayload()]
 
 
 async def test_admit_for_a_missing_root_raises(store: PgSessionCommandStore) -> None:
@@ -245,17 +298,44 @@ async def test_withdraw_takes_a_command_the_backend_has_not_applied(
     assert await store.pending(root.id) == []
 
 
-async def test_withdraw_is_refused_once_the_backend_applied_the_command(
-    store: PgSessionCommandStore, root: AgentSession
+@pytest.mark.parametrize("target", [CommandState.WITHDRAWN, CommandState.REJECTED])
+async def test_an_applied_command_cannot_be_withdrawn_or_rejected(
+    store: PgSessionCommandStore, root: AgentSession, target: CommandState
 ) -> None:
     """Too late: an applied command stays applied, and the caller can tell."""
     await store.admit(_command(root, "req"))
     applied = await store.mark(root.id, "req", CommandState.APPLIED)
 
-    refused = await store.mark(root.id, "req", CommandState.WITHDRAWN)
+    refused = await store.mark(root.id, "req", target, {"error": "late"})
 
     assert refused == applied
     assert refused is not None and refused.state == CommandState.APPLIED
+
+
+async def test_accepting_a_queued_command_binds_it_to_its_turn_once(
+    store: PgSessionCommandStore, root: AgentSession
+) -> None:
+    """A queued follow-up joins the turn that takes it and never moves to another."""
+    turn, generation = uuid.uuid4(), uuid.uuid4()
+    await store.admit(_command(root, "follow-up", state=CommandState.QUEUED))
+
+    accepted = await store.mark(
+        root.id, "follow-up", CommandState.ACCEPTED, turn_id=turn, generation=generation
+    )
+    rebound = await store.mark(
+        root.id,
+        "follow-up",
+        CommandState.APPLIED,
+        turn_id=uuid.uuid4(),
+        generation=uuid.uuid4(),
+    )
+
+    assert accepted is not None
+    assert (accepted.turn_id, accepted.generation) == (turn, generation)
+    assert rebound is not None and rebound.state == CommandState.APPLIED
+    assert (rebound.turn_id, rebound.generation) == (turn, generation)
+    rows = await store.rows(root.id, generation=generation)
+    assert [row.request_id for row in rows] == ["follow-up"]
 
 
 async def test_mark_to_the_same_state_records_the_receipt(
@@ -287,7 +367,12 @@ async def test_pending_lists_only_active_commands_in_seq_order(
         CommandState.SETTLED,
     ]
     for state in states:
-        await store.admit(_command(root, state.value))
+        initial = (
+            CommandState.QUEUED
+            if state == CommandState.QUEUED
+            else CommandState.ACCEPTED
+        )
+        await store.admit(_command(root, state.value, state=initial))
         await store.mark(root.id, state.value, state)
 
     pending = await store.pending(root.id)
@@ -310,10 +395,12 @@ async def test_rows_lists_one_generation_in_every_state_in_seq_order(
     store: PgSessionCommandStore, root: AgentSession
 ) -> None:
     turn, other = uuid.uuid4(), uuid.uuid4()
-    await store.admit(_command(root, "submit", generation=turn))
+    await store.admit(
+        _command(root, "submit", SubmitPayload(input="go"), generation=turn)
+    )
     await store.admit(_command(root, "other", generation=other))
     await store.admit(_command(root, "steer", generation=turn))
-    await store.admit(_command(root, "abort", generation=turn))
+    await store.admit(_command(root, "abort", AbortPayload(), generation=turn))
     await store.admit(_command(root, "queued", state=CommandState.QUEUED))
     await store.mark(root.id, "submit", CommandState.SETTLED, {"done": True})
     await store.mark(root.id, "steer", CommandState.REJECTED)
@@ -355,8 +442,8 @@ async def test_retain_deletes_expired_terminal_rows_but_keeps_the_newest(
 async def test_retain_keeps_active_rows(
     store: PgSessionCommandStore, root: AgentSession
 ) -> None:
-    for request_id in ("queued", "newest"):
-        await store.admit(_command(root, request_id))
+    await store.admit(_command(root, "queued", state=CommandState.QUEUED))
+    await store.admit(_command(root, "newest"))
 
     later = datetime.now(UTC) + timedelta(hours=25)
 
@@ -393,6 +480,28 @@ async def test_retain_keeps_a_generation_that_still_has_an_active_command(
     await store.mark(root.id, "running-steer", CommandState.SETTLED)
     assert await store.retain(root.id, now=later) == 2
     assert await store.rows(root.id, generation=running) == []
+
+
+async def test_admit_stores_the_payload_it_hashed(
+    factory: async_sessionmaker[AsyncSession], root: AgentSession
+) -> None:
+    """A caller mutating a nested value mid-admit cannot split payload from hash."""
+    payload = _approve({"path": "original"})
+    assert payload.override_args is not None
+    override_args = payload.override_args
+
+    def mutating_factory() -> AsyncSession:
+        # Admission hashes before it opens a session, and inserts after. A
+        # frozen model still holds a mutable dict.
+        override_args["path"] = "mutated"
+        return factory()
+
+    store = PgSessionCommandStore(mutating_factory)
+    admission = await store.admit(_command(root, "req", payload))
+
+    original = _approve({"path": "original"})
+    assert admission.row.payload == original
+    assert admission.row.payload_hash == payload_hash(original)
 
 
 class _SlowCommitSession(AsyncSession):

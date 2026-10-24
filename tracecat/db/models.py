@@ -3750,6 +3750,7 @@ class AgentSessionCommand(TimestampMixin, Base):
         UniqueConstraint("root_session_id", "seq"),
         CheckConstraint(f"type IN ({_COMMAND_TYPES_SQL})", name="type"),
         CheckConstraint(f"state IN ({_COMMAND_STATES_SQL})", name="state"),
+        CheckConstraint("payload ->> 'type' = type", name="payload_type"),
         Index(
             "ix_agent_session_command_active",
             "root_session_id",
