@@ -121,7 +121,7 @@ function buildResourceGroups(
 interface PushResourceManifestProps {
   preview: WorkspaceSyncExportPreview | undefined
   isLoading: boolean
-  errorMessage?: string
+  errorMessage?: React.ReactNode
 }
 
 /**
@@ -151,7 +151,7 @@ function WorkspaceSyncResourceManifest({
 }: {
   preview: ResourceManifestPreview | undefined
   isLoading: boolean
-  errorMessage?: string
+  errorMessage?: React.ReactNode
   direction: "push" | "pull"
 }) {
   const [expanded, setExpanded] = useState<Set<SyncResourceType>>(

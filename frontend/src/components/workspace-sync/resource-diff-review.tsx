@@ -34,7 +34,7 @@ interface PushResourcePreviewProps {
   preview: WorkspaceSyncExportPreview | undefined
   isLoading: boolean
   compareRef: string | undefined
-  errorMessage?: string
+  errorMessage?: React.ReactNode
   hasRequestedPreview: boolean
   onRequestPreview: () => void
 }

@@ -28,6 +28,7 @@ from tracecat.workflow.store.schemas import (
     WorkflowDslPublishResult,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.types import WorkflowExportCode, WorkflowExportStage
 
 MANIFEST_FILENAME = "tracecat.json"
 WORKFLOW_ROOT = "workflows"
@@ -806,6 +807,30 @@ class ResourceRef(BaseModel):
         default=None,
         description="Local database id of the resource, if referenced by local id.",
     )
+
+
+class WorkflowExportDiagnostic(BaseModel):
+    """Safe workflow context for an export that cannot proceed."""
+
+    workflow_id: uuid.UUID = Field(description="Authorized local workflow ID.")
+    workflow_title: str = Field(description="Workflow display title.")
+    source_id: str | None = Field(default=None, description="Existing stable Git ID.")
+    source_path: str | None = Field(
+        default=None, description="Existing repository path."
+    )
+    stage: WorkflowExportStage = Field(description="Export stage that failed.")
+    code: WorkflowExportCode = Field(
+        description="Machine-readable corrective error code."
+    )
+    message: str = Field(description="Safe corrective message without workflow inputs.")
+
+
+class WorkspaceSyncExportError(BaseModel):
+    """Additive diagnostics while retaining the legacy string detail field."""
+
+    detail: str = Field(description="Human-readable failure summary.")
+    diagnostics: list[WorkflowExportDiagnostic] = Field(default_factory=list)
+    omitted_count: int = Field(default=0)
 
 
 class WorkspaceSyncExportRequest(BaseModel):

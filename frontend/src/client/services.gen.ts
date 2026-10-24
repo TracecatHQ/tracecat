@@ -3544,6 +3544,7 @@ export const workflowsPublishWorkflow = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Bad Request",
       422: "Validation Error",
     },
   })
@@ -3652,6 +3653,7 @@ export const workflowsExportWorkspaceSync = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Bad Request",
       422: "Validation Error",
     },
   })
@@ -3678,6 +3680,7 @@ export const workflowsPreviewExportWorkspaceSync = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Bad Request",
       422: "Validation Error",
     },
   })

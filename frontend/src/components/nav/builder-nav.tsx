@@ -849,6 +849,8 @@ function WorkflowSaveActions({
         branch: data.branch,
         create_pr: pushOutcome.createPr,
       })
+    } catch {
+      // WorkflowProvider presents the error, including Publish-first guidance.
     } finally {
       setIsPublishing(false)
       setPublishOpen(false)
