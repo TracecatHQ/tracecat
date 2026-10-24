@@ -189,10 +189,9 @@ class SecretsService(BaseOrgService):
             raise ValueError(
                 "CA certificate secrets must be created with their key values. Delete and recreate the secret instead."
             )
-        set_fields = params.model_dump(exclude_unset=True)
-        keys = set_fields.pop("keys", None)
+        set_fields = params.model_dump(exclude_unset=True, exclude={"keys"})
 
-        if keys is None:
+        if params.keys is None:
             try:
                 self.decrypt_keys(secret.encrypted_keys)
             except (InvalidToken, ValidationError, ValueError) as e:
@@ -205,40 +204,8 @@ class SecretsService(BaseOrgService):
                 ) from e
 
         # Handle keys separately
-        if keys:
-            existing_keys: dict[str, SecretStr] = {}
-            try:
-                # Decrypt existing keys to a dictionary for easy lookup.
-                existing_keys = {
-                    kv.key: kv.value for kv in self.decrypt_keys(secret.encrypted_keys)
-                }
-            except (InvalidToken, ValidationError, ValueError) as e:
-                # Allow recovery from a corrupted encryption key by requiring callers
-                # to provide all key values, rather than preserving blanks.
-                if any(not kv["value"] for kv in keys):
-                    raise ValueError(
-                        "Stored secret values cannot be decrypted. Re-enter all key values to recover this secret."
-                    ) from e
-                self.logger.warning(
-                    "Failed to decrypt existing secret keys during update; proceeding with full key replacement",
-                    secret_id=str(secret.id),
-                    secret_name=secret.name,
-                    error=str(e),
-                )
-
-            # Create new key-value pairs, preserving existing values when the new value is empty
-            merged_keyvalues = []
-            for kv in keys:
-                key = kv["key"]
-                value = kv["value"]
-
-                # If value is empty and the key already exists, keep the existing value
-                if not value and key in existing_keys:
-                    merged_keyvalues.append(
-                        SecretKeyValue(key=key, value=existing_keys[key])
-                    )
-                else:
-                    merged_keyvalues.append(SecretKeyValue(**kv))
+        if params.keys:
+            merged_keyvalues = self.merge_key_values(secret, params.keys)
 
             if existing_type == SecretType.MTLS:
                 validate_mtls_key_values(merged_keyvalues)
@@ -253,6 +220,39 @@ class SecretsService(BaseOrgService):
             setattr(secret, field, value)
         self.session.add(secret)
         await self.session.commit()
+
+    def merge_key_values(
+        self, secret: BaseSecret, keys: Sequence[SecretKeyValue]
+    ) -> list[SecretKeyValue]:
+        """Return ``keys`` with each blank value replaced by the stored value.
+
+        Raises:
+            ValueError: A value is blank and the stored values cannot be decrypted.
+        """
+        existing_keys: dict[str, SecretStr] = {}
+        try:
+            existing_keys = {
+                kv.key: kv.value for kv in self.decrypt_keys(secret.encrypted_keys)
+            }
+        except (InvalidToken, ValidationError, ValueError) as e:
+            # Allow recovery from a corrupted encryption key by requiring callers
+            # to provide all key values, rather than preserving blanks.
+            if any(not kv.value for kv in keys):
+                raise ValueError(
+                    "Stored secret values cannot be decrypted. Re-enter all key values to recover this secret."
+                ) from e
+            self.logger.warning(
+                "Failed to decrypt existing secret keys during update; proceeding with full key replacement",
+                secret_id=str(secret.id),
+                secret_name=secret.name,
+                error=str(e),
+            )
+        return [
+            SecretKeyValue(key=kv.key, value=existing_keys[kv.key])
+            if not kv.value and kv.key in existing_keys
+            else kv
+            for kv in keys
+        ]
 
     async def _delete_secret(self, secret: BaseSecret) -> None:
         """Delete a base secret."""

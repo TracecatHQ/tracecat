@@ -14,17 +14,24 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS, PROVIDER_KEY_CHECKS
+from tracecat.agent.exceptions import ProviderKeyCheckError, ProviderKeyCheckErrorCode
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
     AgentCustomProviderRead,
     AgentCustomProviderUpdate,
 )
-from tracecat.agent.provider.types import ResolvedCustomProviderCredentials
+from tracecat.agent.provider.types import (
+    ProviderKeyCheck,
+    ResolvedCustomProviderCredentials,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError
 from tracecat.outbound import create_outbound_http_client
 from tracecat.pagination import (
     BaseCursorPaginator,
@@ -514,3 +521,130 @@ async def discover_openai_compatible_models(
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
     raise ValueError(f"Unexpected response format: {type(data)}")
+
+
+async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> None:
+    """Reject a first-class provider API key that fails a live ``GET /models``.
+
+    Other providers and keys routed through a non-provider base URL are not checked.
+    Only auth failures and unreachable endpoints reject; other errors are logged.
+
+    Args:
+        provider: Provider slug.
+        credentials: Credentials as they will be stored.
+
+    Raises:
+        ProviderKeyCheckError: The provider rejected the key or was unreachable.
+    """
+    if (check := PROVIDER_KEY_CHECKS.get(provider)) is None:
+        return
+    base_url = credentials.get(check.base_url_field) if check.base_url_field else None
+    if (models_base_url := _key_check_base_url(check, base_url)) is None:
+        return
+    label = PROVIDER_CREDENTIAL_CONFIGS[provider].label
+    try:
+        response = await fetch_openai_compatible_models(
+            base_url=models_base_url,
+            api_key=credentials.get(check.api_key_field),
+            api_key_header=check.api_key_header,
+            custom_headers=dict(check.extra_headers),
+            timeout=10.0,
+        )
+    except (DisallowedUrlError, httpx.HTTPError) as err:
+        logger.warning(
+            "Provider API key check could not reach provider",
+            provider=provider,
+            error=str(err) or type(err).__name__,
+        )
+        raise ProviderKeyCheckError(
+            _key_check_message(ProviderKeyCheckErrorCode.UNREACHABLE, label),
+            code=ProviderKeyCheckErrorCode.UNREACHABLE,
+            field=check.api_key_field,
+        ) from err
+    if response.is_success:
+        return
+    error_code = _provider_error_code(response)
+    if (code := _rejection_code(check, response.status_code, error_code)) is None:
+        logger.warning(
+            "Provider API key check was inconclusive",
+            provider=provider,
+            status_code=response.status_code,
+            provider_error_code=error_code,
+        )
+        return
+    logger.info(
+        "Provider rejected API key",
+        provider=provider,
+        status_code=response.status_code,
+        provider_error_code=error_code,
+    )
+    raise ProviderKeyCheckError(
+        _key_check_message(code, label), code=code, field=check.api_key_field
+    )
+
+
+def _key_check_base_url(check: ProviderKeyCheck, base_url: str | None) -> str | None:
+    """Return the ``/models`` base URL to check, or None for a non-provider host."""
+    if not base_url:
+        return check.models_base_url
+    try:
+        url = httpx.URL(base_url.strip())
+    except httpx.InvalidURL:
+        return None
+    host = url.host.lower()
+    if url.scheme != "https" or url.port is not None or not host:
+        return None
+    if not any(
+        host == allowed or (allowed.startswith("*.") and host.endswith(allowed[1:]))
+        for allowed in check.official_hosts
+    ):
+        return None
+    # Keep the provider's path so a user-entered path can't redirect the check.
+    return str(httpx.URL(check.models_base_url).copy_with(host=host))
+
+
+def _rejection_code(
+    check: ProviderKeyCheck, status_code: int, error_code: str | None
+) -> ProviderKeyCheckErrorCode | None:
+    if (
+        check.rejected_error_codes is not None
+        and error_code not in check.rejected_error_codes
+    ):
+        return None
+    if status_code in check.invalid_key_status_codes:
+        return ProviderKeyCheckErrorCode.INVALID_KEY
+    if status_code == 403:
+        return ProviderKeyCheckErrorCode.ACCESS_DENIED
+    return None
+
+
+def _key_check_message(code: ProviderKeyCheckErrorCode, label: str) -> str:
+    match code:
+        case ProviderKeyCheckErrorCode.INVALID_KEY:
+            return (
+                f"{label} didn't accept this API key. Please check the key and "
+                "try again."
+            )
+        case ProviderKeyCheckErrorCode.ACCESS_DENIED:
+            return (
+                f"This API key can't list {label} models. Please check the key's "
+                "permissions and try again."
+            )
+        case ProviderKeyCheckErrorCode.UNREACHABLE:
+            return (
+                f"Couldn't reach {label} to check this API key. Please check your "
+                "network settings and try again."
+            )
+
+
+def _provider_error_code(response: httpx.Response) -> str | None:
+    # Read only the structured code; provider messages can echo the submitted key.
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    match body:
+        case {"error": {"code": str(code)}}:
+            return code
+        case _:
+            return None

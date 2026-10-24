@@ -9,3 +9,19 @@ class ResolvedCustomProviderCredentials:
 
     api_key: str | None = None
     custom_headers: dict[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderKeyCheck:
+    """How to check a first-class provider API key with ``GET /models``."""
+
+    api_key_field: str
+    base_url_field: str | None
+    models_base_url: str
+    api_key_header: str | None = None
+    extra_headers: tuple[tuple[str, str], ...] = ()
+    # Base URL hosts the provider runs, e.g. regional endpoints; "*." matches subdomains.
+    official_hosts: frozenset[str] = frozenset()
+    invalid_key_status_codes: frozenset[int] = frozenset({401})
+    # When set, only these error codes reject; restricted keys may lack model read.
+    rejected_error_codes: frozenset[str] | None = None

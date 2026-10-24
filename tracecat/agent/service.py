@@ -50,7 +50,10 @@ from tracecat.agent.gateway_providers import (
     resolve_gateway_provider_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.provider.service import discover_openai_compatible_models
+from tracecat.agent.provider.service import (
+    check_provider_key,
+    discover_openai_compatible_models,
+)
 from tracecat.agent.schemas import (
     DefaultModelSelection,
     ModelConfig,
@@ -414,37 +417,31 @@ class AgentManagementService(BaseOrgService):
     ) -> OrganizationSecret:
         """Create or update credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(params.provider)
-
-        # Check if credentials already exist
         try:
-            existing = await self.secrets_service.get_org_secret_by_name(secret_name)
-            # Update existing credentials
-            keys = [
-                SecretKeyValue(key=k, value=SecretStr(v))
-                for k, v in params.credentials.items()
-            ]
-            update_params = SecretUpdate(keys=keys)
-            await self.secrets_service.update_org_secret(existing, update_params)
-            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
-            await self._auto_grant_provider_access(params.provider)
-            return existing
+            await self.secrets_service.get_org_secret_by_name(secret_name)
         except TracecatNotFoundError:
-            # Create new credentials
-            keys = [
-                SecretKeyValue(key=k, value=SecretStr(v))
-                for k, v in params.credentials.items()
-            ]
-            create_params = SecretCreate(
-                name=secret_name,
-                type=SecretType.CUSTOM,
-                description=f"Credentials for {params.provider} AI provider",
-                keys=keys,
-                tags={"provider": params.provider, "type": "agent-credentials"},
+            pass
+        else:
+            return await self.update_provider_credentials(
+                params.provider, ModelCredentialUpdate(credentials=params.credentials)
             )
-            await self.secrets_service.create_org_secret(create_params)
-            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
-            await self._auto_grant_provider_access(params.provider)
-            return await self.secrets_service.get_org_secret_by_name(secret_name)
+
+        await check_provider_key(params.provider, params.credentials)
+        keys = [
+            SecretKeyValue(key=k, value=SecretStr(v))
+            for k, v in params.credentials.items()
+        ]
+        create_params = SecretCreate(
+            name=secret_name,
+            type=SecretType.CUSTOM,
+            description=f"Credentials for {params.provider} AI provider",
+            keys=keys,
+            tags={"provider": params.provider, "type": "agent-credentials"},
+        )
+        await self.secrets_service.create_org_secret(create_params)
+        await self._refresh_gateway_provider_catalog_best_effort(params.provider)
+        await self._auto_grant_provider_access(params.provider)
+        return await self.secrets_service.get_org_secret_by_name(secret_name)
 
     @require_scope("agent:update")
     async def update_provider_credentials(
@@ -453,13 +450,17 @@ class AgentManagementService(BaseOrgService):
         """Update existing credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(provider)
         secret = await self.secrets_service.get_org_secret_by_name(secret_name)
-
-        keys = [
-            SecretKeyValue(key=k, value=SecretStr(v))
-            for k, v in params.credentials.items()
-        ]
-        update_params = SecretUpdate(keys=keys)
-        await self.secrets_service.update_org_secret(secret, update_params)
+        keys = self.secrets_service.merge_key_values(
+            secret,
+            [
+                SecretKeyValue(key=k, value=SecretStr(v))
+                for k, v in params.credentials.items()
+            ],
+        )
+        await check_provider_key(
+            provider, {kv.key: kv.value.get_secret_value() for kv in keys}
+        )
+        await self.secrets_service.update_org_secret(secret, SecretUpdate(keys=keys))
         await self._refresh_gateway_provider_catalog_best_effort(provider)
         await self._auto_grant_provider_access(provider)
         return secret
