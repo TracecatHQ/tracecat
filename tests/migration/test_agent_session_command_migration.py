@@ -21,7 +21,7 @@ from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.db.models import Base
 
 MIGRATION_REVISION = "b99074fdcf3a"
-PREVIOUS_REVISION = "b7d41c9e2a6f"
+PREVIOUS_REVISION = "c4e8a2f6d9b1"
 TABLE = "agent_session_command"
 
 

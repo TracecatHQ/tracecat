@@ -1,7 +1,7 @@
 """Add agent_session_command
 
 Revision ID: b99074fdcf3a
-Revises: b7d41c9e2a6f
+Revises: c4e8a2f6d9b1
 Create Date: 2026-10-23 17:30:00.000000
 
 Additive: a new workspace-scoped table with its RLS policy. No existing table
@@ -21,7 +21,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "b99074fdcf3a"
-down_revision: str | None = "b7d41c9e2a6f"
+down_revision: str | None = "c4e8a2f6d9b1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
