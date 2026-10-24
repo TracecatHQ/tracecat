@@ -15,18 +15,21 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
 
+from pydantic import JsonValue
 from sqlalchemy import delete, exists, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from tracecat.agent.control.enums import CommandState, CommandType
+from tracecat.agent.control.payloads import COMMAND_PAYLOAD, CommandPayload
 from tracecat.agent.control.types import (
     Admission,
-    CommandPayload,
+    CommandReceipt,
     RootSessionNotFoundError,
     SessionCommand,
     SessionCommandConflictError,
     SessionCommandRow,
+    SessionCommandTypeMismatchError,
 )
 from tracecat.db.models import AgentSession, AgentSessionCommand
 
@@ -70,9 +73,12 @@ def command_channel(root_session_id: uuid.UUID) -> str:
 
 
 def _canonical(payload: CommandPayload) -> str:
+    # Every field, defaults and nulls included, so equal payloads dump equally.
     # stdlib json, not orjson: digests must match other writers of this
     # canonical form, and orjson encodes non-ASCII text differently.
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+    )
 
 
 def _digest(canonical: str) -> str:
@@ -80,7 +86,7 @@ def _digest(canonical: str) -> str:
 
 
 def payload_hash(payload: CommandPayload) -> str:
-    """A stable SHA-256 digest of a payload's sorted-key, compact JSON form."""
+    """SHA-256 of the payload's JSON dump with sorted keys, compact separators."""
     return _digest(_canonical(payload))
 
 
@@ -102,14 +108,21 @@ class PgSessionCommandStore:
 
         Raises:
             SessionCommandConflictError: The request ID was admitted for another
-                command: a different payload, type or target session.
+                command: a different payload or target session.
             RootSessionNotFoundError: The root session does not exist.
+            SessionCommandTypeMismatchError: ``type`` and ``payload.type``
+                disagree.
         """
+        if command.type != command.payload.type:
+            raise SessionCommandTypeMismatchError(
+                f"Command type {command.type!r} does not match its"
+                f" {command.payload.type!r} payload"
+            )
         root_session_id = command.root_session_id
         canonical = _canonical(command.payload)
         digest = _digest(canonical)
-        # Store exactly what was hashed, even if the caller mutates its dict.
-        payload: CommandPayload = json.loads(canonical)
+        # Store exactly what was hashed, even if the caller mutates a nested value.
+        payload: dict[str, JsonValue] = json.loads(canonical)
         async with self._session_factory() as session:
             await session.execute(_LOCK, {"root": str(root_session_id)})
             existing = await session.scalar(
@@ -119,9 +132,9 @@ class PgSessionCommandStore:
                 )
             )
             if existing is not None:
+                # The payload's type is part of its hash.
                 if (
                     existing.payload_hash != digest
-                    or existing.type != command.type
                     or existing.session_id != command.session_id
                 ):
                     raise SessionCommandConflictError(
@@ -216,7 +229,7 @@ class PgSessionCommandStore:
         root_session_id: uuid.UUID,
         request_id: str,
         state: CommandState,
-        receipt: CommandPayload | None = None,
+        receipt: CommandReceipt | None = None,
         *,
         turn_id: uuid.UUID | None = None,
         generation: uuid.UUID | None = None,
@@ -320,7 +333,7 @@ def _to_row(command: AgentSessionCommand) -> SessionCommandRow:
         type=CommandType(command.type),
         turn_id=command.turn_id,
         generation=command.generation,
-        payload=command.payload,
+        payload=COMMAND_PAYLOAD.validate_python(command.payload),
         payload_hash=command.payload_hash,
         state=CommandState(command.state),
         receipt=command.receipt,
