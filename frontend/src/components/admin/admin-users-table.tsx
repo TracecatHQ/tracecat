@@ -68,12 +68,19 @@ const createUserFormSchema = z.object({
 
 type CreateUserFormValues = z.infer<typeof createUserFormSchema>
 
+type UserActionType = "promote" | "demote" | "delete" | "reset-mfa"
+
+const USER_ACTION_CONFIRM_LABELS: Record<UserActionType, string> = {
+  promote: "Promote",
+  demote: "Demote",
+  delete: "Delete",
+  "reset-mfa": "Reset security keys",
+}
+
 export function AdminUsersTable() {
   const [selectedUser, setSelectedUser] = useState<AdminUserRead | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [actionType, setActionType] = useState<
-    "promote" | "demote" | "delete" | null
-  >(null)
+  const [actionType, setActionType] = useState<UserActionType | null>(null)
   const [deleteConfirmationEmail, setDeleteConfirmationEmail] = useState("")
   const { user: currentUser } = useAuth()
   const {
@@ -86,6 +93,8 @@ export function AdminUsersTable() {
     demotePending,
     deleteUser,
     deletePending,
+    resetUserMfa,
+    resetMfaPending,
   } = useAdminUsers()
   const createUserForm = useForm<CreateUserFormValues>({
     resolver: zodResolver(createUserFormSchema),
@@ -158,6 +167,12 @@ export function AdminUsersTable() {
         toast({
           title: "User demoted",
           description: `${selectedUser.email} is no longer a superuser.`,
+        })
+      } else if (actionType === "reset-mfa") {
+        await resetUserMfa(selectedUser.id)
+        toast({
+          title: "Security keys reset",
+          description: `${selectedUser.email} must register a new key if MFA is required.`,
         })
       } else {
         await deleteUser(selectedUser.id)
@@ -519,6 +534,16 @@ export function AdminUsersTable() {
                       )}
                       <AlertDialogTrigger asChild>
                         <DropdownMenuItem
+                          onSelect={() => {
+                            setSelectedUser(rowUser)
+                            setActionType("reset-mfa")
+                          }}
+                        >
+                          Reset security keys
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem
                           className="text-rose-500 focus:text-rose-600"
                           disabled={isSelf || isLastSuperuser}
                           onSelect={() => {
@@ -549,13 +574,22 @@ export function AdminUsersTable() {
                 ? "Promote to superuser"
                 : actionType === "demote"
                   ? "Demote from superuser"
-                  : "Delete user"}
+                  : actionType === "reset-mfa"
+                    ? "Reset security keys"
+                    : "Delete user"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {actionType === "promote" ? (
                 <>
                   Are you sure you want to promote {selectedUser?.email} to
                   superuser? They will have full access to all admin functions.
+                </>
+              ) : actionType === "reset-mfa" ? (
+                <>
+                  Remove every security key, passkey, and recovery code for{" "}
+                  {selectedUser?.email} and sign them out of every session? Use
+                  this when they have lost access. If MFA is required, they must
+                  register a new key at their next sign-in.
                 </>
               ) : actionType === "demote" ? (
                 <>
@@ -598,15 +632,12 @@ export function AdminUsersTable() {
                 promotePending ||
                 demotePending ||
                 deletePending ||
+                resetMfaPending ||
                 !canConfirmAction
               }
               onClick={handleConfirmAction}
             >
-              {actionType === "promote"
-                ? "Promote"
-                : actionType === "demote"
-                  ? "Demote"
-                  : "Delete"}
+              {actionType && USER_ACTION_CONFIRM_LABELS[actionType]}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

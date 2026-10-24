@@ -830,6 +830,21 @@ Lets operators recover platform admin access after a lockout. Organization IP
 allowlists are unaffected.
 """
 
+TRACECAT__PLATFORM_ADMIN_MFA_BYPASS = env_bool(
+    "TRACECAT__PLATFORM_ADMIN_MFA_BYPASS", default=False
+)
+"""Break-glass override that skips security key (MFA) checks for platform admins.
+
+Skips both the sign-in challenge and step-up verification for platform
+superusers so operators can recover access after losing every security key.
+Organization members are unaffected.
+"""
+
+TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS = bound_env(
+    "TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS", 300, lower=30, upper=3600
+)
+"""How long a security key verification satisfies step-up checks (30 s to 1 h)."""
+
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
     default=(

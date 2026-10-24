@@ -6,7 +6,7 @@ keywords: ["security architecture", "AI agent security", "MCP security", "sandbo
 
 Tracecat's security design rests on seven control areas:
 
-- Identity: SSO, SCIM provisioning, role-based access control at organization and workspace level, and per-organization IP allowlists.
+- Identity: SSO, SCIM provisioning, security key and passkey MFA, role-based access control at organization and workspace level, and per-organization IP allowlists.
 - Data security: row-level tenant isolation, encrypted credentials, and encrypted workflow payloads.
 - AI agent security: default-deny tool policy, durable human approval, and token budgets.
 - Sandboxed execution: nsjail isolation for custom Python, agent-generated code, and local MCP servers.
@@ -125,7 +125,7 @@ Custom code runs on shared infrastructure, so isolation cannot depend on that co
 
 | Attack surface | How an attacker can use it | Primary Tracecat controls |
 | --- | --- | --- |
-| Authentication and tenant access | Steal or replay user credentials.<br/>Steal service-account credentials or personal access tokens.<br/>Call API or MCP endpoints as the victim.<br/>Sign in with a stolen credential from outside the corporate network.<br/>Probe identifiers from another workspace. | Authenticate before tenant resolution.<br/>Enforce SSO and RBAC.<br/>Deny sign-in and API access from addresses outside the organization's IP allowlist.<br/>Record IP, user agent, and last-seen time per session so administrators can spot and revoke unexpected sessions.<br/>Scope service accounts.<br/>Apply tenant scope and PostgreSQL row-level policies. |
+| Authentication and tenant access | Steal or replay user credentials.<br/>Steal service-account credentials or personal access tokens.<br/>Call API or MCP endpoints as the victim.<br/>Sign in with a stolen credential from outside the corporate network.<br/>Probe identifiers from another workspace. | Authenticate before tenant resolution.<br/>Enforce SSO and RBAC.<br/>Require a security key or passkey at sign-in.<br/>Deny sign-in and API access from addresses outside the organization's IP allowlist.<br/>Record IP, user agent, and last-seen time per session so administrators can spot and revoke unexpected sessions.<br/>Scope service accounts.<br/>Apply tenant scope and PostgreSQL row-level policies. |
 | Multi-tenant code execution | Submit hostile Python, custom actions, agents, or local MCP processes.<br/>Read files or process state.<br/>Escape the executor.<br/>Reach another run, tenant, or platform service. | nsjail enabled by default on full-isolation profiles.<br/>User, process, mount, IPC, hostname, and network namespaces.<br/>Read-only runtime and scoped mounts.<br/>Syscall, cgroup, file, and process limits. |
 | Credential and downstream access | Read stored secrets.<br/>Capture provider credentials.<br/>Reuse a credential outside its intended workspace or tool. | Encrypted credential storage.<br/>Execution-time credential broker.<br/>Short-lived JWTs scoped to the run, workspace, model, and allowed tools.<br/>Trusted services add provider credentials outside the sandbox. |
 | OAuth and MCP access | Steal an OAuth grant or personal access token.<br/>Use the MCP endpoint with the victim's permissions.<br/>Hide activity across many connections. | Authenticated OAuth flows.<br/>OAuth connections inherit the user's effective permissions.<br/>Personal access tokens remain workspace-scoped.<br/>Connections, tokens, and external MCP calls stay visible by user. |
@@ -210,6 +210,15 @@ Tracecat authenticates every API and MCP request before it resolves tenant conte
 - SCIM also syncs directory groups to Tracecat groups, so directory membership drives role assignment.
 
 See [SAML SSO](/authentication/saml) and [OIDC](/authentication/oidc) for connection steps.
+
+### Multi-factor authentication
+
+- Users register FIDO2 security keys or passkeys. Tracecat verifies each WebAuthn response with Yubico's `python-fido2` library, checking the challenge, origin, relying party ID, user verification, and signature counter. Registration and sign-in challenges are single-use and expire after 5 minutes.
+- Organization administrators can require a key for every member. The requirement covers password, OIDC, and SAML sign-in alike. Until the user verifies, the session can reach only the MFA endpoints and sign-out.
+- An account is single-factor until its first key is registered. Tracecat trusts the first key registered after a password or SSO sign-in.
+- Tracecat stores recovery codes, each with about 99 bits of secret, only as salted Argon2id hashes, and each code works once. A short public prefix on each code selects the one hash to check, so a wrong code almost never costs an Argon2id check.
+
+See [Multi-factor authentication](/authentication/mfa) for setup steps.
 
 ### Role-based access control
 

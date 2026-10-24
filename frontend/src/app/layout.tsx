@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { PublicEnvScript } from "next-runtime-env"
 import React, { Suspense } from "react"
+import { StepUpProvider } from "@/components/auth/step-up-provider"
 import { SettingsModalProvider } from "@/components/settings/settings-modal-context"
 import { SettingsModalHost } from "@/components/settings/settings-modal-host"
 import { Toaster } from "@/components/ui/toaster"
@@ -63,17 +64,19 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             disableTransitionOnChange
           >
             <DefaultQueryClientProvider>
-              <SettingsModalProvider>
-                <TooltipProvider>
-                  {PostHogPageView && (
-                    <Suspense fallback={null}>
-                      <PostHogPageView />
-                    </Suspense>
-                  )}
-                  {children}
-                </TooltipProvider>
-                <SettingsModalHost />
-              </SettingsModalProvider>
+              <StepUpProvider>
+                <SettingsModalProvider>
+                  <TooltipProvider>
+                    {PostHogPageView && (
+                      <Suspense fallback={null}>
+                        <PostHogPageView />
+                      </Suspense>
+                    )}
+                    {children}
+                  </TooltipProvider>
+                  <SettingsModalHost />
+                </SettingsModalProvider>
+              </StepUpProvider>
             </DefaultQueryClientProvider>
           </ThemeProvider>
           <Toaster />

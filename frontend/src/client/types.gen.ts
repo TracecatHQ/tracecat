@@ -7553,6 +7553,32 @@ export type kind2 =
 
 export type subkind = "scheduled-trigger" | "peer-send-message"
 
+export type MfaPolicyRead = {
+  mfa_required: boolean
+  webauthn_available: boolean
+  webauthn_unavailable_reason?: string | null
+}
+
+export type MfaPolicyUpdate = {
+  /**
+   * Require a security key or passkey at sign-in. Users without one must register one at their next sign-in.
+   */
+  mfa_required: boolean
+}
+
+export type MfaStatusRead = {
+  state: SessionMfaState
+  has_credentials: boolean
+  required_by_policy: boolean
+  webauthn_available: boolean
+  webauthn_unavailable_reason?: string | null
+  recovery_codes_remaining: number
+  /**
+   * When the current step-up verification stops satisfying checks.
+   */
+  step_up_expires_at?: string | null
+}
+
 export type ModelConfig = {
   /**
    * The name of the model. This is used to identify the model in the system.
@@ -8416,6 +8442,14 @@ export type ReasoningUIPart = {
 }
 
 export type state2 = "streaming" | "done"
+
+export type RecoveryCodeVerify = {
+  code: string
+}
+
+export type RecoveryCodesRead = {
+  recovery_codes: Array<string>
+}
 
 /**
  * Availability metadata for a registry action.
@@ -9973,6 +10007,12 @@ export type ServiceAccountUpdate = {
   description?: string | null
   scope_ids?: Array<string> | null
 }
+
+export type SessionMfaState =
+  | "not_required"
+  | "verified"
+  | "challenge_required"
+  | "enrollment_required"
 
 export type SessionRead = {
   id: string
@@ -12098,6 +12138,57 @@ export type WatchtowerToolCallStatus =
   | "timeout"
   | "rejected"
   | "blocked"
+
+export type WebAuthnAuthenticationVerify = {
+  /**
+   * PublicKeyCredential.toJSON() output from navigator.credentials.get().
+   */
+  credential: {
+    [key: string]: unknown
+  }
+}
+
+export type WebAuthnCredentialRead = {
+  id: string
+  name: string
+  aaguid: string
+  transports: Array<string>
+  backup_eligible: boolean
+  backup_state: boolean
+  created_at: string
+  last_used_at: string | null
+}
+
+export type WebAuthnCredentialUpdate = {
+  name: string
+}
+
+export type WebAuthnOptionsRead = {
+  /**
+   * PublicKeyCredential{Creation,Request}Options as JSON (base64url).
+   */
+  public_key: {
+    [key: string]: unknown
+  }
+}
+
+export type WebAuthnRegistrationResult = {
+  credential: WebAuthnCredentialRead
+  /**
+   * One-time recovery codes, returned only for the first security key.
+   */
+  recovery_codes?: Array<string> | null
+}
+
+export type WebAuthnRegistrationVerify = {
+  /**
+   * PublicKeyCredential.toJSON() output from navigator.credentials.create().
+   */
+  credential: {
+    [key: string]: unknown
+  }
+  name: string
+}
 
 export type WebhookApiKeyGenerateResponse = {
   api_key: string
@@ -15974,6 +16065,14 @@ export type AdminUpdateSecuritySettingsData = {
 
 export type AdminUpdateSecuritySettingsResponse = PlatformSecuritySettingsRead
 
+export type AdminGetMfaSettingsResponse = MfaPolicyRead
+
+export type AdminUpdateMfaSettingsData = {
+  requestBody: MfaPolicyUpdate
+}
+
+export type AdminUpdateMfaSettingsResponse = MfaPolicyRead
+
 export type AdminCheckIpAllowlistData = {
   requestBody: IPAllowlistCheckRequest
 }
@@ -16067,6 +16166,12 @@ export type AdminDemoteFromSuperuserData = {
 }
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
+export type AdminResetUserMfaData = {
+  userId: string
+}
+
+export type AdminResetUserMfaResponse = void
 
 export type AdminAgentListPlatformCatalogData = {
   cursor?: string | null
@@ -16363,6 +16468,14 @@ export type SettingsUpdateSecuritySettingsData = {
 }
 
 export type SettingsUpdateSecuritySettingsResponse = void
+
+export type SettingsGetMfaPolicyResponse = MfaPolicyRead
+
+export type SettingsUpdateMfaPolicyData = {
+  requestBody: MfaPolicyUpdate
+}
+
+export type SettingsUpdateMfaPolicyResponse = MfaPolicyRead
 
 export type SettingsCheckIpAllowlistData = {
   requestBody: IPAllowlistCheckRequest
@@ -18438,6 +18551,49 @@ export type AuthSsoAcsData = {
 }
 
 export type AuthSsoAcsResponse = unknown
+
+export type AuthGetMfaStatusResponse = MfaStatusRead
+
+export type AuthSignOutPendingSessionResponse = void
+
+export type AuthBeginRegistrationResponse = WebAuthnOptionsRead
+
+export type AuthCompleteRegistrationData = {
+  requestBody: WebAuthnRegistrationVerify
+}
+
+export type AuthCompleteRegistrationResponse = WebAuthnRegistrationResult
+
+export type AuthBeginAuthenticationResponse = WebAuthnOptionsRead
+
+export type AuthCompleteAuthenticationData = {
+  requestBody: WebAuthnAuthenticationVerify
+}
+
+export type AuthCompleteAuthenticationResponse = MfaStatusRead
+
+export type AuthVerifyRecoveryCodeData = {
+  requestBody: RecoveryCodeVerify
+}
+
+export type AuthVerifyRecoveryCodeResponse = MfaStatusRead
+
+export type AuthRegenerateRecoveryCodesResponse = RecoveryCodesRead
+
+export type AuthListCredentialsResponse = Array<WebAuthnCredentialRead>
+
+export type AuthRenameCredentialData = {
+  credentialId: string
+  requestBody: WebAuthnCredentialUpdate
+}
+
+export type AuthRenameCredentialResponse = WebAuthnCredentialRead
+
+export type AuthDeleteCredentialData = {
+  credentialId: string
+}
+
+export type AuthDeleteCredentialResponse = void
 
 export type AuthDiscoverAuthMethodData = {
   requestBody: AuthDiscoverRequest
@@ -22949,6 +23105,29 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/settings/security/mfa": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+      }
+    }
+    patch: {
+      req: AdminUpdateMfaSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/settings/security/ip-allowlist/check": {
     post: {
       req: AdminCheckIpAllowlistData
@@ -23150,6 +23329,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/users/{user_id}/mfa/reset": {
+    post: {
+      req: AdminResetUserMfaData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
@@ -23727,6 +23921,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/security/mfa": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateMfaPolicyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
         /**
          * Validation Error
          */
@@ -27395,6 +27612,139 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+      }
+    }
+  }
+  "/auth/mfa/sign-out": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/auth/mfa/webauthn/register/options": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnOptionsRead
+      }
+    }
+  }
+  "/auth/mfa/webauthn/register/verify": {
+    post: {
+      req: AuthCompleteRegistrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WebAuthnRegistrationResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/webauthn/authenticate/options": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnOptionsRead
+      }
+    }
+  }
+  "/auth/mfa/webauthn/authenticate/verify": {
+    post: {
+      req: AuthCompleteAuthenticationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/recovery-codes/verify": {
+    post: {
+      req: AuthVerifyRecoveryCodeData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/recovery-codes": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecoveryCodesRead
+      }
+    }
+  }
+  "/auth/mfa/credentials": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WebAuthnCredentialRead>
+      }
+    }
+  }
+  "/auth/mfa/credentials/{credential_id}": {
+    patch: {
+      req: AuthRenameCredentialData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnCredentialRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AuthDeleteCredentialData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

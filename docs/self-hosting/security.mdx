@@ -185,6 +185,8 @@ Review that code and pin those dependencies as you would any code with direct ac
 
 Docker Compose deployments default to basic email/password authentication. For production, configure [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
 
+To require a hardware security key or passkey at sign-in, set `TRACECAT__PUBLIC_APP_URL` to an HTTPS URL and turn on [multi-factor authentication](/authentication/mfa). Browsers only offer security keys on HTTPS or `localhost`, and each key stays bound to that host.
+
 See [Roles and permissions](/manage-platform/rbac) for the roles you assign to users and groups once they can sign in.
 
 ## TLS
