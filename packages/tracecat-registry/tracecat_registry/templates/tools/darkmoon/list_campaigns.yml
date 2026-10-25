@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: List campaigns
+  description: >-
+    List Darkmoon pentest campaigns with their status, overall risk and finding counts.
+    Calls GET /api/v1/campaigns on the Darkmoon dashboard API (Darkmoon Pro).
+  display_group: Darkmoon
+  doc_url: https://github.com/ASCIT31/Dark-Moon
+  namespace: tools.darkmoon
+  name: list_campaigns
+  secrets:
+    - name: darkmoon
+      keys: ["DARKMOON_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Darkmoon dashboard API root, for example https://darkmoon.example.org:8000.
+        Defaults to VARS.darkmoon.base_url.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.darkmoon.base_url }}/api/v1/campaigns
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.darkmoon.DARKMOON_API_TOKEN }}
+          Accept: application/json
+  returns: ${{ steps.request.result }}
