@@ -1361,6 +1361,8 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableHead className="text-xs font-semibold">Offset</TableHead>
             <TableHead className="text-xs font-semibold">Starts</TableHead>
             <TableHead className="text-xs font-semibold">Ends</TableHead>
+            <TableHead className="text-xs font-semibold">Last Run</TableHead>
+            <TableHead className="text-xs font-semibold">Next Run</TableHead>
             <TableHead className="text-right text-xs font-semibold">
               Actions
             </TableHead>
@@ -1378,6 +1380,8 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                 offset,
                 start_at,
                 end_at,
+                last_run_at,
+                next_run_at,
               }) => {
                 const isCron = Boolean(cron)
                 const scheduleLabel = isCron
@@ -1397,6 +1401,12 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                     : "None"
                 const startLabel = formatScheduleDate(start_at)
                 const endLabel = formatScheduleDate(end_at)
+                const lastRunLabel = last_run_at
+                  ? formatScheduleDate(last_run_at)
+                  : "Never"
+                const nextRunLabel = next_run_at
+                  ? formatScheduleDate(next_run_at)
+                  : "Never"
 
                 return (
                   <TableRow key={id} className="ext-xs text-muted-foreground">
@@ -1463,6 +1473,16 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                     <TableCell className="text-xs">
                       <div className="flex">
                         <p>{endLabel}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="flex">
+                        <p>{lastRunLabel}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="flex">
+                        <p>{nextRunLabel}</p>
                       </div>
                     </TableCell>
                     <TableCell className="items-center pr-3 text-xs">
@@ -1549,7 +1569,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableRow className="justify-center text-xs text-muted-foreground">
               <TableCell
                 className="h-8 text-center bg-muted-foreground/5"
-                colSpan={9}
+                colSpan={11}
               >
                 No Schedules
               </TableCell>
