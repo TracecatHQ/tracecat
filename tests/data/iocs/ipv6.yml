@@ -28,3 +28,12 @@
 - id: no_ipv6
   text: "No IPv6 addresses in this text, only IPv4 like 192.168.1.1"
   expected: []
+- id: ipv4_mapped_ipv6
+  text: "Accepted connection from ::ffff:203.0.113.5 on port 443"
+  expected: ["::ffff:203.0.113.5"]
+- id: nat64_ipv6
+  text: "NAT64 translated 64:ff9b::192.0.2.33 to 192.0.2.33"
+  expected: ["64:ff9b::192.0.2.33"]
+- id: embedded_ipv4_after_compression
+  text: "Peer 2001:db8::ffff:198.51.100.7 sent a SYN"
+  expected: ["2001:db8::ffff:198.51.100.7"]
