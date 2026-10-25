@@ -277,6 +277,7 @@
               "tools/iru",
               "tools/jamf",
               "tools/jira",
+              "tools/jira_service_management",
               "tools/kubernetes_sdk",
               "tools/ldap",
               "tools/leakcheck",

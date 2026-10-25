@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: List alerts
+  description: >-
+    Retrieve all alerts with pagination and filtering support.
+    Returns up to 20,000 alerts. Use the query parameter for search filtering.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-alerts/#api-rest-v1-alerts-get
+  namespace: tools.jira_service_management
+  name: list_alerts
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    size:
+      type: int | None
+      description: Maximum number of items to return.
+      default: null
+    sort:
+      type: str | None
+      description: Name of the field to sort results by.
+      default: null
+    offset:
+      type: int | None
+      description: Starting point within the collection of results.
+      default: null
+    order:
+      type: str | None
+      description: Sorting order of the result set (asc or desc).
+      default: null
+    query:
+      type: str | None
+      description: Search query to filter alerts.
+      default: null
+    from_date:
+      type: str | None
+      description: Starting date-time filter (ISO 8601).
+      default: null
+    to_date:
+      type: str | None
+      description: Ending date-time filter (ISO 8601).
+      default: null
+  steps:
+    - ref: list_alerts
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/alerts
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          size: ${{ inputs.size }}
+          sort: ${{ inputs.sort }}
+          offset: ${{ inputs.offset }}
+          order: ${{ inputs.order }}
+          query: ${{ inputs.query }}
+          from: ${{ inputs.from_date }}
+          to: ${{ inputs.to_date }}
+  returns: ${{ steps.list_alerts.result.data }}

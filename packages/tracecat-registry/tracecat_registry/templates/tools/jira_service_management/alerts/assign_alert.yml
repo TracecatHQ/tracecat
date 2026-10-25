@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: Assign alert
+  description: Assign an alert to a user or group for responsibility.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-alerts/#api-rest-v1-alerts-id-assign-post
+  namespace: tools.jira_service_management
+  name: assign_alert
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    alert_id:
+      type: str
+      description: Identifier of the alert.
+    owner:
+      type: dict[str, str]
+      description: >-
+        Owner to assign. Object with "type" and identifier.
+        Example: {"type": "user", "id": "user-id"} or {"type": "user", "username": "john@example.com"}
+    note:
+      type: str | None
+      description: Additional note to add.
+      default: null
+    source:
+      type: str | None
+      description: Display name of the request source.
+      default: null
+    user:
+      type: str | None
+      description: Display name of the request owner.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.transform.reshape
+      args:
+        value:
+          owner: ${{ inputs.owner }}
+          note: ${{ inputs.note }}
+          source: ${{ inputs.source }}
+          user: ${{ inputs.user }}
+    - ref: assign_alert
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/alerts/${{ inputs.alert_id }}/assign
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.assign_alert.result.data }}

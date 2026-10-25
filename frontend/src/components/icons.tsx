@@ -561,6 +561,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.slack": createIconRenderer(SlackIcon),
     "tools.slack_blocks": createIconRenderer(SlackIcon),
     "tools.jira": createIconRenderer(JiraIcon),
+    "tools.jira_service_management": createIconRenderer(AtlassianIcon),
     "tools.github": createIconRenderer(GitHubIcon),
     "tools.microsoft_defender_endpoint": createIconRenderer(
       MicrosoftDefenderIcon
@@ -963,6 +964,11 @@ export const providerIcons: Record<
   github_app: ({ className, ...rest }) => (
     <div className={className}>
       <GitHubIcon {...rest} />
+    </div>
+  ),
+  atlassian: ({ className, ...rest }) => (
+    <div className={className}>
+      <AtlassianIcon {...rest} />
     </div>
   ),
   servicenow: ({ className, ...rest }) => (
@@ -1689,6 +1695,23 @@ export function JiraIcon({ className, ...rest }: IconProps) {
           <stop offset="1" stopColor="#2684FF" />
         </linearGradient>
       </defs>
+    </svg>
+  )
+}
+
+export function AtlassianIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      {...rest}
+    >
+      <path
+        d="M7.12 11.084a.683.683 0 0 0-1.16.126L.075 22.974a.703.703 0 0 0 .63 1.018h8.19a.678.678 0 0 0 .63-.39c1.767-3.65.696-9.203-2.406-12.52ZM11.434.386a15.515 15.515 0 0 0-.906 15.317l3.95 7.9a.703.703 0 0 0 .628.388h8.19a.703.703 0 0 0 .63-1.017L12.63.38a.664.664 0 0 0-1.196.006Z"
+        fill="#0052CC"
+      />
     </svg>
   )
 }
