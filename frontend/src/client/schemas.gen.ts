@@ -2457,6 +2457,34 @@ export const $AgentOutput = {
   title: "AgentOutput",
 } as const
 
+export const $AgentPendingMessageRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "The ID the client sent the message under",
+    },
+    type: {
+      $ref: "#/components/schemas/PendingMessageType",
+      description: `\`steer\` waits to join the running turn; \`message\` waits to start a later turn`,
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "text", "created_at"],
+  title: "AgentPendingMessageRead",
+  description: "A user message the model has not read yet.",
+} as const
+
 export const $AgentPreset = {
   properties: {
     component_id: {
@@ -4437,6 +4465,13 @@ export const $AgentSessionCapabilities = {
       description: "Whether a running turn can take back pending user messages",
       default: false,
     },
+    listing_pending: {
+      type: "boolean",
+      title: "Listing Pending",
+      description:
+        "Whether the session can list messages the model has not read",
+      default: false,
+    },
   },
   type: "object",
   title: "AgentSessionCapabilities",
@@ -4649,6 +4684,28 @@ export const $AgentSessionForkRequest = {
   type: "object",
   title: "AgentSessionForkRequest",
   description: "Request schema for forking an agent session.",
+} as const
+
+export const $AgentSessionPendingRead = {
+  properties: {
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPendingMessageRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  required: ["session_id", "items"],
+  title: "AgentSessionPendingRead",
+  description:
+    "The session's user messages the model has not read, in send order.",
 } as const
 
 export const $AgentSessionRead = {
@@ -26383,6 +26440,11 @@ export const $PendingInvitationRead = {
   ],
   title: "PendingInvitationRead",
   description: "Pending invitation visible to the invited authenticated user.",
+} as const
+
+export const $PendingMessageType = {
+  type: "string",
+  enum: ["steer", "message"],
 } as const
 
 export const $PersistedApprovalDecision = {

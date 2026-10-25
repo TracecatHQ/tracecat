@@ -12,6 +12,7 @@ import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type FocusEvent,
+  type KeyboardEvent,
   type ReactNode,
   useCallback,
   useContext,
@@ -79,6 +80,7 @@ import {
   useAdoptServerTranscript,
   useCancelChatTurn,
   useGetChatVercel,
+  usePendingMessages,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
@@ -347,6 +349,7 @@ export function ChatSessionPane({
     handleKeyDown: handleMentionKeyDown,
     dismiss: dismissMentions,
     dropPrefix: dropMentionPrefix,
+    applySplice: applyMentionSplice,
   } = mentions
   const [selectedTools, setSelectedTools] = useState<string[]>([])
   const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
@@ -520,19 +523,59 @@ export function ChatSessionPane({
   // Allow input when ready OR in error state (so user can retry after transient failures)
   const canSubmit = status === "ready" || status === "error"
   const isGeneratingTurn = status === "submitted" || status === "streaming"
+  const capabilities =
+    chat && "capabilities" in chat ? (chat.capabilities ?? {}) : {}
+  const { pending, refreshPending, withdraw } = usePendingMessages({
+    workspaceId,
+    chatId: chat?.id,
+    // The list is the owner's to withdraw; read-only viewers never fetch it.
+    enabled:
+      isGeneratingTurn &&
+      !isReadonly &&
+      !cannotExecuteAgents &&
+      !!capabilities.listing_pending,
+  })
+  const restoreInput = useCallback(
+    (text: string) => {
+      const draft = promptTextareaRef.current?.value ?? ""
+      const prefix = draft ? `${text}\n` : text
+      // Shift bound mentions past the restored text, and close an open
+      // mention query: its token offsets would otherwise point into the
+      // restored text.
+      dismissMentions()
+      applyMentionSplice({ start: 0, deleted: 0, inserted: prefix.length })
+      setInput(prefix + draft)
+    },
+    [applyMentionSplice, dismissMentions]
+  )
   const runningComposer = useRunningComposer({
     chatId: chat?.id,
     workspaceId,
-    capabilities:
-      chat && "capabilities" in chat ? (chat.capabilities ?? {}) : {},
+    capabilities,
     running: isGeneratingTurn,
     messages,
+    pending,
+    refreshPending,
+    withdraw,
+    restoreInput,
   })
   // Takes the composer's input while a turn runs, when an extension offers it.
   const steerComposer =
     isGeneratingTurn && !isReadonly && !cannotExecuteAgents
       ? runningComposer
       : undefined
+  const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleMentionKeyDown(event)) return
+    // Escape during IME composition cancels the candidate, not the messages.
+    if (
+      event.key === "Escape" &&
+      !event.nativeEvent.isComposing &&
+      steerComposer?.onEscape
+    ) {
+      event.preventDefault()
+      steerComposer.onEscape()
+    }
+  }
 
   const isWaitingForResponse = useMemo(
     () => isAwaitingOutput(status, messages),
@@ -1418,7 +1461,7 @@ export function ChatSessionPane({
               // backspace. It calls preventDefault when it consumes a key,
               // which is what stops the prompt input from submitting on Enter
               // while the popover is open.
-              onKeyDown={handleMentionKeyDown}
+              onKeyDown={handlePromptKeyDown}
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
               onSelect={mentions.handleSelectionChange}

@@ -752,6 +752,22 @@ export type AgentOutput = {
   session_id: string
 }
 
+/**
+ * A user message the model has not read yet.
+ */
+export type AgentPendingMessageRead = {
+  /**
+   * The ID the client sent the message under
+   */
+  id: string
+  /**
+   * `steer` waits to join the running turn; `message` waits to start a later turn
+   */
+  type: PendingMessageType
+  text: string
+  created_at: string
+}
+
 export type AgentPreset = {
   component_id?: "agent-preset"
 }
@@ -1145,6 +1161,10 @@ export type AgentSessionCapabilities = {
    * Whether a running turn can take back pending user messages
    */
   withdrawing?: boolean
+  /**
+   * Whether the session can list messages the model has not read
+   */
+  listing_pending?: boolean
 }
 
 /**
@@ -1234,6 +1254,14 @@ export type AgentSessionForkRequest = {
    * Session that spawned this forked child
    */
   spawned_by_session_id?: string | null
+}
+
+/**
+ * The session's user messages the model has not read, in send order.
+ */
+export type AgentSessionPendingRead = {
+  session_id: string
+  items: Array<AgentPendingMessageRead>
 }
 
 /**
@@ -7990,6 +8018,8 @@ export type PendingInvitationRead = {
   grants: Array<InvitationGrant>
   expires_at: string
 }
+
+export type PendingMessageType = "steer" | "message"
 
 export type PersistedApprovalDecision =
   | boolean
@@ -15771,6 +15801,13 @@ export type AgentSessionsStreamSessionEventsData = {
 
 export type AgentSessionsStreamSessionEventsResponse = unknown
 
+export type AgentSessionsListPendingMessagesData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsListPendingMessagesResponse = AgentSessionPendingRead
+
 export type AgentSessionsForkSessionData = {
   requestBody?: AgentSessionForkRequest | null
   sessionId: string
@@ -22546,6 +22583,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/pending": {
+    get: {
+      req: AgentSessionsListPendingMessagesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionPendingRead
         /**
          * Validation Error
          */
