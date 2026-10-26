@@ -1213,7 +1213,8 @@ class AgentManagementService(BaseOrgService):
             )
             if catalog_row_id is None:
                 raise TracecatNotFoundError(
-                    f"Default model catalog row {catalog_id!s} not found"
+                    "The default model is no longer available. Choose another "
+                    "default model in organization settings."
                 )
             raise AgentProviderCredentialsNotFoundError(
                 "No organization credentials found for the default model. "
