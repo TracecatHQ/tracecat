@@ -52,7 +52,8 @@ model_list:
     litellm_params:
       model: litellm_proxy/*
 
-  # Catch-all: unqualified model names are routed to OpenAI's Chat Completions API.
+  # Catch-all: unqualified model names route through hosted_vllm/*, the
+  # OpenAI-compatible Chat Completions adapter.
   - model_name: "*"
     litellm_params:
       model: hosted_vllm/*
