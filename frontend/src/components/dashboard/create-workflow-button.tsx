@@ -281,7 +281,7 @@ function CreateFolderDialog({
             </DialogBody>
             <DialogFooter>
               <Button size="sm" type="submit">
-                Create
+                Create folder
               </Button>
             </DialogFooter>
           </form>

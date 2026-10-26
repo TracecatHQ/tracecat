@@ -982,7 +982,7 @@ export function AgentFolderCreateDialog({
             disabled={createFolderIsPending || !name.trim()}
           >
             {createFolderIsPending ? <Spinner className="mr-2 size-4" /> : null}
-            Create
+            Create folder
           </Button>
         </DialogFooter>
       </DialogContent>

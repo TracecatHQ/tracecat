@@ -140,7 +140,7 @@ export function GitSyncBranchPicker({
                 disabled={!canCreate}
               >
                 <PlusIcon className="size-3.5" />
-                Create
+                Create branch
               </Button>
             </div>
             {nameError && (

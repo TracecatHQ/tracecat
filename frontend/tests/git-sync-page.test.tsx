@@ -445,7 +445,7 @@ describe("GitSyncView connected", () => {
     const input = screen.getByLabelText("New branch from main")
     await user.clear(input)
     await user.type(input, "sync/oct-08")
-    await user.click(screen.getByRole("button", { name: "Create" }))
+    await user.click(screen.getByRole("button", { name: "Create branch" }))
 
     expect(screen.getByRole("button", { name: /^Branch/ })).toHaveTextContent(
       "sync/oct-08new"
@@ -470,7 +470,7 @@ describe("GitSyncView connected", () => {
       screen.getByText("Branch names can't contain .. or @{ or be @ alone.")
     ).toBeInTheDocument()
     expect(input).toHaveAttribute("aria-invalid", "true")
-    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Create branch" })).toBeDisabled()
   })
 
   it("names the selected branch and commit for screen readers", async () => {
