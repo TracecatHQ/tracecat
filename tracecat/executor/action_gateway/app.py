@@ -15,8 +15,10 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
+from sqlalchemy.exc import DBAPIError
 
 from tracecat.api.common import (
+    database_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
     serialize_validation_errors,
@@ -187,11 +189,9 @@ def _include_internal_routers(app: FastAPI) -> None:
 def _add_exception_handlers(app: FastAPI) -> None:
     """Install API-compatible exception handlers on the action gateway."""
     from fastapi import HTTPException
-    from sqlalchemy.exc import DBAPIError
 
     from tracecat.api.common import (
         auth_pool_exhausted_exception_handler,
-        database_exception_handler,
         generic_exception_handler,
         http_exception_handler,
         tracecat_exception_handler,
