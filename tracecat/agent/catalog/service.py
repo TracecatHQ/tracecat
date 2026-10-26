@@ -29,16 +29,18 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
-from tracecat.db.models import AgentCatalog, AgentCustomProvider
+from tracecat.db.models import AgentCatalog, AgentCustomProvider, OrganizationSetting
 from tracecat.exceptions import (
-    AgentModelRetiredError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
+from tracecat.settings.service import _deserialize_setting_value
 from tracecat.sync import CatalogMappingCandidate
+
+AUTO_MIGRATE_RETIRED_MODELS_SETTING_KEY = "agent_auto_migrate_retired_models"
 
 
 class _CatalogRowValues(TypedDict):
@@ -384,15 +386,13 @@ class AgentCatalogService(BaseService):
     ) -> ModelReplacement | None:
         """Return where a retired platform model's runs move, or ``None``.
 
+        Only orgs that opt in to auto-migration move. Otherwise, or without an
+        enabled replacement, runs keep the pinned model and the provider decides.
         Reads the lifecycle from the platform row selected by ``catalog_id``,
         or by provider and name for legacy configs. Where no row exists, as on
         installs after retirement, the bundled ``retired`` list applies. The
         replacement must be enabled for the workspace, so a swap never widens
         model access.
-
-        Raises:
-            AgentModelRetiredError: The model is retired and has no replacement
-                enabled for the workspace.
         """
         if role.organization_id is None:
             raise TracecatAuthorizationError("Role has no organization_id")
@@ -407,16 +407,25 @@ class AgentCatalogService(BaseService):
         if lifecycle.status_on() != "retired":
             return None
         target = lifecycle.replacement_key(model_provider)
-        if target is None:
-            raise AgentModelRetiredError(model_name, replacement=None)
-        replacement_id = await self.resolve_catalog_id_by_model(
-            org_id=role.organization_id,
-            model_provider=target.model_provider,
-            model_name=target.model_name,
-            workspace_id=role.workspace_id,
+        replacement_id = (
+            await self.resolve_catalog_id_by_model(
+                org_id=role.organization_id,
+                model_provider=target.model_provider,
+                model_name=target.model_name,
+                workspace_id=role.workspace_id,
+            )
+            if target is not None
+            and await self._auto_migrate_retired_models(role.organization_id)
+            else None
         )
-        if replacement_id is None:
-            raise AgentModelRetiredError(model_name, replacement=target.model_name)
+        if target is None or replacement_id is None:
+            self.logger.warning(
+                "Running retired model without migrating it",
+                model_provider=model_provider,
+                model_name=model_name,
+                replacement=target.model_name if target is not None else None,
+            )
+            return None
         self.logger.warning(
             "Running retired model on its replacement",
             retired_model_provider=model_provider,
@@ -430,6 +439,15 @@ class AgentCatalogService(BaseService):
             catalog_id=replacement_id if catalog_id is not None else None,
             reason="retired",
         )
+
+    async def _auto_migrate_retired_models(self, organization_id: UUID) -> bool:
+        setting = await self.session.scalar(
+            select(OrganizationSetting).where(
+                OrganizationSetting.organization_id == organization_id,
+                OrganizationSetting.key == AUTO_MIGRATE_RETIRED_MODELS_SETTING_KEY,
+            )
+        )
+        return setting is not None and _deserialize_setting_value(setting) is True
 
     async def _platform_lifecycle(
         self,

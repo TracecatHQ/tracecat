@@ -5576,6 +5576,11 @@ export const $AgentSettingsRead = {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
     },
+    agent_auto_migrate_retired_models: {
+      type: "boolean",
+      title: "Agent Auto Migrate Retired Models",
+      default: false,
+    },
   },
   type: "object",
   required: [
@@ -5628,6 +5633,13 @@ export const $AgentSettingsUpdate = {
       title: "Agent Case Chat Inject Content",
       description:
         "Whether to automatically inject case content into agent prompts when a case_id is available.",
+      default: false,
+    },
+    agent_auto_migrate_retired_models: {
+      type: "boolean",
+      title: "Agent Auto Migrate Retired Models",
+      description:
+        "Whether runs on a retired model move to its replacement when that model is enabled.",
       default: false,
     },
   },

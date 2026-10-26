@@ -64,26 +64,6 @@ class AgentModelNotEnabledError(TracecatAuthorizationError):
     """Raised when workspace model access does not enable a catalog model."""
 
 
-class AgentModelRetiredError(TracecatValidationError):
-    """Raised when a retired model has no replacement the workspace can run."""
-
-    def __init__(self, model_name: str, *, replacement: str | None) -> None:
-        if replacement is None:
-            message = (
-                f"Model {model_name} is retired and has no replacement; "
-                "choose another model"
-            )
-        else:
-            message = (
-                f"Model {model_name} is retired; enable its replacement "
-                f"{replacement} or choose another model"
-            )
-        super().__init__(message)
-        self.model_name = model_name
-        self.replacement = replacement
-        self.subagent_alias: str | None = None
-
-
 class ScopeDeniedError(TracecatAuthorizationError):
     """Raised when a user lacks required scopes for an operation.
 

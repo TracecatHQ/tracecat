@@ -32,7 +32,6 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
 from tracecat.exceptions import (
-    AgentModelRetiredError,
     AgentProviderCredentialsNotFoundError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -100,7 +99,7 @@ async def resolve_model_replacement_activity(
                 model_name=args.model_name,
                 catalog_id=args.catalog_id,
             )
-    except (AgentModelRetiredError, TracecatAuthorizationError) as exc:
+    except TracecatAuthorizationError as exc:
         raise_application_error_from_classification(invalid_agent_configuration(exc))
 
 

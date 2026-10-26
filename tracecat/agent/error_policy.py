@@ -17,7 +17,6 @@ from tracecat.agent.common.exceptions import (
 )
 from tracecat.agent.sandbox.config import AgentResourceLimits
 from tracecat.exceptions import (
-    AgentModelRetiredError,
     AgentProviderCredentialsNotFoundError,
     RegistryLockAmbiguousActionError,
 )
@@ -57,8 +56,6 @@ def invalid_agent_configuration(
     error: BaseException | None = None,
 ) -> RuntimeErrorClassification:
     """Classify deterministic caller-owned agent configuration failures."""
-    if isinstance(error, AgentModelRetiredError):
-        return agent_model_retired(error)
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         message="Agent configuration is invalid",
@@ -121,19 +118,6 @@ def invalid_agent_tools(
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         message="; ".join(problems),
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-        cause=error,
-    )
-
-
-def agent_model_retired(error: AgentModelRetiredError) -> RuntimeErrorClassification:
-    """Classify a retired model that cannot move to a runnable replacement."""
-    message = str(error)
-    if error.subagent_alias is not None:
-        message = f"Subagent {_message_name(error.subagent_alias)}: {message}"
-    return RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
-        message=message,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )

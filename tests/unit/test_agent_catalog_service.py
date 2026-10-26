@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
 
+import orjson
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,9 +29,9 @@ from tracecat.db.models import (
     AgentCustomProvider,
     AgentModelAccess,
     Organization,
+    OrganizationSetting,
 )
 from tracecat.exceptions import (
-    AgentModelRetiredError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -1150,6 +1151,18 @@ def _retired(replacement: str | None) -> dict[str, object]:
     return {"lifecycle": lifecycle}
 
 
+def _auto_migrate(
+    organization_id: uuid.UUID, *, enabled: bool = True
+) -> OrganizationSetting:
+    return OrganizationSetting(
+        organization_id=organization_id,
+        key="agent_auto_migrate_retired_models",
+        value=orjson.dumps(enabled),
+        value_type="json",
+        is_encrypted=False,
+    )
+
+
 @pytest.mark.anyio
 async def test_resolve_model_replacement_moves_retired_model_to_enabled_replacement(
     session: AsyncSession,
@@ -1162,6 +1175,7 @@ async def test_resolve_model_replacement_moves_retired_model_to_enabled_replacem
     session.add_all([retired, replacement])
     await session.flush()
     session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    session.add(_auto_migrate(svc_organization.id))
     await session.commit()
     service = AgentCatalogService(session=session)
 
@@ -1248,7 +1262,7 @@ async def test_resolve_model_replacement_ignores_org_rows_lifecycle(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("replacement", [None, "gpt-5.6-sol"])
-async def test_resolve_model_replacement_rejects_retired_model_without_usable_replacement(
+async def test_resolve_model_replacement_keeps_retired_model_without_usable_replacement(
     session: AsyncSession,
     svc_organization: Organization,
     replacement: str | None,
@@ -1257,19 +1271,54 @@ async def test_resolve_model_replacement_rejects_retired_model_without_usable_re
         None, "openai", "gpt-5.1-codex-max", metadata=_retired(replacement)
     )
     # The replacement exists but is not enabled for the organization.
-    session.add_all([retired, _catalog(None, "openai", "gpt-5.6-sol")])
+    session.add_all(
+        [
+            retired,
+            _catalog(None, "openai", "gpt-5.6-sol"),
+            _auto_migrate(svc_organization.id),
+        ]
+    )
     await session.commit()
 
-    with pytest.raises(AgentModelRetiredError) as exc_info:
+    # Fails open: the run keeps the pinned model and the provider decides.
+    assert (
         await AgentCatalogService(session=session).resolve_model_replacement(
             role=_user_role(svc_organization.id),
             model_provider="openai",
             model_name="gpt-5.1-codex-max",
             catalog_id=retired.id,
         )
+        is None
+    )
 
-    assert exc_info.value.model_name == "gpt-5.1-codex-max"
-    assert exc_info.value.replacement == replacement
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stored", [None, False])
+async def test_resolve_model_replacement_requires_org_opt_in(
+    session: AsyncSession,
+    svc_organization: Organization,
+    stored: bool | None,
+) -> None:
+    retired = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired("gpt-5.6-sol")
+    )
+    replacement = _catalog(None, "openai", "gpt-5.6-sol")
+    session.add_all([retired, replacement])
+    if stored is not None:
+        session.add(_auto_migrate(svc_organization.id, enabled=stored))
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    await session.commit()
+
+    assert (
+        await AgentCatalogService(session=session).resolve_model_replacement(
+            role=_user_role(svc_organization.id),
+            model_provider="openai",
+            model_name="gpt-5.1-codex-max",
+            catalog_id=retired.id,
+        )
+        is None
+    )
 
 
 @pytest.mark.anyio
@@ -1291,6 +1340,7 @@ async def test_resolve_model_replacement_uses_retired_list_when_no_row_exists(
     session.add(replacement)
     await session.flush()
     session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    session.add(_auto_migrate(svc_organization.id))
     await session.commit()
     service = AgentCatalogService(session=session)
 
@@ -1328,6 +1378,7 @@ async def test_resolve_model_replacement_trusts_the_catalog_row_identity(
     session.add_all([retired, replacement])
     await session.flush()
     session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    session.add(_auto_migrate(svc_organization.id))
     await session.commit()
 
     # Caller fields disagree with the row the catalog_id names.
@@ -1357,6 +1408,7 @@ async def test_resolve_model_replacement_prefers_bundled_retirement_for_kept_row
     session.add_all([kept, successor])
     await session.flush()
     session.add(_enable(org_id=svc_organization.id, catalog_id=successor.id))
+    session.add(_auto_migrate(svc_organization.id))
     await session.commit()
     monkeypatch.setattr(
         "tracecat.agent.catalog.service.get_retired_platform_models",
