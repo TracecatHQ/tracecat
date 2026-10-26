@@ -557,11 +557,14 @@ async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> N
             # httpx header errors echo the full header value, including the key.
             error_type=type(err).__name__,
         )
+        response = None
+    # Raised outside the handler so the key-bearing error isn't chained.
+    if response is None:
         raise ProviderKeyCheckError(
             _key_check_message(ProviderKeyCheckErrorCode.UNREACHABLE, label),
             code=ProviderKeyCheckErrorCode.UNREACHABLE,
             field=check.api_key_field,
-        ) from err
+        )
     if response.is_success:
         return
     error_code = _provider_error_code(response)

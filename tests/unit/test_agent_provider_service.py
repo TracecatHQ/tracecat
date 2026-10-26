@@ -533,19 +533,21 @@ async def test_unreachable_provider_uses_owned_copy(
 
 
 @pytest.mark.anyio
-async def test_unreachable_provider_log_omits_key(fake_fetch: _FakeFetch) -> None:
+async def test_unreachable_provider_error_omits_key(fake_fetch: _FakeFetch) -> None:
     fake_fetch.error = httpx.LocalProtocolError(
         "Illegal header value b'Bearer sk-secret\\n'"
     )
 
     with (
         patch.object(provider_service_module, "logger") as logger,
-        pytest.raises(ProviderKeyCheckError),
+        pytest.raises(ProviderKeyCheckError) as exc_info,
     ):
         await check_provider_key("openai", {"OPENAI_API_KEY": "sk-secret\n"})
 
     logger.warning.assert_called_once()
     assert "sk-secret" not in str(logger.warning.call_args)
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
 
 
 @pytest.mark.anyio
