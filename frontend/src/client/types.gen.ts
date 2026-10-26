@@ -455,6 +455,10 @@ export type AgentCatalogRead = {
   model_metadata: {
     [key: string]: unknown
   } | null
+  /**
+   * Deprecation of a platform model; ``None`` while it is current.
+   */
+  readonly lifecycle: ModelLifecycleRead | null
 }
 
 /**
@@ -1416,6 +1420,7 @@ export type AgentSettingsRead = {
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
   agent_case_chat_inject_content: boolean
+  agent_auto_migrate_retired_models?: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -1435,6 +1440,10 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
+  /**
+   * Whether runs on a retired model move to its replacement when that model is enabled.
+   */
+  agent_auto_migrate_retired_models?: boolean
 }
 
 /**
@@ -7627,6 +7636,21 @@ export type ModelCredentialUpdate = {
   }
 }
 
+/**
+ * Provider deprecation of a platform model, as of the request.
+ */
+export type ModelLifecycleRead = {
+  deprecated_on?: string | null
+  retires_on: string
+  /**
+   * Same-provider catalog model that retired runs move to.
+   */
+  replacement?: string | null
+  status: ModelLifecycleStatus
+}
+
+export type ModelLifecycleStatus = "deprecated" | "retired"
+
 export type ModelSecretConfig = {
   required?: Array<string>
   optional?: Array<string>
@@ -13282,6 +13306,10 @@ export type WorkspaceAgentModelCandidate = {
     [key: string]: unknown
   } | null
   custom_provider_name?: string | null
+  /**
+   * Deprecation of a platform model; ``None`` while it is current.
+   */
+  readonly lifecycle: ModelLifecycleRead | null
 }
 
 /**
@@ -13317,6 +13345,10 @@ export type WorkspaceAgentModelRead = {
   } | null
   custom_provider_name?: string | null
   custom_provider_base_url?: string | null
+  /**
+   * Deprecation of a platform model; ``None`` while it is current.
+   */
+  readonly lifecycle: ModelLifecycleRead | null
 }
 
 export type WorkspaceCreate = {

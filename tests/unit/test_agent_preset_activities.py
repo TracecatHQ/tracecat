@@ -16,12 +16,16 @@ from tracecat_ee.agent.workflows.durable import _agent_activity_classification
 
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetConfigActivityInput,
     ResolveAgentsConfigActivityInput,
+    ResolveModelReplacementActivityInput,
     resolve_agent_preset_config_activity,
     resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
+    resolve_model_replacement_activity,
 )
 from tracecat.agent.preset.resolver import (
     AgentPresetResolutionService,
@@ -501,6 +505,56 @@ async def test_resolve_agents_config_follows_current_preset_head(
     )
     assert result.subagents[0].binding.preset_version_id == current_version_id
     assert result.subagents[0].binding.preset_version == 4
+
+
+@pytest.mark.anyio
+async def test_model_replacement_round_trips_through_workflow_history() -> None:
+    converter = get_data_converter()
+    replacement = ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=uuid.uuid4()
+    )
+
+    (restored,) = await converter.decode(
+        await converter.encode([replacement]), [ModelReplacement]
+    )
+
+    assert restored == replacement
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_activity_forwards_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role()
+    retired_catalog_id = uuid.uuid4()
+    replacement = ModelReplacement(
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        catalog_id=uuid.uuid4(),
+    )
+    resolve = AsyncMock(return_value=replacement)
+    monkeypatch.setattr(AgentCatalogService, "resolve_model_replacement", resolve)
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(SimpleNamespace(session=None)),
+    )
+
+    result = await resolve_model_replacement_activity(
+        ResolveModelReplacementActivityInput(
+            role=role,
+            model_provider="anthropic",
+            model_name="claude-opus-4-1",
+            catalog_id=retired_catalog_id,
+        )
+    )
+
+    assert result == replacement
+    resolve.assert_awaited_once_with(
+        role=role,
+        model_provider="anthropic",
+        model_name="claude-opus-4-1",
+        catalog_id=retired_catalog_id,
+    )
 
 
 @pytest.mark.anyio

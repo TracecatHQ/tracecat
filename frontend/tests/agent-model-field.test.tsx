@@ -22,6 +22,7 @@ const models = [
     model_provider: "openai",
     model_name: "model-one",
     model_metadata: {},
+    lifecycle: null,
   },
   {
     id: "catalog-two",
@@ -30,6 +31,7 @@ const models = [
     model_provider: "anthropic",
     model_name: "model-two",
     model_metadata: {},
+    lifecycle: null,
   },
 ]
 
@@ -104,6 +106,7 @@ it("matches a saved model without a catalog id against a custom source", () => {
         model_provider: "openai",
         model_name: "model-custom",
         model_metadata: {},
+        lifecycle: null,
         custom_provider_name: "Synthetic source",
         custom_provider_base_url: "https://example.com/v1",
       },
