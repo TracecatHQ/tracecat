@@ -189,8 +189,8 @@ async def test_foreign_workspace_secret_cannot_satisfy_reference(
     "expression",
     [
         "${{ SECRETS.mcp_api.MISSING }}",
-        "${{ FN.add(SECRETS.mcp_api.API_KEY, 1) }}",
-        "${{ FN.add(FN.to_base64(SECRETS.mcp_api.API_KEY), 1) }}",
+        "${{ FN.int(SECRETS.mcp_api.API_KEY) }}",
+        "${{ FN.int(FN.to_base64(SECRETS.mcp_api.API_KEY)) }}",
     ],
 )
 async def test_expression_failures_have_masked_chainless_errors(
