@@ -540,7 +540,8 @@ export function CasesLayout({
                 </EmptyMedia>
                 <EmptyTitle>Search took too long</EmptyTitle>
                 <EmptyDescription>
-                  Try a more specific search term or narrow the filters.
+                  Try a more specific search term or narrow the filters. Or
+                  contact the Tracecat team for support.
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
