@@ -249,9 +249,9 @@ function CreateFolderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm" className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Create new folder</DialogTitle>
+          <DialogTitle>Create folder</DialogTitle>
           <DialogDescription>
-            Create a new folder to organize your workflows.
+            Create a folder to organize your workflows.
           </DialogDescription>
         </DialogHeader>
 
@@ -337,7 +337,7 @@ export function CreateWorkflowButton({
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Create new
+            Create
             <ChevronDownIcon className="ml-1 h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
@@ -373,7 +373,7 @@ export function CreateWorkflowButton({
               <div className="flex flex-col text-xs">
                 <span>Folder</span>
                 <span className="text-xs text-muted-foreground">
-                  Create a new folder
+                  Group workflows
                 </span>
               </div>
             </DropdownMenuItem>

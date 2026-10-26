@@ -98,7 +98,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 }}
               >
                 <UnlinkIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                Remove unique index
+                Delete unique index
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
@@ -129,7 +129,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
               }}
             >
               <Trash2Icon className="mr-2 size-3 group-hover/item:text-destructive" />
-              Delete column
+              Delete
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>
@@ -242,7 +242,7 @@ function TableColumnDeleteDialog({
             variant="destructive"
             disabled={confirmName !== column.name}
           >
-            Delete column
+            Delete
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -423,7 +423,7 @@ function TableColumnDropIndexDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove unique index</AlertDialogTitle>
+          <AlertDialogTitle>Delete unique index</AlertDialogTitle>
           <AlertDialogDescription>
             Are you sure you want to remove the unique index from column{" "}
             <b>{column.name}</b>?
@@ -450,7 +450,7 @@ function TableColumnDropIndexDialog({
             ) : (
               <>
                 <UnlinkIcon className="mr-2 size-4" />
-                Remove unique index
+                Delete unique index
               </>
             )}
           </AlertDialogAction>

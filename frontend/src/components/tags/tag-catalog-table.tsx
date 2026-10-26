@@ -234,7 +234,7 @@ export function TagCatalogTable({
                           }}
                         >
                           <Trash2Icon className="mr-2 size-3" />
-                          Delete tag
+                          Delete
                         </DropdownMenuItem>
                       </AlertDialogTrigger>
                     ) : null}

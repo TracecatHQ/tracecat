@@ -275,7 +275,7 @@ function TablesActions() {
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
-            New table
+            Create
             <ChevronDown className="ml-1 h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
@@ -290,7 +290,7 @@ function TablesActions() {
           <DropdownMenuItem onSelect={() => setActiveDialog("create")}>
             <Plus className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Create table</span>
+              <span>Table</span>
               <span className="text-xs text-muted-foreground">
                 Define columns manually
               </span>
@@ -443,7 +443,7 @@ function SkillsActions() {
           disabled
         >
           <Plus className="mr-1 h-3.5 w-3.5" />
-          Create new
+          Create
           <ChevronDown className="ml-1 h-3.5 w-3.5" />
         </Button>
       )
@@ -498,7 +498,7 @@ function AddSkillTag({
         onCreateTag={async (params) => {
           await createSkillTag(params)
         }}
-        title="Create new skill tag"
+        title="Create tag"
         description="Enter a name for your new skill tag."
       />
     </>
@@ -736,7 +736,7 @@ function AgentsActions() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-7 bg-background">
                 <Plus className="mr-1 h-3.5 w-3.5" />
-                Create new
+                Create
                 <ChevronDown className="ml-1 h-3.5 w-3.5" />
               </Button>
             </DropdownMenuTrigger>
@@ -763,7 +763,7 @@ function AgentsActions() {
                   <div className="flex flex-col text-xs">
                     <span>Folder</span>
                     <span className="text-xs text-muted-foreground">
-                      Create a new folder
+                      Group agents
                     </span>
                   </div>
                 </DropdownMenuItem>
@@ -836,7 +836,7 @@ function AddAgentTag({
         onCreateTag={async (params) => {
           await createAgentTag(params)
         }}
-        title="Create new agent tag"
+        title="Create tag"
         description="Enter a name for your new agent tag."
       />
     </>
@@ -1903,7 +1903,7 @@ function CredentialsActions() {
             onClick={() => setDialogOpen(true)}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Add credential
+            Create credential
           </Button>
           <CreateCredentialDialog
             open={dialogOpen}
@@ -2016,7 +2016,7 @@ function VariablesActions() {
         <NewVariableDialogTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Add variable
+            Create variable
           </Button>
         </NewVariableDialogTrigger>
       </NewVariableDialog>
@@ -2168,7 +2168,7 @@ function CaseDetailActions({
 function FormsListActions() {
   const enabled = useFormsAccess() === "enabled"
   const canCreate = useScopeCheck("form:create") === true
-  // The New form dialog picks from the workflow list.
+  // The Create form dialog picks from the workflow list.
   const canReadWorkflows = useScopeCheck("workflow:read") === true
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -2191,7 +2191,7 @@ function FormsListActions() {
             onClick={() => setCreateOpen(true)}
           >
             <Plus className="mr-1 size-3.5" />
-            New form
+            Create form
           </Button>
           <CreateFormDialog open={createOpen} onOpenChange={setCreateOpen} />
         </>

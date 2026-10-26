@@ -122,7 +122,7 @@ export function NewVariableDialog({
       {children}
       <DialogContent size="lg" className={className}>
         <DialogHeader>
-          <DialogTitle>Create new variable</DialogTitle>
+          <DialogTitle>Create variable</DialogTitle>
         </DialogHeader>
         <Form {...methods}>
           <form
@@ -251,7 +251,7 @@ export function NewVariableDialog({
                         className="space-x-2 text-xs"
                       >
                         <PlusCircle className="mr-2 size-4" />
-                        Add Item
+                        Add item
                       </Button>
                     </div>
                     <FormMessage />

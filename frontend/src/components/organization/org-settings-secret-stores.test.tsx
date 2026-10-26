@@ -335,7 +335,7 @@ describe("Store list", () => {
       screen.getByText(/2 secrets stop resolving in every workflow/)
     ).toBeInTheDocument()
     expect(mockUpdateStore).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Disable store" }))
+    await user.click(screen.getByRole("button", { name: "Disable" }))
 
     expect(mockUpdateStore).toHaveBeenCalledWith({
       storeId: "store-1",

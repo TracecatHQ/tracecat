@@ -333,7 +333,7 @@ function GitHubConnectionDialog({
           <Tabs defaultValue="create" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="create" disableUnderline>
-                Create new
+                Create app
               </TabsTrigger>
               <TabsTrigger value="existing" disableUnderline>
                 Use existing

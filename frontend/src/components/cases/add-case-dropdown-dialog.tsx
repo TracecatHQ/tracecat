@@ -330,7 +330,7 @@ export function AddCaseDropdownDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md" className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Create new dropdown</DialogTitle>
+          <DialogTitle>Create dropdown</DialogTitle>
           <DialogDescription>
             Define a custom dropdown with options for your cases.
           </DialogDescription>

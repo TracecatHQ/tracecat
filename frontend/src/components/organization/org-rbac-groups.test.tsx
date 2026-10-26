@@ -164,7 +164,7 @@ describe("OrgRbacGroups", () => {
 
     expect(
       screen.getAllByRole("menuitem").map((item) => item.textContent)
-    ).toEqual(["Copy group ID", "Edit group", "Delete group"])
+    ).toEqual(["Copy group ID", "Edit group", "Delete"])
     expect(
       screen.queryByRole("menuitem", { name: "Update members" })
     ).not.toBeInTheDocument()

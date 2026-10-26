@@ -28,7 +28,7 @@ export function AgentPresetDeleteDialog({
       description={<AgentDeleteDescription name={presetName} />}
       identifier={{ label: "Agent slug", value: presetSlug }}
       confirmPhrase={presetSlug}
-      confirmLabel="Delete agent"
+      confirmLabel="Delete"
       isPending={isDeleting}
       onConfirm={onConfirm}
     />

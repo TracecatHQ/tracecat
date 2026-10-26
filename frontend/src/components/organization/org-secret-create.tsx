@@ -104,7 +104,7 @@ export function CreateOrgSecretDialog({
       {children}
       <DialogContent size="md" className={className}>
         <DialogHeader>
-          <DialogTitle>Create new organization secret</DialogTitle>
+          <DialogTitle>Create secret</DialogTitle>
         </DialogHeader>
         <CreateSecretTooltip />
         <Form {...methods}>
@@ -233,7 +233,7 @@ export function CreateOrgSecretDialog({
                         className="space-x-2 text-xs"
                       >
                         <PlusCircle className="mr-2 size-4" />
-                        Add Item
+                        Add item
                       </Button>
                     </div>
                     <FormMessage />

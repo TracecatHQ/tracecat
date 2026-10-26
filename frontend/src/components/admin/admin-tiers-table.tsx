@@ -264,7 +264,7 @@ export function AdminTiersTable() {
                         >
                           {tier.is_default
                             ? "Cannot delete default tier"
-                            : "Delete tier"}
+                            : "Delete"}
                         </DropdownMenuItem>
                       </AlertDialogTrigger>
                     </DropdownMenuContent>

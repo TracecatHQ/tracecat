@@ -951,7 +951,7 @@ function WorkflowSaveActions({
                             {hasBranches ? (
                               <>
                                 <SelectItem value={CREATE_NEW_BRANCH_VALUE}>
-                                  Create new branch...
+                                  Create branch...
                                 </SelectItem>
                                 <SelectSeparator />
                                 {(repoBranches ?? []).map((branch) => (

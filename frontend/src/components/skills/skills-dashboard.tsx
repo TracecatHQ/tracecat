@@ -583,7 +583,7 @@ function SkillFolderContextActions({
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
-            Delete folder
+            Delete
           </ContextMenuItem>
         </>
       ) : null}
@@ -720,7 +720,7 @@ function SkillContextActions({
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
-            Delete skill
+            Delete
           </ContextMenuItem>
         </>
       ) : null}

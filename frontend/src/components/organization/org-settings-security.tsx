@@ -282,7 +282,7 @@ export function IPAllowlistSettingsForm({
             disabled={allowlists.length >= MAX_ALLOWLISTS}
           >
             <PlusIcon className="mr-2 size-4" />
-            Create allowlist
+            Create IP allowlist
           </Button>
         </div>
 
@@ -554,7 +554,7 @@ function AllowlistDialog({
             </DialogBody>
             <DialogFooter>
               <Button size="sm" type="submit" disabled={isPending}>
-                {initial ? "Save" : "Create"}
+                {initial ? "Save" : "Create IP allowlist"}
               </Button>
             </DialogFooter>
           </form>

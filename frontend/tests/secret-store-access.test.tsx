@@ -171,9 +171,10 @@ test("the overflow menu blocks deleting a store with references", async () => {
   render(<OrgSettingsSecretStores />)
   screen.getByRole("button", { name: "Actions for example-production" }).focus()
   await user.keyboard("{Enter}")
-  expect(
-    screen.getByRole("menuitem", { name: "Delete store" })
-  ).toHaveAttribute("aria-disabled", "true")
+  expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveAttribute(
+    "aria-disabled",
+    "true"
+  )
   expect(
     screen.getByText("In use by 3 secrets. Remove them first.")
   ).toBeInTheDocument()
@@ -187,7 +188,7 @@ test("update-only users can edit a store from its menu without changing its exte
   screen.getByRole("button", { name: "Actions for example-production" }).focus()
   await user.keyboard("{Enter}")
   expect(
-    screen.queryByRole("menuitem", { name: "Delete store" })
+    screen.queryByRole("menuitem", { name: "Delete" })
   ).not.toBeInTheDocument()
   await user.click(screen.getByRole("menuitem", { name: "Edit store" }))
   expect(screen.getByLabelText("Name")).toHaveValue("example-production")
@@ -243,7 +244,5 @@ test("failed store edits retain their draft and delete-only users cannot edit", 
   expect(
     screen.queryByRole("menuitem", { name: "Edit store" })
   ).not.toBeInTheDocument()
-  expect(
-    screen.getByRole("menuitem", { name: "Delete store" })
-  ).toBeInTheDocument()
+  expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument()
 })
