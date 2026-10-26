@@ -1200,6 +1200,21 @@ class AgentManagementService(BaseOrgService):
 
         credentials = await self.get_catalog_credentials(catalog_id)
         if not credentials:
+            # A stale default can point at a deleted catalog row, which also
+            # resolves no credentials; that is a missing model, not missing setup.
+            catalog_row_id = await self.session.scalar(
+                select(AgentCatalog.id).where(
+                    AgentCatalog.id == catalog_id,
+                    sa.or_(
+                        AgentCatalog.organization_id.is_(None),
+                        AgentCatalog.organization_id == self.organization_id,
+                    ),
+                )
+            )
+            if catalog_row_id is None:
+                raise TracecatNotFoundError(
+                    f"Default model catalog row {catalog_id!s} not found"
+                )
             raise AgentProviderCredentialsNotFoundError(
                 "No organization credentials found for the default model. "
                 "Configure credentials in organization settings first."

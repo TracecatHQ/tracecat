@@ -868,13 +868,15 @@ async def test_send_message_maps_conflicting_decision_to_409() -> None:
             ),
             status.HTTP_409_CONFLICT,
         ),
-        (TracecatNotFoundError("Session not found"), status.HTTP_404_NOT_FOUND),
+        (TracecatNotFoundError("Agent preset not found"), status.HTTP_404_NOT_FOUND),
     ],
 )
 async def test_send_message_maps_missing_provider_credentials_to_409(
     exc: TracecatNotFoundError, expected_status: int
 ) -> None:
-    """Missing provider credentials are a 409 with the message; unknown stays 404."""
+    """Missing provider credentials are a 409; other not-found errors from turn
+    start stay 404. The pre-stream 404 path is covered by
+    test_send_message_does_not_reset_stream_when_validation_fails."""
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)

@@ -898,6 +898,26 @@ async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("row_exists", [True, False])
+async def test_with_model_config_without_credentials_checks_catalog_row(
+    role: Role, row_exists: bool
+) -> None:
+    """Only a default model whose catalog row exists reports missing credentials."""
+    service = AgentManagementService(AsyncMock(), role=role)
+    catalog_id = uuid.uuid4()
+    service._get_default_model_catalog_id_setting = AsyncMock(return_value=catalog_id)
+    service.get_catalog_credentials = AsyncMock(return_value=None)
+    service.session = AsyncMock()
+    service.session.scalar = AsyncMock(return_value=catalog_id if row_exists else None)
+
+    with pytest.raises(TracecatNotFoundError) as exc_info:
+        async with service.with_model_config():
+            pass
+
+    assert (type(exc_info.value) is AgentProviderCredentialsNotFoundError) is row_exists
+
+
+@pytest.mark.anyio
 async def test_with_model_config_injects_bedrock_external_id(role: Role) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
     assert role.workspace_id is not None
