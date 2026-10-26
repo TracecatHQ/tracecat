@@ -32,7 +32,10 @@ from tracecat.db.models import (
     Secret,
     Workspace,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    TracecatNotFoundError,
+)
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
@@ -801,6 +804,26 @@ async def test_with_preset_config_catalog_falls_back_to_workspace_credentials(
 
     service.get_catalog_credentials.assert_awaited_once_with(catalog_id)
     cast(AsyncMock, service.get_runtime_provider_credentials).assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_with_preset_config_without_credentials_raises_credentials_error(
+    role: Role,
+) -> None:
+    """Missing provider credentials get their own error so chat can show it."""
+    service = _service_with_preset(
+        role,
+        _OPUS_CONFIG,
+        workspace_credentials=None,
+        runtime_credentials=None,
+    )
+
+    with pytest.raises(
+        AgentProviderCredentialsNotFoundError,
+        match="No credentials found for provider 'anthropic'",
+    ):
+        async with service.with_preset_config(preset_id=uuid.uuid4()):
+            pass
 
 
 @pytest.mark.anyio

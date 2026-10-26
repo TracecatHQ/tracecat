@@ -128,6 +128,10 @@ class TracecatNotFoundError(TracecatException):
     """Raised when a resource is not found in the Tracecat database."""
 
 
+class AgentProviderCredentialsNotFoundError(TracecatNotFoundError):
+    """Raised when an agent's model provider has no configured credentials."""
+
+
 class WorkflowAliasResolutionError(TracecatNotFoundError):
     """Raised when a configured workflow alias does not resolve."""
 

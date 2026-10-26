@@ -61,6 +61,7 @@ from tracecat.chat.schemas import (
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
@@ -717,6 +718,13 @@ async def send_message(
             media_type="text/event-stream",
             headers=_sse_headers("vercel"),
         )
+    except AgentProviderCredentialsNotFoundError as e:
+        # The session exists, but its model can't run until the provider is
+        # configured; the message tells the user what to set up.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

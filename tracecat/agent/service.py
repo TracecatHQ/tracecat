@@ -72,6 +72,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     AgentModelNotEnabledError,
+    AgentProviderCredentialsNotFoundError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
 )
@@ -1199,7 +1200,7 @@ class AgentManagementService(BaseOrgService):
 
         credentials = await self.get_catalog_credentials(catalog_id)
         if not credentials:
-            raise TracecatNotFoundError(
+            raise AgentProviderCredentialsNotFoundError(
                 "No organization credentials found for the default model. "
                 "Configure credentials in organization settings first."
             )
@@ -1342,7 +1343,7 @@ class AgentManagementService(BaseOrgService):
             )
 
         if not credentials:
-            raise TracecatNotFoundError(
+            raise AgentProviderCredentialsNotFoundError(
                 f"No credentials found for provider '{preset_config.model_provider}'. "
                 "Please configure credentials for this provider first."
             )

@@ -66,6 +66,7 @@ from tracecat.chat.schemas import (
 )
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
@@ -854,6 +855,89 @@ async def test_send_message_maps_conflicting_decision_to_409() -> None:
 
     assert exc_info.value.status_code == 409
     assert "already recorded" in str(exc_info.value.detail)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("exc", "expected_status"),
+    [
+        (
+            AgentProviderCredentialsNotFoundError(
+                "No credentials found for provider 'example'. "
+                "Please configure credentials for this provider first."
+            ),
+            status.HTTP_409_CONFLICT,
+        ),
+        (TracecatNotFoundError("Session not found"), status.HTTP_404_NOT_FOUND),
+    ],
+)
+async def test_send_message_maps_missing_provider_credentials_to_409(
+    exc: TracecatNotFoundError, expected_status: int
+) -> None:
+    """Missing provider credentials are a 409 with the message; unknown stays 404."""
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    request = VercelChatRequest(
+        message=UIMessage(
+            id="msg-1",
+            role="user",
+            parts=[{"type": "text", "text": "hello"}],
+        ),
+        model="gemini-2.5-flash",
+        model_provider="gemini",
+    )
+
+    fake_svc = SimpleNamespace(
+        session=AsyncMock(),
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=agent_session),
+        get_session=AsyncMock(return_value=agent_session),
+        run_turn=AsyncMock(side_effect=exc),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
+        build_initial_artifact=AsyncMock(return_value=None),
+        clear_active_turn=AsyncMock(return_value=None),
+    )
+    fake_stream = SimpleNamespace(
+        error=AsyncMock(return_value=None),
+        done=AsyncMock(return_value=None),
+        sse=Mock(return_value=_empty_event_stream()),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+    ):
+        raw_send_message = cast(Any, send_message).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_send_message(
+                session_id=session_id,
+                request=request,
+                role=role,
+                http_request=cast(
+                    Any,
+                    SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+                ),
+            )
+
+    assert exc_info.value.status_code == expected_status
+    assert exc_info.value.detail == str(exc)
+    # Nothing runs: the turn's stream and reservation are rolled back.
+    fake_svc.clear_active_turn.assert_awaited_once()
+    fake_stream.sse.assert_not_called()
 
 
 @pytest.mark.anyio
