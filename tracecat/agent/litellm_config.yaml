@@ -36,6 +36,22 @@ model_list:
     litellm_params:
       model: openai/*
 
+  - model_name: openrouter/*
+    litellm_params:
+      model: openrouter/*
+
+  - model_name: ollama_chat/*
+    litellm_params:
+      model: ollama_chat/*
+
+  - model_name: hosted_vllm/*
+    litellm_params:
+      model: hosted_vllm/*
+
+  - model_name: litellm_proxy/*
+    litellm_params:
+      model: litellm_proxy/*
+
   # Catch-all: unqualified model names are routed to OpenAI's Chat Completions API.
   - model_name: "*"
     litellm_params:
