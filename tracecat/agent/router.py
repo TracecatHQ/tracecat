@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 
+from tracecat.agent.exceptions import ProviderKeyCheckError
 from tracecat.agent.schemas import (
     BedrockSubscriptionRead,
     DefaultModelSelection,
@@ -102,6 +103,10 @@ async def create_provider_credentials(
     try:
         await service.create_provider_credentials(params)
         return {"message": f"Credentials for {params.provider} created successfully"}
+    except ProviderKeyCheckError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=e.detail
+        ) from e
     except Exception as e:
         logger.exception("Failed to create provider credentials")
         raise HTTPException(
@@ -128,6 +133,10 @@ async def update_provider_credentials(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Credentials for provider {provider} not found",
+        ) from e
+    except ProviderKeyCheckError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=e.detail
         ) from e
     except Exception as e:
         logger.exception("Failed to update provider credentials")
