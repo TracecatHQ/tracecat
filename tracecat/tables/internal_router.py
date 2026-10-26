@@ -398,7 +398,7 @@ async def lookup_rows(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Table lookup failed: {exc}",
+            detail="Table lookup failed",
         ) from exc
 
 

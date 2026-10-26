@@ -66,6 +66,7 @@ from tracecat.integrations.schemas import (
 )
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
+    IntegrationConflictError,
     IntegrationService,
     PlatformMCPCatalogConnectResult,
     ProviderConfigurationRequiredError,
@@ -196,6 +197,10 @@ def _raise_mcp_connect_http_error(exc: Exception) -> NoReturn:
     Bad input or insecure/unconfigured providers map to 400; an unreachable
     upstream OAuth server maps to 502.
     """
+    if isinstance(exc, IntegrationConflictError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     if isinstance(
         exc,
         ProviderConfigurationRequiredError | InsecureOAuthEndpointError | ValueError,
@@ -822,7 +827,7 @@ async def test_connection(
             success=False,
             provider_id=impl.id,
             message="Failed to connect using client credentials",
-            error=str(e),
+            error=str(e) if isinstance(e, ValueError) else "Connection test failed",
         )
 
 
@@ -891,6 +896,10 @@ async def create_custom_provider(
     svc = IntegrationService(session, role=role)
     try:
         provider = await svc.create_custom_provider(params=params)
+    except IntegrationConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except InsecureOAuthEndpointError as exc:
         logger.warning(
             "Rejected insecure OAuth endpoint on custom provider create",
@@ -1025,6 +1034,10 @@ async def create_mcp_integration(
     svc = IntegrationService(session, role=role)
     try:
         mcp_integration = await svc.create_mcp_integration(params=params)
+    except IntegrationConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

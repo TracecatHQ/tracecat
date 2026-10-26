@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
 
+from tests._db_error_utils import unique_violation
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.scopes import ORG_MEMBER_SCOPES
@@ -142,9 +142,7 @@ async def test_create_workspace_conflict(
     """Test POST /workspaces with duplicate name returns 409."""
     with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_workspace.side_effect = IntegrityError(
-            "", {}, Exception("Duplicate")
-        )
+        mock_svc.create_workspace.side_effect = unique_violation("uq_workspace_id")
         MockService.return_value = mock_svc
 
         # Make request
@@ -178,9 +176,7 @@ async def test_create_workspace_membership_conflict(
     )
     with patch.object(workspaces_router, "MembershipService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_membership.side_effect = IntegrityError(
-            "", {}, Exception("Duplicate")
-        )
+        mock_svc.create_membership.side_effect = unique_violation("pk_membership")
         MockService.return_value = mock_svc
 
         response = client.post(

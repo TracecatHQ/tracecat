@@ -7,11 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
 from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
+from tests._db_error_utils import unique_violation
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     Action,
@@ -273,8 +273,7 @@ async def test_create_workflow_validation_error(
 
 
 def _duplicate_alias_error() -> IntegrityError:
-    unique_error = AsyncpgUniqueViolationError("uq_workflow_alias_workspace_id")
-    return IntegrityError("", {}, unique_error)
+    return unique_violation("uq_workflow_alias_workspace_id")
 
 
 @pytest.mark.anyio
@@ -478,9 +477,7 @@ async def test_restore_workflow_definition_duplicate_alias_returns_conflict(
             workflow_id=mock_workflow.id,
             version=1,
         )
-        unique_error = AsyncpgUniqueViolationError("uq_workflow_alias_workspace_id")
-        integrity_error = IntegrityError("", {}, unique_error)
-        integrity_error.__cause__ = unique_error
+        integrity_error = _duplicate_alias_error()
 
         mock_mgmt = AsyncMock()
         mock_mgmt.get_workflow.return_value = mock_workflow

@@ -21,7 +21,7 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, delete, or_, select, update
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import TerminatedError
@@ -45,6 +45,7 @@ from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersionSkill,
@@ -57,7 +58,7 @@ from tracecat.db.models import (
     WorkspaceOAuthProvider,
 )
 from tracecat.dsl.client import get_temporal_client
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entries,
@@ -190,6 +191,10 @@ class ProviderConfigurationRequiredError(ValueError):
     """Raised when an OAuth provider must be configured before connection."""
 
 
+class IntegrationConflictError(TracecatConflictError):
+    """Raised when a concurrent write already created the integration resource."""
+
+
 class OAuthRefreshBusyError(RuntimeError):
     """Raised when an OAuth integration stays locked past the retry deadline."""
 
@@ -264,6 +269,22 @@ class IntegrationService(BaseWorkspaceService):
     """Service for managing user integrations."""
 
     service_name = "integrations"
+
+    async def _commit_integration(self) -> None:
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(
+                exc,
+                "uq_oauth_integration_workspace_provider_user_flow",
+                "uq_oauth_provider_workspace_provider_grant_type",
+                "uq_mcp_integration_workspace_slug",
+            ):
+                raise
+            raise IntegrationConflictError(
+                "Integration resource already exists"
+            ) from exc
 
     @staticmethod
     def _escape_like_pattern(value: str) -> str:
@@ -575,7 +596,7 @@ class IntegrationService(BaseWorkspaceService):
         )
 
         self.session.add(provider)
-        await self.session.commit()
+        await self._commit_integration()
         await self.session.refresh(provider)
 
         await self.store_provider_config(
@@ -2128,7 +2149,7 @@ class IntegrationService(BaseWorkspaceService):
             integration.token_endpoint_auth_method = token_endpoint_auth_method
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2169,7 +2190,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2631,7 +2652,7 @@ class IntegrationService(BaseWorkspaceService):
                 )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2677,7 +2698,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2866,7 +2887,7 @@ class IntegrationService(BaseWorkspaceService):
                 oauth_integration_id=integration.id,
             )
             self.session.add(mcp_integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(mcp_integration)
 
             self.logger.info(
@@ -3317,7 +3338,7 @@ class IntegrationService(BaseWorkspaceService):
         )
 
         self.session.add(mcp_integration)
-        await self.session.commit()
+        await self._commit_integration()
         await self.session.refresh(mcp_integration)
 
         self.logger.info(
@@ -4962,7 +4983,7 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
 
         self.session.add(mcp_integration)
-        await self.session.commit()
+        await self._commit_integration()
         await self.session.refresh(mcp_integration)
 
         if stdio_connection_changed and verify_connection:
