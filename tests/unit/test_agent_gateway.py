@@ -35,6 +35,7 @@ from tracecat.agent.gateway import (
     get_provider_credentials,
     user_api_key_auth,
 )
+from tracecat.agent.gateway_providers import GATEWAY_PROVIDER_SPECS
 from tracecat.agent.sandbox.llm_proxy import _http_error_classification
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.exceptions import AgentModelNotEnabledError, TracecatAuthorizationError
@@ -326,8 +327,14 @@ def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     assert resolved_model("azure/*") == "azure/*"
     assert resolved_model("azure_ai/*") == "azure_ai/*"
     assert resolved_model("mistral/*") == "mistral/*"
-    # Unqualified names fall through to the hosted_vllm catch-all so custom
-    # providers bridge to Chat Completions instead of the Responses API.
+    # Every managed gateway provider needs its own route, or its prefixed
+    # model ID falls through to the catch-all and is forwarded upstream as-is.
+    for spec in GATEWAY_PROVIDER_SPECS.values():
+        if spec.litellm_prefix is not None:
+            prefix = spec.litellm_prefix
+            assert resolved_model(f"{prefix}/*") == f"{prefix}/*"
+    # Unqualified names fall through to the hosted_vllm catch-all so they
+    # bridge to Chat Completions instead of the Responses API.
     assert resolved_model("custom") == "hosted_vllm/custom"
 
 
@@ -761,6 +768,48 @@ async def test_pre_call_hook_uses_request_model_route_claim(
     assert result["temperature"] == 0.2
     assert result["api_key"] == "test-openai-key"
     assert credential_requests[0]["use_workspace_credentials"] is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "model",
+    ["synthetic-model", "openai/synthetic-model", "litellm_proxy/synthetic-model"],
+)
+async def test_pre_call_hook_routes_custom_provider_models_through_hosted_vllm(
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "synthetic-key",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://provider.example.invalid/v1",
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    result = await TracecatCallbackHandler().async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(
+            api_key="llm-token",
+            metadata={
+                "workspace_id": "00000000-0000-0000-0000-000000000001",
+                "organization_id": "00000000-0000-0000-0000-000000000002",
+                "model": model,
+                "provider": "custom-model-provider",
+                "use_workspace_credentials": True,
+            },
+        ),
+        cache=cast(DualCache, object()),
+        data={"model": model},
+        call_type="anthropic_messages",
+    )
+
+    # Vendor-prefixed custom IDs must not match that vendor's route; the
+    # hosted_vllm adapter strips only its own prefix and forwards the rest.
+    assert result["model"] == f"hosted_vllm/{model}"
+    assert result["custom_llm_provider"] == "hosted_vllm"
 
 
 @pytest.mark.anyio
