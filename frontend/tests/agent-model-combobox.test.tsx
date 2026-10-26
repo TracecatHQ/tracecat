@@ -118,10 +118,15 @@ it("shows deprecation notes and keeps retired models selectable", async () => {
       onChange={onChange}
     />
   )
-  expect(screen.getByRole("combobox")).toHaveTextContent(
+  const trigger = screen.getByRole("combobox")
+  expect(trigger).toHaveTextContent("Model one")
+  expect(
+    screen.getByTitle("Deprecated · retires Nov 30, 2026")
+  ).toHaveTextContent("Deprecated")
+  await user.click(trigger)
+  expect(screen.getByRole("option", { name: /Model one/ })).toHaveTextContent(
     "Deprecated · retires Nov 30, 2026"
   )
-  await user.click(screen.getByRole("combobox"))
   const retired = screen.getByRole("option", { name: /Model two/ })
   expect(retired).toHaveTextContent("Retired")
   expect(retired).not.toHaveTextContent("model-one")
