@@ -17,9 +17,15 @@ import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { CasesLayout } from "@/components/cases/cases-layout"
 import { useCases } from "@/hooks/use-cases"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
+import { DefaultQueryClientProvider } from "@/providers/query"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
 const mockPush = jest.fn()
+const mockToast = jest.fn()
+jest.mock("@/components/ui/use-toast", () => ({
+  ...jest.requireActual("@/components/ui/use-toast"),
+  toast: (...args: unknown[]) => mockToast(...args),
+}))
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }))
@@ -362,6 +368,52 @@ describe("exact-first case search UI", () => {
       searchInput
     )
     expect(searchInput).toHaveFocus()
+  })
+
+  it("shows a neutral empty state without a toast when search times out", async () => {
+    const user = userEvent.setup()
+    const timeout = Object.assign(new Error("Unprocessable Content"), {
+      status: 422,
+      body: {
+        type: "TracecatQueryTimeoutError",
+        message: "Case search timed out. Narrow the query or filters.",
+        detail: "Case search timed out. Narrow the query or filters.",
+      },
+    })
+    jest
+      .mocked(casesQueryCases)
+      .mockImplementation(
+        (request) =>
+          new CancelablePromise((resolve, reject) =>
+            request.requestBody.search_term
+              ? reject(timeout)
+              : resolve({ items: [], has_more: false })
+          )
+      )
+    jest
+      .mocked(casesQueryCaseAggregates)
+      .mockImplementation(
+        () => new CancelablePromise((_resolve, reject) => reject(timeout))
+      )
+    render(
+      <DefaultQueryClientProvider>
+        <WorkspaceIdProvider workspaceId={WORKSPACE_ID}>
+          <Harness lexicalControls />
+        </WorkspaceIdProvider>
+      </DefaultQueryClientProvider>
+    )
+    const searchInput = screen.getByRole("textbox", { name: "Search cases" })
+    await waitFor(() => expect(casesQueryCases).toHaveBeenCalled())
+    await user.click(searchInput)
+    await user.type(searchInput, "malware")
+
+    expect(await screen.findByText("Search took too long")).toBeInTheDocument()
+    expect(screen.queryByText(/Failed to load cases/)).not.toBeInTheDocument()
+    expect(searchInput).toHaveFocus()
+    await waitFor(() =>
+      expect(casesQueryCaseAggregates).toHaveBeenCalledTimes(2)
+    )
+    expect(mockToast).not.toHaveBeenCalled()
   })
 
   it("restores relevance for the next words search after Reset", async () => {

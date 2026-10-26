@@ -1183,6 +1183,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,
     staleTime: 60000,
+    // The layout and header render these failures inline.
+    meta: { suppressErrorToast: true },
   })
 
   const {
@@ -1210,6 +1212,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,
     staleTime: 60000,
+    // The layout and header render these failures inline.
+    meta: { suppressErrorToast: true },
   })
 
   const visibleRowsData = hasHydratedFilters ? rowsData : undefined

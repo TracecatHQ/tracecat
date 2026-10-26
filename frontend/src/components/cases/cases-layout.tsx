@@ -1,5 +1,6 @@
 "use client"
 
+import { TimerOffIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
@@ -37,13 +38,20 @@ import type {
 } from "@/components/filters/filter-multi-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
 import { caseHref } from "@/lib/cases/urls"
-import { getApiErrorDetail } from "@/lib/errors"
+import { getApiErrorDetail, isQueryTimeoutError } from "@/lib/errors"
 import {
   useBatchChangeCaseParent,
   useBatchDeleteCases,
@@ -522,6 +530,20 @@ export function CasesLayout({
         {isLoading ? (
           <div className="flex flex-1 items-center justify-center">
             <CenteredSpinner />
+          </div>
+        ) : isQueryTimeoutError(error) ? (
+          <div className="flex flex-1 p-6">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <TimerOffIcon className="size-5 text-muted-foreground/60" />
+                </EmptyMedia>
+                <EmptyTitle>Search took too long</EmptyTitle>
+                <EmptyDescription>
+                  Try a more specific search term or narrow the filters.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           </div>
         ) : error ? (
           <div className="flex flex-1 items-center justify-center">
