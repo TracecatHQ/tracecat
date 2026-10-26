@@ -386,8 +386,9 @@ class AgentCatalogService(BaseService):
     ) -> ModelReplacement | None:
         """Return where a retired platform model's runs move, or ``None``.
 
-        Only orgs that opt in to auto-migration move. Otherwise, or without an
-        enabled replacement, runs keep the pinned model and the provider decides.
+        Deprecated models only log a warning. Retired models move only for orgs
+        that opt in to auto-migration; otherwise, or without an enabled
+        replacement, runs keep the pinned model and the provider decides.
         Reads the lifecycle from the platform row selected by ``catalog_id``,
         or by provider and name for legacy configs. Where no row exists, as on
         installs after retirement, the bundled ``retired`` list applies. The
@@ -403,40 +404,69 @@ class AgentCatalogService(BaseService):
         )
         if found is None:
             return None
-        (model_provider, model_name), lifecycle = found
-        if lifecycle.status_on() != "retired":
+        model, lifecycle = found
+        match lifecycle.status_on():
+            case "deprecated":
+                self.logger.warning(
+                    "Running deprecated model",
+                    model_provider=model.model_provider,
+                    model_name=model.model_name,
+                    retires_on=lifecycle.retires_on.isoformat(),
+                    replacement=lifecycle.replacement,
+                )
+                return None
+            case "retired":
+                if await self._auto_migrate_retired_models(role.organization_id):
+                    replacement = await self._replace_model(
+                        model,
+                        lifecycle,
+                        organization_id=role.organization_id,
+                        workspace_id=role.workspace_id,
+                        keep_catalog_id=catalog_id is not None,
+                    )
+                    if replacement is not None:
+                        return replacement
+                self.logger.warning(
+                    "Running retired model without migrating it",
+                    model_provider=model.model_provider,
+                    model_name=model.model_name,
+                    replacement=lifecycle.replacement,
+                )
+                return None
+
+    async def _replace_model(
+        self,
+        model: ModelKey,
+        lifecycle: ModelLifecycle,
+        *,
+        organization_id: UUID,
+        workspace_id: UUID | None,
+        keep_catalog_id: bool,
+    ) -> ModelReplacement | None:
+        """Return the enabled replacement for a retired model, if there is one."""
+        target = lifecycle.replacement_key(model.model_provider)
+        if target is None:
             return None
-        target = lifecycle.replacement_key(model_provider)
-        replacement_id = (
-            await self.resolve_catalog_id_by_model(
-                org_id=role.organization_id,
-                model_provider=target.model_provider,
-                model_name=target.model_name,
-                workspace_id=role.workspace_id,
-            )
-            if target is not None
-            and await self._auto_migrate_retired_models(role.organization_id)
-            else None
+        replacement_id = await self.resolve_catalog_id_by_model(
+            org_id=organization_id,
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+            workspace_id=workspace_id,
         )
-        if target is None or replacement_id is None:
-            self.logger.warning(
-                "Running retired model without migrating it",
-                model_provider=model_provider,
-                model_name=model_name,
-                replacement=target.model_name if target is not None else None,
-            )
+        if replacement_id is None:
             return None
         self.logger.warning(
             "Running retired model on its replacement",
-            retired_model_provider=model_provider,
-            retired_model_name=model_name,
+            retired_model_provider=model.model_provider,
+            retired_model_name=model.model_name,
             model_provider=target.model_provider,
             model_name=target.model_name,
         )
         return ModelReplacement(
             model_provider=target.model_provider,
             model_name=target.model_name,
-            catalog_id=replacement_id if catalog_id is not None else None,
+            # Legacy configs keep resolving credentials by provider.
+            catalog_id=replacement_id if keep_catalog_id else None,
             reason="retired",
         )
 
