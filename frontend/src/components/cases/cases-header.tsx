@@ -704,7 +704,7 @@ export function CasesHeader({
               onToggle={onToggleColumn}
             />
           )}
-          <span className="text-xs text-muted-foreground">
+          <span className="min-w-20 text-right text-xs tabular-nums text-muted-foreground">
             {displayCaseCount ?? totalCaseCount}{" "}
             {displayCaseCount === null ? "loaded" : countNoun}
           </span>
