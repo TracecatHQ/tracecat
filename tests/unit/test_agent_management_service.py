@@ -32,7 +32,10 @@ from tracecat.db.models import (
     Secret,
     Workspace,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    TracecatNotFoundError,
+)
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
@@ -804,6 +807,26 @@ async def test_with_preset_config_catalog_falls_back_to_workspace_credentials(
 
 
 @pytest.mark.anyio
+async def test_with_preset_config_without_credentials_raises_credentials_error(
+    role: Role,
+) -> None:
+    """Missing provider credentials get their own error so chat can show it."""
+    service = _service_with_preset(
+        role,
+        _OPUS_CONFIG,
+        workspace_credentials=None,
+        runtime_credentials=None,
+    )
+
+    with pytest.raises(
+        AgentProviderCredentialsNotFoundError,
+        match="No credentials found for provider 'anthropic'",
+    ):
+        async with service.with_preset_config(preset_id=uuid.uuid4()):
+            pass
+
+
+@pytest.mark.anyio
 async def test_with_preset_config_legacy_path_falls_back_to_org_credentials(
     role: Role,
 ) -> None:
@@ -872,6 +895,26 @@ async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
     assert credentials["TRACECAT_AWS_EXTERNAL_ID"] == build_workspace_external_id(
         role.workspace_id
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("row_exists", [True, False])
+async def test_with_model_config_without_credentials_checks_catalog_row(
+    role: Role, row_exists: bool
+) -> None:
+    """Only a default model whose catalog row exists reports missing credentials."""
+    service = AgentManagementService(AsyncMock(), role=role)
+    catalog_id = uuid.uuid4()
+    service._get_default_model_catalog_id_setting = AsyncMock(return_value=catalog_id)
+    service.get_catalog_credentials = AsyncMock(return_value=None)
+    service.session = AsyncMock()
+    service.session.scalar = AsyncMock(return_value=catalog_id if row_exists else None)
+
+    with pytest.raises(TracecatNotFoundError) as exc_info:
+        async with service.with_model_config():
+            pass
+
+    assert (type(exc_info.value) is AgentProviderCredentialsNotFoundError) is row_exists
 
 
 @pytest.mark.anyio
