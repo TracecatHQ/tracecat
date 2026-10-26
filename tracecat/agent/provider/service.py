@@ -612,6 +612,11 @@ def _rejection_code(
     ):
         return None
     if status_code in check.invalid_key_status_codes:
+        if (
+            check.invalid_key_error_codes is not None
+            and error_code not in check.invalid_key_error_codes
+        ):
+            return None
         return ProviderKeyCheckErrorCode.INVALID_KEY
     if status_code == 403:
         return ProviderKeyCheckErrorCode.ACCESS_DENIED
@@ -646,5 +651,12 @@ def _provider_error_code(response: httpx.Response) -> str | None:
     match body:
         case {"error": {"code": str(code)}}:
             return code
+        case {"error": {"details": [*details]}}:
+            # Google APIs carry the code in ErrorInfo.reason.
+            for detail in details:
+                match detail:
+                    case {"reason": str(reason)}:
+                        return reason
+            return None
         case _:
             return None

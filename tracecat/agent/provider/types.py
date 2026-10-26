@@ -23,5 +23,7 @@ class ProviderKeyCheck:
     # Base URL hosts the provider runs, e.g. regional endpoints; "*." matches subdomains.
     official_hosts: frozenset[str] = frozenset()
     invalid_key_status_codes: frozenset[int] = frozenset({401})
-    # When set, only these error codes reject; restricted keys may lack model read.
+    # Required for an invalid_key_status_codes rejection; 403 still denies.
+    invalid_key_error_codes: frozenset[str] | None = None
+    # Required for any rejection, 403 included; restricted keys may lack model read.
     rejected_error_codes: frozenset[str] | None = None

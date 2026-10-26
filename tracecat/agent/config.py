@@ -565,8 +565,9 @@ PROVIDER_KEY_CHECKS: dict[str, ProviderKeyCheck] = {
         base_url_field=None,
         models_base_url="https://generativelanguage.googleapis.com/v1beta",
         api_key_header="x-goog-api-key",
-        # Gemini answers an invalid key with 400 rather than 401.
+        # Only ErrorInfo reason API_KEY_INVALID marks a bad key (Gemini sends 400).
         invalid_key_status_codes=frozenset({400, 401}),
+        invalid_key_error_codes=frozenset({"API_KEY_INVALID"}),
     ),
     "mistral": ProviderKeyCheck(
         api_key_field="MISTRAL_API_KEY",

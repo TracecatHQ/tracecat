@@ -1,6 +1,7 @@
 import dataclasses
 import json
 from enum import StrEnum
+from typing import TypedDict
 
 from tracecat.exceptions import TracecatValidationError
 
@@ -76,6 +77,12 @@ class ProviderKeyCheckErrorCode(StrEnum):
     UNREACHABLE = "provider_unreachable"
 
 
+class ProviderKeyCheckErrorDetail(TypedDict):
+    code: ProviderKeyCheckErrorCode
+    message: str
+    field: str
+
+
 class ProviderKeyCheckError(TracecatValidationError):
     """A provider rejected an API key or could not be reached to check it."""
 
@@ -86,6 +93,10 @@ class ProviderKeyCheckError(TracecatValidationError):
         code: ProviderKeyCheckErrorCode,
         field: str,
     ) -> None:
-        super().__init__(
-            message, detail={"code": code, "message": message, "field": field}
-        )
+        detail: ProviderKeyCheckErrorDetail = {
+            "code": code,
+            "message": message,
+            "field": field,
+        }
+        super().__init__(message, detail=detail)
+        self.detail: ProviderKeyCheckErrorDetail = detail

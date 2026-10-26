@@ -382,6 +382,13 @@ _GEMINI_INVALID = {
         "code": 400,
         "message": "API key not valid. Please pass a valid API key.",
         "status": "INVALID_ARGUMENT",
+        "details": [
+            {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "API_KEY_INVALID",
+                "domain": "googleapis.com",
+            }
+        ],
     }
 }
 _MISTRAL_INVALID = {"detail": "Invalid API Key"}
@@ -544,12 +551,29 @@ async def test_openai_restricted_key_without_model_read_is_not_rejected(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("provider", "credentials", "status_code"),
+    ("provider", "credentials", "status_code", "body"),
     [
-        pytest.param("openai", {"OPENAI_API_KEY": "sk-valid"}, 429, id="429"),
-        pytest.param("openai", {"OPENAI_API_KEY": "sk-valid"}, 503, id="503"),
+        pytest.param("openai", {"OPENAI_API_KEY": "sk-valid"}, 429, None, id="429"),
+        pytest.param("openai", {"OPENAI_API_KEY": "sk-valid"}, 503, None, id="503"),
         pytest.param(
-            "anthropic", {"ANTHROPIC_API_KEY": "sk-ant"}, 400, id="non-gemini-400"
+            "anthropic",
+            {"ANTHROPIC_API_KEY": "sk-ant"},
+            400,
+            None,
+            id="non-gemini-400",
+        ),
+        pytest.param(
+            "gemini",
+            {"GEMINI_API_KEY": "valid"},
+            400,
+            {
+                "error": {
+                    "code": 400,
+                    "message": "User location is not supported for the API use.",
+                    "status": "FAILED_PRECONDITION",
+                }
+            },
+            id="gemini-unsupported-location",
         ),
     ],
 )
@@ -558,8 +582,9 @@ async def test_inconclusive_status_does_not_reject(
     provider: str,
     credentials: dict[str, str],
     status_code: int,
+    body: dict[str, object] | None,
 ) -> None:
-    fake_fetch.response = httpx.Response(status_code)
+    fake_fetch.response = httpx.Response(status_code, json=body)
 
     await check_provider_key(provider, credentials)
 
