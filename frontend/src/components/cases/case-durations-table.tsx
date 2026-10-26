@@ -317,7 +317,7 @@ export function CaseDurationsTable({
                           className="text-rose-500 focus:text-rose-600"
                           onClick={() => setSelectedDuration(row.original)}
                         >
-                          Delete duration
+                          Delete
                         </DropdownMenuItem>
                       </AlertDialogTrigger>
                     </DropdownMenuContent>

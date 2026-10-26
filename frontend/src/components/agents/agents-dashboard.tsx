@@ -982,7 +982,7 @@ export function AgentFolderCreateDialog({
             disabled={createFolderIsPending || !name.trim()}
           >
             {createFolderIsPending ? <Spinner className="mr-2 size-4" /> : null}
-            Create
+            Create folder
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1218,7 +1218,7 @@ function AgentItemDeleteDialog({
       description={<AgentDeleteDescription name={item.name} />}
       identifier={{ label: "Agent slug", value: item.slug }}
       confirmPhrase={item.slug}
-      confirmLabel="Delete agent"
+      confirmLabel="Delete"
       isPending={deleteAgentPresetIsPending}
       onConfirm={async () => {
         await deleteAgentPreset({ presetId: item.id, presetName: item.name })
@@ -1299,7 +1299,7 @@ function AgentFolderContextActions({
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
-            Delete folder
+            Delete
           </ContextMenuItem>
         </>
       ) : null}
@@ -1537,7 +1537,7 @@ function AgentPresetContextActions({
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
-            Delete agent
+            Delete
           </ContextMenuItem>
         </>
       ) : null}

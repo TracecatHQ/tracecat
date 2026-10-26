@@ -82,8 +82,7 @@ export function FolderDeleteAlertDialog({
             . This cannot be undone.
           </>
         ),
-        confirmLabel:
-          numWorkflows > 0 ? `Delete ${workflowCount}` : "Delete folder",
+        confirmLabel: numWorkflows > 0 ? `Delete ${workflowCount}` : "Delete",
       }}
       isPending={deleteFolderIsPending}
       onConfirm={async () => {

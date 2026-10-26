@@ -70,7 +70,7 @@ describe("custom field metadata dialogs", () => {
     expect(
       screen.getByText("Reference: field_2fa_status_2")
     ).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Add field" }))
+    await user.click(screen.getByRole("button", { name: "Create field" }))
 
     await waitFor(() => {
       expect(mockCasesCreateField).toHaveBeenCalledWith({

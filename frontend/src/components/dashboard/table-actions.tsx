@@ -346,7 +346,7 @@ export function FolderActions({
         }}
       >
         <Trash2 className="mr-2 size-3.5" />
-        Delete folder
+        Delete
       </ContextMenuItem>
     </ContextMenuGroup>
   )

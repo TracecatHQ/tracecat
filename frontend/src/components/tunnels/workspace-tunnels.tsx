@@ -456,7 +456,7 @@ export function WorkspaceTunnels() {
       >
         <DialogContent size="md">
           <DialogHeader>
-            <DialogTitle>New gateway key</DialogTitle>
+            <DialogTitle>Gateway key</DialogTitle>
             <DialogDescription>
               Only needed for gateways you run yourself. This key is only shown
               once.
@@ -778,7 +778,7 @@ function CreateTunnelDialog({
             form={CREATE_TUNNEL_FORM_ID}
             disabled={pending}
           >
-            Create
+            Create tunnel
           </Button>
         </DialogFooter>
       </DialogContent>

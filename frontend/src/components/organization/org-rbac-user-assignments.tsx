@@ -274,7 +274,7 @@ export function OrgRbacUserAssignments() {
                             className="text-rose-500 focus:text-rose-600"
                             onClick={() => setSelectedAssignment(assignment)}
                           >
-                            Delete assignment
+                            Delete
                           </DropdownMenuItem>
                         </AlertDialogTrigger>
                       </DropdownMenuContent>

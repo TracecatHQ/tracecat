@@ -107,7 +107,7 @@ export function CreateTierDialog() {
       <DialogTrigger asChild>
         <Button size="sm">
           <PlusIcon className="mr-2 size-4" />
-          New tier
+          Create tier
         </Button>
       </DialogTrigger>
       <DialogContent size="lg" className="max-w-lg">
@@ -284,7 +284,7 @@ export function CreateTierDialog() {
             </DialogBody>
             <DialogFooter>
               <Button size="sm" type="submit" disabled={createPending}>
-                {createPending ? "Creating..." : "Create"}
+                {createPending ? "Creating..." : "Create tier"}
               </Button>
             </DialogFooter>
           </form>

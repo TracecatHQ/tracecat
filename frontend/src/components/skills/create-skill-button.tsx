@@ -41,7 +41,7 @@ import { slugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
- * "+ Create new" dropdown shown in the controls header on the skills list
+ * "+ Create" dropdown shown in the controls header on the skills list
  * page. Mirrors `CreateWorkflowButton` and owns its own dialog state for
  * creating from scratch or uploading an existing skill directory.
  *
@@ -214,7 +214,7 @@ export function CreateSkillButton({
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Create new
+            Create
             <ChevronDownIcon className="ml-1 h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
@@ -250,7 +250,7 @@ export function CreateSkillButton({
               <div className="flex flex-col text-xs">
                 <span>Folder</span>
                 <span className="text-xs text-muted-foreground">
-                  Create a new folder
+                  Group skills
                 </span>
               </div>
             </DropdownMenuItem>

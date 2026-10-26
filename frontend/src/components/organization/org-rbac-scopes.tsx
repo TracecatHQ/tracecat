@@ -240,7 +240,7 @@ export function OrgRbacScopes() {
                               className="text-rose-500 focus:text-rose-600"
                               onClick={() => setSelectedScope(scope)}
                             >
-                              Delete scope
+                              Delete
                             </DropdownMenuItem>
                           </AlertDialogTrigger>
                         )}

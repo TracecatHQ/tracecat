@@ -171,7 +171,7 @@ export function CreateCustomProviderDialog({
             {...restTriggerProps}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Add OAuth provider
+            Add custom OAuth provider
           </Button>
         </DialogTrigger>
       )}

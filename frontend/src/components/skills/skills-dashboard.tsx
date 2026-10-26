@@ -263,7 +263,7 @@ export function SkillFolderCreateDialog({
             disabled={createFolderIsPending || !name.trim()}
           >
             {createFolderIsPending ? <Spinner className="mr-2 size-4" /> : null}
-            Create
+            Create folder
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -583,7 +583,7 @@ function SkillFolderContextActions({
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
-            Delete folder
+            Delete
           </ContextMenuItem>
         </>
       ) : null}
@@ -720,7 +720,7 @@ function SkillContextActions({
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
-            Delete skill
+            Delete
           </ContextMenuItem>
         </>
       ) : null}

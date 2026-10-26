@@ -321,7 +321,7 @@ export function AdminUsersTable() {
                 </DialogBody>
                 <DialogFooter>
                   <Button size="sm" type="submit" disabled={createPending}>
-                    {createPending ? "Creating..." : "Create"}
+                    {createPending ? "Creating..." : "Create user"}
                   </Button>
                 </DialogFooter>
               </form>
@@ -556,7 +556,7 @@ export function AdminUsersTable() {
                             ? "Cannot delete last superuser"
                             : isSelf
                               ? "Cannot delete yourself"
-                              : "Delete user"}
+                              : "Delete"}
                         </DropdownMenuItem>
                       </AlertDialogTrigger>
                     </DropdownMenuContent>

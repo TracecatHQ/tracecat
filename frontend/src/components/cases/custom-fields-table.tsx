@@ -241,7 +241,7 @@ export function CustomFieldsTable({
                               setSelectedField(row.original)
                             }}
                           >
-                            Delete field
+                            Delete
                           </DropdownMenuItem>
                         </AlertDialogTrigger>
                       </DropdownMenuContent>
@@ -255,7 +255,7 @@ export function CustomFieldsTable({
         />
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Field</AlertDialogTitle>
+            <AlertDialogTitle>Delete field</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete the field{" "}
               <strong>{selectedField?.display_name}</strong>? This action cannot

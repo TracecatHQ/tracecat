@@ -38,9 +38,9 @@ it("distinguishes fields that share a display name", async () => {
       open
       onOpenChange={jest.fn()}
       onSubmit={jest.fn()}
-      title="Add duration"
+      title="Create duration"
       description="Track elapsed time"
-      submitLabel="Add duration"
+      submitLabel="Create duration"
       initialValues={initialValues}
     />
   )

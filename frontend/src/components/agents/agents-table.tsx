@@ -249,7 +249,7 @@ function AgentActionsMenu({
           onClick={() => onDelete(preset)}
         >
           <Trash2 className="mr-2 size-3.5" />
-          Delete agent
+          Delete
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

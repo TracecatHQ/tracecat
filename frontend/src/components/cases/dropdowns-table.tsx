@@ -325,7 +325,7 @@ export function DropdownsTable({
                           }}
                         >
                           <Trash2Icon className="mr-2 size-3" />
-                          Delete dropdown
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
