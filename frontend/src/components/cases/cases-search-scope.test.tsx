@@ -43,7 +43,13 @@ jest.mock("@/components/cases/case-panel-selectors", () => ({
   UNASSIGNED: "unassigned",
 }))
 jest.mock("@/components/cases/delete-case-dialog", () => ({
-  DeleteCaseAlertDialog: ({ children }: { children: ReactNode }) => children,
+  // Mirrors the real dialog, which renders children beside its content.
+  DeleteCaseAlertDialog: ({ children }: { children: ReactNode }) => (
+    <>
+      {children}
+      <div data-testid="delete-case-dialog" />
+    </>
+  ),
 }))
 jest.mock("@/components/cases/case-side-panel", () => ({
   CaseSidePanel: () => null,
@@ -330,6 +336,32 @@ describe("exact-first case search UI", () => {
         })
       )
     )
+  })
+
+  it("keeps the search input focused while a new search loads", async () => {
+    const user = userEvent.setup()
+    setup({ lexicalControls: true })
+    const searchInput = screen.getByRole("textbox", { name: "Search cases" })
+    await waitFor(() => expect(screen.queryByRole("status")).toBeTruthy())
+    await waitFor(() => expect(casesQueryCases).toHaveBeenCalled())
+    await user.click(searchInput)
+    await user.type(searchInput, "malware")
+    await waitFor(() =>
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({ search_term: "malware" }),
+        })
+      )
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByText("No cases match the current filters.")
+      ).toBeInTheDocument()
+    )
+    expect(screen.getByRole("textbox", { name: "Search cases" })).toBe(
+      searchInput
+    )
+    expect(searchInput).toHaveFocus()
   })
 
   it("restores relevance for the next words search after Reset", async () => {
