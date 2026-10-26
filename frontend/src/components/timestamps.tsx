@@ -1,4 +1,4 @@
-import { CircleCheckIcon, ClockPlusIcon, PencilLineIcon } from "lucide-react"
+import { ClockPlusIcon, LayersPlusIcon, PencilLineIcon } from "lucide-react"
 import {
   Tooltip,
   TooltipContent,
@@ -64,11 +64,7 @@ export function UpdatedAtTimestamp({ updatedAt }: { updatedAt: string }) {
 
 export function PublishedAtTimestamp({ publishedAt }: { publishedAt: string }) {
   return (
-    <RowTimestamp
-      icon={CircleCheckIcon}
-      label="Published"
-      value={publishedAt}
-    />
+    <RowTimestamp icon={LayersPlusIcon} label="Published" value={publishedAt} />
   )
 }
 
