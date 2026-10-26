@@ -1,4 +1,4 @@
-import { ClockPlusIcon, PencilLineIcon } from "lucide-react"
+import { ClockPlusIcon, LayersPlusIcon, PencilLineIcon } from "lucide-react"
 import {
   Tooltip,
   TooltipContent,
@@ -62,20 +62,29 @@ export function UpdatedAtTimestamp({ updatedAt }: { updatedAt: string }) {
   )
 }
 
-/** Created/updated timestamps shown at the end of list rows (cases, workflows, skills, ...). */
+export function PublishedAtTimestamp({ publishedAt }: { publishedAt: string }) {
+  return (
+    <RowTimestamp icon={LayersPlusIcon} label="Published" value={publishedAt} />
+  )
+}
+
+/** Created/updated (and optionally published) timestamps shown at the end of list rows (cases, workflows, skills, ...). */
 export function RowTimestamps({
   createdAt,
   updatedAt,
+  publishedAt,
   className,
 }: {
   createdAt: string
   updatedAt: string
+  publishedAt?: string | null
   className?: string
 }) {
   return (
     <div className={cn("flex shrink-0 items-center gap-2", className)}>
       <CreatedAtTimestamp createdAt={createdAt} />
       <UpdatedAtTimestamp updatedAt={updatedAt} />
+      {publishedAt && <PublishedAtTimestamp publishedAt={publishedAt} />}
     </div>
   )
 }

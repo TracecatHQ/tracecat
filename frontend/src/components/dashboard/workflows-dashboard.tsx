@@ -1,10 +1,8 @@
 "use client"
 
-import { format } from "date-fns"
 import {
   AtSignIcon,
   CalendarClockIcon,
-  CircleCheck,
   CircleDot,
   FlagTriangleRight,
   FolderIcon,
@@ -49,7 +47,7 @@ import {
   type WorkflowWebhookFilterValue,
 } from "@/components/dashboard/workflows-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { compactTimeAgo, RowTimestamps } from "@/components/timestamps"
+import { RowTimestamps } from "@/components/timestamps"
 import { Badge } from "@/components/ui/badge"
 import {
   ContextMenu,
@@ -139,7 +137,6 @@ function WorkflowTagPills({ tags }: { tags?: TagRead[] | null }) {
 }
 
 function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
-  const lastPublished = item.latest_definition?.created_at ?? null
   const version = item.latest_definition?.version ?? null
 
   return (
@@ -151,22 +148,7 @@ function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
         </Badge>
       )}
 
-      {lastPublished ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge
-              variant="secondary"
-              className="h-5 cursor-default px-2 text-[10px] font-normal"
-            >
-              <CircleCheck className="mr-1 size-3" />
-              {compactTimeAgo(new Date(lastPublished))}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent>
-            {format(new Date(lastPublished), "PPpp")}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
+      {!item.latest_definition && (
         <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
           <CircleDot className="mr-1 size-3" />
           Unpublished
@@ -822,6 +804,7 @@ function WorkflowsListRow({
               <RowTimestamps
                 createdAt={item.created_at}
                 updatedAt={item.updated_at}
+                publishedAt={item.latest_definition?.created_at}
               />
             </div>
           </button>
