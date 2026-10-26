@@ -255,9 +255,9 @@ export function OrgRegistrySshKeySection() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove SSH key?</AlertDialogTitle>
+            <AlertDialogTitle>Delete SSH key?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes{" "}
+              This permanently deletes{" "}
               <span className="font-mono">{keyPendingRemove?.name ?? ""}</span>.
               {keyPendingRemove && isRegistryKey(keyPendingRemove)
                 ? " Tracecat can't sync the repository until you add a new key."
