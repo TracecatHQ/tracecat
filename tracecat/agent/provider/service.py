@@ -554,7 +554,8 @@ async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> N
         logger.warning(
             "Provider API key check could not reach provider",
             provider=provider,
-            error=str(err) or type(err).__name__,
+            # httpx header errors echo the full header value, including the key.
+            error_type=type(err).__name__,
         )
         raise ProviderKeyCheckError(
             _key_check_message(ProviderKeyCheckErrorCode.UNREACHABLE, label),
