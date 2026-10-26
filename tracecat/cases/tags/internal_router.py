@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
@@ -52,6 +53,10 @@ async def add_tag(
     except NoResultFound as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found"
+        ) from err
+    except ValidationError as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)
         ) from err
     except IntegrityError as e:
         raise HTTPException(
