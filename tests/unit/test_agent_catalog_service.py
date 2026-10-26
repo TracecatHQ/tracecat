@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
+from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
@@ -1429,3 +1430,70 @@ async def test_resolve_model_replacement_prefers_bundled_retirement_for_kept_row
     assert resolved == ModelReplacement(
         model_provider="openai", model_name="gpt-6-sol", catalog_id=successor.id
     )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_warns_on_deprecated_model(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    deprecated = _catalog(
+        None,
+        "anthropic",
+        "claude-sonnet-4-5",
+        metadata={"lifecycle": {"retires_on": "2999-01-01"}},
+    )
+    session.add(deprecated)
+    await session.commit()
+    service = AgentCatalogService(session=session)
+    service.logger = MagicMock()
+
+    resolved = await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="anthropic",
+        model_name="claude-sonnet-4-5",
+        catalog_id=deprecated.id,
+    )
+
+    assert resolved is None
+    service.logger.warning.assert_called_once()
+    assert service.logger.warning.call_args.args[0] == "Running deprecated model"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("metadata", "auto_migrate", "reads_setting", "looks_up_replacement"),
+    [
+        (None, True, False, False),
+        ({"lifecycle": {"retires_on": "2999-01-01"}}, True, False, False),
+        (_retired("gpt-5.6-sol"), False, True, False),
+        (_retired("gpt-5.6-sol"), True, True, True),
+    ],
+)
+async def test_resolve_model_replacement_reads_only_what_the_status_needs(
+    session: AsyncSession,
+    svc_organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+    metadata: dict[str, object] | None,
+    auto_migrate: bool,
+    reads_setting: bool,
+    looks_up_replacement: bool,
+) -> None:
+    row = _catalog(None, "openai", "gpt-5.1-codex-max", metadata=metadata)
+    session.add(row)
+    await session.commit()
+    service = AgentCatalogService(session=session)
+    read_setting = AsyncMock(return_value=auto_migrate)
+    lookup = AsyncMock(return_value=None)
+    monkeypatch.setattr(service, "_auto_migrate_retired_models", read_setting)
+    monkeypatch.setattr(service, "resolve_catalog_id_by_model", lookup)
+
+    await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=row.id,
+    )
+
+    assert read_setting.called is reads_setting
+    assert lookup.called is looks_up_replacement
