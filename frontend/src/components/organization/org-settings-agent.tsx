@@ -34,6 +34,10 @@ import {
   type VertexAICatalogCreate,
   validateCustomProviderConnection,
 } from "@/client"
+import {
+  getModelLifecycleLabel,
+  getModelLifecycleNote,
+} from "@/components/agents/agent-model-combobox"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -2231,6 +2235,7 @@ export function OrgSettingsAgentForm() {
             model_name: entry.model_name,
             model_provider: entry.model_provider,
             source_label: sourceLabel,
+            lifecycle: entry.lifecycle,
           }
         }),
     [orgEnabledCatalogEntries, customProvidersById, providerConfigsByProvider]
@@ -2893,8 +2898,24 @@ export function OrgSettingsAgentForm() {
                     )}
                   />
                   <div className="min-w-0 space-y-0.5">
-                    <span className="block truncate text-sm font-medium text-foreground">
-                      {currentDefaultModelOption.model_name}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {currentDefaultModelOption.model_name}
+                      </span>
+                      {currentDefaultModelOption.lifecycle ? (
+                        <span
+                          className="shrink-0 text-xs text-muted-foreground"
+                          title={
+                            getModelLifecycleNote(
+                              currentDefaultModelOption.lifecycle
+                            ) ?? undefined
+                          }
+                        >
+                          {getModelLifecycleLabel(
+                            currentDefaultModelOption.lifecycle
+                          )}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
                       {currentDefaultModelOption.source_label}
@@ -2931,6 +2952,11 @@ export function OrgSettingsAgentForm() {
                         <p className="truncate text-xs text-muted-foreground">
                           {model.source_label}
                         </p>
+                        {model.lifecycle ? (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {getModelLifecycleNote(model.lifecycle)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   </SelectItem>
