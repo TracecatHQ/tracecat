@@ -682,11 +682,13 @@ export function CasesHeader({
                 aria-label="Case search mode"
                 className="h-7 w-[100px] shrink-0 px-2 text-xs shadow-none"
               >
-                <span>{searchMode === "full_text" ? "Words" : "Literal"}</span>
+                <span>
+                  {searchMode === "full_text" ? "Full-text" : "Substring"}
+                </span>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="full_text">Words and phrases</SelectItem>
-                <SelectItem value="literal">Literal characters</SelectItem>
+                <SelectItem value="full_text">Full-text</SelectItem>
+                <SelectItem value="literal">Substring</SelectItem>
               </SelectContent>
             </Select>
           )}
@@ -702,12 +704,10 @@ export function CasesHeader({
               onToggle={onToggleColumn}
             />
           )}
-          {(displayCaseCount === null || displayCaseCount > 0) && (
-            <span className="text-xs text-muted-foreground">
-              {displayCaseCount ?? totalCaseCount}{" "}
-              {displayCaseCount === null ? "loaded" : countNoun}
-            </span>
-          )}
+          <span className="text-xs text-muted-foreground">
+            {displayCaseCount ?? totalCaseCount}{" "}
+            {displayCaseCount === null ? "loaded" : countNoun}
+          </span>
         </div>
       </header>
 
