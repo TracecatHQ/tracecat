@@ -408,7 +408,8 @@ class AgentCatalogService(BaseService):
         match lifecycle.status_on():
             case "deprecated":
                 self.logger.warning(
-                    "Running deprecated model",
+                    f"Model {model.model_name} is deprecated and retires on "
+                    f"{lifecycle.retires_on.isoformat()}",
                     model_provider=model.model_provider,
                     model_name=model.model_name,
                     retires_on=lifecycle.retires_on.isoformat(),
@@ -427,7 +428,7 @@ class AgentCatalogService(BaseService):
                     if replacement is not None:
                         return replacement
                 self.logger.warning(
-                    "Running retired model without migrating it",
+                    f"Model {model.model_name} is retired, running it unmigrated",
                     model_provider=model.model_provider,
                     model_name=model.model_name,
                     replacement=lifecycle.replacement,
@@ -456,7 +457,8 @@ class AgentCatalogService(BaseService):
         if replacement_id is None:
             return None
         self.logger.warning(
-            "Running retired model on its replacement",
+            f"Model {model.model_name} is retired, running migrated model "
+            f"{target.model_name}",
             retired_model_provider=model.model_provider,
             retired_model_name=model.model_name,
             model_provider=target.model_provider,

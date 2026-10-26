@@ -1457,7 +1457,9 @@ async def test_resolve_model_replacement_warns_on_deprecated_model(
 
     assert resolved is None
     service.logger.warning.assert_called_once()
-    assert service.logger.warning.call_args.args[0] == "Running deprecated model"
+    assert service.logger.warning.call_args.args[0] == (
+        "Model claude-sonnet-4-5 is deprecated and retires on 2999-01-01"
+    )
 
 
 @pytest.mark.anyio
