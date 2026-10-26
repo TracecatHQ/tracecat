@@ -1,7 +1,7 @@
 """add durable workspace sync operations
 
 Revision ID: 002febfa86c3
-Revises: e2018a1b2c3d
+Revises: c4f1a9d2e7b3
 Create Date: 2026-10-05 16:30:17.288297
 
 """
@@ -19,7 +19,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "002febfa86c3"
-down_revision: str | None = "e2018a1b2c3d"
+down_revision: str | None = "c4f1a9d2e7b3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
