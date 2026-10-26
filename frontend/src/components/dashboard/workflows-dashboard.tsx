@@ -804,6 +804,7 @@ function WorkflowsListRow({
               <RowTimestamps
                 createdAt={item.created_at}
                 updatedAt={item.updated_at}
+                publishedAt={item.latest_definition?.created_at}
               />
             </div>
           </button>
