@@ -512,40 +512,6 @@ export function CasesLayout({
     setSidePanelCaseId(null)
   }, [])
 
-  if (isLoading) {
-    return (
-      <DeleteCaseAlertDialog
-        selectedCase={caseToDelete}
-        setSelectedCase={setCaseToDelete}
-      >
-        <div className="flex size-full flex-col">
-          <CasesHeader {...headerProps} />
-          <div className="flex flex-1 items-center justify-center">
-            <CenteredSpinner />
-          </div>
-        </div>
-      </DeleteCaseAlertDialog>
-    )
-  }
-
-  if (error) {
-    return (
-      <DeleteCaseAlertDialog
-        selectedCase={caseToDelete}
-        setSelectedCase={setCaseToDelete}
-      >
-        <div className="flex size-full flex-col">
-          <CasesHeader {...headerProps} />
-          <div className="flex flex-1 items-center justify-center">
-            <span className="text-sm text-red-500">
-              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
-            </span>
-          </div>
-        </div>
-      </DeleteCaseAlertDialog>
-    )
-  }
-
   return (
     <DeleteCaseAlertDialog
       selectedCase={caseToDelete}
@@ -553,7 +519,17 @@ export function CasesLayout({
     >
       <div className="flex size-full flex-col">
         <CasesHeader {...headerProps} />
-        {cases.length === 0 ? (
+        {isLoading ? (
+          <div className="flex flex-1 items-center justify-center">
+            <CenteredSpinner />
+          </div>
+        ) : error ? (
+          <div className="flex flex-1 items-center justify-center">
+            <span className="text-sm text-red-500">
+              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
+            </span>
+          </div>
+        ) : cases.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
             <p className="text-sm text-muted-foreground">
               {hasNextPage
@@ -635,7 +611,7 @@ export function CasesLayout({
           </div>
         )}
       </div>
-      {workspaceId && (
+      {workspaceId && !isLoading && !error && (
         <CaseSidePanel
           caseId={sidePanelCaseId}
           cases={displayOrderedCases}
