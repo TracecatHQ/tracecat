@@ -24,6 +24,7 @@ import {
   useWorkspaceSyncBranchTarget,
   writeLastPushBranch,
 } from "@/components/workspace-sync/branch-target-selector"
+import { ExportErrorMessage } from "@/components/workspace-sync/export-error"
 import { GitSyncActionBar } from "@/components/workspace-sync/git-sync-action-bar"
 import { GitSyncBranchPicker } from "@/components/workspace-sync/git-sync-branch-picker"
 import {
@@ -40,11 +41,11 @@ import {
   getWorkspaceSyncPushOutcome,
   type WorkspaceSyncPushMode,
 } from "@/components/workspace-sync/push-target-policy"
+import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import {
   useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
-import { getApiErrorDetail } from "@/lib/errors"
 import { useQueryClient } from "@/lib/query"
 
 interface GitSyncPushTabProps {
@@ -198,7 +199,9 @@ export function GitSyncPushTab({
     } catch (error) {
       toast({
         title: "Push failed",
-        description: getApiErrorDetail(error) ?? "Request failed",
+        description: (
+          <ExportErrorMessage error={error} workspaceId={workspaceId} />
+        ),
         variant: "destructive",
       })
     }
@@ -207,6 +210,9 @@ export function GitSyncPushTab({
   return (
     <>
       <div className="flex flex-1 flex-col">
+        <div className="px-4 py-3">
+          <WorkspacePushExplanation />
+        </div>
         {isBlocked && (
           <GitSyncNotice tone="warning">
             Pushing to {blockedBranch} directly is off. Pick or create another
@@ -216,7 +222,11 @@ export function GitSyncPushTab({
         {previewError && (
           <GitSyncNotice tone="error">
             Could not preview this push:{" "}
-            {getApiErrorDetail(previewError) ?? "Request failed"}
+            <ExportErrorMessage
+              announce={false}
+              error={previewError}
+              workspaceId={workspaceId}
+            />
           </GitSyncNotice>
         )}
         {visiblePreview ? (
