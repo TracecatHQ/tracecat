@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form"
 import {
   AgentModelCombobox,
   type EnabledModelOption,
-  getModelLifecycleNote,
 } from "@/components/agents/agent-model-combobox"
 
 import {
@@ -89,7 +88,7 @@ it("searches and emits the selected model option", async () => {
   expect(onChange).toHaveBeenCalledWith(options[1])
 })
 
-it("shows deprecation notes and blocks picking a retired model", async () => {
+it("shows deprecation notes and keeps retired models selectable", async () => {
   const user = userEvent.setup()
   const onChange = jest.fn()
   const lifecycleOptions: EnabledModelOption[] = [
@@ -124,14 +123,10 @@ it("shows deprecation notes and blocks picking a retired model", async () => {
   )
   await user.click(screen.getByRole("combobox"))
   const retired = screen.getByRole("option", { name: /Model two/ })
-  expect(retired).toHaveTextContent("Retired · runs on model-one")
-  expect(retired).toHaveAttribute("aria-disabled", "true")
+  expect(retired).toHaveTextContent("Retired")
+  expect(retired).not.toHaveTextContent("model-one")
   await user.click(retired)
-  expect(onChange).not.toHaveBeenCalled()
-  // Without its replacement enabled, a retired model cannot run.
-  expect(
-    getModelLifecycleNote(lifecycleOptions[1], [lifecycleOptions[1]])
-  ).toBe("Retired · enable model-one")
+  expect(onChange).toHaveBeenCalledWith(lifecycleOptions[1])
 })
 
 it("forwards form control props and the ref to the trigger", () => {

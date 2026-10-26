@@ -108,6 +108,7 @@ import { getApiErrorDetail, retryHandler } from "@/lib/errors"
 import {
   useAgentDefaultModel,
   useModelProvidersStatus,
+  useOrgAgentSettings,
   useProviderCredentialConfigs,
 } from "@/lib/hooks"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
@@ -2132,6 +2133,8 @@ export function OrgSettingsAgentForm() {
 
   const { providerConfigs, providerConfigsLoading, providerConfigsError } =
     useProviderCredentialConfigs()
+  const { agentSettings, updateAgentSettings, updateAgentSettingsIsPending } =
+    useOrgAgentSettings()
   const {
     providersStatus,
     isLoading: providersStatusLoading,
@@ -2940,6 +2943,26 @@ export function OrgSettingsAgentForm() {
         {isSelectionUpdating ? (
           <p className="text-xs text-muted-foreground">Saving changes…</p>
         ) : null}
+
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Auto-migrate retired models</p>
+            <p className="text-xs text-muted-foreground">
+              Runs on a model its provider has retired move to the replacement
+              model, if it is enabled. Otherwise they keep the retired model.
+            </p>
+          </div>
+          <Switch
+            aria-label="Auto-migrate retired models"
+            checked={agentSettings?.agent_auto_migrate_retired_models ?? false}
+            disabled={!agentSettings || updateAgentSettingsIsPending}
+            onCheckedChange={(checked) => {
+              void updateAgentSettings({
+                requestBody: { agent_auto_migrate_retired_models: checked },
+              })
+            }}
+          />
+        </div>
       </section>
 
       <section className="space-y-4">

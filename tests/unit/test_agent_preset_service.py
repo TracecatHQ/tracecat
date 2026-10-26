@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import orjson
 import pytest
 import sqlalchemy as sa
 from dotenv import dotenv_values
@@ -60,6 +61,7 @@ from tracecat.db.models import (
     AgentTagLink,
     MCPIntegration,
     Organization,
+    OrganizationSetting,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
@@ -854,6 +856,15 @@ class TestAgentPresetService:
                     catalog_id=replacement.id,
                 ),
             ]
+        )
+        session.add(
+            OrganizationSetting(
+                organization_id=svc_organization.id,
+                key="agent_auto_migrate_retired_models",
+                value=orjson.dumps(True),
+                value_type="json",
+                is_encrypted=False,
+            )
         )
         await session.commit()
         preset = await agent_preset_service.create_preset(

@@ -41,7 +41,6 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import (
-    AgentModelRetiredError,
     ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -506,68 +505,6 @@ async def test_resolve_agents_config_follows_current_preset_head(
     )
     assert result.subagents[0].binding.preset_version_id == current_version_id
     assert result.subagents[0].binding.preset_version == 4
-
-
-def _subagent_service(config: AgentConfig) -> SimpleNamespace:
-    version = SimpleNamespace(
-        id=uuid.uuid4(),
-        preset_id=uuid.uuid4(),
-        version=1,
-        agents={},
-        tool_approvals={},
-    )
-    return SimpleNamespace(
-        resolve_agent_preset_version=AsyncMock(return_value=version),
-        resolve_preset_tool_policy=AsyncMock(
-            return_value=SimpleNamespace(tool_approvals={})
-        ),
-        get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
-        resolve_agent_preset_config=AsyncMock(return_value=config),
-    )
-
-
-def _one_subagent() -> AgentSubagentsConfig:
-    return AgentSubagentsConfig(
-        subagents=[
-            ResolvedAttachedSubagentRef(
-                preset="analyst",
-                preset_version=1,
-                name="analyst",
-                description=None,
-                max_turns=None,
-                preset_id=uuid.uuid4(),
-                preset_version_id=uuid.uuid4(),
-            )
-        ],
-    )
-
-
-@pytest.mark.anyio
-async def test_resolve_agents_config_names_retired_subagent_model_without_replacement(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = _subagent_service(
-        AgentConfig(model_name="devstral-2512", model_provider="mistral")
-    )
-    service.resolve_agent_preset_config.side_effect = AgentModelRetiredError(
-        "devstral-2512", replacement=None
-    )
-    monkeypatch.setattr(
-        "tracecat.agent.preset.activities.AgentPresetService.with_session",
-        lambda **_: _AsyncContext(service),
-    )
-
-    with pytest.raises(ApplicationError) as exc_info:
-        await resolve_agents_config_activity(
-            ResolveAgentsConfigActivityInput(role=_role(), agents=_one_subagent())
-        )
-
-    classification = extract_error_classification(exc_info.value)
-    assert classification is not None
-    assert classification.owner is RuntimeErrorOwner.USER
-    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
-    assert classification.message.startswith("Subagent analyst: Model devstral-2512")
-    assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.anyio

@@ -20,7 +20,7 @@ from tracecat.agent.subagents import (
 )
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
-from tracecat.exceptions import AgentModelRetiredError, TracecatValidationError
+from tracecat.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
     from tracecat.agent.types import AgentConfig
@@ -241,15 +241,11 @@ async def resolve_agents_config(
         )
         if include_runtime_config:
             preset = await service.get_preset(version.preset_id)
-            try:
-                child_config = await service.resolve_agent_preset_config(
-                    preset_version_id=version.id,
-                    resolve_dependencies_from_heads=follow_latest_versions,
-                    include_deleted=True,
-                )
-            except AgentModelRetiredError as exc:
-                exc.subagent_alias = alias
-                raise
+            child_config = await service.resolve_agent_preset_config(
+                preset_version_id=version.id,
+                resolve_dependencies_from_heads=follow_latest_versions,
+                include_deleted=True,
+            )
             description = (
                 ref.description
                 or (preset.description if preset is not None else None)

@@ -144,28 +144,13 @@ function getProviderDisplayLabel(provider: string): string {
   )
 }
 
-/**
- * Short provider-deprecation note for a model, or null while it is current.
- * A retired model runs on its replacement only when the workspace enables it.
- */
+/** Short provider-deprecation note for a model, or null while it is current. */
 export function getModelLifecycleNote(
-  option: EnabledModelOption,
-  options: EnabledModelOption[]
+  option: EnabledModelOption
 ): string | null {
   const lifecycle = option.lifecycle
   if (!lifecycle) return null
-  if (lifecycle.status === "retired") {
-    const { replacement } = lifecycle
-    if (!replacement) return "Retired"
-    const enabled = findEnabledModelOption(
-      options,
-      { modelProvider: option.modelProvider, modelName: replacement },
-      { matchAnySource: true }
-    )
-    return enabled
-      ? `Retired · runs on ${replacement}`
-      : `Retired · enable ${replacement}`
-  }
+  if (lifecycle.status === "retired") return "Retired"
   return `Deprecated · retires ${format(parseISO(lifecycle.retires_on), "MMM d, yyyy")}`
 }
 
@@ -313,7 +298,7 @@ export const AgentModelCombobox = forwardRef<
         name={selected.displayName}
         detail={selected.sourceName}
         inline={inline}
-        lifecycleNote={getModelLifecycleNote(selected, options)}
+        lifecycleNote={getModelLifecycleNote(selected)}
       />
     )
   } else if (value.modelProvider && value.modelName) {
@@ -386,16 +371,12 @@ export const AgentModelCombobox = forwardRef<
             <CommandEmpty>No models match the search.</CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
-                const lifecycleNote = getModelLifecycleNote(option, options)
+                const lifecycleNote = getModelLifecycleNote(option)
                 const isSelected = selected?.catalogId === option.catalogId
                 return (
                   <CommandItem
                     key={modelOptionKey(option)}
                     value={modelOptionKey(option)}
-                    // A retired model stays visible while selected, never newly picked.
-                    disabled={
-                      option.lifecycle?.status === "retired" && !isSelected
-                    }
                     onSelect={() => {
                       onChange(option)
                       setOpen(false)

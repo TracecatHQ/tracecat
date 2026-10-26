@@ -1420,6 +1420,7 @@ export type AgentSettingsRead = {
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
   agent_case_chat_inject_content: boolean
+  agent_auto_migrate_retired_models?: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -1439,6 +1440,10 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
+  /**
+   * Whether runs on a retired model move to its replacement when that model is enabled.
+   */
+  agent_auto_migrate_retired_models?: boolean
 }
 
 /**
