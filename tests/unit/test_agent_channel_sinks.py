@@ -563,10 +563,12 @@ async def test_session_sink_fans_out_only_for_slack_sessions(
         assert isinstance(redis_sink, AgentStreamSink)
         assert redis_sink.stream is redis_stream
         assert isinstance(channel_sink, SlackStreamSink)
-        await channel_sink.append(
-            UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
-        )
-        await channel_sink.done()
+        # Through the fanout, so both Redis and the thread receive the events.
+        event = UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
+        await sink.append(event)
+        await sink.done()
+        redis_stream.append.assert_awaited_once_with(event)
+        redis_stream.done.assert_awaited_once_with()
         start_method, start_payload = patched_slack_client.calls[0]
         assert start_method == "chat.startStream"
         assert start_payload["channel"] == channel_id

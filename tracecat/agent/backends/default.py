@@ -42,8 +42,9 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
     def parse_turn_result(self, result: object) -> TurnResult:
         """Read the output; a failed turn raises in the workflow instead.
 
-        A cancelled turn returns normally with no output, so a missing output
-        is reported as an error rather than an empty success.
+        A cancelled turn returns normally with no output, and a completed turn
+        can too. Either way there is nothing to deliver, so a missing output is
+        reported as an error rather than an empty success.
         """
         output = AgentOutput.model_validate(result).output
         if output is None:

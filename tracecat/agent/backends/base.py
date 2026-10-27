@@ -574,9 +574,12 @@ class AgentBackend[InputT, OutputT](ABC):
 
         A caller that runs the turn as its own child workflow starts it by
         workflow type name, so ``result`` is the decoded JSON of the workflow's
-        output, not the backend's output type. Report a failed or cancelled turn
-        through ``TurnResult.error`` rather than raising. Only backends that set
-        ``caller_owned_turns`` implement this.
+        output, not the backend's output type. A workflow that fails raises in
+        the caller and never reaches this method. A turn that returns without a
+        usable output (cancelled, failed without raising, or empty) must set
+        ``TurnResult.error`` rather than raising: ``output=None`` with no error
+        is not a valid result. Only backends that set ``caller_owned_turns``
+        implement this.
         """
         raise NotImplementedError(
             "This agent backend does not support caller-owned turns"
