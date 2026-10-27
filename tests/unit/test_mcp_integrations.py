@@ -53,6 +53,7 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
+from tracecat.exceptions import TracecatValidationError
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
 from tracecat.integrations.catalog.resolver import (
     ResolvedCatalogConnection,
@@ -7917,6 +7918,59 @@ class TestMCPConnectionVerification:
             )
             is None
         )
+
+    @pytest.mark.parametrize(
+        ("stored_env", "expected_env"),
+        [
+            pytest.param(
+                {"UV_LINK_MODE": "symlink", "EXAMPLE_TOKEN": "token"},
+                {"EXAMPLE_TOKEN": "token"},
+                id="legacy-runtime-key-dropped",
+            ),
+            pytest.param(
+                {"LD_PRELOAD": "/tmp/x.so"}, None, id="protected-key-rejected"
+            ),
+            pytest.param({"BAD-KEY": "token"}, None, id="invalid-name-rejected"),
+        ],
+    )
+    async def test_resolve_stdio_mcp_integration_sanitizes_and_validates_env(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+        stored_env: dict[str, str],
+        expected_env: dict[str, str] | None,
+    ) -> None:
+        """Legacy rows lose runtime-controlled keys; invalid envs never run."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Legacy Env Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+            )
+        )
+        monkeypatch.setattr(
+            IntegrationService,
+            "decrypt_stdio_env",
+            lambda self, integration: dict(stored_env),
+        )
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+
+        if expected_env is None:
+            with pytest.raises(TracecatValidationError) as exc_info:
+                await preset_service.resolve_stdio_mcp_integration(
+                    mcp_integration.id, resolve_env=True
+                )
+            assert exc_info.value.__cause__ is None
+            assert exc_info.value.__context__ is None
+            return
+        snapshot = await preset_service.resolve_stdio_mcp_integration(
+            mcp_integration.id, resolve_env=True
+        )
+        assert snapshot is not None
+        assert snapshot.env == expected_env
 
     async def test_resolve_http_config_errors(
         self,

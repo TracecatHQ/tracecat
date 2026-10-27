@@ -1774,8 +1774,15 @@ class AgentPresetService(BaseWorkspaceService):
         if not is_stdio_mcp_server(config):
             return None
         env: dict[str, str] | None = None
-        if resolve_env and (
-            stdio_env := integrations_service.decrypt_stdio_env(integration)
+        stored_env = (
+            integrations_service.decrypt_stdio_env(integration) if resolve_env else None
+        )
+        # Same order as resolve_mcp_integrations: drop runtime-controlled keys
+        # from legacy rows, resolve templates, then validate the resolved env.
+        if stored_env and (
+            stdio_env := self._sanitize_persisted_stdio_env(
+                mcp_integration_id=integration.id, env=stored_env
+            )
         ):
             try:
                 env = await self.resolve_stdio_env(
@@ -1790,6 +1797,22 @@ class AgentPresetService(BaseWorkspaceService):
                     server_name=integration.name,
                     server_slug=integration.slug,
                 ) from e
+            env_valid = True
+            try:
+                validate_mcp_command_config(
+                    command=config["command"],
+                    args=config.get("args"),
+                    env=env,
+                    name=integration.slug,
+                )
+            except MCPValidationError:
+                env_valid = False
+            # Raise outside the handler: the validation error can quote
+            # resolved values and must not ride along as __context__.
+            if not env_valid:
+                raise TracecatValidationError(
+                    "Stdio MCP integration env failed validation"
+                )
         return StdioMCPIntegrationSnapshot(
             config=config,
             tools=self._mcp_tool_policies([integration]).get(integration.id, {}),

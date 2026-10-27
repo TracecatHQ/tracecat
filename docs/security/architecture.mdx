@@ -437,7 +437,7 @@ Remote MCP servers run outside the agent sandbox, and the trusted proxy authenti
 
 Local MCP is a containment boundary, not a policy boundary. Agent-generated code inside the sandbox can invoke a local server's executable directly. Use remote HTTP MCP when you need the trusted proxy to recheck every call.
 
-The nsjail boundary above applies to the built-in `stdio` MCP runner. A deployment can install a replacement runner, which then probes and runs local MCP servers for every workspace instead of nsjail. The replacement runner's own isolation decides what those servers can reach, so review it as you would the executor.
+The nsjail boundary above applies to `stdio` servers started inside the agent sandbox and to the built-in runner's connection probes. A deployment can install a replacement `stdio` MCP runner. It then runs every workspace's connection probes, and any calls an agent routes through the trusted MCP server, instead of nsjail. Those calls still pass the trusted server's token, workspace, and current tool-policy checks. The replacement runner's own isolation decides what its servers can reach, so review it as you would the executor.
 
 <Info>
   **`stdio` MCP limitations**
