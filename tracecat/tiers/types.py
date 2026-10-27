@@ -104,7 +104,7 @@ class EntitlementsDict(TypedDict, total=False):
         bool,
         Field(
             title="Agent runtime preview",
-            description="Whether new agent sessions may use installed agent"
-            " backends other than the built-in one",
+            description="Whether agent backends other than the built-in one may be"
+            " listed and used to create or fork agent sessions",
         ),
     ]
