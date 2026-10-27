@@ -169,13 +169,13 @@ async def _ensure_stored_vectors(session: AsyncSession) -> None:
     compatible = (
         await session.execute(
             sa.text("""
-        SELECT t.tgenabled IN ('O', 'A')
+        SELECT t.tgfoid = to_regprocedure(:function)
+            AND t.tgenabled IN ('O', 'A')
             AND t.tgtype = :trigger_type
             AND cardinality(t.tgattr::smallint[]) = 0
             AND md5(regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g')) = :body_hash
         FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
         WHERE t.tgrelid = 'public.case'::regclass AND t.tgname = :name
-            AND p.oid = to_regprocedure(:function)
     """),
             {
                 "name": CASE_SEARCH_TRIGGER,

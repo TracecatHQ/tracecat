@@ -1,7 +1,7 @@
 """Store case search vectors in trigger-maintained columns.
 
 Revision ID: 5ca140c06ec2
-Revises: b7d41c9e2a6f
+Revises: 002febfa86c3
 Create Date: 2026-10-27 12:00:00.000000
 
 Search previously recomputed ``tracecat_case_safe_vector_v1`` for every
@@ -32,7 +32,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "5ca140c06ec2"
-down_revision: str | None = "b7d41c9e2a6f"
+down_revision: str | None = "002febfa86c3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -121,11 +121,16 @@ def _trigger_function_exists() -> bool:
 
 
 def _trigger_exists() -> bool:
-    function_oid = (
+    """Reuse only an enabled BEFORE INSERT OR UPDATE row trigger on our function."""
+    compatible = (
         op.get_bind()
         .execute(
             sa.text("""
         SELECT t.tgfoid = to_regprocedure(:signature)
+            AND t.tgenabled IN ('O', 'A')
+            -- pg_trigger.tgtype bits: ROW (1) | BEFORE (2) | INSERT (4) | UPDATE (16).
+            AND t.tgtype = 23
+            AND cardinality(t.tgattr::smallint[]) = 0
         FROM pg_trigger t
         WHERE t.tgrelid = 'public.case'::regclass AND t.tgname = :name
     """),
@@ -133,12 +138,13 @@ def _trigger_exists() -> bool:
         )
         .scalar_one_or_none()
     )
-    if function_oid is None:
+    if compatible is None:
         return False
-    if function_oid is not True:
+    if compatible is not True:
         raise RuntimeError(
-            f"Trigger {_TRIGGER} on public.case calls an unexpected function; "
-            "preserve it and ask an operator to resolve the collision."
+            f"Trigger {_TRIGGER} on public.case is disabled or has an unexpected "
+            "function, timing, event, or column list; preserve it and ask an "
+            "operator to resolve the collision."
         )
     return True
 

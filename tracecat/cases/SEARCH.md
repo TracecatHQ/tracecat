@@ -95,9 +95,10 @@ writes. Existing and new INSERT/UPDATE/DELETE operations maintain these indexes.
 A follow-up migration stores each field's safe vector in `summary_tsv` and
 `description_tsv`. A `BEFORE INSERT OR UPDATE` trigger recomputes a vector only
 when its source text changes, so old and new application writes stay current.
-Search, ranking, and excerpts read these columns through GIN and NULL-fallback
-indexes instead of recomputing the helper for every candidate row, which was
-the dominant cost of broad searches. The columns are table-only: they are not
+Search and ranking find candidates through GIN and NULL-fallback indexes on
+these columns and read the stored vectors instead of recomputing the helper for
+every candidate row, which was the dominant cost of broad searches. Excerpts
+read the stored vectors for the already-selected page rows only. The columns are table-only: they are not
 mapped ORM attributes, so loading or serializing a case never fetches them. The
 original expression indexes remain for the previous application version until a
 later contract migration drops them.
@@ -124,7 +125,9 @@ guards. The complete original source is still used for literal/fuzzy matching.
 Native headline selection uses required words for a field whose phrase match
 has already been proved, so large/position-saturated sources can return useful
 late context. All database work uses a 30 s statement budget within an owned
-transaction/savepoint. A timeout returns the shared `query_timeout` contract and
+transaction/savepoint. The budget lets broad searches finish instead of failing,
+but a slow search can hold a pooled database connection for up to 30 s, so many
+concurrent slow searches can exhaust the API's connection pool. A timeout returns the shared `query_timeout` contract and
 rolls back the savepoint; it does not silently return an incomplete result.
 
 ## Readiness and operation

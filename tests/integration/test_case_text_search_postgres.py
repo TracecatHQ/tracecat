@@ -35,6 +35,8 @@ from tracecat.cases.text_search import (
 from tracecat.cases.text_search_indexes import ensure_case_text_indexes
 from tracecat.db.models import Case
 from tracecat.query.lexical_types import (
+    LexicalSearchError,
+    LexicalSearchErrorCode,
     SearchMode,
 )
 
@@ -987,7 +989,12 @@ def test_vector_migration_backfills_maintains_and_downgrades(
         existing = seed_case(conn, 1, "PowerShell encoded", "synthetic old write")
         oversized = seed_case(conn, 2, "synthetic large", "word " * 2000)
     apply_vector_migration(search_database)
-    # A retry reuses every object and backfills again without failing.
+    with search_database.begin() as conn:
+        conn.execute(
+            sa.text("UPDATE \"case\" SET summary_tsv = 'stale' WHERE id=:id"),
+            {"id": existing},
+        )
+    # A retry reuses every object and its backfill repairs stale vectors.
     apply_vector_migration(search_database)
 
     def vectors(conn: Connection, case_id: uuid.UUID) -> tuple[str | None, ...]:
@@ -1053,3 +1060,42 @@ def test_vector_migration_backfills_maintains_and_downgrades(
             )
             == 0
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("collision", ["disabled", "after", "function"])
+async def test_incompatible_vector_trigger_is_a_configuration_change(
+    search_database: Engine, collision: str
+) -> None:
+    with search_database.begin() as conn:
+        if collision == "disabled":
+            conn.execute(
+                sa.text('ALTER TABLE "case" DISABLE TRIGGER trg_case_search_vectors')
+            )
+        else:
+            conn.execute(sa.text('DROP TRIGGER trg_case_search_vectors ON "case"'))
+            function = "public.tracecat_case_search_vectors_v1()"
+            timing = "AFTER" if collision == "after" else "BEFORE"
+            if collision == "function":
+                conn.execute(
+                    sa.text("""CREATE FUNCTION public.synthetic_trigger()
+                        RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$""")
+                )
+                function = "public.synthetic_trigger()"
+            conn.execute(
+                sa.text(
+                    f'CREATE TRIGGER trg_case_search_vectors {timing} INSERT OR UPDATE ON "case" FOR EACH ROW EXECUTE FUNCTION {function}'
+                )
+            )
+    engine = create_async_engine(
+        search_database.url.set(drivername="postgresql+asyncpg"), poolclass=NullPool
+    )
+    try:
+        async with AsyncSession(engine) as session:
+            with pytest.raises(LexicalSearchError) as error:
+                await ensure_case_text_indexes(session)
+            assert error.value.code == LexicalSearchErrorCode.CONFIGURATION_CHANGED
+    finally:
+        await engine.dispose()
+    with pytest.raises(RuntimeError, match="resolve the collision"):
+        apply_vector_migration(search_database)

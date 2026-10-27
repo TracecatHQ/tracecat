@@ -9,7 +9,6 @@ from sqlalchemy.dialects import postgresql
 
 from tracecat.cases.text_search import (
     MAX_EXCERPT_LENGTH,
-    STATEMENT_TIMEOUT_MS,
     build_case_text_expressions,
     case_search_excerpt,
     case_search_execution_context,
@@ -224,7 +223,7 @@ async def test_execution_settings_are_transaction_local_and_restored() -> None:
     async with case_search_execution_context(session):
         pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
-    assert f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}" in statements
+    assert "SET LOCAL statement_timeout = 30000" in statements
     parameters = [
         call.args[1] for call in session.execute.await_args_list if len(call.args) > 1
     ]
@@ -243,7 +242,7 @@ async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings() -> No
         "SHOW statement_timeout"
     ]
     assert [str(call.args[0]) for call in session.execute.await_args_list] == [
-        f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}",
+        "SET LOCAL statement_timeout = 30000",
         "SELECT set_config('statement_timeout', :timeout, true)",
     ]
 
