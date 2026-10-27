@@ -1,3 +1,6 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -28,6 +31,7 @@ from tracecat.expressions.validator.validator import (
     TemplateActionValidationContext,
 )
 from tracecat.logger import logger
+from tracecat.secrets.schemas import SecretSearch
 from tracecat.validation.common import get_validators
 from tracecat.validation.schemas import (
     ExprBaseValidationResult,
@@ -1172,6 +1176,75 @@ async def test_expr_validator_vars_key_depth_limit(test_role, env_sandbox):
         TracecatExpressionError, match="support at most one key segment"
     ):
         evaluator.evaluate(parse_tree)
+
+
+@dataclass(frozen=True, slots=True)
+class _FakeSecretRow:
+    name: str
+    environment: str
+    encrypted_keys: bytes
+
+
+class _FakeSecretsService:
+    rows: list[_FakeSecretRow] = []
+
+    @classmethod
+    @asynccontextmanager
+    async def with_session(cls) -> AsyncGenerator["_FakeSecretsService"]:
+        yield cls()
+
+    async def search_secrets(self, params: SecretSearch) -> list[_FakeSecretRow]:
+        return self.rows
+
+
+@pytest.mark.anyio
+async def test_expr_validator_secret_search_log_omits_ciphertext(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Secret validation logs only the name, environment and match count.
+
+    Logging the search results serialized ORM rows, which put each secret's
+    `encrypted_keys` ciphertext in the API logs on every workflow publish.
+    """
+    ciphertext = b"SYNTHETIC-CIPHERTEXT-0123456789"
+    monkeypatch.setattr(
+        _FakeSecretsService,
+        "rows",
+        [
+            _FakeSecretRow(
+                name="my_secret", environment="default", encrypted_keys=ciphertext
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "tracecat.expressions.validator.validator.SecretsService",
+        _FakeSecretsService,
+    )
+    monkeypatch.setattr(
+        "tracecat.expressions.validator.validator.secret_key_names",
+        lambda _service, _secret: ["API_KEY"],
+    )
+
+    logs: list[str] = []
+    sink = logger.add(logs.append, level="TRACE", format="{message} {extra}")
+    try:
+        async with ExprValidator(
+            validation_context=ExprValidationContext(action_refs=set())
+        ) as visitor:
+            for template in extract_expressions("${{ SECRETS.my_secret.API_KEY }}"):
+                template.validate(visitor)
+    finally:
+        logger.remove(sink)
+
+    assert visitor.errors() == []
+    search_logs = [line for line in logs if line.startswith("Secret search results")]
+    assert len(search_logs) == 1
+    assert "'secret_name': 'my_secret'" in search_logs[0]
+    assert "'secret_environment': 'default'" in search_logs[0]
+    assert "'n_found': 1" in search_logs[0]
+    output = "".join(logs)
+    assert "encrypted_keys" not in output
+    assert "SYNTHETIC-CIPHERTEXT" not in output
 
 
 @pytest.mark.parametrize(
