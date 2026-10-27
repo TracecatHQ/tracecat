@@ -42,7 +42,7 @@ Tracecat requires four cryptographic secrets, plus an optional keyring if you en
 
 | Secret | Protects |
 | --- | --- |
-| `TRACECAT__DB_ENCRYPTION_KEY` | Fernet key for credentials and sensitive settings stored in PostgreSQL. |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Credentials and sensitive settings stored in PostgreSQL. A Fernet-format key. |
 | `TRACECAT__SERVICE_KEY` | Service-to-service JWT signing. |
 | `TRACECAT__SIGNING_SECRET` | Webhook URL signing and HMAC operations. |
 | `USER_AUTH_SECRET` | Password reset tokens, email verification, OAuth state, the MCP OIDC issuer keypair, and the internal OIDC client secret. |
@@ -66,6 +66,57 @@ openssl rand -hex 32
 
 Tracecat derives a separate AES-256-GCM key per workspace from the root secret, and stamps the key ID into every payload it encrypts. That stamp is what lets you rotate the keyring while older histories stay readable. On AWS, supply `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN` instead, and Tracecat fetches the keyring from Secrets Manager at runtime.
 
+### Database encryption
+
+`TRACECAT__DB_ENCRYPTION_ALGORITHM` picks the cipher Tracecat uses when it writes an encrypted value to PostgreSQL:
+
+| Value | Cipher |
+| --- | --- |
+| `fernet` (default) | Fernet: AES-128-CBC with an HMAC-SHA256 tag. |
+| `aes256gcm` | AES-256-GCM, keyed by HKDF-SHA256 from the 32 bytes of `TRACECAT__DB_ENCRYPTION_KEY`. |
+
+The setting controls writes only. Tracecat reads both formats whatever the setting is, so existing rows stay readable after a switch, and rows written before the switch stay Fernet until you re-encrypt them. Tracecat refuses to start when the value is anything else.
+
+`TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` takes a comma-separated list of retired keys. Tracecat decrypts with `TRACECAT__DB_ENCRYPTION_KEY` first, then each previous key, and always encrypts with `TRACECAT__DB_ENCRYPTION_KEY`. Each AES-256-GCM value carries a key ID derived from its key, so Tracecat picks the right key without trying each one.
+
+Set both variables on every service that receives `TRACECAT__DB_ENCRYPTION_KEY`. The bundled Compose file, Helm chart, and Fargate module do not pass them through, so add them to each service's environment, for example in a `docker-compose.override.yml`.
+
+<Warning>
+  Once any service writes with `aes256gcm`, Tracecat versions without this setting cannot read those rows. To downgrade, set `TRACECAT__DB_ENCRYPTION_ALGORITHM=fernet`, run the re-encrypt command below, and only then deploy the older version.
+</Warning>
+
+#### Re-encrypt stored values
+
+The re-encrypt command rewrites every encrypted value that is not yet in the current algorithm and key. Run it in the `api` container, with the same environment as the running services:
+
+```bash
+docker compose exec api python -m tracecat.secrets.reencrypt --dry-run
+docker compose exec api python -m tracecat.secrets.reencrypt
+```
+
+On Kubernetes or Fargate, run the same module in an `api` pod or task.
+
+- `--dry-run` prints per-column counts of Fernet values, AES-256-GCM values, values already current, and values no configured key can decrypt. It writes nothing.
+- Without `--dry-run`, the command scans first and refuses to write if any value fails to decrypt. Add the missing key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS`, or pass `--skip-undecryptable` to leave those values unchanged.
+- Writes go in committed batches of `--batch-size` rows (default 200). The command skips values that are already current and leaves a value alone if the application rewrites it mid-run, so you can stop it and run it again at any time.
+
+The output reports counts only, never values.
+
+#### Rotate the database key
+
+1. Generate a new key with `openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_'`.
+2. Add the new key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` on every service and deploy. Every service can now read values written under it.
+3. Set `TRACECAT__DB_ENCRYPTION_KEY` to the new key, move the old key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS`, and deploy. New writes use the new key.
+4. Confirm that every service that receives `TRACECAT__DB_ENCRYPTION_KEY` has restarted with the new values. In the bundled Compose file these are `api`, `worker`, `executor`, `agent-worker`, `agent-executor`, `litellm`, and `mcp`. Check each service's environment, with `docker compose config <service>`, the ECS task definition, or the pod spec, and check that it started after step 3. A service still running with the old key keeps writing rows under it.
+5. Run the re-encrypt command with `--dry-run` to check the counts, then without it to rewrite the values. Run `--dry-run` again and confirm every value counts as current.
+6. Remove the old key from `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` and deploy. Keep a backup of it until you no longer need database backups taken before the final dry run in step 5.
+
+<Warning>
+  Removing the old key makes every row still encrypted under it unreadable, and Tracecat cannot recover those rows without the key. Remove it only after step 4 confirms that no service still uses it, and after the final dry run in step 5 shows every value as current.
+</Warning>
+
+Rotating the key also resets MCP OAuth state that Tracecat keeps in Redis under `TRACECAT__DB_ENCRYPTION_KEY`, so MCP clients sign in again. To switch algorithms without rotating, set `TRACECAT__DB_ENCRYPTION_ALGORITHM` on every service and deploy. Confirm as in step 4 that every service restarted with the new value, then run step 5. A service still on the old algorithm keeps writing that format, which matters when you switch back to `fernet` before downgrading.
+
 ### Where to store them
 
 Keep these out of your application configuration and out of version control. Use the mechanism your platform already provides.
@@ -83,18 +134,15 @@ On Kubernetes, prefer External Secrets Operator over a hand-created Secret. Your
 Rotation support differs by secret. Check the differences before you plan a rotation window.
 
 <Warning>
-  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
-
-  Tracecat encrypts under a single Fernet key with no re-encryption path.
-  Changing it makes every stored credential unrecoverable, and there is no
-  migration to re-key existing rows. Treat this key as permanent for the life of
-  the deployment: back it up, and control access to it at least as tightly as
-  the credentials it encrypts.
+  Losing `TRACECAT__DB_ENCRYPTION_KEY` makes every stored credential
+  unrecoverable. Back it up, and control access to it at least as tightly as the
+  credentials it encrypts.
 </Warning>
 
 | Secret | Overlap window | Rotation procedure | Blast radius |
 | --- | --- | --- | --- |
 | `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Yes | Add the new key to `keys` and let every service pick it up, then point `current_key_id` at it. Keep retired keys as long as you retain their histories. | None for existing histories, which stay readable under the key they were written with. Between the two steps, a service still on the old keyring cannot decrypt payloads written under the new key. In ARN mode that gap lasts up to `TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS`. |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Yes | Follow [Rotate the database key](#rotate-the-database-key). | MCP clients sign in again. Removing the old key before every service has restarted with the new key, and before re-encryption finishes, makes rows still encrypted under the old key unreadable. |
 | `TRACECAT__SIGNING_SECRET` | No | Rotate, then reissue every affected URL. | Every webhook URL and agent channel endpoint URL. Breaks in-flight Slack OAuth installs, and pending Slack approval buttons for up to 24 hours. |
 | `TRACECAT__SERVICE_KEY` | No | Restart every service that holds it in one window, including `ui`, which uses it for the SAML ACS proxy. | While services disagree, in-flight agent turns fail their next tool or LLM call, executor calls fail, and service-to-service requests return `401`. Miss `ui` and SSO login breaks. |
 | `USER_AUTH_SECRET` | No | Restart `api` and `mcp` together. | Active MCP access tokens (1-hour lifetime), and in-flight password reset and verification links. Sessions are database-backed, so users stay logged in. MCP refresh tokens are hashed and survive. |
