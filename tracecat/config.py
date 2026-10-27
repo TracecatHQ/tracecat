@@ -1146,10 +1146,12 @@ This queue is reserved for `run_agent_activity` so agent runtime capacity can be
 provisioned independently from agent workflow/control-plane work."""
 
 TRACECAT__AGENT_CHAT_BACKEND = os.environ.get("TRACECAT__AGENT_CHAT_BACKEND") or "oss"
-"""Agent backend for new chat sessions that do not choose one.
+"""Agent backend for new sessions whose caller does not choose one.
 
-Applies to workspace, agent preset and case chats created through the API.
-Workflow runs, external channels and the preset builder keep the built-in backend."""
+Applies to workspace, agent preset, case and external channel (Slack) sessions,
+including case-comment and MCP preset runs, for organizations entitled to
+non-default backends. Workflow runs and the preset builder keep the built-in
+backend."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = env_bool("TRACECAT__RATE_LIMIT_ENABLED", default=True)

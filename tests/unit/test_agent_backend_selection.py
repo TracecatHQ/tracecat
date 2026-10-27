@@ -53,7 +53,10 @@ async def test_select_backend_id_follows_surface_and_entitlement(
 async def test_select_backend_id_skips_the_entitlement_for_the_builtin_default() -> (
     None
 ):
-    with patch(IS_ORG_ENTITLED, AsyncMock(return_value=False)) as entitled:
+    with (
+        patch(CONFIGURED_BACKEND, "oss"),
+        patch(IS_ORG_ENTITLED, AsyncMock(return_value=False)) as entitled,
+    ):
         selected = await select_backend_id(
             AsyncMock(), uuid.uuid4(), AgentSessionEntity.EXTERNAL_CHANNEL
         )
