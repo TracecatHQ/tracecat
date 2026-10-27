@@ -109,13 +109,13 @@ The output reports counts only, never values.
 3. Set `TRACECAT__DB_ENCRYPTION_KEY` to the new key, move the old key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS`, and deploy. New writes use the new key.
 4. Confirm that every service that receives `TRACECAT__DB_ENCRYPTION_KEY` has restarted with the new values. In the bundled Compose file these are `api`, `worker`, `executor`, `agent-worker`, `agent-executor`, `litellm`, and `mcp`. Check each service's environment, with `docker compose config <service>`, the ECS task definition, or the pod spec, and check that it started after step 3. A service still running with the old key keeps writing rows under it.
 5. Run the re-encrypt command with `--dry-run` to check the counts, then without it to rewrite the values. Run `--dry-run` again and confirm every value counts as current.
-6. Remove the old key from `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` and deploy. Keep a backup of it until you no longer need database backups taken before step 5.
+6. Remove the old key from `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` and deploy. Keep a backup of it until you no longer need database backups taken before the final dry run in step 5.
 
 <Warning>
   Removing the old key makes every row still encrypted under it unreadable, and Tracecat cannot recover those rows without the key. Remove it only after step 4 confirms that no service still uses it, and after the final dry run in step 5 shows every value as current.
 </Warning>
 
-Rotating the key also resets MCP OAuth state that Tracecat keeps in Redis under `TRACECAT__DB_ENCRYPTION_KEY`, so MCP clients sign in again. To switch algorithms without rotating, set `TRACECAT__DB_ENCRYPTION_ALGORITHM`, deploy, and run steps 4 and 5.
+Rotating the key also resets MCP OAuth state that Tracecat keeps in Redis under `TRACECAT__DB_ENCRYPTION_KEY`, so MCP clients sign in again. To switch algorithms without rotating, set `TRACECAT__DB_ENCRYPTION_ALGORITHM` on every service and deploy. Confirm as in step 4 that every service restarted with the new value, then run step 5. A service still on the old algorithm keeps writing that format, which matters when you switch back to `fernet` before downgrading.
 
 ### Where to store them
 
