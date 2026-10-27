@@ -14,6 +14,19 @@ CASE_TEXT_MATCH_FUNCTION = "tracecat_case_text_matches_v1"
 # changed same-name helper must never silently change an issued continuation.
 CASE_TEXT_MATCH_BODY_HASH = "c7f46017f2472f11cd81a697c54328f2"
 CASE_TEXT_VECTOR_BODY_HASH = "08c09d8befdb26cbb7f76a0d66e075de"
+# Stored vectors from revision 5ca140c06ec2. Index definitions are exactly what
+# pg_get_indexdef() reports, so any drift is a configuration change.
+CASE_SEARCH_TRIGGER = "trg_case_search_vectors"
+CASE_SEARCH_TRIGGER_FUNCTION = "tracecat_case_search_vectors_v1"
+CASE_SEARCH_TRIGGER_BODY_HASH = "3bc6d04ff3e3411985bdce0aac8f48b6"
+CASE_SEARCH_VECTOR_INDEXES = {
+    "ix_case_summary_tsv": 'CREATE INDEX ix_case_summary_tsv ON public."case" USING gin (summary_tsv)',
+    "ix_case_description_tsv": 'CREATE INDEX ix_case_description_tsv ON public."case" USING gin (description_tsv)',
+    "ix_case_summary_tsv_fallback": 'CREATE INDEX ix_case_summary_tsv_fallback ON public."case" USING btree (workspace_id, id) WHERE (summary_tsv IS NULL)',
+    "ix_case_description_tsv_fallback": 'CREATE INDEX ix_case_description_tsv_fallback ON public."case" USING btree (workspace_id, id) WHERE (description_tsv IS NULL)',
+}
+# pg_trigger.tgtype bits: ROW (1) | BEFORE (2) | INSERT (4) | UPDATE (16).
+_BEFORE_ROW_INSERT_UPDATE = 23
 
 
 async def ensure_case_text_indexes(session: AsyncSession) -> None:
@@ -102,7 +115,7 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
     )
     if not configuration:
         raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
-    rows = (
+    trigram_rows = (
         (
             await session.execute(
                 sa.text("""
@@ -110,13 +123,7 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
             i.indrelid = 'public.case'::regclass AND a.amname = 'gin'
             AND NOT i.indisunique AND i.indpred IS NULL
             AND i.indnkeyatts = 1 AND i.indnatts = 1 AND i.indkey[0] = 0
-            AND o.opcname = CASE WHEN c.relname LIKE '%_fts' THEN 'tsvector_ops' ELSE 'gin_trgm_ops' END
-            AND n.nspname = CASE WHEN c.relname LIKE '%_fts' THEN 'pg_catalog' ELSE 'public' END
-            AND (c.relname NOT LIKE '%_fts' OR EXISTS (
-                SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid
-                    AND d.refclassid='pg_proc'::regclass
-                    AND d.refobjid=to_regprocedure('public.tracecat_case_safe_vector_v1(text)')
-            )) AS compatible,
+            AND o.opcname = 'gin_trgm_ops' AND n.nspname = 'public' AS compatible,
             pg_get_expr(i.indexprs, i.indrelid) AS expression
         FROM pg_class c JOIN pg_namespace s ON s.oid = c.relnamespace
         LEFT JOIN pg_index i ON i.indexrelid = c.oid
@@ -125,35 +132,21 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
         LEFT JOIN pg_namespace n ON n.oid = o.opcnamespace
         WHERE s.nspname = 'public' AND c.relname = ANY(:names)
     """),
-                {
-                    "names": [
-                        "ix_case_summary_fts",
-                        "ix_case_description_fts",
-                        "ix_case_summary_trgm",
-                        "ix_case_description_trgm",
-                    ]
-                },
+                {"names": ["ix_case_summary_trgm", "ix_case_description_trgm"]},
             )
         )
         .tuples()
         .all()
     )
-    for name, ready, compatible, expression in rows:
+    for name, ready, compatible, expression in trigram_rows:
         field = "summary" if "summary" in name else "description"
         expected = set()
         for source in (
             f"COALESCE(({field})::text, ''::text)",
             f"COALESCE({field}, ''::text)",
         ):
-            if name.endswith("_fts"):
-                for helper in (
-                    "tracecat_case_safe_vector_v1",
-                    "public.tracecat_case_safe_vector_v1",
-                ):
-                    expected.add(f"{helper}({source})")
-            else:
-                guard = f"CASE WHEN (octet_length({source}) <= {CASE_TEXT_DOCUMENT_BYTES}) THEN {source} ELSE ''::text END"
-                expected.add(f"lower({guard})")
+            guard = f"CASE WHEN (octet_length({source}) <= {CASE_TEXT_DOCUMENT_BYTES}) THEN {source} ELSE ''::text END"
+            expected.add(f"lower({guard})")
         if (
             compatible is not True
             or re.sub(
@@ -166,57 +159,55 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
             raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
         if ready is not True:
             raise LexicalSearchError(LexicalSearchErrorCode.INDEXING)
-    if len(rows) != 4:
+    if len(trigram_rows) != 2:
         raise LexicalSearchError(LexicalSearchErrorCode.INDEXING)
-    overflow = (
+    await _ensure_stored_vectors(session)
+
+
+async def _ensure_stored_vectors(session: AsyncSession) -> None:
+    """Verify the trigger that maintains stored vectors and their indexes."""
+    compatible = (
+        await session.execute(
+            sa.text("""
+        SELECT t.tgenabled IN ('O', 'A')
+            AND t.tgtype = :trigger_type
+            AND cardinality(t.tgattr::smallint[]) = 0
+            AND md5(regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g')) = :body_hash
+        FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+        WHERE t.tgrelid = 'public.case'::regclass AND t.tgname = :name
+            AND p.oid = to_regprocedure(:function)
+    """),
+            {
+                "name": CASE_SEARCH_TRIGGER,
+                "function": f"public.{CASE_SEARCH_TRIGGER_FUNCTION}()",
+                "trigger_type": _BEFORE_ROW_INSERT_UPDATE,
+                "body_hash": CASE_SEARCH_TRIGGER_BODY_HASH,
+            },
+        )
+    ).scalar_one_or_none()
+    if compatible is None:
+        raise LexicalSearchError(LexicalSearchErrorCode.INDEXING)
+    if compatible is not True:
+        raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
+    rows = (
         (
             await session.execute(
                 sa.text("""
-        SELECT c.relname, i.indisvalid AND i.indisready,
-            i.indrelid='public.case'::regclass AND a.amname='btree' AND NOT i.indisunique
-            AND i.indnkeyatts=2 AND i.indnatts=2 AND i.indexprs IS NULL
-            AND i.indkey[0]=(SELECT attnum FROM pg_attribute WHERE attrelid='public.case'::regclass AND attname='workspace_id')
-            AND i.indkey[1]=(SELECT attnum FROM pg_attribute WHERE attrelid='public.case'::regclass AND attname='id')
-            AND i.indoption[0]=0 AND i.indoption[1]=0
-            AND i.indclass[0]=(SELECT o.oid FROM pg_opclass o JOIN pg_namespace n ON n.oid=o.opcnamespace JOIN pg_am am ON am.oid=o.opcmethod WHERE o.opcname='uuid_ops' AND n.nspname='pg_catalog' AND am.amname='btree')
-            AND i.indclass[1]=(SELECT o.oid FROM pg_opclass o JOIN pg_namespace n ON n.oid=o.opcnamespace JOIN pg_am am ON am.oid=o.opcmethod WHERE o.opcname='uuid_ops' AND n.nspname='pg_catalog' AND am.amname='btree')
-            AND EXISTS (
-                SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid
-                    AND d.refclassid='pg_proc'::regclass
-                    AND d.refobjid=to_regprocedure('public.tracecat_case_safe_vector_v1(text)')
-            ) AS compatible,
-            pg_get_expr(i.indpred,i.indrelid)
-        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-        LEFT JOIN pg_index i ON i.indexrelid=c.oid LEFT JOIN pg_am a ON a.oid=c.relam
-        WHERE n.nspname='public' AND c.relname=ANY(:names)
+        SELECT c.relname, pg_get_indexdef(c.oid), i.indisvalid AND i.indisready
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_index i ON i.indexrelid = c.oid
+        WHERE n.nspname = 'public' AND c.relname = ANY(:names)
     """),
-                {
-                    "names": [
-                        "ix_case_summary_text_fallback",
-                        "ix_case_description_text_fallback",
-                    ]
-                },
+                {"names": list(CASE_SEARCH_VECTOR_INDEXES)},
             )
         )
         .tuples()
         .all()
     )
-    for name, ready, compatible, predicate in overflow:
-        field = "summary" if "summary" in name else "description"
-        expected = {
-            f"({helper}({source}) IS NULL)"
-            for source in (
-                f"COALESCE(({field})::text, ''::text)",
-                f"COALESCE({field}, ''::text)",
-            )
-            for helper in (
-                "tracecat_case_safe_vector_v1",
-                "public.tracecat_case_safe_vector_v1",
-            )
-        }
-        if compatible is not True or predicate not in expected:
+    for name, definition, ready in rows:
+        if definition != CASE_SEARCH_VECTOR_INDEXES[name]:
             raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
         if ready is not True:
             raise LexicalSearchError(LexicalSearchErrorCode.INDEXING)
-    if len(overflow) != 2:
+    if len(rows) != len(CASE_SEARCH_VECTOR_INDEXES):
         raise LexicalSearchError(LexicalSearchErrorCode.INDEXING)

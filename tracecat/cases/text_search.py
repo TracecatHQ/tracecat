@@ -18,8 +18,9 @@ from typing import Literal, TypedDict, cast
 
 import orjson
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import ARRAY, REGCONFIG, TSVECTOR, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, REGCONFIG, UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import QueryableAttribute
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat import config
@@ -46,7 +47,7 @@ MAX_FUZZY_TERMS = 2
 MAX_EXCERPT_LENGTH = MAX_MATCH_EXCERPT_LENGTH
 CASE_TEXT_FIELDS = ("summary", "description")
 type CaseTextField = Literal["summary", "description"]
-STATEMENT_TIMEOUT_MS = 1500
+STATEMENT_TIMEOUT_MS = 30_000
 FUZZY_THRESHOLD = 0.65
 _SHORT_ID = re.compile(r"CASE-(\d+)", re.IGNORECASE)
 _UUID = re.compile(
@@ -58,6 +59,9 @@ _HASH = re.compile(
 )
 _CONFIG = sa.literal_column("'pg_catalog.simple'::regconfig", type_=REGCONFIG())
 _EMPTY = sa.literal_column("''", type_=sa.Text())
+# Trigger-maintained tsvector columns (revision 5ca140c06ec2). Reading them
+# avoids recomputing the safe vector for every candidate row.
+_STORED_VECTORS = {"summary": Case.summary_tsv, "description": Case.description_tsv}
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,8 +210,9 @@ def _guarded_source(field: sa.SQLColumnExpression[str]) -> ColumnElement[str]:
     return sa.case((_within_budget(field), _source(field)), else_=_EMPTY)
 
 
-def _vector(field: sa.SQLColumnExpression[str]) -> ColumnElement[str]:
-    return sa.func.public.tracecat_case_safe_vector_v1(_source(field), type_=TSVECTOR())
+def _vector(field: QueryableAttribute[str]) -> ColumnElement[str]:
+    """Read the stored safe vector; NULL marks an over-budget or unsafe source."""
+    return _STORED_VECTORS[field.key]
 
 
 def _normalized(field: sa.SQLColumnExpression[str]) -> ColumnElement[str]:
@@ -226,9 +231,7 @@ def _native_match(
     )
 
 
-def _literal_match(
-    field: sa.SQLColumnExpression[str], value: str
-) -> ColumnElement[bool]:
+def _literal_match(field: QueryableAttribute[str], value: str) -> ColumnElement[bool]:
     pattern = sa.func.lower(_literal_pattern(value))
     indexed = _normalized(field).like(pattern, escape="\\")
     fallback = _full_normalized(field).like(pattern, escape="\\")
@@ -249,7 +252,7 @@ def _literal_pattern(value: str) -> str:
 
 
 def _field_clause(
-    field: sa.SQLColumnExpression[str], clause: SearchClause
+    field: QueryableAttribute[str], clause: SearchClause
 ) -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[float]]:
     if clause.kind == "literal":
         exact = _literal_match(field, clause.value)
@@ -471,9 +474,10 @@ class _ExcerptClause(TypedDict):
 
 _EXCERPT_SQL = f"""
 WITH page_sources AS MATERIALIZED (
-    SELECT c.id AS case_id, f.field, f.source
+    SELECT c.id AS case_id, f.field, f.source, f.vector
     FROM public."case" c
-    CROSS JOIN LATERAL (VALUES ('summary', c.summary), ('description', c.description)) f(field, source)
+    CROSS JOIN LATERAL (VALUES ('summary', c.summary, c.summary_tsv),
+        ('description', c.description, c.description_tsv)) f(field, source, vector)
     WHERE c.workspace_id = :workspace_id AND c.id = ANY(:case_ids) AND f.field = ANY(:columns)
 ), clauses AS (
     SELECT * FROM jsonb_to_recordset(CAST(:clauses AS jsonb))
@@ -481,14 +485,14 @@ WITH page_sources AS MATERIALIZED (
 ), matched AS MATERIALIZED (
     SELECT s.*, q.*, CASE q.kind
         WHEN 'literal' THEN lower(s.source) LIKE lower(q.pattern) ESCAPE '\\'
-        WHEN 'phrase' THEN CASE WHEN public.tracecat_case_safe_vector_v1(s.source) IS NULL THEN
+        WHEN 'phrase' THEN CASE WHEN s.vector IS NULL THEN
             public.{CASE_TEXT_MATCH_FUNCTION}(s.source, q.value, true)
-            ELSE (public.tracecat_case_safe_vector_v1(s.source) @@ phraseto_tsquery('pg_catalog.simple', q.value))
-                OR ((public.tracecat_case_safe_vector_v1(s.source) @@ plainto_tsquery('pg_catalog.simple', q.value))
+            ELSE (s.vector @@ phraseto_tsquery('pg_catalog.simple', q.value))
+                OR ((s.vector @@ plainto_tsquery('pg_catalog.simple', q.value))
                     AND public.{CASE_TEXT_MATCH_FUNCTION}(s.source, q.value, true)) END
-        ELSE CASE WHEN public.tracecat_case_safe_vector_v1(s.source) IS NULL THEN
+        ELSE CASE WHEN s.vector IS NULL THEN
             public.{CASE_TEXT_MATCH_FUNCTION}(s.source, q.value, false)
-            ELSE public.tracecat_case_safe_vector_v1(s.source) @@ plainto_tsquery('pg_catalog.simple', q.value) END
+            ELSE s.vector @@ plainto_tsquery('pg_catalog.simple', q.value) END
     END AS exact
     FROM page_sources s CROSS JOIN clauses q
 ), exact_context AS (
@@ -497,7 +501,7 @@ WITH page_sources AS MATERIALIZED (
             overlay(substring(source FROM greatest(1, strpos(lower(source), lower(value)) - 60) FOR 480)
                 PLACING :start_marker FROM least(61, strpos(lower(source), lower(value))) FOR 0)
         ELSE ts_headline('pg_catalog.simple', source,
-            CASE WHEN kind = 'phrase' AND (public.tracecat_case_safe_vector_v1(source) @@ phraseto_tsquery('pg_catalog.simple', value))
+            CASE WHEN kind = 'phrase' AND (vector @@ phraseto_tsquery('pg_catalog.simple', value))
                 THEN phraseto_tsquery('pg_catalog.simple', value)
                 ELSE plainto_tsquery('pg_catalog.simple', value) END,
             :headline_options)

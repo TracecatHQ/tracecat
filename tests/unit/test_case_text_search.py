@@ -9,6 +9,7 @@ from sqlalchemy.dialects import postgresql
 
 from tracecat.cases.text_search import (
     MAX_EXCERPT_LENGTH,
+    STATEMENT_TIMEOUT_MS,
     build_case_text_expressions,
     case_search_excerpt,
     case_search_execution_context,
@@ -99,7 +100,8 @@ def test_identifiers_match_exact_columns_and_indexed_text_mentions(value: str) -
     sql = str(statement.compile(dialect=postgresql.dialect()))
     assert "case_number =" in sql
     assert "LIKE" not in sql
-    assert "tracecat_case_safe_vector_v1" in sql
+    assert '"case".summary_tsv' in sql
+    assert "tracecat_case_safe_vector_v1" not in sql
     assert "@@" in sql
 
 
@@ -147,10 +149,8 @@ def test_phrase_sql_uses_separate_source_vectors() -> None:
         .compile(dialect=postgresql.dialect())
     )
     assert sql.count("phraseto_tsquery(") == 2
-    assert 'tracecat_case_safe_vector_v1(coalesce(CAST("case".summary AS TEXT)' in sql
-    assert (
-        'tracecat_case_safe_vector_v1(coalesce(CAST("case".description AS TEXT)' in sql
-    )
+    assert '"case".summary_tsv @@ phraseto_tsquery(' in sql
+    assert '"case".description_tsv @@ phraseto_tsquery(' in sql
     assert "pg_catalog.simple" in sql
     assert "||" not in sql
     assert "%>>" not in sql
@@ -224,7 +224,7 @@ async def test_execution_settings_are_transaction_local_and_restored() -> None:
     async with case_search_execution_context(session):
         pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
-    assert "SET LOCAL statement_timeout = 1500" in statements
+    assert f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}" in statements
     parameters = [
         call.args[1] for call in session.execute.await_args_list if len(call.args) > 1
     ]
@@ -243,7 +243,7 @@ async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings() -> No
         "SHOW statement_timeout"
     ]
     assert [str(call.args[0]) for call in session.execute.await_args_list] == [
-        "SET LOCAL statement_timeout = 1500",
+        f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}",
         "SELECT set_config('statement_timeout', :timeout, true)",
     ]
 
