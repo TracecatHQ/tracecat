@@ -26,10 +26,10 @@ from tracecat.secrets.encryption import decrypt_token, encrypt_value, is_current
 from tracecat.secrets.reencrypt import (
     ENCRYPTED_COLUMNS,
     ENCRYPTED_JSON_FIELDS,
-    TargetReport,
     UndecryptableValuesError,
     reencrypt_database,
 )
+from tracecat.secrets.types import ReencryptReport
 
 pytestmark = pytest.mark.usefixtures("db", "env_sandbox")
 
@@ -64,8 +64,10 @@ def test_registry_covers_every_binary_column() -> None:
 
 @pytest.fixture
 def old_key() -> str:
-    """The deployment's key, so rows other tests left behind stay decryptable."""
-    return os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+    """The deployment's key when set, so rows other tests left behind stay decryptable."""
+    return (
+        os.environ.get("TRACECAT__DB_ENCRYPTION_KEY") or Fernet.generate_key().decode()
+    )
 
 
 @pytest.fixture
@@ -96,7 +98,7 @@ async def rls_bypass(session: AsyncSession) -> AsyncSession:
     return session
 
 
-def _counts(reports: list[TargetReport]) -> Counts:
+def _counts(reports: list[ReencryptReport]) -> Counts:
     return {
         r.target: (r.fernet, r.aes256gcm, r.current, r.undecryptable) for r in reports
     }
@@ -412,3 +414,31 @@ async def test_fernet_target_rewrites_aes_rows_back(
     assert stored is not None
     assert Fernet(old_key).decrypt(stored) == b'{"K": "v"}'
     assert orjson.loads(Fernet(old_key).decrypt(stored)) == {"K": "v"}
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("rotate_to_aes")
+async def test_dry_run_leaves_callers_transaction_uncommitted(
+    rls_bypass: AsyncSession, new_key
+) -> None:
+    """A dry run never commits work the caller has pending in the same session."""
+    session = rls_bypass
+    pending = PlatformSetting(
+        key=f"test-pending-{uuid.uuid4().hex}",
+        value=b'"pending"',
+        value_type="string",
+        is_encrypted=False,
+    )
+    session.add(pending)
+    await session.flush()
+    pending_key = pending.key
+
+    await reencrypt_database(session, key=new_key, dry_run=True)
+    await session.rollback()
+
+    assert (
+        await session.scalar(
+            select(PlatformSetting.id).where(PlatformSetting.key == pending_key)
+        )
+        is None
+    )

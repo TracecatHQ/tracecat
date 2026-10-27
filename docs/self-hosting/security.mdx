@@ -107,7 +107,7 @@ The output reports counts only, never values.
 1. Generate a new key with `openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_'`.
 2. Add the new key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` on every service and deploy. Every service can now read values written under it.
 3. Set `TRACECAT__DB_ENCRYPTION_KEY` to the new key, move the old key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS`, and deploy. New writes use the new key.
-4. Run the re-encrypt command, `--dry-run` first. Re-run the dry run until every value counts as current.
+4. Run the re-encrypt command with `--dry-run` to check the counts, then without it to rewrite the values. Run `--dry-run` again and confirm every value counts as current before you go on.
 5. Remove the old key from `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` and deploy. Keep a backup of it until you no longer need database backups taken before step 4.
 
 Rotating the key also resets MCP OAuth state that Tracecat keeps in Redis under `TRACECAT__DB_ENCRYPTION_KEY`, so MCP clients sign in again. To switch algorithms without rotating, set `TRACECAT__DB_ENCRYPTION_ALGORITHM`, deploy, and run step 4.

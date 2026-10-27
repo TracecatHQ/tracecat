@@ -18,7 +18,6 @@ import argparse
 import asyncio
 import sys
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass
 from typing import Any, Final
 
 from cryptography.fernet import InvalidToken
@@ -54,33 +53,14 @@ from tracecat.secrets.encryption import (
     is_current,
     key_id,
 )
+from tracecat.secrets.types import (
+    EncryptedColumn,
+    EncryptedJSONFields,
+    ReencryptPass,
+    ReencryptReport,
+)
 
 DEFAULT_BATCH_SIZE: Final[int] = 200
-
-
-@dataclass(frozen=True, slots=True)
-class EncryptedColumn:
-    """A binary column that stores ``encrypt_value``/``encrypt_bytes`` output."""
-
-    attr: InstrumentedAttribute[Any]
-    only_if: ColumnElement[bool] | None = None
-
-    @property
-    def label(self) -> str:
-        return f"{self.attr.parent.mapper.local_table.name}.{self.attr.key}"
-
-
-@dataclass(frozen=True, slots=True)
-class EncryptedJSONFields:
-    """JSONB fields that store ``prefix + encrypt_value(...)`` as text."""
-
-    attr: InstrumentedAttribute[Any]
-    fields: tuple[str, ...]
-    prefix: str
-
-    @property
-    def label(self) -> str:
-        return f"{self.attr.parent.mapper.local_table.name}.{self.attr.key}"
 
 
 ENCRYPTED_COLUMNS: Final[tuple[EncryptedColumn, ...]] = (
@@ -117,36 +97,17 @@ ENCRYPTED_JSON_FIELDS: Final[tuple[EncryptedJSONFields, ...]] = (
 """Every JSONB column holding DB-encrypted values inside its fields."""
 
 
-@dataclass(slots=True)
-class TargetReport:
-    """Value counts for one column. Counts only, never contents."""
-
-    target: str
-    fernet: int = 0
-    aes256gcm: int = 0
-    current: int = 0
-    undecryptable: int = 0
-    rewritten: int = 0
-    conflicts: int = 0
-
-
 class UndecryptableValuesError(Exception):
     """Raised when a value fails to decrypt and skipping was not requested."""
 
-    def __init__(self, reports: list[TargetReport]) -> None:
+    def __init__(self, reports: list[ReencryptReport]) -> None:
         super().__init__("Some encrypted values could not be decrypted")
         self.reports = reports
 
 
-@dataclass(frozen=True, slots=True)
-class _Pass:
-    key: str
-    write: bool
-    skip_undecryptable: bool
-    batch_size: int
-
-
-def _reseal(value: bytes, *, run: _Pass, report: TargetReport) -> bytes | None:
+def _reseal(
+    value: bytes, *, run: ReencryptPass, report: ReencryptReport
+) -> bytes | None:
     """Return the value re-encrypted for the target, or None when no write is needed."""
     try:
         decrypted = decrypt_token(value, key=run.key)
@@ -193,7 +154,7 @@ async def _compare_and_swap(
     row_pk: Any,
     old: Any,
     new: Any,
-    report: TargetReport,
+    report: ReencryptReport,
 ) -> None:
     pk = attr.parent.mapper.primary_key[0]
     result = await session.execute(
@@ -209,9 +170,9 @@ async def _compare_and_swap(
 
 
 async def _process_column(
-    session: AsyncSession, column: EncryptedColumn, run: _Pass
-) -> TargetReport:
-    report = TargetReport(target=column.label)
+    session: AsyncSession, column: EncryptedColumn, run: ReencryptPass
+) -> ReencryptReport:
+    report = ReencryptReport(target=column.label)
     where = [column.attr.is_not(None), column.attr != b""]
     if column.only_if is not None:
         where.append(column.only_if)
@@ -228,9 +189,9 @@ async def _process_column(
 
 
 async def _process_json_fields(
-    session: AsyncSession, target: EncryptedJSONFields, run: _Pass
-) -> TargetReport:
-    report = TargetReport(target=target.label)
+    session: AsyncSession, target: EncryptedJSONFields, run: ReencryptPass
+) -> ReencryptReport:
+    report = ReencryptReport(target=target.label)
     where = [
         or_(
             *(
@@ -259,11 +220,12 @@ async def _process_json_fields(
     return report
 
 
-async def _process_all(session: AsyncSession, run: _Pass) -> list[TargetReport]:
+async def _process_all(
+    session: AsyncSession, run: ReencryptPass
+) -> list[ReencryptReport]:
     reports = [await _process_column(session, c, run) for c in ENCRYPTED_COLUMNS]
     for target in ENCRYPTED_JSON_FIELDS:
         reports.append(await _process_json_fields(session, target, run))
-    await session.commit()
     return reports
 
 
@@ -274,13 +236,13 @@ async def reencrypt_database(
     dry_run: bool = False,
     skip_undecryptable: bool = False,
     batch_size: int = DEFAULT_BATCH_SIZE,
-) -> list[TargetReport]:
+) -> list[ReencryptReport]:
     """Scan every encrypted value, then rewrite stale ones for the current target.
 
     Args:
         session: A session that can read and write every tenant's rows.
         key: The current ``TRACECAT__DB_ENCRYPTION_KEY``.
-        dry_run: Return scan counts without writing.
+        dry_run: Return scan counts without writing or committing.
         skip_undecryptable: Rewrite the rest when some values fail to decrypt.
         batch_size: Rows per read and per committed write batch.
 
@@ -295,7 +257,9 @@ async def reencrypt_database(
         raise ValueError("batch_size must be at least 1")
     scan = await _process_all(
         session,
-        _Pass(key=key, write=False, skip_undecryptable=True, batch_size=batch_size),
+        ReencryptPass(
+            key=key, write=False, skip_undecryptable=True, batch_size=batch_size
+        ),
     )
     if dry_run:
         return scan
@@ -303,7 +267,7 @@ async def reencrypt_database(
         raise UndecryptableValuesError(scan)
     return await _process_all(
         session,
-        _Pass(
+        ReencryptPass(
             key=key,
             write=True,
             skip_undecryptable=skip_undecryptable,
@@ -312,7 +276,7 @@ async def reencrypt_database(
     )
 
 
-def _print_reports(reports: list[TargetReport], *, dry_run: bool) -> None:
+def _print_reports(reports: list[ReencryptReport], *, dry_run: bool) -> None:
     header = ["target", "fernet", "aes256gcm", "current", "undecryptable"]
     if not dry_run:
         header += ["rewritten", "conflicts"]

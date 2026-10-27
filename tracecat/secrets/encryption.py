@@ -21,7 +21,6 @@ output, so it identifies a key without revealing anything about it.
 import base64
 import binascii
 import os
-from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Final
 
@@ -35,6 +34,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from tracecat import config
 from tracecat.config import DBEncryptionAlgorithm
 from tracecat.secrets.enums import SecretType
+from tracecat.secrets.types import DBEncryptionKey, DecryptedToken
 
 from .schemas import SecretBase, SecretKeyValue
 
@@ -47,22 +47,6 @@ _NONCE_BYTES: Final[int] = 12
 _TAG_BYTES: Final[int] = 16
 
 
-@dataclass(frozen=True, slots=True)
-class _DBKey:
-    key_id: str
-    fernet: Fernet
-    aesgcm: AESGCM
-
-
-@dataclass(frozen=True, slots=True)
-class DecryptedToken:
-    """Plaintext of a stored value plus the format and key that sealed it."""
-
-    plaintext: bytes
-    algorithm: DBEncryptionAlgorithm
-    key_id: str
-
-
 def _hkdf(root: bytes, *, info: bytes, length: int) -> bytes:
     return HKDF(algorithm=hashes.SHA256(), length=length, salt=None, info=info).derive(
         root
@@ -70,7 +54,7 @@ def _hkdf(root: bytes, *, info: bytes, length: int) -> bytes:
 
 
 @lru_cache(maxsize=16)
-def _load_key(key: str) -> _DBKey:
+def _load_key(key: str) -> DBEncryptionKey:
     """Parse a Fernet-format key and derive its AES-256-GCM key and key id.
 
     Raises:
@@ -80,10 +64,10 @@ def _load_key(key: str) -> _DBKey:
     root = base64.urlsafe_b64decode(key)
     key_id = _hkdf(root, info=_KEY_ID_INFO, length=_KEY_ID_BYTES).hex()
     aes_key = _hkdf(root, info=_AES256GCM_KEY_INFO, length=32)
-    return _DBKey(key_id=key_id, fernet=fernet, aesgcm=AESGCM(aes_key))
+    return DBEncryptionKey(key_id=key_id, fernet=fernet, aesgcm=AESGCM(aes_key))
 
 
-def _keyring(key: str) -> list[_DBKey]:
+def _keyring(key: str) -> list[DBEncryptionKey]:
     """Return the current key followed by each distinct previous key."""
     keys = [_load_key(key)]
     for previous in config.TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS:
@@ -117,7 +101,7 @@ def encrypt_token(plaintext: bytes, *, key: str) -> bytes:
             return header + base64.urlsafe_b64encode(nonce + sealed)
 
 
-def _decrypt_aes256gcm(token: bytes, keys: list[_DBKey]) -> DecryptedToken:
+def _decrypt_aes256gcm(token: bytes, keys: list[DBEncryptionKey]) -> DecryptedToken:
     key_id_end = token.find(b":", len(AES256GCM_PREFIX))
     if key_id_end - len(AES256GCM_PREFIX) != _KEY_ID_HEX_LENGTH:
         raise InvalidToken
