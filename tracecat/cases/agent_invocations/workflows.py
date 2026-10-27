@@ -65,7 +65,7 @@ class CaseCommentAgentInvocationWorkflow:
                     turn.args,
                     id=turn.workflow_id,
                     task_queue=turn.task_queue,
-                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    retry_policy=turn.retry_policy,
                     # prepare_new_turn reuses a persisted run ID, which may be a
                     # direct dispatch's that recovery tombstoned. Never run it then.
                     id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,

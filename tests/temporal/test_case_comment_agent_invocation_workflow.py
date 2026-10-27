@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
@@ -205,6 +206,7 @@ def _backend_turn_preparer(queue: str):
                 workflow_id=f"external/{run_id}",
                 task_queue=queue,
                 priority_key=2,
+                retry_policy=RetryPolicy(maximum_attempts=1),
                 args={"prompt": "Investigate"},
             )
         )
