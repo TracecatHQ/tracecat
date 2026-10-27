@@ -10,10 +10,10 @@ from typing import Any
 from temporalio import workflow
 
 from tracecat.agent.backends.base import AgentBackend
+from tracecat.agent.backends.constants import AGENT_BACKEND_ENTRY_POINT_GROUP
 from tracecat.agent.backends.types import SessionHistoryAdapter
 from tracecat.exceptions import TracecatValidationError
 
-AGENT_BACKEND_ENTRY_POINT_GROUP = "tracecat.agent_backends"
 DEFAULT_AGENT_BACKEND = "oss"
 
 

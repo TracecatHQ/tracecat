@@ -1,9 +1,14 @@
 """Tests for OSS tier default entitlement resolution."""
 
+from importlib.metadata import EntryPoint
+
 import pytest
 
+from tracecat.agent.backends.constants import AGENT_BACKEND_ENTRY_POINT_GROUP
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.defaults import (
     get_legacy_feature_flags_env,
+    has_installed_agent_backend,
     resolve_oss_default_entitlements,
 )
 
@@ -64,11 +69,37 @@ def test_resolve_oss_default_entitlements_maps_forms_flag() -> None:
     assert entitlements.semantic_search is False
 
 
-def test_resolve_oss_default_entitlements_maps_agent_runtime_flag() -> None:
-    entitlements = resolve_oss_default_entitlements("git-sync, AGENT_RUNTIME")
+@pytest.mark.parametrize("flags", [None, "git-sync"], ids=["fresh", "legacy_flags"])
+def test_installed_agent_backend_enables_agent_runtime_preview(
+    flags: str | None,
+) -> None:
+    entitlements = resolve_oss_default_entitlements(flags, agent_backend_installed=True)
 
     assert entitlements.agent_runtime_preview is True
     assert entitlements.agent_addons is False
+
+
+def test_agent_runtime_flag_no_longer_enables_agent_runtime_preview() -> None:
+    entitlements = resolve_oss_default_entitlements("agent-runtime")
+
+    assert entitlements.agent_runtime_preview is False
+
+
+def test_has_installed_agent_backend_reads_entry_point_group(monkeypatch) -> None:
+    groups: list[str] = []
+
+    def fake_entry_points(*, group: str) -> list[EntryPoint]:
+        groups.append(group)
+        return [EntryPoint(name="extra", value="pkg:factory", group=group)]
+
+    monkeypatch.setattr(tier_defaults, "entry_points", fake_entry_points)
+
+    assert has_installed_agent_backend() is True
+    assert groups == [AGENT_BACKEND_ENTRY_POINT_GROUP]
+
+    monkeypatch.setattr(tier_defaults, "entry_points", lambda *, group: [])
+
+    assert has_installed_agent_backend() is False
 
 
 def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> None:

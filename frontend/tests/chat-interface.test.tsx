@@ -3,7 +3,6 @@ import type { ComponentProps } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatInterface } from "@/components/chat/chat-interface"
 import { useAgentBackends } from "@/hooks/use-chat"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/components/chat/chat-session-pane", () => ({
@@ -49,7 +48,6 @@ const mockListChats = jest.fn()
 const mockGetChat = jest.fn()
 const mockGetChatError = jest.fn()
 const mockRefetchChat = jest.fn()
-jest.mock("@/hooks/use-feature-flags", () => ({ useFeatureFlag: jest.fn() }))
 jest.mock("@/hooks/use-chat", () => ({
   useAgentBackends: jest.fn(),
   useListChats: () => ({
@@ -105,7 +103,6 @@ const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
 >
 
 const mockUseAgentBackends = jest.mocked(useAgentBackends)
-const mockUseFeatureFlag = jest.mocked(useFeatureFlag)
 const mockRefetchBackends = jest.fn()
 const discoveryReady = {
   backendsReady: true,
@@ -132,11 +129,6 @@ beforeEach(() => {
     hasEntitlement: (key: string) => key === "agent_runtime_preview",
     isLoading: false,
     hasEntitlementData: true,
-  })
-  mockUseFeatureFlag.mockReturnValue({
-    isFeatureEnabled: () => false,
-    isLoading: false,
-    hasFeatureData: true,
   })
   mockUseAgentBackends.mockReturnValue({
     ...discoveryReady,
@@ -212,41 +204,13 @@ describe("ChatInterface backend selection", () => {
   })
 
   it("hides the selector when only the built-in mode is available", () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
     renderChat()
     expect(
       screen.queryByRole("combobox", { name: "Backend (dev)" })
     ).not.toBeInTheDocument()
   })
 
-  it("keeps backend selection hidden and uses the server default without the flag", async () => {
-    mockUseAgentBackends.mockReturnValue({
-      ...discoveryReady,
-      backends: multipleBackends,
-      backendsLoading: false,
-    })
-    renderChat({ surface: "regular" })
-    expect(
-      screen.queryByRole("combobox", { name: "Backend (dev)" })
-    ).not.toBeInTheDocument()
-    expect(mockUseAgentBackends).toHaveBeenCalledWith("workspace-1", {
-      enabled: false,
-    })
-    await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
-    expect(mockCreateChat.mock.calls[0][0].backend_id).toBeUndefined()
-    expect(screen.queryByText("Open source")).not.toBeInTheDocument()
-  })
-
   it("keeps backend selection hidden without the entitlement", async () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
     mockUseEntitlements.mockReturnValue({
       hasEntitlement: () => false,
       isLoading: false,
@@ -268,12 +232,7 @@ describe("ChatInterface backend selection", () => {
     expect(mockCreateChat.mock.calls[0][0].backend_id).toBeUndefined()
   })
 
-  it("waits for entitlements before auto-creating a flagged sidebar chat", () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
+  it("waits for entitlements before auto-creating a sidebar chat", () => {
     mockUseEntitlements.mockReturnValue({
       hasEntitlement: () => false,
       isLoading: true,
@@ -283,33 +242,18 @@ describe("ChatInterface backend selection", () => {
     expect(mockCreateChat).not.toHaveBeenCalled()
   })
 
-  it("skips the entitlement lookup without the flag", () => {
-    renderChat({ surface: "regular" })
-    expect(mockUseEntitlements).toHaveBeenCalledWith({ enabled: false })
-  })
-
-  it("waits for feature flags before auto-creating a sidebar chat", () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: () => false,
-      isLoading: true,
-      hasFeatureData: false,
+  it("hides the active backend badge without the entitlement", () => {
+    mockUseEntitlements.mockReturnValue({
+      hasEntitlement: () => false,
+      isLoading: false,
+      hasEntitlementData: true,
     })
-    renderChat({ surface: "regular" })
-    expect(mockCreateChat).not.toHaveBeenCalled()
-  })
-
-  it("hides the active backend badge without the flag", () => {
     mockGetChat.mockReturnValue({ id: "chat-1", backend_id: "oss" })
     renderChat({ chatId: "chat-1" })
     expect(screen.queryByText("Open source")).not.toBeInTheDocument()
   })
 
-  it("keeps a new flagged sidebar draft open when prior chats exist", async () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
+  it("keeps a new sidebar draft open when prior chats exist", async () => {
     mockUseAgentBackends.mockReturnValue({
       ...discoveryReady,
       backends: multipleBackends,
@@ -334,11 +278,6 @@ describe("ChatInterface backend selection", () => {
   })
 
   it("waits for backend discovery before auto-creating a sidebar chat", () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
     mockUseAgentBackends.mockReturnValue({
       ...discoveryReady,
       backendsReady: false,
@@ -349,12 +288,7 @@ describe("ChatInterface backend selection", () => {
     expect(mockCreateChat).not.toHaveBeenCalled()
   })
 
-  it("lets a flagged sidebar choose a backend before its first message", async () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
+  it("lets a sidebar choose a backend before its first message", async () => {
     mockUseAgentBackends.mockReturnValue({
       ...discoveryReady,
       backends: multipleBackends,
@@ -377,11 +311,6 @@ describe("ChatInterface backend selection", () => {
   it.each([false, true])(
     "falls back after the selected backend disappears (selector visible: %s)",
     async (keepChoice) => {
-      mockUseFeatureFlag.mockReturnValue({
-        isFeatureEnabled: (flag) => flag === "agent-runtime",
-        isLoading: false,
-        hasFeatureData: true,
-      })
       mockUseAgentBackends.mockReturnValue({
         ...discoveryReady,
         backends: multipleBackends,
@@ -429,11 +358,6 @@ describe("ChatInterface backend selection", () => {
   it.each(["regular", "workspace-chat"] as const)(
     "blocks new sessions on discovery failure on the %s surface",
     (surface) => {
-      mockUseFeatureFlag.mockReturnValue({
-        isFeatureEnabled: (flag) => flag === "agent-runtime",
-        isLoading: false,
-        hasFeatureData: true,
-      })
       mockUseAgentBackends.mockReturnValue({
         ...discoveryReady,
         backends: [],
@@ -458,11 +382,6 @@ describe("ChatInterface backend selection", () => {
   )
 
   it("allows backend selection after discovery recovers", async () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
     mockUseAgentBackends.mockReturnValue({
       ...discoveryReady,
       backends: [],
@@ -498,11 +417,6 @@ describe("ChatInterface backend selection", () => {
   })
 
   it("keeps existing chats accessible when discovery fails", () => {
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
     mockUseAgentBackends.mockReturnValue({
       ...discoveryReady,
       backends: [],
@@ -573,11 +487,6 @@ describe("ChatInterface agent:execute gating", () => {
 
   it("holds the first message of a draft chat until agent:execute resolves", async () => {
     // A deferred chat creates its session on the first send.
-    mockUseFeatureFlag.mockReturnValue({
-      isFeatureEnabled: (flag) => flag === "agent-runtime",
-      isLoading: false,
-      hasFeatureData: true,
-    })
     mockUseAgentBackends.mockReturnValue({
       ...discoveryReady,
       backends: multipleBackends,
