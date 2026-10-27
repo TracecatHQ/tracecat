@@ -1849,3 +1849,34 @@ async def test_execute_user_mcp_reports_builtin_runner_refusal(
                 ],
             ),
         )
+
+
+@pytest.mark.anyio
+async def test_stdio_call_reads_server_and_env_in_one_session(
+    monkeypatch: pytest.MonkeyPatch,
+    stdio_runner: _FakeStdioRunner,
+) -> None:
+    """Command, tool policy and env come from one session, so an edit landing
+    mid-call can't pair the old command with the new env."""
+    sessions: list[_StdioPresetService] = []
+
+    def open_session(role: Any) -> _StdioPresetService:
+        sessions.append(_StdioPresetService(role))
+        return sessions[-1]
+
+    monkeypatch.setattr(AgentPresetService, "with_session", open_session)
+
+    await trusted_server._execute_user_mcp(
+        "files",
+        "read",
+        {"path": "a.txt"},
+        _build_claims(
+            allowed_actions=["mcp__files__read"],
+            user_mcp_servers=[
+                UserMCPServerClaim(name="files", id=_STDIO_INTEGRATION_ID)
+            ],
+        ),
+    )
+
+    assert len(sessions) == 1
+    assert stdio_runner.calls[0][1] == {"API_TOKEN": "secret"}

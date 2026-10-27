@@ -561,17 +561,17 @@ class TestProbeStdioMCPConnectionActivity:
                 stdio_env=None,
             )
 
-        assert result is expected
+        assert result == expected
         runner.list_tools.assert_awaited_once_with(server, None)
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize("fails_by", ["result", "exception"])
-    async def test_probe_redacts_env_from_runner_failures(
+    @pytest.mark.parametrize("fails_by", ["result", "success", "exception"])
+    async def test_probe_redacts_env_from_runner_diagnostics(
         self,
         mock_role: Role,
         fails_by: str,
     ) -> None:
-        """A replacement runner's failure text never carries the resolved env."""
+        """A replacement runner's diagnostics never carry the resolved env."""
         integrations_svc = MagicMock()
         integrations_svc.validate_stdio_server_config.return_value = None
         preset_svc = MagicMock()
@@ -580,10 +580,10 @@ class TestProbeStdioMCPConnectionActivity:
         preset_svc.resolve_stdio_env = AsyncMock(return_value=stdio_env)
         runner = MagicMock()
         leaked = "server rejected token super-secret-value"
-        if fails_by == "result":
+        if fails_by in ("result", "success"):
             runner.list_tools = AsyncMock(
                 return_value=StdioMCPProbeResult(
-                    success=False, message=leaked, error=leaked
+                    success=fails_by == "success", message=leaked, error=leaked
                 )
             )
         else:
@@ -605,7 +605,7 @@ class TestProbeStdioMCPConnectionActivity:
                 stdio_env=stdio_env,
             )
 
-        assert result.success is False
+        assert result.success is (fails_by == "success")
         assert "super-secret-value" not in result.model_dump_json()
         assert result.error is not None and "[redacted]" in result.error
 

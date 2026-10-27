@@ -1303,8 +1303,8 @@ async def _resolve_and_probe_stdio_config(
             error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
         )
 
-    # An installed runner sees the resolved env. Redact it from any failure
-    # before the result crosses into workflow history.
+    # An installed runner sees the resolved env. Redact it from the result's
+    # diagnostics before they cross into workflow history.
     try:
         result = await get_stdio_mcp_runner().list_tools(server, stdio_env)
     except Exception as exc:
@@ -1315,8 +1315,6 @@ async def _resolve_and_probe_stdio_config(
                 f"{type(exc).__name__}: {exc}", env=stdio_env
             ),
         )
-    if result.success:
-        return result
     return result.model_copy(
         update={
             "message": sanitize_stdio_probe_error(result.message, env=stdio_env),

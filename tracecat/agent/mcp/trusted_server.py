@@ -128,6 +128,8 @@ class _StdioMCPTarget:
     server: StdioMCPServer
     tools: dict[str, MCPToolSummary]
     """The saved tool list from the integration's last verification."""
+    env: dict[str, str] | None = None
+    """The resolved process env, credentials included. Set only for calls."""
 
     def active_tool(self, tool_name: str) -> MCPToolSummary | None:
         tool = self.tools.get(tool_name)
@@ -423,11 +425,14 @@ def _legacy_user_mcp_config(server: UserMCPServerClaim) -> MCPHttpServerConfig:
 async def _resolve_user_mcp_config(
     ref: UserMCPServerClaim,
     role: Role,
+    *,
+    resolve_stdio_env: bool = False,
 ) -> MCPHttpServerConfig | _StdioMCPTarget:
     """Resolve a user MCP claim into an executable HTTP config or stdio target.
 
-    Stdio targets carry no environment: resolve it per call with
-    :func:`_resolve_stdio_mcp_env`, since listing tools never needs it.
+    A stdio target carries its env only when ``resolve_stdio_env`` is set:
+    calls need it, listing doesn't. The env is read in the same session as
+    the command and tool policy, as HTTP headers are read with the URL.
     """
     if ref.id is None:
         # Legacy replay path: in-flight tokens minted before the refs-only
@@ -445,6 +450,11 @@ async def _resolve_user_mcp_config(
                 if role.workspace_id is None:
                     raise ToolError(f"MCP server '{ref.name}' cannot be used")
                 policies = await svc.resolve_mcp_integration_tool_policies([ref.id])
+                env = (
+                    await svc.resolve_mcp_integration_secrets(ref.id)
+                    if resolve_stdio_env
+                    else None
+                )
                 return _StdioMCPTarget(
                     server=StdioMCPServer(
                         workspace_id=role.workspace_id,
@@ -455,6 +465,7 @@ async def _resolve_user_mcp_config(
                         timeout=metadata.get("timeout"),
                     ),
                     tools=policies.get(ref.id, {}),
+                    env=env,
                 )
             if not is_http_mcp_server(metadata):
                 raise ToolError(f"User MCP server '{ref.name}' is not an HTTP server")
@@ -505,25 +516,10 @@ async def _resolve_user_mcp_config(
     return config
 
 
-async def _resolve_stdio_mcp_env(
-    target: _StdioMCPTarget, role: Role
-) -> dict[str, str] | None:
-    """Resolve a stdio server's process env, credentials included, for one call."""
-    server = target.server
-    try:
-        async with AgentPresetService.with_session(role=role) as svc:
-            return await svc.resolve_mcp_integration_secrets(server.mcp_integration_id)
-    except MCPSecretResolutionError as e:
-        raise ToolError(
-            f"Credentials for MCP server '{server.name}' could not be resolved"
-        ) from e
-
-
 async def _call_stdio_mcp_tool(
     target: _StdioMCPTarget,
     tool_name: str,
     args: dict[str, Any],
-    role: Role,
 ) -> str:
     """Call one tool on a stdio server through the installed runner."""
     server = target.server
@@ -533,9 +529,10 @@ async def _call_stdio_mcp_tool(
         raise ToolError(
             f"Tool '{tool_name}' is not available on MCP server '{server.name}'"
         )
-    env = await _resolve_stdio_mcp_env(target, role)
     try:
-        result = await get_stdio_mcp_runner().call_tool(server, env, tool_name, args)
+        result = await get_stdio_mcp_runner().call_tool(
+            server, target.env, tool_name, args
+        )
     except StdioMCPRunnerUnsupportedError as e:
         raise ToolError(str(e)) from None
     text = flatten_mcp_content_blocks(result.content)
@@ -921,9 +918,9 @@ async def _execute_user_mcp(
         raise ToolError(f"User MCP server '{server_name}' not authorized") from None
 
     try:
-        resolved = await _resolve_user_mcp_config(ref, role)
+        resolved = await _resolve_user_mcp_config(ref, role, resolve_stdio_env=True)
         if isinstance(resolved, _StdioMCPTarget):
-            result = await _call_stdio_mcp_tool(resolved, tool_name, args, role)
+            result = await _call_stdio_mcp_tool(resolved, tool_name, args)
         else:
             client = UserMCPClient([resolved])
             result = await client.call_tool(server_name, tool_name, args)
