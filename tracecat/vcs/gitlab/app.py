@@ -85,7 +85,6 @@ class GitLabTokenService(BaseOrgService):
                 "Stored GitLab token credentials are corrupted; allowing reconfiguration",
                 secret_id=str(secret.id),
                 error_type=type(e).__name__,
-                error=str(e),
             )
             return GitLabTokenSecretState.CORRUPTED, secret, None
 
