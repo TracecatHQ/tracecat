@@ -68,7 +68,6 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import {
   type ChatModelNotice,
   getModelUnavailableMessage,
@@ -136,15 +135,9 @@ export function ChatInterface({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { user } = useAuth()
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentRuntimeFlag = isFeatureEnabled("agent-runtime")
   // The server rejects non-default backends for orgs without the entitlement.
-  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements({
-    enabled: agentRuntimeFlag,
-  })
-  const backendGateLoading = featureFlagsLoading || entitlementsLoading
-  const backendSelectionEnabled =
-    agentRuntimeFlag && hasEntitlement("agent_runtime_preview")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const backendSelectionEnabled = hasEntitlement("agent_runtime_preview")
   const {
     backends,
     backendsLoading,
@@ -153,9 +146,9 @@ export function ChatInterface({
     refetchBackends,
   } = useAgentBackends(workspaceId, { enabled: backendSelectionEnabled })
   const backendSelectionLoading =
-    backendGateLoading || (backendSelectionEnabled && backendsLoading)
+    entitlementsLoading || (backendSelectionEnabled && backendsLoading)
   const backendSelectionReady =
-    !backendGateLoading && (!backendSelectionEnabled || backendsReady)
+    !entitlementsLoading && (!backendSelectionEnabled || backendsReady)
   const hasBackendChoice = backendSelectionEnabled && backends.length > 1
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
