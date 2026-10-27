@@ -10,12 +10,14 @@ import pytest
 from github import Github
 from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Secret
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.git.types import GitUrl
+from tracecat.logger import logger
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -156,6 +158,51 @@ class TestGitHubAppService:
             match="Failed to retrieve GitHub App credentials: invalid credential data",
         ):
             await github_admin_service.get_github_app_credentials()
+
+    @pytest.mark.anyio
+    async def test_invalid_stored_credentials_do_not_leak_secrets(
+        self, github_admin_service, mock_secret
+    ) -> None:
+        """Invalid decrypted credentials never reach logs or raised errors."""
+        # Short sentinels: pydantic truncates long input reprs, hiding fragments.
+        private_key = "pk-leak"
+        webhook_secret = "wh-leak"
+        # Missing app_id makes pydantic report the whole input dict.
+        key_dict = {"private_key": private_key, "webhook_secret": webhook_secret}
+
+        with pytest.raises(PydanticValidationError) as validation_exc:
+            GitHubAppCredentials.model_validate(key_dict)
+        for value in (private_key, webhook_secret):
+            assert value not in str(validation_exc.value)
+
+        records: list[str] = []
+        sink_id = logger.add(records.append, format="{message} | {extra}")
+        try:
+            with patch(
+                "tracecat.vcs.github.app.SecretsService"
+            ) as mock_secrets_service:
+                mock_service = Mock()
+                mock_service._get_github_app_org_secret = AsyncMock(
+                    return_value=mock_secret
+                )
+                mock_service.decrypt_keys.return_value = [
+                    SecretKeyValue(key=k, value=SecretStr(v))
+                    for k, v in key_dict.items()
+                ]
+                mock_secrets_service.return_value = mock_service
+
+                with pytest.raises(GitHubAppError) as exc_info:
+                    await github_admin_service.get_github_app_credentials()
+        finally:
+            logger.remove(sink_id)
+
+        log_text = "\n".join(records)
+        assert "Stored GitHub App credentials are corrupted" in log_text
+        assert "ValidationError" in log_text
+        assert "Field required" not in log_text
+        for value in (private_key, webhook_secret):
+            assert value not in log_text
+            assert value not in str(exc_info.value)
 
     @pytest.mark.anyio
     async def test_get_github_app_credentials_status_exists(

@@ -13,7 +13,7 @@ from urllib.parse import quote, unquote
 
 import httpx
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -23,6 +23,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.git.types import GitUrl
+from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.sync import PushStatus
 from tracecat.vcs.gitlab.app import GITLAB_TOKEN_SECRET_NAME, GitLabTokenService
@@ -827,6 +828,60 @@ async def test_gitlab_token_save_updates_org_secret_with_settings_scope() -> Non
     assert credentials.token.get_secret_value() == "new-token"
     assert was_created is False
     assert updated_calls[0][0] is existing_secret
+
+
+@pytest.mark.anyio
+async def test_gitlab_invalid_stored_credentials_do_not_leak_values() -> None:
+    """Invalid decrypted credentials never reach logs or validation error text."""
+    base_url = "ftp://bu-leak"
+    token = "gl-leak"
+
+    with pytest.raises(ValidationError) as validation_exc:
+        GitLabTokenCredentials.model_validate({"base_url": base_url, "token": token})
+    assert base_url not in str(validation_exc.value)
+
+    class FakeSecretsService:
+        def __init__(self, *, session: Any, role: Role) -> None:
+            del session, role
+
+        async def _get_org_secret_by_name(
+            self, secret_name: str, environment: str | None = None
+        ) -> Any:
+            del secret_name, environment
+            return SimpleNamespace(
+                id=uuid.uuid4(), encrypted_keys=b"encrypted", created_at=None
+            )
+
+        def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]:
+            del encrypted_keys
+            return [
+                SecretKeyValue(key="base_url", value=SecretStr(base_url)),
+                SecretKeyValue(key="token", value=SecretStr(token)),
+            ]
+
+    service = GitLabTokenService(
+        session=AsyncMock(),
+        role=_gitlab_settings_role("org:settings:read"),
+    )
+
+    records: list[str] = []
+    sink_id = logger.add(records.append, format="{message} | {extra}")
+    try:
+        with (
+            patch.object(service, "require_entitlement", new=AsyncMock()),
+            patch("tracecat.vcs.gitlab.app.SecretsService", FakeSecretsService),
+        ):
+            status = await service.get_gitlab_token_credentials_status()
+    finally:
+        logger.remove(sink_id)
+
+    assert status["is_corrupted"] is True
+    log_text = "\n".join(records)
+    assert "Stored GitLab token credentials are corrupted" in log_text
+    assert "ValidationError" in log_text
+    assert "GitLab base URL must start" not in log_text
+    for value in (base_url, token):
+        assert value not in log_text
 
 
 @pytest.mark.anyio
