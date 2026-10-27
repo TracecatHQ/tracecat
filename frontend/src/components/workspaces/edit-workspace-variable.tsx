@@ -27,7 +27,10 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { variableNameSchema } from "@/components/workspaces/variables-utils"
+import {
+  variableKeySchema,
+  variableNameSchema,
+} from "@/components/workspaces/variables-utils"
 import { useWorkspaceVariables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -45,7 +48,7 @@ const updateVariableFormSchema = z.object({
   environment: z.string().optional(),
   values: z.array(
     z.object({
-      key: z.string(),
+      key: variableKeySchema,
       value: z.string(),
     })
   ),

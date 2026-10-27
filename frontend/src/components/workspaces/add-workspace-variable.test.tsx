@@ -16,7 +16,7 @@ jest.mock("@/lib/hooks", () => ({
   useWorkspaceVariables: () => ({ createVariable: mockCreateVariable }),
 }))
 
-async function openDialog() {
+async function openDialog({ key = "base_url" }: { key?: string } = {}) {
   const user = userEvent.setup()
   render(
     <TooltipProvider>
@@ -26,7 +26,9 @@ async function openDialog() {
     </TooltipProvider>
   )
   await user.click(screen.getByRole("button", { name: "Open" }))
-  await user.type(screen.getByPlaceholderText("Key"), "base_url")
+  if (key) {
+    await user.type(screen.getByPlaceholderText("Key"), key)
+  }
   await user.type(screen.getByPlaceholderText("Value"), "https://example.com")
   return user
 }
@@ -71,4 +73,18 @@ test("submits a valid snake case name", async () => {
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   )
+})
+
+test("shows an inline error for an empty value key", async () => {
+  const user = await openDialog({ key: "" })
+
+  await user.type(
+    screen.getByPlaceholderText("Name (lowercase snake case)"),
+    "api_config"
+  )
+  await user.click(screen.getByRole("button", { name: /Create variable/ }))
+
+  expect(await screen.findByText("Key is required.")).toBeVisible()
+  expect(screen.getByRole("dialog")).toBeVisible()
+  expect(mockCreateVariable).not.toHaveBeenCalled()
 })

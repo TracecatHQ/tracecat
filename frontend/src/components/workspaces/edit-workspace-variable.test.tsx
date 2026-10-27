@@ -68,3 +68,14 @@ test("allows saving without changing the name", async () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   )
 })
+
+test("shows an inline error for an empty value key", async () => {
+  const user = await openDialog()
+
+  await user.clear(screen.getByPlaceholderText("Key"))
+  await user.click(screen.getByRole("button", { name: /Save/ }))
+
+  expect(await screen.findByText("Key is required.")).toBeVisible()
+  expect(screen.getByRole("dialog")).toBeVisible()
+  expect(mockUpdateVariableById).not.toHaveBeenCalled()
+})

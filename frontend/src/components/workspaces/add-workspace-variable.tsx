@@ -33,7 +33,10 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { CreateVariableTooltip } from "@/components/workspaces/create-variable-tooltip"
-import { variableNameSchema } from "@/components/workspaces/variables-utils"
+import {
+  variableKeySchema,
+  variableNameSchema,
+} from "@/components/workspaces/variables-utils"
 import { useWorkspaceVariables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -51,7 +54,7 @@ const createVariableFormSchema = z.object({
     .transform((val) => val || "default"), // "default" if null or empty
   values: z.array(
     z.object({
-      key: z.string(),
+      key: variableKeySchema,
       value: z.string(),
     })
   ),
@@ -192,47 +195,56 @@ export function NewVariableDialog({
                     <FormLabel className="text-sm">Values</FormLabel>
                     <div className="flex flex-col space-y-2">
                       {fields.map((field, index) => {
+                        const keyError =
+                          methods.formState.errors.values?.[index]?.key?.message
                         return (
                           <div
                             key={`${field.id}.${index}`}
-                            className="flex w-full items-center gap-2"
+                            className="flex flex-col gap-1"
                           >
-                            <FormControl>
-                              <Input
-                                id={`key-${index}`}
-                                className="text-sm"
-                                {...register(
-                                  `${inputKey}.${index}.key` as const,
-                                  {
-                                    required: true,
-                                  }
-                                )}
-                                placeholder="Key"
-                              />
-                            </FormControl>
-                            <FormControl>
-                              <Input
-                                id={`value-${index}`}
-                                className="text-sm"
-                                {...register(
-                                  `${inputKey}.${index}.value` as const,
-                                  {
-                                    required: true,
-                                  }
-                                )}
-                                placeholder="Value"
-                                type="text"
-                              />
-                            </FormControl>
+                            <div className="flex w-full items-center gap-2">
+                              <FormControl>
+                                <Input
+                                  id={`key-${index}`}
+                                  className="text-sm"
+                                  {...register(
+                                    `${inputKey}.${index}.key` as const,
+                                    {
+                                      required: true,
+                                    }
+                                  )}
+                                  placeholder="Key"
+                                />
+                              </FormControl>
+                              <FormControl>
+                                <Input
+                                  id={`value-${index}`}
+                                  className="text-sm"
+                                  {...register(
+                                    `${inputKey}.${index}.value` as const,
+                                    {
+                                      required: true,
+                                    }
+                                  )}
+                                  placeholder="Value"
+                                  type="text"
+                                />
+                              </FormControl>
 
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => remove(index)}
-                              disabled={fields.length === 1}
-                            >
-                              <Trash2Icon className="size-3.5" />
-                            </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => remove(index)}
+                                disabled={fields.length === 1}
+                              >
+                                <Trash2Icon className="size-3.5" />
+                              </Button>
+                            </div>
+                            {keyError && (
+                              <p className="text-[0.8rem] font-medium text-destructive">
+                                {keyError}
+                              </p>
+                            )}
                           </div>
                         )
                       })}

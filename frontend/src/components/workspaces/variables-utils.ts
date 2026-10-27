@@ -56,3 +56,10 @@ export function buildVariableGroups(
     })
     .sort((a, b) => a.name.localeCompare(b.name))
 }
+
+/** Zod schema for a variable value key accepted by the backend. */
+export const variableKeySchema = z
+  .string()
+  .min(1, "Key is required.")
+  .max(255, "Key must be 255 characters or fewer.")
+  .regex(/[A-Za-z0-9_]/, "Key must contain a letter, number, or underscore.")
