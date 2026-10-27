@@ -164,8 +164,9 @@ class TestGitHubAppService:
         self, github_admin_service, mock_secret
     ) -> None:
         """Invalid decrypted credentials never reach logs or raised errors."""
-        private_key = "synthetic-private-key-value"
-        webhook_secret = "synthetic-webhook-secret-value"
+        # Short sentinels: pydantic truncates long input reprs, hiding fragments.
+        private_key = "pk-leak"
+        webhook_secret = "wh-leak"
         # Missing app_id makes pydantic report the whole input dict.
         key_dict = {"private_key": private_key, "webhook_secret": webhook_secret}
 
@@ -198,6 +199,7 @@ class TestGitHubAppService:
         log_text = "\n".join(records)
         assert "Stored GitHub App credentials are corrupted" in log_text
         assert "ValidationError" in log_text
+        assert "Field required" not in log_text
         for value in (private_key, webhook_secret):
             assert value not in log_text
             assert value not in str(exc_info.value)
