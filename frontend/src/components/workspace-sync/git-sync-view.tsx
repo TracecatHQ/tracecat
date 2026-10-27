@@ -17,12 +17,13 @@ import { GitSyncConnectionPanel } from "@/components/workspace-sync/git-sync-con
 import { GitSyncPullTab } from "@/components/workspace-sync/git-sync-pull"
 import { GitSyncPushTab } from "@/components/workspace-sync/git-sync-push"
 import { GitSyncRepoStatus } from "@/components/workspace-sync/git-sync-repo-status"
+import { SyncOperationHistory } from "@/components/workspace-sync/sync-operation-history"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
 } from "@/hooks/use-workspace-sync"
 import { getRepoDisplayName } from "@/lib/git"
-import { useQueryClient } from "@/lib/query"
+import { useQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 type SyncDirection = "push" | "pull"
@@ -59,6 +60,7 @@ export function GitSyncView({
         ) : (
           <GitSyncConnectionEmptyState />
         )}
+        {canSync && <SyncOperationHistory workspaceId={workspace.id} />}
       </div>
     )
   }
@@ -87,7 +89,13 @@ function GitSyncConnectedView({
   const queryClient = useQueryClient()
   const [direction, setDirection] = useState<SyncDirection>("push")
   const [showConnection, setShowConnection] = useState(false)
-  const [pullCount, setPullCount] = useState(0)
+  const [localPullRevision, setLocalPullRevision] = useState(0)
+  const { data: previewRevision } = useQuery({
+    queryKey: ["workspace-sync-preview-revision", workspaceId],
+    queryFn: () => 0,
+    initialData: 0,
+    enabled: false,
+  })
 
   const { branches, branchesIsLoading, branchesError } = useRepositoryBranches(
     workspaceId,
@@ -192,7 +200,7 @@ function GitSyncConnectedView({
             baseBranch={baseBranch}
             branchesIsLoading={branchesIsLoading}
             branchesError={branchesError}
-            pullCount={pullCount}
+            syncRevision={localPullRevision + previewRevision}
           />
         </TabsContent>
         <TabsContent
@@ -211,10 +219,11 @@ function GitSyncConnectedView({
             commitsIsLoading={commitsIsLoading}
             commitsError={commitsError}
             isActive={direction === "pull" && !showConnection}
-            onPulled={() => setPullCount((count) => count + 1)}
+            onPulled={() => setLocalPullRevision((count) => count + 1)}
           />
         </TabsContent>
       </div>
+      <SyncOperationHistory workspaceId={workspaceId} />
     </Tabs>
   )
 }
