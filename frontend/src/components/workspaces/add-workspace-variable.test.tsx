@@ -85,6 +85,7 @@ test("shows an inline error for an empty value key", async () => {
   await user.click(screen.getByRole("button", { name: /Create variable/ }))
 
   expect(await screen.findByText("Key is required.")).toBeVisible()
+  expect(screen.queryByText("undefined")).not.toBeInTheDocument()
   expect(screen.getByRole("dialog")).toBeVisible()
   expect(mockCreateVariable).not.toHaveBeenCalled()
 })
