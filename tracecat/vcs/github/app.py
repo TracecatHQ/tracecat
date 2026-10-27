@@ -208,7 +208,6 @@ class GitHubAppService(BaseOrgService):
                 "Stored GitHub App credentials are corrupted; allowing reconfiguration",
                 secret_id=str(secret.id),
                 error_type=type(e).__name__,
-                error=str(e),
             )
             return GitHubAppSecretState.CORRUPTED, secret, None
 
