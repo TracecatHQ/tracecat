@@ -18,6 +18,7 @@ _FALSE_BY_DEFAULT = {
     "semantic_search": False,
     "forms": False,
     "tunnels": False,
+    "agent_runtime_preview": False,
 }
 
 
@@ -63,6 +64,13 @@ def test_resolve_oss_default_entitlements_maps_forms_flag() -> None:
     assert entitlements.semantic_search is False
 
 
+def test_resolve_oss_default_entitlements_maps_agent_runtime_flag() -> None:
+    entitlements = resolve_oss_default_entitlements("git-sync, AGENT_RUNTIME")
+
+    assert entitlements.agent_runtime_preview is True
+    assert entitlements.agent_addons is False
+
+
 def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> None:
     entitlements = resolve_oss_default_entitlements(
         " GIT_SYNC , unknown-flag , CASE_TRIGGERS "
@@ -80,6 +88,7 @@ def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> No
     assert entitlements.semantic_search is False
     assert entitlements.forms is False
     assert entitlements.tunnels is False
+    assert entitlements.agent_runtime_preview is False
 
 
 def test_get_legacy_feature_flags_env_reads_tracecat_feature_flags(

@@ -4991,6 +4991,10 @@ export type EffectiveEntitlements = {
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
+  /**
+   * Whether new agent sessions may use installed agent backends other than the built-in one
+   */
+  agent_runtime_preview?: boolean
 }
 
 /**
@@ -5124,6 +5128,10 @@ export type EntitlementsDict = {
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
+  /**
+   * Whether new agent sessions may use installed agent backends other than the built-in one
+   */
+  agent_runtime_preview?: boolean
 }
 
 export type ErrorModel = {
@@ -22528,7 +22536,7 @@ export type $OpenApiTs = {
          */
         200: AgentSessionRead
         /**
-         * Workspace Chat entitlement or parent session write access required
+         * Workspace Chat or agent backend entitlement, or parent session write access required
          */
         403: unknown
         /**

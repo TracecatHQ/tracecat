@@ -80,6 +80,16 @@ def clean_backend_registry() -> Iterator[None]:
     registry.get_agent_backends.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def entitled_to_non_default_backends() -> Iterator[None]:
+    # The entitlement gate has its own tests in test_agent_backend_entitlement.
+    with patch(
+        "tracecat.agent.backends.access.is_org_entitled",
+        AsyncMock(return_value=True),
+    ):
+        yield
+
+
 def entry(name: str, factory: object) -> SimpleNamespace:
     return SimpleNamespace(name=name, load=Mock(return_value=factory))
 

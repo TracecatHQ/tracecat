@@ -16771,6 +16771,13 @@ export const $EffectiveEntitlements = {
         "Whether workspaces may route actions through private network tunnels such as Pangolin",
       default: false,
     },
+    agent_runtime_preview: {
+      type: "boolean",
+      title: "Agent runtime preview",
+      description:
+        "Whether new agent sessions may use installed agent backends other than the built-in one",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -17011,6 +17018,12 @@ export const $EntitlementsDict = {
       title: "Tunnels",
       description:
         "Whether workspaces may route actions through private network tunnels such as Pangolin",
+    },
+    agent_runtime_preview: {
+      type: "boolean",
+      title: "Agent runtime preview",
+      description:
+        "Whether new agent sessions may use installed agent backends other than the built-in one",
     },
   },
   type: "object",

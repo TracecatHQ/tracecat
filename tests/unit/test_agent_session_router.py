@@ -39,6 +39,7 @@ from tracecat.agent.session.router import (
     fork_session,
     get_session,
     get_session_vercel,
+    list_agent_backends,
     list_sessions,
     remove_session_artifact,
     router,
@@ -1501,6 +1502,10 @@ async def test_create_session_rejects_unavailable_backend_with_bad_request(
             return_value={} if backend_state == "missing" else {"external": provider},
         ),
         patch.object(provider, "is_enabled", return_value=False),
+        patch(
+            "tracecat.agent.backends.access.is_org_entitled",
+            AsyncMock(return_value=True),
+        ),
         pytest.raises(HTTPException) as exc_info,
     ):
         await cast(Any, create_session).__wrapped__(
@@ -1519,22 +1524,28 @@ async def test_create_session_rejects_unavailable_backend_with_bad_request(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("entity_type", "backend_id", "expected"),
+    ("entity_type", "backend_id", "entitled", "expected"),
     [
         # Chats without a choice take the configured backend.
-        (AgentSessionEntity.WORKSPACE_CHAT, None, "external"),
-        (AgentSessionEntity.AGENT_PRESET, None, "external"),
-        (AgentSessionEntity.CASE, None, "external"),
+        (AgentSessionEntity.WORKSPACE_CHAT, None, True, "external"),
+        (AgentSessionEntity.AGENT_PRESET, None, True, "external"),
+        (AgentSessionEntity.CASE, None, True, "external"),
+        # Orgs that cannot use the configured backend keep the built-in one.
+        (AgentSessionEntity.WORKSPACE_CHAT, None, False, "oss"),
+        (AgentSessionEntity.CASE, None, False, "oss"),
         # An explicit choice wins over the configured backend.
-        (AgentSessionEntity.AGENT_PRESET, "oss", "oss"),
+        (AgentSessionEntity.AGENT_PRESET, "oss", True, "oss"),
         # Surfaces that need the built-in workflow keep it.
-        (AgentSessionEntity.AGENT_PRESET_BUILDER, None, "oss"),
-        (AgentSessionEntity.EXTERNAL_CHANNEL, None, "oss"),
-        (AgentSessionEntity.WORKFLOW, None, "oss"),
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, None, True, "oss"),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, None, True, "oss"),
+        (AgentSessionEntity.WORKFLOW, None, True, "oss"),
     ],
 )
 async def test_create_session_applies_configured_chat_backend(
-    entity_type: AgentSessionEntity, backend_id: str | None, expected: str
+    entity_type: AgentSessionEntity,
+    backend_id: str | None,
+    entitled: bool,
+    expected: str,
 ) -> None:
     session_stub = _agent_session_stub(backend_id=expected)
     fake_svc = SimpleNamespace(create_session=AsyncMock(return_value=session_stub))
@@ -1555,6 +1566,10 @@ async def test_create_session_applies_configured_chat_backend(
             "tracecat.agent.session.router.config.TRACECAT__AGENT_CHAT_BACKEND",
             "external",
         ),
+        patch(
+            "tracecat.agent.backends.access.is_org_entitled",
+            AsyncMock(return_value=entitled),
+        ),
     ):
         await cast(Any, create_session).__wrapped__(
             request=request,
@@ -1563,6 +1578,29 @@ async def test_create_session_applies_configured_chat_backend(
         )
     sent = fake_svc.create_session.await_args.args[0]
     assert sent.backend_id == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entitled", "expected"), [(False, ["oss"]), (True, ["oss", "external"])]
+)
+async def test_list_agent_backends_hides_non_default_without_entitlement(
+    entitled: bool, expected: list[str]
+) -> None:
+    with (
+        patch(
+            "tracecat.agent.session.router.get_agent_backends",
+            return_value={"oss": DefaultBackend(), "external": DefaultBackend()},
+        ),
+        patch(
+            "tracecat.agent.backends.access.is_org_entitled",
+            AsyncMock(return_value=entitled),
+        ),
+    ):
+        backends = await cast(Any, list_agent_backends).__wrapped__(
+            role=_read_role(uuid.uuid4()), session=AsyncMock()
+        )
+    assert [backend.id for backend in backends] == expected
 
 
 @pytest.mark.anyio

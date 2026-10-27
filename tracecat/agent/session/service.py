@@ -41,6 +41,7 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
+from tracecat.agent.backends.access import require_backend_entitlement
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
     find_agent_backend,
@@ -542,7 +543,14 @@ class AgentSessionService(BaseWorkspaceService):
 
         Returns:
             The created AgentSession model.
+
+        Raises:
+            EntitlementRequired: If the backend needs an entitlement the
+                organization lacks.
         """
+        await require_backend_entitlement(
+            self.session, self.organization_id, args.backend_id
+        )
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
         if args.spawned_by_session_id is not None:
             if await self.get_session(args.spawned_by_session_id) is None:
@@ -3705,6 +3713,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         Raises:
             TracecatNotFoundError: If the parent session is not found.
+            EntitlementRequired: If the source session's backend needs an
+                entitlement the organization lacks.
         """
         history_boundary = (
             select(func.max(AgentSessionHistory.surrogate_id))
@@ -3733,6 +3743,9 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
 
+        await require_backend_entitlement(
+            self.session, self.organization_id, source.backend_id
+        )
         backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 
         # Forked sessions are read-only "reviewer" sessions.
