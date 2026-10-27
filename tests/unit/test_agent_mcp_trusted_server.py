@@ -1898,3 +1898,27 @@ async def test_stdio_call_runs_only_what_one_row_read_holds(
         ("-y", "edited-server"),
         {"API_TOKEN": "edited-secret"},
     )
+
+
+def test_stdio_env_never_appears_in_repr() -> None:
+    """Credentials held for a call stay out of reprs, and so out of logs."""
+    env = {"API_TOKEN": "repr-secret"}
+    snapshot = StdioMCPIntegrationSnapshot(
+        config={"type": "stdio", "name": "files", "command": "npx"},
+        tools={},
+        env=env,
+    )
+    target = trusted_server._StdioMCPTarget(
+        server=StdioMCPServer(
+            workspace_id=_STDIO_WORKSPACE_ID,
+            mcp_integration_id=_STDIO_INTEGRATION_ID,
+            name="files",
+            command="npx",
+        ),
+        tools={},
+        env=env,
+    )
+
+    assert "repr-secret" not in repr(snapshot)
+    assert "repr-secret" not in repr(target)
+    assert target.env == env

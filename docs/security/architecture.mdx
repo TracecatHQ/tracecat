@@ -9,7 +9,7 @@ Tracecat's security design rests on seven control areas:
 - Identity: SSO, SCIM provisioning, security key and passkey MFA, role-based access control at organization and workspace level, and per-organization IP allowlists.
 - Data security: row-level tenant isolation, encrypted credentials, and encrypted workflow payloads.
 - AI agent security: default-deny tool policy, durable human approval, and token budgets.
-- Sandboxed execution: nsjail isolation for custom Python, agent-generated code, and local MCP servers.
+- Sandboxed execution: nsjail isolation for custom Python, agent-generated code, and local MCP servers run by the built-in runner.
 - Auditability: platform and organization audit webhooks, agent telemetry, and workspace MCP access records.
 - Change management: roll back custom integrations to any commit, and review and revert workspace configuration — workflows, agents, skills, tables, and case fields — in your own Git repository.
 - Dependencies: lockfile-pinned core registry dependencies, per-commit builds of custom registry dependencies, and sandboxed execution for both.
@@ -436,6 +436,8 @@ A third-party MCP server is untrusted code with a tool description attached. Whe
 Remote MCP servers run outside the agent sandbox, and the trusted proxy authenticates each call and returns the result. `stdio` MCP servers run as child processes inside the agent sandbox and inherit its filesystem, network, time, resource, and identity boundaries.
 
 Local MCP is a containment boundary, not a policy boundary. Agent-generated code inside the sandbox can invoke a local server's executable directly. Use remote HTTP MCP when you need the trusted proxy to recheck every call.
+
+The nsjail boundary above applies to the built-in `stdio` MCP runner. A deployment can install a replacement runner, which then probes and runs local MCP servers for every workspace instead of nsjail. The replacement runner's own isolation decides what those servers can reach, so review it as you would the executor.
 
 <Info>
   **`stdio` MCP limitations**

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, NamedTuple
 
 from tracecat.agent.skill.types import SkillMcpGrant
@@ -20,7 +20,7 @@ class StdioMCPIntegrationSnapshot:
 
     config: MCPStdioServerConfig
     tools: dict[str, MCPToolSummary]
-    env: dict[str, str] | None
+    env: dict[str, str] | None = field(repr=False)
     """Resolved process env, credentials included; None when not requested."""
 
 

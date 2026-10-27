@@ -20,7 +20,7 @@ import time
 import uuid
 from collections import OrderedDict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from fastmcp import FastMCP
@@ -128,7 +128,7 @@ class _StdioMCPTarget:
     server: StdioMCPServer
     tools: dict[str, MCPToolSummary]
     """The saved tool list from the integration's last verification."""
-    env: dict[str, str] | None = None
+    env: dict[str, str] | None = field(default=None, repr=False)
     """The resolved process env, credentials included. Set only for calls."""
 
     def active_tool(self, tool_name: str) -> MCPToolSummary | None:
