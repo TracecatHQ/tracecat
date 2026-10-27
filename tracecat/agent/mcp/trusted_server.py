@@ -431,8 +431,8 @@ async def _resolve_user_mcp_config(
     """Resolve a user MCP claim into an executable HTTP config or stdio target.
 
     A stdio target carries its env only when ``resolve_stdio_env`` is set:
-    calls need it, listing doesn't. The env is read in the same session as
-    the command and tool policy, as HTTP headers are read with the URL.
+    calls need it, listing doesn't. Its command, tool policy and env come
+    from one row read.
     """
     if ref.id is None:
         # Legacy replay path: in-flight tokens minted before the refs-only
@@ -447,25 +447,24 @@ async def _resolve_user_mcp_config(
                 raise ToolError(f"MCP integration {ref.id} not found")
             metadata = refs[0]
             if is_stdio_mcp_server(metadata):
-                if role.workspace_id is None:
-                    raise ToolError(f"MCP server '{ref.name}' cannot be used")
-                policies = await svc.resolve_mcp_integration_tool_policies([ref.id])
-                env = (
-                    await svc.resolve_mcp_integration_secrets(ref.id)
-                    if resolve_stdio_env
-                    else None
+                # Run only what the snapshot holds: one row read gives the
+                # command, tool policy and env together.
+                snapshot = await svc.resolve_stdio_mcp_integration(
+                    ref.id, resolve_env=resolve_stdio_env
                 )
+                if snapshot is None or role.workspace_id is None:
+                    raise ToolError(f"MCP integration {ref.id} not found")
                 return _StdioMCPTarget(
                     server=StdioMCPServer(
                         workspace_id=role.workspace_id,
                         mcp_integration_id=ref.id,
                         name=ref.name,
-                        command=metadata["command"],
-                        args=tuple(metadata.get("args") or ()),
-                        timeout=metadata.get("timeout"),
+                        command=snapshot.config["command"],
+                        args=tuple(snapshot.config.get("args") or ()),
+                        timeout=snapshot.config.get("timeout"),
                     ),
-                    tools=policies.get(ref.id, {}),
-                    env=env,
+                    tools=snapshot.tools,
+                    env=snapshot.env,
                 )
             if not is_http_mcp_server(metadata):
                 raise ToolError(f"User MCP server '{ref.name}' is not an HTTP server")

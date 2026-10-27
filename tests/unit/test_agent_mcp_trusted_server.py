@@ -21,6 +21,7 @@ from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
 from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.types import StdioMCPIntegrationSnapshot
 from tracecat.agent.tokens import (
     MCPTokenClaims,
     UserMCPServerClaim,
@@ -1642,24 +1643,28 @@ class _StdioPresetService:
             }
         ]
 
-    async def resolve_mcp_integration_tool_policies(
-        self, integration_ids: list[uuid.UUID]
-    ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
-        assert all(self._owns_row(i) for i in integration_ids)
-        return {
-            _STDIO_INTEGRATION_ID: {
+    async def resolve_stdio_mcp_integration(
+        self, integration_id: uuid.UUID, *, resolve_env: bool
+    ) -> StdioMCPIntegrationSnapshot | None:
+        if not self._owns_row(integration_id):
+            return None
+        return StdioMCPIntegrationSnapshot(
+            config={
+                "type": "stdio",
+                "name": "files",
+                "command": "npx",
+                "args": ["-y", "example-files-server"],
+                "timeout": 30,
+                "id": str(_STDIO_INTEGRATION_ID),
+            },
+            tools={
                 "read": MCPToolSummary(
                     name="read", description="Read", input_schema=_STDIO_READ_SCHEMA
                 ),
                 "delete": MCPToolSummary(name="delete", enabled=False),
-            }
-        }
-
-    async def resolve_mcp_integration_secrets(
-        self, integration_id: uuid.UUID
-    ) -> dict[str, str]:
-        assert self._owns_row(integration_id)
-        return {"API_TOKEN": "secret"}
+            },
+            env={"API_TOKEN": "secret"} if resolve_env else None,
+        )
 
 
 class _FakeStdioRunner:
@@ -1852,19 +1857,29 @@ async def test_execute_user_mcp_reports_builtin_runner_refusal(
 
 
 @pytest.mark.anyio
-async def test_stdio_call_reads_server_and_env_in_one_session(
+async def test_stdio_call_runs_only_what_one_row_read_holds(
     monkeypatch: pytest.MonkeyPatch,
     stdio_runner: _FakeStdioRunner,
 ) -> None:
-    """Command, tool policy and env come from one session, so an edit landing
-    mid-call can't pair the old command with the new env."""
-    sessions: list[_StdioPresetService] = []
+    """An edit landing after the type check can't pair the old command with
+    the new env: command, policy and env all come from one row snapshot."""
 
-    def open_session(role: Any) -> _StdioPresetService:
-        sessions.append(_StdioPresetService(role))
-        return sessions[-1]
+    class _EditedMidCall(_StdioPresetService):
+        async def resolve_stdio_mcp_integration(
+            self, integration_id: uuid.UUID, *, resolve_env: bool
+        ) -> StdioMCPIntegrationSnapshot | None:
+            snapshot = await super().resolve_stdio_mcp_integration(
+                integration_id, resolve_env=resolve_env
+            )
+            assert snapshot is not None
+            config = {**snapshot.config, "args": ["-y", "edited-server"]}
+            return StdioMCPIntegrationSnapshot(
+                config=cast(Any, config),
+                tools=snapshot.tools,
+                env={"API_TOKEN": "edited-secret"},
+            )
 
-    monkeypatch.setattr(AgentPresetService, "with_session", open_session)
+    monkeypatch.setattr(AgentPresetService, "with_session", _EditedMidCall)
 
     await trusted_server._execute_user_mcp(
         "files",
@@ -1878,5 +1893,8 @@ async def test_stdio_call_reads_server_and_env_in_one_session(
         ),
     )
 
-    assert len(sessions) == 1
-    assert stdio_runner.calls[0][1] == {"API_TOKEN": "secret"}
+    server, env, _tool, _args = stdio_runner.calls[0]
+    assert (server.args, env) == (
+        ("-y", "edited-server"),
+        {"API_TOKEN": "edited-secret"},
+    )

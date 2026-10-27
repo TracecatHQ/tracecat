@@ -5,9 +5,23 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from tracecat.agent.skill.types import SkillMcpGrant
+
+if TYPE_CHECKING:
+    from tracecat.agent.common.types import MCPStdioServerConfig
+    from tracecat.integrations.schemas import MCPToolSummary
+
+
+@dataclass(frozen=True, slots=True)
+class StdioMCPIntegrationSnapshot:
+    """A stdio integration's config, tool policy and env from one row read."""
+
+    config: MCPStdioServerConfig
+    tools: dict[str, MCPToolSummary]
+    env: dict[str, str] | None
+    """Resolved process env, credentials included; None when not requested."""
 
 
 class SkillBindingSpec(NamedTuple):

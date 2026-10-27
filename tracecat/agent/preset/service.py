@@ -26,6 +26,7 @@ from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPServerToolSummary,
     MCPStdioServerConfig,
+    is_stdio_mcp_server,
 )
 from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.preset.resolver import resolve_agents_config
@@ -59,6 +60,7 @@ from tracecat.agent.preset.types import (
     EffectivePresetTools,
     PresetToolInputs,
     SkillBindingSpec,
+    StdioMCPIntegrationSnapshot,
 )
 from tracecat.agent.skill.bindings import (
     SkillBindingService,
@@ -1744,6 +1746,55 @@ class AgentPresetService(BaseWorkspaceService):
                 ) from e
             return None
         return server_config.get("headers", {})
+
+    async def resolve_stdio_mcp_integration(
+        self, mcp_integration_id: uuid.UUID, *, resolve_env: bool
+    ) -> StdioMCPIntegrationSnapshot | None:
+        """Load one stdio integration and derive its config, policy and env.
+
+        Everything comes from a single read of the workspace-scoped row, so a
+        concurrent edit can't pair the old command with the new env. Returns
+        ``None`` when the row is missing or isn't a stdio server.
+
+        Raises:
+            TracecatValidationError: If the saved command fails validation.
+            MCPSecretResolutionError: If ``resolve_env`` is set and the env
+                cannot be resolved.
+        """
+        integrations_service = IntegrationService(self.session, role=self.role)
+        integration = await integrations_service.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if integration is None or integration.server_type != "stdio":
+            return None
+        refs = self._mcp_integration_refs(
+            [str(mcp_integration_id)], {mcp_integration_id: integration}
+        )
+        config = refs[0]
+        if not is_stdio_mcp_server(config):
+            return None
+        env: dict[str, str] | None = None
+        if resolve_env and (
+            stdio_env := integrations_service.decrypt_stdio_env(integration)
+        ):
+            try:
+                env = await self.resolve_stdio_env(
+                    stdio_env=stdio_env,
+                    mcp_integration_id=integration.id,
+                    mcp_integration_slug=integration.slug,
+                )
+            except Exception as e:
+                raise MCPSecretResolutionError(
+                    "Stdio MCP integration env could not be resolved",
+                    mcp_integration_id=integration.id,
+                    server_name=integration.name,
+                    server_slug=integration.slug,
+                ) from e
+        return StdioMCPIntegrationSnapshot(
+            config=config,
+            tools=self._mcp_tool_policies([integration]).get(integration.id, {}),
+            env=env,
+        )
 
     async def resolve_stdio_env(
         self,

@@ -7874,6 +7874,50 @@ class TestMCPConnectionVerification:
         assert isinstance(exc_info.value.__cause__, MCPConfigurationError)
         assert exc_info.value.__cause__.__cause__ is busy_error
 
+    async def test_resolve_stdio_mcp_integration_reads_one_row(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Config, tool policy and env all come from the saved stdio row."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Snapshot Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+                stdio_env={"EXAMPLE_TOKEN": "token"},
+            )
+        )
+        await integration_service.persist_mcp_integration_tools(
+            mcp_integration_id=mcp_integration.id,
+            discovered_tools=[
+                MCPToolSummary(name="read", input_schema={"type": "object"})
+            ],
+        )
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+
+        without_env = await preset_service.resolve_stdio_mcp_integration(
+            mcp_integration.id, resolve_env=False
+        )
+        with_env = await preset_service.resolve_stdio_mcp_integration(
+            mcp_integration.id, resolve_env=True
+        )
+
+        assert without_env is not None and with_env is not None
+        assert with_env.config["command"] == "npx"
+        assert with_env.config.get("args") == ["@example/server"]
+        assert with_env.tools["read"].input_schema == {"type": "object"}
+        assert without_env.env is None
+        assert with_env.env == {"EXAMPLE_TOKEN": "token"}
+        assert (
+            await preset_service.resolve_stdio_mcp_integration(
+                uuid.uuid4(), resolve_env=True
+            )
+            is None
+        )
+
     async def test_resolve_http_config_errors(
         self,
         integration_service: IntegrationService,
