@@ -40,8 +40,15 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
         context.fork.work_dir_snapshot = copy.deepcopy(context.parent.work_dir_snapshot)
 
     def parse_turn_result(self, result: object) -> TurnResult:
-        """Read the output; a failed turn raises in the workflow instead."""
-        return TurnResult(output=AgentOutput.model_validate(result).output)
+        """Read the output; a failed turn raises in the workflow instead.
+
+        A cancelled turn returns normally with no output, so a missing output
+        is reported as an error rather than an empty success.
+        """
+        output = AgentOutput.model_validate(result).output
+        if output is None:
+            return TurnResult(output=None, error="Agent turn ended without output")
+        return TurnResult(output=output)
 
     async def build_workflow_args(
         self, context: SessionWorkflowContext

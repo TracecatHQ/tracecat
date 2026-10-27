@@ -272,6 +272,14 @@ def test_builtin_backend_reads_the_output_of_a_decoded_turn_result():
         provider.parse_turn_result({"output": "missing duration and session"})
 
 
+def test_builtin_backend_reports_a_cancelled_turn_as_an_error():
+    # A cancelled built-in turn returns normally with output=None.
+    decoded = {"output": None, "duration": 0.2, "session_id": str(uuid4())}
+    result = DefaultBackend().parse_turn_result(decoded)
+    assert result.output is None
+    assert result.error == "Agent turn ended without output"
+
+
 @pytest.mark.parametrize("method", ["run", "set_approvals", "request_cancel"])
 @pytest.mark.parametrize("missing", [False, True])
 def test_discovery_rejects_missing_or_noncallable_workflow_methods(
