@@ -2,11 +2,14 @@
 
 import os
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import orjson
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import LargeBinary, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -22,6 +25,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.rls import set_rls_context
+from tracecat.secrets import reencrypt
 from tracecat.secrets.encryption import decrypt_token, encrypt_value, is_current
 from tracecat.secrets.reencrypt import (
     ENCRYPTED_COLUMNS,
@@ -442,3 +446,37 @@ async def test_dry_run_leaves_callers_transaction_uncommitted(
         )
         is None
     )
+
+
+def test_cli_database_error_reports_type_without_ciphertext(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], new_key
+) -> None:
+    """A database failure exits nonzero without echoing statement parameters."""
+    old_ciphertext = "tc1:0000000000000000:old-ciphertext-synthetic"
+    new_ciphertext = "tc1:0000000000000000:new-ciphertext-synthetic"
+
+    @asynccontextmanager
+    async def fake_session() -> AsyncIterator[None]:
+        yield None
+
+    async def failing_reencrypt(*_args: object, **_kwargs: object) -> None:
+        raise OperationalError(
+            f"UPDATE secret SET encrypted_keys='{new_ciphertext}'",
+            {"old": old_ciphertext, "new": new_ciphertext},
+            ConnectionError(f"connection lost while writing {new_ciphertext}"),
+        )
+
+    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", new_key)
+    monkeypatch.setattr(
+        reencrypt, "get_async_session_bypass_rls_context_manager", fake_session
+    )
+    monkeypatch.setattr(reencrypt, "reencrypt_database", failing_reencrypt)
+
+    assert reencrypt.main([]) == 1
+
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "database error (OperationalError)" in captured.err
+    assert old_ciphertext not in output
+    assert new_ciphertext not in output
+    assert "ciphertext-synthetic" not in output

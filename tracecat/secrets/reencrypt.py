@@ -22,6 +22,7 @@ from typing import Any, Final
 
 from cryptography.fernet import InvalidToken
 from sqlalchemy import ColumnElement, or_, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -302,8 +303,8 @@ async def _run_cli(args: argparse.Namespace) -> int:
         f"under key id {key_id(key)}"
         f"{' (dry run)' if args.dry_run else ''}"
     )
-    async with get_async_session_bypass_rls_context_manager() as session:
-        try:
+    try:
+        async with get_async_session_bypass_rls_context_manager() as session:
             reports = await reencrypt_database(
                 session,
                 key=key,
@@ -311,15 +312,24 @@ async def _run_cli(args: argparse.Namespace) -> int:
                 skip_undecryptable=args.skip_undecryptable,
                 batch_size=args.batch_size,
             )
-        except UndecryptableValuesError as e:
-            _print_reports(e.reports, dry_run=True)
-            print(
-                "Aborted: some values could not be decrypted with the configured "
-                "keys. Add the missing key to TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS, "
-                "or pass --skip-undecryptable to leave those values as they are.",
-                file=sys.stderr,
-            )
-            return 1
+    except UndecryptableValuesError as e:
+        _print_reports(e.reports, dry_run=True)
+        print(
+            "Aborted: some values could not be decrypted with the configured "
+            "keys. Add the missing key to TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS, "
+            "or pass --skip-undecryptable to leave those values as they are.",
+            file=sys.stderr,
+        )
+        return 1
+    except SQLAlchemyError as e:
+        # Database errors carry the statement's bound parameters, which here are
+        # ciphertext. Report the error type only, never its message.
+        print(
+            f"Aborted: database error ({type(e).__name__}). Committed batches are "
+            "kept; run the command again to resume.",
+            file=sys.stderr,
+        )
+        return 1
     _print_reports(reports, dry_run=args.dry_run)
     return 0
 
