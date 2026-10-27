@@ -41,6 +41,7 @@ from tracecat.agent.backends.types import (
     SessionForkContext,
     SessionTurnContext,
     SessionWorkflowContext,
+    TurnResult,
     WithdrawResult,
 )
 from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
@@ -206,6 +207,8 @@ def test_discovery_rejects_missing_required_attributes(missing: str):
         ("steering", 1),
         ("withdrawing", "yes"),
         ("withdrawing", 1),
+        ("caller_owned_turns", "yes"),
+        ("caller_owned_turns", 1),
         ("workflow", None),
         ("workflow", object()),
     ],
@@ -222,6 +225,51 @@ def test_discovery_rejects_malformed_required_attributes(field: str, value: obje
         pytest.raises((TypeError, ValueError), match=f"external: {field}"),
     ):
         registry.get_agent_backends()
+
+
+def test_caller_owned_turns_require_a_turn_result_parser():
+    class NoParserBackend(DefaultBackend):
+        pass
+
+    # Reset to the base method, as an installed backend that sets only the flag.
+    NoParserBackend.parse_turn_result = AgentBackend.parse_turn_result
+    with (
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", NoParserBackend)]
+        ),
+        pytest.raises(TypeError, match="external: caller_owned_turns requires"),
+    ):
+        registry.get_agent_backends()
+
+
+def test_backends_do_not_parse_turn_results_unless_they_opt_in():
+    class OptedOutBackend(DefaultBackend):
+        caller_owned_turns = False
+
+    OptedOutBackend.parse_turn_result = AgentBackend.parse_turn_result
+    with patch.object(
+        registry, "entry_points", return_value=[entry("external", OptedOutBackend)]
+    ):
+        provider = registry.get_agent_backends()["external"]
+    assert provider.caller_owned_turns is False
+    with pytest.raises(NotImplementedError):
+        provider.parse_turn_result({})
+
+
+def test_builtin_backend_reads_the_output_of_a_decoded_turn_result():
+    session_id = uuid4()
+    decoded = {
+        "output": {"verdict": "benign"},
+        "duration": 1.5,
+        "session_id": str(session_id),
+    }
+    provider = DefaultBackend()
+    assert provider.caller_owned_turns is True
+    assert provider.parse_turn_result(decoded) == TurnResult(
+        output={"verdict": "benign"}
+    )
+    with pytest.raises(ValidationError):
+        provider.parse_turn_result({"output": "missing duration and session"})
 
 
 @pytest.mark.parametrize("method", ["run", "set_approvals", "request_cancel"])

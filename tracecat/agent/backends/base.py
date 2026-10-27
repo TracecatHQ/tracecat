@@ -39,6 +39,7 @@ from tracecat.agent.backends.types import (
     SessionHistoryAdapter,
     SessionTurnContext,
     SessionWorkflowContext,
+    TurnResult,
     WithdrawResult,
 )
 from tracecat.agent.cancellation import signal_turn_cancel
@@ -96,6 +97,10 @@ class AgentBackend[InputT, OutputT](ABC):
     # Whether the backend can list the user's messages the model has not read.
     # A backend that sets this must implement `list_pending`.
     listing_pending: ClassVar[bool] = False
+    # Whether a caller may run a turn's workflow as its own child workflow and
+    # read the result. A backend that sets this must implement
+    # `parse_turn_result`.
+    caller_owned_turns: ClassVar[bool] = False
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
     retry_policy: ClassVar[RetryPolicy] = RetryPolicy(maximum_attempts=1)
@@ -562,6 +567,19 @@ class AgentBackend[InputT, OutputT](ABC):
         """
         raise AgentControlRejected(
             "This agent backend does not support listing pending messages"
+        )
+
+    def parse_turn_result(self, result: object) -> TurnResult:
+        """Read a finished turn from its workflow's decoded result.
+
+        A caller that runs the turn as its own child workflow starts it by
+        workflow type name, so ``result`` is the decoded JSON of the workflow's
+        output, not the backend's output type. Report a failed or cancelled turn
+        through ``TurnResult.error`` rather than raising. Only backends that set
+        ``caller_owned_turns`` implement this.
+        """
+        raise NotImplementedError(
+            "This agent backend does not support caller-owned turns"
         )
 
     async def get_turn_lifecycle(self, run_id: UUID) -> TurnLifecycle:
