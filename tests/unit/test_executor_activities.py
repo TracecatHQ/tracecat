@@ -31,12 +31,14 @@ from tracecat.agent.executor.activity import (
     probe_stdio_mcp_connection_activity,
 )
 from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
+from tracecat.agent.mcp.stdio_probe import NsjailStdioMCPRunner
 from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PROBE_TIMEOUT_CAP,
     StdioMCPPersistInput,
     StdioMCPProbeInput,
     StdioMCPProbeResult,
 )
+from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
@@ -515,6 +517,7 @@ class TestProbeStdioMCPConnectionActivity:
     def _stdio_integration(mcp_integration_id: uuid.UUID) -> SimpleNamespace:
         return SimpleNamespace(
             id=mcp_integration_id,
+            workspace_id=uuid.uuid4(),
             slug="test-stdio-server",
             name="Test stdio server",
             server_type="stdio",
@@ -524,11 +527,11 @@ class TestProbeStdioMCPConnectionActivity:
         )
 
     @pytest.mark.anyio
-    async def test_probe_uses_verification_timeout(
+    async def test_probe_lists_tools_through_installed_runner(
         self,
         mock_role: Role,
     ) -> None:
-        """The activity passes the verification timeout to the sandbox probe."""
+        """The activity hands the validated server to the installed runner."""
         integrations_svc = MagicMock()
         integrations_svc.validate_stdio_server_config.return_value = None
         preset_svc = MagicMock()
@@ -537,21 +540,51 @@ class TestProbeStdioMCPConnectionActivity:
             success=True,
             message="Connected successfully — 0 tools available",
         )
+        runner = MagicMock()
+        runner.list_tools = AsyncMock(return_value=expected)
+        server = StdioMCPServer(
+            workspace_id=uuid.uuid4(),
+            mcp_integration_id=uuid.uuid4(),
+            name="test-stdio-server",
+            command="python",
+            args=("-m", "example"),
+        )
 
         with patch(
-            "tracecat.agent.executor.activity.probe_stdio_mcp_tools_in_sandbox",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as probe_stdio:
+            "tracecat.agent.executor.activity.get_stdio_mcp_runner",
+            return_value=runner,
+        ):
             result = await _resolve_and_probe_stdio_config(
                 preset_svc=preset_svc,
                 integrations_svc=integrations_svc,
-                command="python",
-                args=["-m", "example"],
+                server=server,
                 stdio_env=None,
-                mcp_integration_id=uuid.uuid4(),
-                mcp_integration_slug="test-stdio-server",
             )
+
+        assert result is expected
+        runner.list_tools.assert_awaited_once_with(server, None)
+
+    @pytest.mark.anyio
+    async def test_default_runner_uses_verification_timeout(self) -> None:
+        """The built-in runner passes the verification timeout to the probe."""
+        expected = StdioMCPProbeResult(
+            success=True,
+            message="Connected successfully — 0 tools available",
+        )
+        server = StdioMCPServer(
+            workspace_id=uuid.uuid4(),
+            mcp_integration_id=uuid.uuid4(),
+            name="test-stdio-server",
+            command="python",
+            args=("-m", "example"),
+        )
+
+        with patch(
+            "tracecat.agent.mcp.stdio_probe.probe_stdio_mcp_tools_in_sandbox",
+            new_callable=AsyncMock,
+            return_value=expected,
+        ) as probe_stdio:
+            result = await NsjailStdioMCPRunner().list_tools(server, None)
 
         assert result is expected
         probe_stdio.assert_awaited_once_with(
@@ -626,9 +659,8 @@ class TestProbeStdioMCPConnectionActivity:
                 FakeIntegrationService,
             ),
             patch(
-                "tracecat.agent.executor.activity.probe_stdio_mcp_tools_in_sandbox",
-                new_callable=AsyncMock,
-            ) as probe_stdio,
+                "tracecat.agent.executor.activity.get_stdio_mcp_runner"
+            ) as get_runner,
         ):
             mock_activity.heartbeat = MagicMock()
 
@@ -646,7 +678,7 @@ class TestProbeStdioMCPConnectionActivity:
             mcp_integration_id=integration.id,
             mcp_integration_slug=integration.slug,
         )
-        probe_stdio.assert_not_awaited()
+        get_runner.assert_not_called()
 
     @pytest.mark.anyio
     async def test_stdio_env_unexpected_error_propagates(
@@ -699,9 +731,8 @@ class TestProbeStdioMCPConnectionActivity:
                 FakeIntegrationService,
             ),
             patch(
-                "tracecat.agent.executor.activity.probe_stdio_mcp_tools_in_sandbox",
-                new_callable=AsyncMock,
-            ) as probe_stdio,
+                "tracecat.agent.executor.activity.get_stdio_mcp_runner"
+            ) as get_runner,
         ):
             mock_activity.heartbeat = MagicMock()
 
@@ -716,7 +747,7 @@ class TestProbeStdioMCPConnectionActivity:
             mcp_integration_id=integration.id,
             mcp_integration_slug=integration.slug,
         )
-        probe_stdio.assert_not_awaited()
+        get_runner.assert_not_called()
 
     @pytest.mark.anyio
     async def test_persist_activity_persists_merged_tools(
