@@ -107,10 +107,15 @@ The output reports counts only, never values.
 1. Generate a new key with `openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_'`.
 2. Add the new key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` on every service and deploy. Every service can now read values written under it.
 3. Set `TRACECAT__DB_ENCRYPTION_KEY` to the new key, move the old key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS`, and deploy. New writes use the new key.
-4. Run the re-encrypt command with `--dry-run` to check the counts, then without it to rewrite the values. Run `--dry-run` again and confirm every value counts as current before you go on.
-5. Remove the old key from `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` and deploy. Keep a backup of it until you no longer need database backups taken before step 4.
+4. Confirm that every service that receives `TRACECAT__DB_ENCRYPTION_KEY` has restarted with the new values. In the bundled Compose file these are `api`, `worker`, `executor`, `agent-worker`, `agent-executor`, `litellm`, and `mcp`. Check each service's environment, with `docker compose config <service>`, the ECS task definition, or the pod spec, and check that it started after step 3. A service still running with the old key keeps writing rows under it.
+5. Run the re-encrypt command with `--dry-run` to check the counts, then without it to rewrite the values. Run `--dry-run` again and confirm every value counts as current.
+6. Remove the old key from `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` and deploy. Keep a backup of it until you no longer need database backups taken before step 5.
 
-Rotating the key also resets MCP OAuth state that Tracecat keeps in Redis under `TRACECAT__DB_ENCRYPTION_KEY`, so MCP clients sign in again. To switch algorithms without rotating, set `TRACECAT__DB_ENCRYPTION_ALGORITHM`, deploy, and run step 4.
+<Warning>
+  Removing the old key makes every row still encrypted under it unreadable, and Tracecat cannot recover those rows without the key. Remove it only after step 4 confirms that no service still uses it, and after the final dry run in step 5 shows every value as current.
+</Warning>
+
+Rotating the key also resets MCP OAuth state that Tracecat keeps in Redis under `TRACECAT__DB_ENCRYPTION_KEY`, so MCP clients sign in again. To switch algorithms without rotating, set `TRACECAT__DB_ENCRYPTION_ALGORITHM`, deploy, and run steps 4 and 5.
 
 ### Where to store them
 
@@ -137,7 +142,7 @@ Rotation support differs by secret. Check the differences before you plan a rota
 | Secret | Overlap window | Rotation procedure | Blast radius |
 | --- | --- | --- | --- |
 | `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Yes | Add the new key to `keys` and let every service pick it up, then point `current_key_id` at it. Keep retired keys as long as you retain their histories. | None for existing histories, which stay readable under the key they were written with. Between the two steps, a service still on the old keyring cannot decrypt payloads written under the new key. In ARN mode that gap lasts up to `TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS`. |
-| `TRACECAT__DB_ENCRYPTION_KEY` | Yes | Follow [Rotate the database key](#rotate-the-database-key). | None for stored values. MCP clients sign in again. |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Yes | Follow [Rotate the database key](#rotate-the-database-key). | MCP clients sign in again. Removing the old key before every service has restarted with the new key, and before re-encryption finishes, makes rows still encrypted under the old key unreadable. |
 | `TRACECAT__SIGNING_SECRET` | No | Rotate, then reissue every affected URL. | Every webhook URL and agent channel endpoint URL. Breaks in-flight Slack OAuth installs, and pending Slack approval buttons for up to 24 hours. |
 | `TRACECAT__SERVICE_KEY` | No | Restart every service that holds it in one window, including `ui`, which uses it for the SAML ACS proxy. | While services disagree, in-flight agent turns fail their next tool or LLM call, executor calls fail, and service-to-service requests return `401`. Miss `ui` and SSO login breaks. |
 | `USER_AUTH_SECRET` | No | Restart `api` and `mcp` together. | Active MCP access tokens (1-hour lifetime), and in-flight password reset and verification links. Sessions are database-backed, so users stay logged in. MCP refresh tokens are hashed and survive. |
