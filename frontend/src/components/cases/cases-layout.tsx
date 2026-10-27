@@ -1,7 +1,13 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import type {
   CaseBatchResponse,
   CaseDropdownDefinitionRead,
@@ -512,40 +518,107 @@ export function CasesLayout({
     setSidePanelCaseId(null)
   }, [])
 
+  let listContent: ReactNode
   if (isLoading) {
-    return (
-      <DeleteCaseAlertDialog
-        selectedCase={caseToDelete}
-        setSelectedCase={setCaseToDelete}
-      >
-        <div className="flex size-full flex-col">
-          <CasesHeader {...headerProps} />
-          <div className="flex flex-1 items-center justify-center">
-            <CenteredSpinner />
-          </div>
-        </div>
-      </DeleteCaseAlertDialog>
+    listContent = (
+      <div className="flex flex-1 items-center justify-center">
+        <CenteredSpinner />
+      </div>
+    )
+  } else if (error) {
+    listContent = (
+      <div className="flex flex-1 items-center justify-center">
+        <span className="text-sm text-red-500">
+          Failed to load cases: {getApiErrorDetail(error) ?? error.message}
+        </span>
+      </div>
+    )
+  } else if (cases.length === 0) {
+    listContent = (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
+        <p className="text-sm text-muted-foreground">
+          {hasNextPage
+            ? "No cases loaded yet."
+            : "No cases match the current filters."}
+        </p>
+        {hasNextPage && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isFetchingNextPage}
+            onClick={onLoadMore}
+          >
+            {isFetchingNextPage ? "Loading cases..." : "Load more cases"}
+          </Button>
+        )}
+      </div>
+    )
+  } else {
+    listContent = (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {exactMatch && (
+          <section aria-label="Exact match" className="shrink-0 border-b">
+            <p className="px-4 py-2 text-xs text-muted-foreground">
+              Exact match
+              {exactMatch.is_outside_filters && " · Outside current filters"}
+            </p>
+            <div className="ml-[18px]">
+              <CaseItem
+                caseData={exactMatch}
+                isSelected={(sidePanelCaseId ?? selectedId) === exactMatch.id}
+                isChecked={selectedCaseIdsSet.has(exactMatch.id)}
+                onCheckChange={(checked) =>
+                  handleCheckChange(exactMatch.id, checked)
+                }
+                onClick={() => handleSelectCase(exactMatch.id)}
+                onDeleteRequest={handleDeleteRequest}
+                onOpenInSidePanel={handleOpenInSidePanel}
+                tags={tags}
+                members={members}
+                dropdownDefinitions={dropdownDefinitions}
+                fieldMetadataById={fieldMetadataById}
+                durationNamesById={durationNamesById}
+                visibleColumnIds={visibleColumnIds}
+              />
+            </div>
+          </section>
+        )}
+        <CasesAccordion
+          cases={filteredCases}
+          selectedId={sidePanelCaseId ?? selectedId}
+          selectedCaseIds={selectedCaseIdsSet}
+          onSelect={handleSelectCase}
+          onCheckChange={handleCheckChange}
+          onDeleteRequest={handleDeleteRequest}
+          onOpenInSidePanel={handleOpenInSidePanel}
+          tags={tags}
+          members={members}
+          dropdownDefinitions={dropdownDefinitions}
+          fieldMetadataById={fieldMetadataById}
+          durationNamesById={durationNamesById}
+          visibleColumnIds={visibleColumnIds}
+          prioritySortDirection={filters.prioritySortDirection}
+          severitySortDirection={filters.severitySortDirection}
+          assigneeSortDirection={filters.assigneeSortDirection}
+          tagSortDirection={filters.tagSortDirection}
+          hasExplicitSort={hasExplicitSort}
+          statusFilter={filters.statusFilter}
+          statusMode={filters.statusMode}
+          totalFilteredCaseEstimate={ordinaryTotal}
+          stageCounts={filteredStageCounts}
+          isCountsLoading={isCountsLoading}
+          isCountsFetching={isCountsFetching}
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          onLoadMore={onLoadMore}
+        />
+      </div>
     )
   }
 
-  if (error) {
-    return (
-      <DeleteCaseAlertDialog
-        selectedCase={caseToDelete}
-        setSelectedCase={setCaseToDelete}
-      >
-        <div className="flex size-full flex-col">
-          <CasesHeader {...headerProps} />
-          <div className="flex flex-1 items-center justify-center">
-            <span className="text-sm text-red-500">
-              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
-            </span>
-          </div>
-        </div>
-      </DeleteCaseAlertDialog>
-    )
-  }
-
+  // Keep one tree for every state. Swapping whole trees on `isLoading`
+  // remounts the header, which drops focus from the search input each time a
+  // debounced search starts.
   return (
     <DeleteCaseAlertDialog
       selectedCase={caseToDelete}
@@ -553,87 +626,7 @@ export function CasesLayout({
     >
       <div className="flex size-full flex-col">
         <CasesHeader {...headerProps} />
-        {cases.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
-            <p className="text-sm text-muted-foreground">
-              {hasNextPage
-                ? "No cases loaded yet."
-                : "No cases match the current filters."}
-            </p>
-            {hasNextPage && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isFetchingNextPage}
-                onClick={onLoadMore}
-              >
-                {isFetchingNextPage ? "Loading cases..." : "Load more cases"}
-              </Button>
-            )}
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col">
-            {exactMatch && (
-              <section aria-label="Exact match" className="shrink-0 border-b">
-                <p className="px-4 py-2 text-xs text-muted-foreground">
-                  Exact match
-                  {exactMatch.is_outside_filters &&
-                    " · Outside current filters"}
-                </p>
-                <div className="ml-[18px]">
-                  <CaseItem
-                    caseData={exactMatch}
-                    isSelected={
-                      (sidePanelCaseId ?? selectedId) === exactMatch.id
-                    }
-                    isChecked={selectedCaseIdsSet.has(exactMatch.id)}
-                    onCheckChange={(checked) =>
-                      handleCheckChange(exactMatch.id, checked)
-                    }
-                    onClick={() => handleSelectCase(exactMatch.id)}
-                    onDeleteRequest={handleDeleteRequest}
-                    onOpenInSidePanel={handleOpenInSidePanel}
-                    tags={tags}
-                    members={members}
-                    dropdownDefinitions={dropdownDefinitions}
-                    fieldMetadataById={fieldMetadataById}
-                    durationNamesById={durationNamesById}
-                    visibleColumnIds={visibleColumnIds}
-                  />
-                </div>
-              </section>
-            )}
-            <CasesAccordion
-              cases={filteredCases}
-              selectedId={sidePanelCaseId ?? selectedId}
-              selectedCaseIds={selectedCaseIdsSet}
-              onSelect={handleSelectCase}
-              onCheckChange={handleCheckChange}
-              onDeleteRequest={handleDeleteRequest}
-              onOpenInSidePanel={handleOpenInSidePanel}
-              tags={tags}
-              members={members}
-              dropdownDefinitions={dropdownDefinitions}
-              fieldMetadataById={fieldMetadataById}
-              durationNamesById={durationNamesById}
-              visibleColumnIds={visibleColumnIds}
-              prioritySortDirection={filters.prioritySortDirection}
-              severitySortDirection={filters.severitySortDirection}
-              assigneeSortDirection={filters.assigneeSortDirection}
-              tagSortDirection={filters.tagSortDirection}
-              hasExplicitSort={hasExplicitSort}
-              statusFilter={filters.statusFilter}
-              statusMode={filters.statusMode}
-              totalFilteredCaseEstimate={ordinaryTotal}
-              stageCounts={filteredStageCounts}
-              isCountsLoading={isCountsLoading}
-              isCountsFetching={isCountsFetching}
-              hasNextPage={hasNextPage}
-              isFetchingNextPage={isFetchingNextPage}
-              onLoadMore={onLoadMore}
-            />
-          </div>
-        )}
+        {listContent}
       </div>
       {workspaceId && (
         <CaseSidePanel

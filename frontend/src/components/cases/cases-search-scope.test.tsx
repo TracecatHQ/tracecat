@@ -6,7 +6,6 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import type { ReactNode } from "react"
 import {
   type CaseReadMinimal,
   type CasesSearchCasesResponse,
@@ -29,6 +28,7 @@ jest.mock("@/client", () => ({
 }))
 jest.mock("@/lib/hooks", () => ({
   useBatchDeleteCases: () => ({ batchDeleteCases: jest.fn() }),
+  useDeleteCase: () => ({ deleteCase: jest.fn(), deleteCaseIsPending: false }),
   useBatchUpdateCases: () => ({ batchUpdateCases: jest.fn() }),
   useBatchChangeCaseParent: () => ({ batchChangeCaseParent: jest.fn() }),
 }))
@@ -41,9 +41,6 @@ jest.mock("@/components/cases/case-selection-context", () => {
 })
 jest.mock("@/components/cases/case-panel-selectors", () => ({
   UNASSIGNED: "unassigned",
-}))
-jest.mock("@/components/cases/delete-case-dialog", () => ({
-  DeleteCaseAlertDialog: ({ children }: { children: ReactNode }) => children,
 }))
 jest.mock("@/components/cases/case-side-panel", () => ({
   CaseSidePanel: () => null,
@@ -248,6 +245,21 @@ describe("exact-first case search UI", () => {
     expect(screen.queryByText("Parents only")).not.toBeInTheDocument()
     expect(screen.queryByText("All cases")).not.toBeInTheDocument()
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
+  })
+
+  it("keeps the search input focused while a search reloads results", async () => {
+    const user = userEvent.setup()
+    setup()
+    await waitFor(() => expect(casesQueryCases).toHaveBeenCalledTimes(1))
+    mockCasesResponse({ items: [CASE], has_more: false })
+
+    const input = screen.getByRole("textbox", { name: "Search cases" })
+    await user.type(input, "alpha ")
+    await screen.findByRole("button", { name: "CASE-0042" })
+
+    expect(casesQueryCases).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole("textbox", { name: "Search cases" })).toBe(input)
+    expect(input).toHaveFocus()
   })
 
   it("uses one search request for a complete ID and keeps the view constraints", async () => {
