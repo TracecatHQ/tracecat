@@ -17,8 +17,10 @@ Architecture:
          │                                     ├─ Package install (nsjail)
          │                                     ├─ Action discovery (nsjail, NO network)
          │                                     ├─ Build execution artifact → upload to S3
-         │  ◄── RegistrySyncResult ────────────┤
+         │                                     ├─ Upload discovered actions → S3
+         │  ◄── RegistrySyncResult (URIs) ─────┤
          │                                     │
+         ├─ Download discovered actions        │
          ├─ Create RegistryVersion             │
          └─ Populate RegistryIndex             │
 """
@@ -86,7 +88,7 @@ class RegistrySyncWorkflow:
             request: Sync request containing repository details and SSH credentials.
 
         Returns:
-            RegistrySyncResult with discovered actions and artifact URI.
+            RegistrySyncResult with the discovered-actions URI and artifact URI.
         """
         workflow.logger.info(
             "Starting RegistrySyncWorkflow",
@@ -115,7 +117,7 @@ class RegistrySyncWorkflow:
         workflow.logger.info(
             "RegistrySyncWorkflow completed",
             repository_id=str(request.repository_id),
-            num_actions=len(result.actions),
+            num_actions=result.num_actions,
             artifact_uri=result.artifact_uri,
         )
 
@@ -208,7 +210,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
         request: Sync request containing repository details.
 
     Returns:
-        RegistrySyncResult with discovered actions and artifact URI.
+        RegistrySyncResult with the discovered-actions URI and artifact URI.
 
     Raises:
         ApplicationError: If sync fails at any phase.
@@ -236,25 +238,11 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
             _raise_registry_sync_validation_error(str(exc), cause=exc)
         raise
 
-    if result.validation_errors:
-        error_count = sum(len(errs) for errs in result.validation_errors.values())
-        first_action, first_errors = next(iter(result.validation_errors.items()))
-        first_error = first_errors[0] if first_errors else None
-        first_detail = (
-            first_error.details[0]
-            if first_error is not None and first_error.details
-            else ""
-        )
-        _raise_registry_sync_validation_error(
-            "Registry sync validation failed: "
-            f"{error_count} validation error(s). "
-            f"First error in '{first_action}': {first_detail}"
-        )
-
     logger.info(
         "sync_registry_activity completed",
         repository_id=str(request.repository_id),
-        num_actions=len(result.actions),
+        num_actions=result.num_actions,
+        actions_uri=result.actions_uri,
         artifact_uri=result.artifact_uri,
         commit_sha=result.commit_sha,
     )
