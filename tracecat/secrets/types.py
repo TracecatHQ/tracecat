@@ -68,7 +68,7 @@ class DBEncryptionKey:
 class DecryptedToken:
     """Plaintext of a stored value plus the format and key that sealed it."""
 
-    plaintext: bytes
+    plaintext: bytes = field(repr=False)
     algorithm: DBEncryptionAlgorithm
     key_id: str
 

@@ -234,6 +234,13 @@ def test_previous_keys_decrypt_during_rotation(
     assert decrypt_value(resealed, key=new_key) == b"secret"
 
 
+def test_decrypted_token_repr_omits_plaintext(key: str) -> None:
+    decrypted = decrypt_token(encrypt_value(b"synthetic-plaintext", key=key), key=key)
+
+    assert "synthetic-plaintext" not in repr(decrypted)
+    assert key_id(key) in repr(decrypted)
+
+
 def test_is_current_tracks_write_algorithm(
     monkeypatch: pytest.MonkeyPatch, key: str
 ) -> None:
