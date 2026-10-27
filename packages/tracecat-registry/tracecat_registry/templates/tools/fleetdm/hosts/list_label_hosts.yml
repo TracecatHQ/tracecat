@@ -30,21 +30,76 @@ definition:
       default: 0
     per_page:
       type: int
-      description: Hosts per page (Fleet caps at 200).
+      description: Hosts per page.
       default: 50
+    order_key:
+      type: str | None
+      description: What to order results by. Can be any column in the hosts table.
+      default: null
+    order_direction:
+      type: str | None
+      description: '**Requires `order_key`**. The direction of the order given the order key. Options
+        include `"asc"` and `"desc"`. Default is `"asc"`.'
+      default: null
+    after:
+      type: str | None
+      description: The value to get results after. This needs `order_key` defined, as that's the column
+        that would be used.
+      default: null
+    fleet_id:
+      type: int | None
+      description: _Available in Fleet Premium_. Filters the hosts to only include hosts in the specified
+        fleet.
+      default: null
+    disable_failing_policies:
+      type: bool | None
+      description: If "true", hosts will return failing policies as 0 regardless of whether there are
+        any that failed for the host. This is meant to be used when increased performance is needed in
+        exchange for the extra information.
+      default: null
+    mdm_id:
+      type: int | None
+      description: The ID of the _mobile device management_ (MDM) solution to filter hosts by (that is,
+        filter hosts that use a specific MDM provider and URL).
+      default: null
+    mdm_name:
+      type: str | None
+      description: The name of the _mobile device management_ (MDM) solution to filter hosts by (that
+        is, filter hosts that use a specific MDM provider).
+      default: null
+    mdm_enrollment_status:
+      type: str | None
+      description: The _mobile device management_ (MDM) enrollment status to filter hosts by. Valid options
+        are 'manual', 'manual-personal', 'automatic', 'enrolled', 'pending', or 'unenrolled'. 'pending'
+        only includes Apple (macOS, iOS, iPadOS) hosts in Apple Business (AB) that are not yet enrolled
+        to Fleet.
+      default: null
+    low_disk_space:
+      type: int | None
+      description: _Available in Fleet Premium_. Filters the hosts to only include hosts with less GB
+        of disk space available than this value. Must be a number between 1-100.
+      default: null
+    bootstrap_package:
+      type: str | None
+      description: '_Available in Fleet Premium_. Filters the hosts by the status of the MDM bootstrap
+        package on the host. Valid options are ''installed'', ''pending'', or ''failed''. **Note: If
+        this filter is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned"
+        hosts.**'
+      default: null
+    os_settings:
+      type: str | None
+      description: 'Filters the hosts by the status of the operating system settings applied to the hosts.
+        Valid options are ''verified'', ''verifying'', ''pending'', or ''failed''. **Note: If this filter
+        is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned" hosts.**'
+      default: null
+    os_settings_disk_encryption:
+      type: str | None
+      description: 'Filters the hosts by disk encryption status. Valid options are ''verified'', ''verifying'',
+        ''action_required'', ''enforcing'', ''failed'', or ''removing_enforcement''.  **Note: If this
+        filter is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned"
+        hosts.**'
+      default: null
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          params:
-            query: ${{ inputs.query }}
-            status: ${{ inputs.status }}
-            page: ${{ inputs.page }}
-            per_page: ${{ inputs.per_page }}
-        script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
     - ref: label_hosts
       action: core.http_request
       args:
@@ -52,5 +107,21 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          query: ${{ inputs.query }}
+          status: ${{ inputs.status }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
+          after: ${{ inputs.after }}
+          fleet_id: ${{ inputs.fleet_id }}
+          disable_failing_policies: ${{ inputs.disable_failing_policies }}
+          mdm_id: ${{ inputs.mdm_id }}
+          mdm_name: ${{ inputs.mdm_name }}
+          mdm_enrollment_status: ${{ inputs.mdm_enrollment_status }}
+          low_disk_space: ${{ inputs.low_disk_space }}
+          bootstrap_package: ${{ inputs.bootstrap_package }}
+          os_settings: ${{ inputs.os_settings }}
+          os_settings_disk_encryption: ${{ inputs.os_settings_disk_encryption }}
   returns: ${{ steps.label_hosts.result.data }}
