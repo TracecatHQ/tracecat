@@ -68,6 +68,8 @@ class SyncOperationRead(BaseModel):
     can_retry: bool = Field(default=False)
     data_applied: bool = Field(default=False)
     inputs: SyncOperationCreate
+    preview_revision: int = Field(default=0)
+    state_revision: int = Field(default=0)
 
 
 class SyncDiffPage(BaseModel):
