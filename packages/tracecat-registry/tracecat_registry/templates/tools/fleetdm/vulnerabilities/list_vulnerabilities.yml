@@ -39,24 +39,14 @@ definition:
       default: 0
     per_page:
       type: int
-      description: Vulnerabilities per page (Fleet caps at 200).
+      description: Vulnerabilities per page.
       default: 50
+    after:
+      type: str | None
+      description: The value to get results after. This needs `order_key` defined, as that's the column
+        that would be used.
+      default: null
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          params:
-            query: ${{ inputs.query }}
-            exploit: ${{ inputs.exploit }}
-            fleet_id: ${{ inputs.fleet_id }}
-            order_key: ${{ inputs.order_key }}
-            order_direction: ${{ inputs.order_direction }}
-            page: ${{ inputs.page }}
-            per_page: ${{ inputs.per_page }}
-        script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
     - ref: list_vulnerabilities
       action: core.http_request
       args:
@@ -64,5 +54,13 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          query: ${{ inputs.query }}
+          exploit: ${{ inputs.exploit }}
+          fleet_id: ${{ inputs.fleet_id }}
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          after: ${{ inputs.after }}
   returns: ${{ steps.list_vulnerabilities.result.data }}

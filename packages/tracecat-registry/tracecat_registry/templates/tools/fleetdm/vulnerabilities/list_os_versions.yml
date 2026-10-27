@@ -27,21 +27,34 @@ definition:
       default: 0
     per_page:
       type: int
-      description: OS versions per page (Fleet caps at 200).
+      description: OS versions per page.
       default: 50
+    os_name:
+      type: str | None
+      description: The name of the operating system to filter hosts by. `os_version` must also be specified
+        with `os_name`
+      default: null
+    os_version:
+      type: str | None
+      description: The version of the operating system to filter hosts by. `os_name` must also be specified
+        with `os_version`
+      default: null
+    max_vulnerabilities:
+      type: int | None
+      description: Limits the number of `vulnerabilities` returned per OS version. (If omitted, returns
+        all vulnerabilities.)
+      default: null
+    order_key:
+      type: str | None
+      description: 'What to order results by. Allowed fields are: `hosts_count`. Default is `hosts_count`
+        (descending).'
+      default: null
+    order_direction:
+      type: str | None
+      description: '**Requires `order_key`**. The direction of the order given the order key. Options
+        include `"asc"` and `"desc"`. Default is `"asc"`.'
+      default: null
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          params:
-            fleet_id: ${{ inputs.fleet_id }}
-            platform: ${{ inputs.platform }}
-            page: ${{ inputs.page }}
-            per_page: ${{ inputs.per_page }}
-        script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
     - ref: os_versions
       action: core.http_request
       args:
@@ -49,5 +62,14 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          fleet_id: ${{ inputs.fleet_id }}
+          platform: ${{ inputs.platform }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          os_name: ${{ inputs.os_name }}
+          os_version: ${{ inputs.os_version }}
+          max_vulnerabilities: ${{ inputs.max_vulnerabilities }}
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
   returns: ${{ steps.os_versions.result.data }}
