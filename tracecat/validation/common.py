@@ -111,13 +111,20 @@ async def secret_validator(
         defined_secret = await service.search_secrets(
             SecretSearch(names={name}, environment=environment)
         )
-        logger.info("Secret search results", defined_secret=defined_secret)
-        if (n_found := len(defined_secret)) != 1:
+        n_found = len(defined_secret)
+        # `environment` is reserved for the app environment by the logger
+        logger.info(
+            "Secret search results",
+            secret_name=name,
+            secret_environment=environment,
+            n_found=n_found,
+        )
+        if n_found != 1:
             logger.debug(
                 "Secret not found in SECRET context usage",
                 n_found=n_found,
                 secret_name=name,
-                environment=environment,
+                secret_environment=environment,
             )
             return ExprValidationResult(
                 status="error",

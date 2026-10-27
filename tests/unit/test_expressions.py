@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -32,7 +32,7 @@ from tracecat.expressions.validator.validator import (
 )
 from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretSearch
-from tracecat.validation.common import get_validators
+from tracecat.validation.common import get_validators, secret_validator
 from tracecat.validation.schemas import (
     ExprBaseValidationResult,
     ValidationDetail,
@@ -1197,46 +1197,38 @@ class _FakeSecretsService:
         return self.rows
 
 
-@pytest.mark.anyio
-async def test_expr_validator_secret_search_log_omits_ciphertext(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Secret validation logs only the name, environment and match count.
+_SYNTHETIC_CIPHERTEXT = b"SYNTHETIC-CIPHERTEXT-0123456789"
 
-    Logging the search results serialized ORM rows, which put each secret's
-    `encrypted_keys` ciphertext in the API logs on every workflow publish.
-    """
-    ciphertext = b"SYNTHETIC-CIPHERTEXT-0123456789"
+
+def _patch_secrets_service(monkeypatch: pytest.MonkeyPatch, module: str) -> None:
     monkeypatch.setattr(
         _FakeSecretsService,
         "rows",
         [
             _FakeSecretRow(
-                name="my_secret", environment="default", encrypted_keys=ciphertext
+                name="my_secret",
+                environment="default",
+                encrypted_keys=_SYNTHETIC_CIPHERTEXT,
             )
         ],
     )
+    monkeypatch.setattr(f"{module}.SecretsService", _FakeSecretsService)
     monkeypatch.setattr(
-        "tracecat.expressions.validator.validator.SecretsService",
-        _FakeSecretsService,
-    )
-    monkeypatch.setattr(
-        "tracecat.expressions.validator.validator.secret_key_names",
-        lambda _service, _secret: ["API_KEY"],
+        f"{module}.secret_key_names", lambda _service, _secret: ["API_KEY"]
     )
 
+
+@pytest.fixture
+def captured_logs() -> Iterator[list[str]]:
     logs: list[str] = []
     sink = logger.add(logs.append, level="TRACE", format="{message} {extra}")
     try:
-        async with ExprValidator(
-            validation_context=ExprValidationContext(action_refs=set())
-        ) as visitor:
-            for template in extract_expressions("${{ SECRETS.my_secret.API_KEY }}"):
-                template.validate(visitor)
+        yield logs
     finally:
         logger.remove(sink)
 
-    assert visitor.errors() == []
+
+def _assert_secret_search_log_omits_ciphertext(logs: list[str]) -> None:
     search_logs = [line for line in logs if line.startswith("Secret search results")]
     assert len(search_logs) == 1
     assert "'secret_name': 'my_secret'" in search_logs[0]
@@ -1244,7 +1236,43 @@ async def test_expr_validator_secret_search_log_omits_ciphertext(
     assert "'n_found': 1" in search_logs[0]
     output = "".join(logs)
     assert "encrypted_keys" not in output
-    assert "SYNTHETIC-CIPHERTEXT" not in output
+    assert _SYNTHETIC_CIPHERTEXT.decode() not in output
+
+
+@pytest.mark.anyio
+async def test_expr_validator_secret_search_log_omits_ciphertext(
+    monkeypatch: pytest.MonkeyPatch, captured_logs: list[str]
+) -> None:
+    """Secret validation logs only the name, environment and match count.
+
+    Logging the search results serialized ORM rows, which put each secret's
+    `encrypted_keys` ciphertext in the API logs on every workflow publish.
+    """
+    _patch_secrets_service(monkeypatch, "tracecat.expressions.validator.validator")
+
+    async with ExprValidator(
+        validation_context=ExprValidationContext(action_refs=set())
+    ) as visitor:
+        for template in extract_expressions("${{ SECRETS.my_secret.API_KEY }}"):
+            template.validate(visitor)
+
+    assert visitor.errors() == []
+    _assert_secret_search_log_omits_ciphertext(captured_logs)
+
+
+@pytest.mark.anyio
+async def test_secret_validator_search_log_omits_ciphertext(
+    monkeypatch: pytest.MonkeyPatch, captured_logs: list[str]
+) -> None:
+    """The standalone `secret_validator` logs no secret rows either."""
+    _patch_secrets_service(monkeypatch, "tracecat.validation.common")
+
+    result = await secret_validator(
+        name="my_secret", key="API_KEY", loc="expression", environment="default"
+    )
+
+    assert result.status == "success"
+    _assert_secret_search_log_omits_ciphertext(captured_logs)
 
 
 @pytest.mark.parametrize(
