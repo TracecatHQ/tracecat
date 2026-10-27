@@ -1,3 +1,5 @@
+import base64
+import binascii
 import logging
 import os
 import uuid
@@ -86,6 +88,13 @@ class RLSMode(StrEnum):
     OFF = "off"
     SHADOW = "shadow"
     ENFORCE = "enforce"
+
+
+class DBEncryptionAlgorithm(StrEnum):
+    """Cipher used to encrypt new database values."""
+
+    FERNET = "fernet"
+    AES256GCM = "aes256gcm"
 
 
 # === Internal Services === #
@@ -421,6 +430,40 @@ OAUTH_CLIENT_ID = OIDC_CLIENT_ID
 OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
+_db_encryption_algorithm_raw = (
+    os.environ.get("TRACECAT__DB_ENCRYPTION_ALGORITHM") or DBEncryptionAlgorithm.FERNET
+)
+try:
+    TRACECAT__DB_ENCRYPTION_ALGORITHM = DBEncryptionAlgorithm(
+        _db_encryption_algorithm_raw.strip().lower()
+    )
+except ValueError as e:
+    raise ValueError(
+        "TRACECAT__DB_ENCRYPTION_ALGORITHM must be one of "
+        f"{', '.join(DBEncryptionAlgorithm)} (got {_db_encryption_algorithm_raw!r})"
+    ) from e
+"""Cipher for new database writes (fernet|aes256gcm). Reads accept both."""
+
+
+def _parse_db_encryption_previous_keys() -> tuple[str, ...]:
+    raw = os.environ.get("TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS") or ""
+    keys = tuple(key for part in raw.split(",") if (key := part.strip()))
+    for index, key in enumerate(keys):
+        try:
+            decoded = base64.urlsafe_b64decode(key)
+        except (binascii.Error, ValueError):
+            decoded = b""
+        if len(decoded) != 32:
+            # Never echo the key itself; name its position instead.
+            raise ValueError(
+                f"TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS entry {index} is not "
+                "32 url-safe base64-encoded bytes"
+            )
+    return keys
+
+
+TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS = _parse_db_encryption_previous_keys()
+"""Comma-separated retired DB encryption keys, used for reads only during rotation."""
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
 TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
     "TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID"
