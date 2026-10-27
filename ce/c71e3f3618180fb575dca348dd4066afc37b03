@@ -1,0 +1,21 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host_activities.yml
+  s_b0d1473e5e249d::t_66a473cf851ec1 25
+docs/tools/fleetdm.mdx
+  s_b0d1473e5e249d::t_d040ac7485498c 605
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cec71e3f3618180fb575dca348dd4066afc37b03",
+  "prompts": {},
+  "sessions": {
+    "s_b0d1473e5e249d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17f30-f53b-7e83-8d68-604cee027f06",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
