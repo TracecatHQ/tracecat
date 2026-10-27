@@ -22,7 +22,7 @@ definition:
       default: 0
     per_page:
       type: int
-      description: Activities per page.
+      description: Activities per page. Maximum is 10,000 records.
       default: 50
     order_key:
       type: str | None
