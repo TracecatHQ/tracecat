@@ -8052,7 +8052,7 @@ export const agentSkillsRemoveSkillTag = (
 
 /**
  * List Agent Backends
- * List enabled installed backends available to new sessions.
+ * List enabled installed backends this organization may start sessions on.
  * @param data The data for the request.
  * @param data.workspaceId
  * @returns AgentBackendRead Successful Response
@@ -8094,7 +8094,7 @@ export const agentSessionsCreateSession = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
-      403: "Workspace Chat entitlement or parent session write access required",
+      403: "Workspace Chat or agent backend entitlement, or parent session write access required",
       404: "Parent session not found in this workspace",
       422: "Validation Error",
     },

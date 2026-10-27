@@ -20,3 +20,4 @@ class Entitlement(StrEnum):
     SEMANTIC_SEARCH = "semantic_search"
     FORMS = "forms"
     TUNNELS = "tunnels"
+    AGENT_RUNTIME_PREVIEW = "agent_runtime_preview"
