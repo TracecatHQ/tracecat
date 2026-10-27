@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
+from tracecat.exceptions import TracecatValidationError
+
 if TYPE_CHECKING:
     from tracecat.agent.catalog.types import ModelKey
     from tracecat.sync import (
@@ -128,3 +130,7 @@ type WorkflowExportCode = Literal[
     "invalid_definition",
     "missing_child_workflow",
 ]
+
+
+class SyncCommitConflictError(TracecatValidationError):
+    """The target Git ref moved after the reviewed revision was checked."""
