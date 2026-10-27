@@ -73,16 +73,6 @@ from tracecat.observability.otel import set_current_span_attributes
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
 
-# Chats that take the configured backend when the request omits one. The preset
-# builder and external channels depend on the built-in backend's workflow.
-CHAT_BACKEND_ENTITIES = frozenset(
-    {
-        AgentSessionEntity.WORKSPACE_CHAT,
-        AgentSessionEntity.AGENT_PRESET,
-        AgentSessionEntity.CASE,
-    }
-)
-
 SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
     "Transfer-Encoding": "chunked",
@@ -217,14 +207,6 @@ async def create_session(
     session: AsyncDBSession,
 ) -> AgentSessionRead:
     """Create a new agent session associated with an entity."""
-    chat_backend = config.TRACECAT__AGENT_CHAT_BACKEND
-    # Orgs that cannot use the configured chat backend keep the built-in one.
-    if (
-        "backend_id" not in request.model_fields_set
-        and request.entity_type in CHAT_BACKEND_ENTITIES
-        and await _can_use_backend(session=session, role=role, backend_id=chat_backend)
-    ):
-        request = request.model_copy(update={"backend_id": chat_backend})
     await require_workspace_chat_entitlement_for_entity(
         session=session,
         role=role,

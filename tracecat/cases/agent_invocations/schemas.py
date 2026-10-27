@@ -36,8 +36,26 @@ class PrepareCommentAgentInvocationInput(BaseModel):
     invocation_id: uuid.UUID
 
 
+class CommentAgentTurn(BaseModel):
+    """A prepared turn the invocation workflow starts as a child by type name."""
+
+    backend_id: str
+    session_id: uuid.UUID
+    run_id: uuid.UUID
+    workflow_type: str
+    workflow_id: str
+    task_queue: str
+    priority_key: int | None = None
+    # The selected backend's own workflow input, kept opaque so this workflow
+    # never imports another backend's types. The child decodes it.
+    args: Any
+
+
 class PrepareCommentAgentInvocationResult(BaseModel):
+    # Set only by runs recorded before turns went through the backend contract.
+    # Their replays must keep starting the built-in workflow directly.
     workflow_args: AgentWorkflowArgs | None = None
+    turn: CommentAgentTurn | None = None
 
 
 class CompleteCommentAgentInvocationInput(BaseModel):
@@ -45,11 +63,15 @@ class CompleteCommentAgentInvocationInput(BaseModel):
     session_id: uuid.UUID
     run_id: uuid.UUID
     output: Any
+    # When set, ``output`` is the child's decoded result, read by this backend.
+    backend_id: str | None = None
 
 
 class CompleteCommentAgentInvocationResult(BaseModel):
     handled: bool
     reply_comment_id: uuid.UUID | None = None
+    # The turn ended without a usable output; nothing was posted.
+    turn_error: str | None = None
 
 
 class FailCommentAgentInvocationInput(BaseModel):

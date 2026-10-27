@@ -1524,64 +1524,6 @@ async def test_create_session_rejects_unavailable_backend_with_bad_request(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("entity_type", "backend_id", "entitled", "expected"),
-    [
-        # Chats without a choice take the configured backend.
-        (AgentSessionEntity.WORKSPACE_CHAT, None, True, "external"),
-        (AgentSessionEntity.AGENT_PRESET, None, True, "external"),
-        (AgentSessionEntity.CASE, None, True, "external"),
-        # Orgs that cannot use the configured backend keep the built-in one.
-        (AgentSessionEntity.WORKSPACE_CHAT, None, False, "oss"),
-        (AgentSessionEntity.CASE, None, False, "oss"),
-        # An explicit choice wins over the configured backend.
-        (AgentSessionEntity.AGENT_PRESET, "oss", True, "oss"),
-        # Surfaces that need the built-in workflow keep it.
-        (AgentSessionEntity.AGENT_PRESET_BUILDER, None, True, "oss"),
-        (AgentSessionEntity.EXTERNAL_CHANNEL, None, True, "oss"),
-        (AgentSessionEntity.WORKFLOW, None, True, "oss"),
-    ],
-)
-async def test_create_session_applies_configured_chat_backend(
-    entity_type: AgentSessionEntity,
-    backend_id: str | None,
-    entitled: bool,
-    expected: str,
-) -> None:
-    session_stub = _agent_session_stub(backend_id=expected)
-    fake_svc = SimpleNamespace(create_session=AsyncMock(return_value=session_stub))
-    request = AgentSessionCreate(entity_type=entity_type, entity_id=uuid.uuid4())
-    if backend_id is not None:
-        request = AgentSessionCreate(
-            entity_type=entity_type, entity_id=uuid.uuid4(), backend_id=backend_id
-        )
-    with (
-        patch(
-            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
-        ),
-        patch(
-            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
-            AsyncMock(),
-        ),
-        patch(
-            "tracecat.agent.session.router.config.TRACECAT__AGENT_CHAT_BACKEND",
-            "external",
-        ),
-        patch(
-            "tracecat.agent.backends.access.is_org_entitled",
-            AsyncMock(return_value=entitled),
-        ),
-    ):
-        await cast(Any, create_session).__wrapped__(
-            request=request,
-            role=_read_role(session_stub.workspace_id),
-            session=AsyncMock(),
-        )
-    sent = fake_svc.create_session.await_args.args[0]
-    assert sent.backend_id == expected
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
     ("entitled", "expected"), [(False, ["oss"]), (True, ["oss", "external"])]
 )
 async def test_list_agent_backends_hides_non_default_without_entitlement(

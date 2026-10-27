@@ -48,6 +48,7 @@ from tracecat.agent.backends.registry import (
     get_agent_backend,
 )
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
+from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     SessionForkContext,
@@ -548,6 +549,12 @@ class AgentSessionService(BaseWorkspaceService):
             EntitlementRequired: If the backend needs an entitlement the
                 organization lacks.
         """
+        # Callers that do not pin a backend get the one selected for the surface.
+        if "backend_id" not in args.model_fields_set:
+            backend_id = await select_backend_id(
+                self.session, self.organization_id, args.entity_type
+            )
+            args = args.model_copy(update={"backend_id": backend_id})
         await require_backend_entitlement(
             self.session, self.organization_id, args.backend_id
         )
@@ -2052,15 +2059,14 @@ class AgentSessionService(BaseWorkspaceService):
             session_id,
             BasicChatRequest(message=prompt),
         )
-        # This caller constructs the built-in workflow's arguments directly.
-        # Keep that integration restriction explicit until it uses the contract.
-        if agent_session.backend_id != "oss":
+        backend = get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
+        # The caller runs the turn as its own child and reads the result.
+        if not backend.caller_owned_turns:
             raise TracecatValidationError(
                 "This backend does not support caller-owned workflows"
             )
-        get_agent_backend(
-            agent_session.backend_id, harness_type=agent_session.harness_type
-        )
         async with self._build_agent_config(agent_session) as agent_config:
             run_id = agent_session.curr_run_id or uuid.uuid4()
             stream_id = agent_session.active_stream_id or uuid.uuid4()
@@ -2076,6 +2082,8 @@ class AgentSessionService(BaseWorkspaceService):
                 tools=agent_session.tools,
                 agent_preset_id=agent_session.agent_preset_id,
                 agent_preset_version_id=agent_session.agent_preset_version_id,
+                backend_id=agent_session.backend_id,
+                harness_type=agent_session.harness_type,
             )
 
             agent_session.curr_run_id = run_id

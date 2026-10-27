@@ -650,3 +650,18 @@ async def test_backend_compatibility_preserves_connection_failure_and_persisted_
     session.curr_run_id = None
     assert await provider._resolve_live_statuses([session]) == {}
     connect.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_list_includes_installed_backend_runs() -> None:
+    """Runs on an installed backend use its own harness, so match the backend too."""
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    await provider.list_items(limit=10)
+
+    statement = session.statements[-1].compile()
+    compiled = str(statement)
+    assert "agent_session.harness_type IN" in compiled
+    assert "agent_session.backend_id !=" in compiled
+    assert registry.DEFAULT_AGENT_BACKEND in statement.params.values()
