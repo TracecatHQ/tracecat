@@ -1303,7 +1303,28 @@ async def _resolve_and_probe_stdio_config(
             error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
         )
 
-    return await get_stdio_mcp_runner().list_tools(server, stdio_env)
+    # An installed runner sees the resolved env. Redact it from any failure
+    # before the result crosses into workflow history.
+    try:
+        result = await get_stdio_mcp_runner().list_tools(server, stdio_env)
+    except Exception as exc:
+        return StdioMCPProbeResult(
+            success=False,
+            message="Failed to run stdio MCP probe",
+            error=sanitize_stdio_probe_error(
+                f"{type(exc).__name__}: {exc}", env=stdio_env
+            ),
+        )
+    if result.success:
+        return result
+    return result.model_copy(
+        update={
+            "message": sanitize_stdio_probe_error(result.message, env=stdio_env),
+            "error": sanitize_stdio_probe_error(result.error, env=stdio_env)
+            if result.error is not None
+            else None,
+        }
+    )
 
 
 @activity.defn(name="probe_stdio_mcp_connection_activity")

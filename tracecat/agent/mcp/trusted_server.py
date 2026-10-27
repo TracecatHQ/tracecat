@@ -57,10 +57,11 @@ from tracecat.agent.mcp.stdio_runner import (
     StdioMCPRunnerUnsupportedError,
     StdioMCPServer,
     get_stdio_mcp_runner,
+    stdio_mcp_tool_definition,
+    usable_stdio_mcp_tools,
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import (
-    MCP_TOOL_NAME_RE,
     action_name_to_mcp_tool_name,
     canonical_mcp_tool_name,
     fetch_tool_definitions,
@@ -547,21 +548,11 @@ def _stdio_mcp_tool_definitions(
     target: _StdioMCPTarget,
 ) -> dict[str, MCPToolDefinition]:
     """List a stdio server's tools from its saved tool list."""
-    server_name = target.server.name
-    definitions: dict[str, MCPToolDefinition] = {}
-    for name in target.tools:
-        tool = target.active_tool(name)
-        if tool is None or not MCP_TOOL_NAME_RE.fullmatch(name):
-            continue
-        tool_name = f"mcp__{server_name}__{name}"
-        definitions[tool_name] = MCPToolDefinition(
-            name=tool_name,
-            description=tool.description or f"Tool from {server_name}",
-            # Tools verified before schemas were saved accept any arguments.
-            parameters_json_schema=tool.input_schema
-            or {"type": "object", "additionalProperties": True},
-        )
-    return definitions
+    definitions = (
+        stdio_mcp_tool_definition(target.server.name, tool)
+        for tool in usable_stdio_mcp_tools(target.tools.values())
+    )
+    return {definition.name: definition for definition in definitions}
 
 
 def _build_scoped_tool(

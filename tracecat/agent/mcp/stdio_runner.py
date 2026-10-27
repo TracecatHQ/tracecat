@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import EntryPoint, entry_points
@@ -18,7 +19,11 @@ from typing import Any, Protocol, runtime_checkable
 
 from mcp.types import CallToolResult
 
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
+from tracecat.agent.mcp.utils import MCP_TOOL_NAME_RE
+from tracecat.integrations.schemas import MCPToolSummary
+from tracecat.logger import logger
 
 STDIO_MCP_RUNNER_ENTRY_POINT_GROUP = "tracecat.stdio_mcp_runner"
 DEFAULT_STDIO_MCP_RUNNER = "nsjail"
@@ -73,6 +78,37 @@ class StdioMCPRunner(Protocol):
             StdioMCPRunnerUnsupportedError: The runner cannot call tools.
         """
         ...
+
+
+def usable_stdio_mcp_tools(
+    tools: Iterable[MCPToolSummary],
+) -> list[MCPToolSummary]:
+    """Saved tools an agent may use: enabled, still advertised, validly named."""
+    usable: list[MCPToolSummary] = []
+    for tool in tools:
+        if not tool.enabled or tool.status != "available":
+            continue
+        if not MCP_TOOL_NAME_RE.fullmatch(tool.name):
+            logger.warning(
+                "Skipping stdio MCP tool with unsupported name", tool_name=tool.name
+            )
+            continue
+        usable.append(tool)
+    return usable
+
+
+def stdio_mcp_tool_definition(
+    server_name: str, tool: MCPToolSummary
+) -> MCPToolDefinition:
+    """Build a saved stdio tool's definition, named ``mcp__{server}__{tool}``."""
+    name = f"mcp__{server_name}__{tool.name}"
+    return MCPToolDefinition(
+        name=name,
+        description=tool.description or f"Tool from {server_name}",
+        # Tools verified before schemas were saved accept any arguments.
+        parameters_json_schema=tool.input_schema
+        or {"type": "object", "additionalProperties": True},
+    )
 
 
 @lru_cache(maxsize=1)

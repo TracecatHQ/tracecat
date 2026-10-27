@@ -565,6 +565,51 @@ class TestProbeStdioMCPConnectionActivity:
         runner.list_tools.assert_awaited_once_with(server, None)
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("fails_by", ["result", "exception"])
+    async def test_probe_redacts_env_from_runner_failures(
+        self,
+        mock_role: Role,
+        fails_by: str,
+    ) -> None:
+        """A replacement runner's failure text never carries the resolved env."""
+        integrations_svc = MagicMock()
+        integrations_svc.validate_stdio_server_config.return_value = None
+        preset_svc = MagicMock()
+        preset_svc.role = mock_role
+        stdio_env = {"API_TOKEN": "super-secret-value"}
+        preset_svc.resolve_stdio_env = AsyncMock(return_value=stdio_env)
+        runner = MagicMock()
+        leaked = "server rejected token super-secret-value"
+        if fails_by == "result":
+            runner.list_tools = AsyncMock(
+                return_value=StdioMCPProbeResult(
+                    success=False, message=leaked, error=leaked
+                )
+            )
+        else:
+            runner.list_tools = AsyncMock(side_effect=RuntimeError(leaked))
+
+        with patch(
+            "tracecat.agent.executor.activity.get_stdio_mcp_runner",
+            return_value=runner,
+        ):
+            result = await _resolve_and_probe_stdio_config(
+                preset_svc=preset_svc,
+                integrations_svc=integrations_svc,
+                server=StdioMCPServer(
+                    workspace_id=uuid.uuid4(),
+                    mcp_integration_id=uuid.uuid4(),
+                    name="test-stdio-server",
+                    command="python",
+                ),
+                stdio_env=stdio_env,
+            )
+
+        assert result.success is False
+        assert "super-secret-value" not in result.model_dump_json()
+        assert result.error is not None and "[redacted]" in result.error
+
+    @pytest.mark.anyio
     async def test_default_runner_uses_verification_timeout(self) -> None:
         """The built-in runner passes the verification timeout to the probe."""
         expected = StdioMCPProbeResult(

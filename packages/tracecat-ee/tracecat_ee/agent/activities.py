@@ -35,6 +35,10 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
+from tracecat.agent.mcp.stdio_runner import (
+    stdio_mcp_tool_definition,
+    usable_stdio_mcp_tools,
+)
 from tracecat.agent.mcp.utils import (
     MCP_TOOL_NAME_RE,
     REGISTRY_MCP_SERVER_NAME,
@@ -338,30 +342,15 @@ async def _build_stdio_mcp_tool_definitions(
             if (tools := cfg.get("tools")) is not None
             else None
         )
-        for tool in policies.values():
-            if not tool.enabled or tool.status != "available":
-                continue
+        for tool in usable_stdio_mcp_tools(policies.values()):
             if selected_names is not None and tool.name not in selected_names:
                 continue
-            if not MCP_TOOL_NAME_RE.fullmatch(tool.name):
-                logger.warning(
-                    "Skipping stdio MCP tool with unsupported name",
-                    server_name=server_name,
-                    tool_name=tool.name,
-                )
-                continue
-            tool_name = f"mcp__{server_name}__{tool.name}"
-            definitions[tool_name] = MCPToolDefinition(
-                name=tool_name,
-                description=tool.description or f"Tool from {server_name}",
-                # Tools verified before schemas were saved accept any arguments.
-                parameters_json_schema=tool.input_schema
-                or {"type": "object", "additionalProperties": True},
-            )
+            definition = stdio_mcp_tool_definition(server_name, tool)
+            definitions[definition.name] = definition
             if tool.requires_approval:
                 approvals[
                     normalize_mcp_tool_name(
-                        f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
+                        f"mcp__{REGISTRY_MCP_SERVER_NAME}__{definition.name}"
                     )
                 ] = True
         claims.append(UserMCPServerClaim(name=server_name, id=integration_id))
