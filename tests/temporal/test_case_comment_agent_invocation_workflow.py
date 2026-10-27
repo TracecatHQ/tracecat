@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowFailureError
-from temporalio.common import RetryPolicy
+from temporalio.common import Priority, RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
@@ -205,7 +205,7 @@ def _backend_turn_preparer(queue: str):
                 workflow_type=_BACKEND_TURN_WORKFLOW,
                 workflow_id=f"external/{run_id}",
                 task_queue=queue,
-                priority_key=2,
+                priority=Priority(priority_key=2, fairness_key="comments"),
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 args={"prompt": "Investigate"},
             )
@@ -709,16 +709,26 @@ async def test_parent_runs_a_backend_turn_by_type_name() -> None:
                 id=f"parent/{invocation_id}",
                 task_queue=queue,
             )
-            child = await env.client.get_workflow_handle(
-                f"external/{invocation_id}"
-            ).describe()
+            parent_history = await env.client.get_workflow_handle(
+                f"parent/{invocation_id}"
+            ).fetch_history()
 
     assert result.handled and result.reply_comment_id == invocation_id
     assert _EVENTS == [
         "prepare",
         "complete:external:{'kind': 'completed', 'output': {'answer': 'Investigate'}}",
     ]
-    assert child.workflow_type == _BACKEND_TURN_WORKFLOW
+    # The test server ignores priority, so check what the parent sent.
+    (started,) = [
+        event.start_child_workflow_execution_initiated_event_attributes
+        for event in parent_history.events
+        if event.event_type
+        == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+    ]
+    assert started.workflow_type.name == _BACKEND_TURN_WORKFLOW
+    assert started.workflow_id == f"external/{invocation_id}"
+    assert started.priority.priority_key == 2
+    assert started.priority.fairness_key == "comments"
 
 
 @pytest.mark.anyio

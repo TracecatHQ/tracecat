@@ -101,7 +101,7 @@ async def prepare_comment_agent_invocation_activity(
         workflow_type=get_workflow_type(backend),
         workflow_id=backend.workflow_id(prepared_turn.run_id),
         task_queue=backend.task_queue,
-        priority_key=backend.priority.priority_key,
+        priority=backend.priority,
         retry_policy=backend.retry_policy,
         args=args,
     )

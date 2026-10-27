@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from pydantic import BaseModel
-from temporalio.common import RetryPolicy
+from temporalio.common import Priority, RetryPolicy
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat.auth.types import Role
@@ -46,7 +46,7 @@ class CommentAgentTurn(BaseModel):
     workflow_type: str
     workflow_id: str
     task_queue: str
-    priority_key: int | None = None
+    priority: Priority
     retry_policy: RetryPolicy
     # The selected backend's own workflow input, kept opaque so this workflow
     # never imports another backend's types. The child decodes it.

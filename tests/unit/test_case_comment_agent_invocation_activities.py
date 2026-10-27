@@ -109,6 +109,7 @@ async def test_prepare_comment_invocation_uses_session_execution_role() -> None:
     assert turn.workflow_id == f"agent/{prepared_turn.run_id}"
     assert turn.task_queue == DefaultBackend.task_queue
     assert turn.retry_policy == DefaultBackend.retry_policy
+    assert turn.priority == DefaultBackend.priority
     args = turn.args
     assert isinstance(args, AgentWorkflowArgs)
     assert args.role == execution_role
