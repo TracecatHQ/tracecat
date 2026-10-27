@@ -1529,7 +1529,7 @@ class AgentPresetService(BaseWorkspaceService):
                     active_tools = cast(
                         list[MCPServerToolSummary],
                         [
-                            tool.model_dump(exclude_none=True)
+                            tool.model_dump(exclude_none=True, exclude={"input_schema"})
                             for tool in stored_tools
                             if tool.enabled and tool.status == "available"
                         ],
@@ -1653,7 +1653,7 @@ class AgentPresetService(BaseWorkspaceService):
                 projected_config["tools"] = cast(
                     list[MCPServerToolSummary],
                     [
-                        policy.model_dump(exclude_none=True)
+                        policy.model_dump(exclude_none=True, exclude={"input_schema"})
                         for tool_name in sorted(grant.tool_names)
                         if (policy := policies.get(tool_name)) is not None
                     ],

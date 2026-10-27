@@ -158,7 +158,16 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
     ):
         fallback.return_value = MagicMock(
             success=True,
-            output={"tools": [{"name": "echo", "description": "Echo"}]},
+            output={
+                "tools": [
+                    {
+                        "name": "echo",
+                        "description": "Echo",
+                        "input_schema": {"type": "object"},
+                    },
+                    {"name": "bad_schema", "input_schema": "not a schema"},
+                ]
+            },
             error=None,
             stderr="",
         )
@@ -170,7 +179,10 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
         )
 
     assert result.success is True
-    assert [tool.name for tool in result.tools] == ["echo"]
+    assert [(tool.name, tool.input_schema) for tool in result.tools] == [
+        ("echo", {"type": "object"}),
+        ("bad_schema", None),
+    ]
     executor_cls.assert_not_called()
     fallback.assert_awaited_once()
 

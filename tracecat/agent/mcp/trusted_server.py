@@ -37,6 +37,7 @@ from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPToolDefinition,
     is_http_mcp_server,
+    is_stdio_mcp_server,
 )
 from tracecat.agent.mcp.executor import (
     ActionExecutionError,
@@ -52,12 +53,19 @@ from tracecat.agent.mcp.metadata import (
     build_registry_tool_schema,
     extract_proxy_tool_call_id,
 )
+from tracecat.agent.mcp.stdio_runner import (
+    StdioMCPRunnerUnsupportedError,
+    StdioMCPServer,
+    get_stdio_mcp_runner,
+)
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import (
+    MCP_TOOL_NAME_RE,
     action_name_to_mcp_tool_name,
     canonical_mcp_tool_name,
     fetch_tool_definitions,
     fetch_tool_definitions_for_lock,
+    flatten_mcp_content_blocks,
     mcp_tool_name_to_action_name,
     normalize_mcp_tool_name,
     strip_tracecat_registry_server_prefix,
@@ -79,6 +87,7 @@ from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
     MCPSecretResolutionError,
 )
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 
@@ -109,6 +118,21 @@ _USER_MCP_DISCOVERY_CACHE: dict[
     _UserMCPDiscoveryCacheEntry,
 ] = {}
 _USER_MCP_DISCOVERY_CACHE_LOCK = asyncio.Lock()
+
+
+@dataclass(frozen=True, slots=True)
+class _StdioMCPTarget:
+    """A claimed stdio MCP server, loaded from its workspace-scoped row."""
+
+    server: StdioMCPServer
+    tools: dict[str, MCPToolSummary]
+    """The saved tool list from the integration's last verification."""
+
+    def active_tool(self, tool_name: str) -> MCPToolSummary | None:
+        tool = self.tools.get(tool_name)
+        if tool is None or not tool.enabled or tool.status != "available":
+            return None
+        return tool
 
 
 class TracecatScopedTool(Tool):
@@ -398,8 +422,12 @@ def _legacy_user_mcp_config(server: UserMCPServerClaim) -> MCPHttpServerConfig:
 async def _resolve_user_mcp_config(
     ref: UserMCPServerClaim,
     role: Role,
-) -> MCPHttpServerConfig:
-    """Resolve a user MCP claim into an executable HTTP config."""
+) -> MCPHttpServerConfig | _StdioMCPTarget:
+    """Resolve a user MCP claim into an executable HTTP config or stdio target.
+
+    Stdio targets carry no environment: resolve it per call with
+    :func:`_resolve_stdio_mcp_env`, since listing tools never needs it.
+    """
     if ref.id is None:
         # Legacy replay path: in-flight tokens minted before the refs-only
         # cutover. Use the inline url/headers from the claim. New tokens
@@ -412,6 +440,21 @@ async def _resolve_user_mcp_config(
             if not refs:
                 raise ToolError(f"MCP integration {ref.id} not found")
             metadata = refs[0]
+            if is_stdio_mcp_server(metadata):
+                if role.workspace_id is None:
+                    raise ToolError(f"MCP server '{ref.name}' cannot be used")
+                policies = await svc.resolve_mcp_integration_tool_policies([ref.id])
+                return _StdioMCPTarget(
+                    server=StdioMCPServer(
+                        workspace_id=role.workspace_id,
+                        mcp_integration_id=ref.id,
+                        name=ref.name,
+                        command=metadata["command"],
+                        args=tuple(metadata.get("args") or ()),
+                        timeout=metadata.get("timeout"),
+                    ),
+                    tools=policies.get(ref.id, {}),
+                )
             if not is_http_mcp_server(metadata):
                 raise ToolError(f"User MCP server '{ref.name}' is not an HTTP server")
             secrets = await svc.resolve_mcp_integration_secrets(ref.id)
@@ -459,6 +502,66 @@ async def _resolve_user_mcp_config(
             raise ToolError(str(e)) from None
         config["tunnel_id"] = tunnel_id
     return config
+
+
+async def _resolve_stdio_mcp_env(
+    target: _StdioMCPTarget, role: Role
+) -> dict[str, str] | None:
+    """Resolve a stdio server's process env, credentials included, for one call."""
+    server = target.server
+    try:
+        async with AgentPresetService.with_session(role=role) as svc:
+            return await svc.resolve_mcp_integration_secrets(server.mcp_integration_id)
+    except MCPSecretResolutionError as e:
+        raise ToolError(
+            f"Credentials for MCP server '{server.name}' could not be resolved"
+        ) from e
+
+
+async def _call_stdio_mcp_tool(
+    target: _StdioMCPTarget,
+    tool_name: str,
+    args: dict[str, Any],
+    role: Role,
+) -> str:
+    """Call one tool on a stdio server through the installed runner."""
+    server = target.server
+    if target.active_tool(tool_name) is None:
+        # The token allowed it, but the integration has since disabled or
+        # lost the tool. Apply the integration's current policy.
+        raise ToolError(
+            f"Tool '{tool_name}' is not available on MCP server '{server.name}'"
+        )
+    env = await _resolve_stdio_mcp_env(target, role)
+    try:
+        result = await get_stdio_mcp_runner().call_tool(server, env, tool_name, args)
+    except StdioMCPRunnerUnsupportedError as e:
+        raise ToolError(str(e)) from None
+    text = flatten_mcp_content_blocks(result.content)
+    if result.isError:
+        raise ToolError(text or f"User MCP tool '{tool_name}' failed")
+    return text
+
+
+def _stdio_mcp_tool_definitions(
+    target: _StdioMCPTarget,
+) -> dict[str, MCPToolDefinition]:
+    """List a stdio server's tools from its saved tool list."""
+    server_name = target.server.name
+    definitions: dict[str, MCPToolDefinition] = {}
+    for name in target.tools:
+        tool = target.active_tool(name)
+        if tool is None or not MCP_TOOL_NAME_RE.fullmatch(name):
+            continue
+        tool_name = f"mcp__{server_name}__{name}"
+        definitions[tool_name] = MCPToolDefinition(
+            name=tool_name,
+            description=tool.description or f"Tool from {server_name}",
+            # Tools verified before schemas were saved accept any arguments.
+            parameters_json_schema=tool.input_schema
+            or {"type": "object", "additionalProperties": True},
+        )
+    return definitions
 
 
 def _build_scoped_tool(
@@ -549,15 +652,21 @@ async def _discover_allowed_user_mcp_tools(
     role = _set_role_context(claims)
     configs: list[MCPHttpServerConfig] = []
     failed_servers: dict[str, str] = {}
+    discovered: dict[str, MCPToolDefinition] = {}
     for server in claims.user_mcp_servers:
         if server.name not in expected_server_names:
             continue
         try:
-            configs.append(await _resolve_user_mcp_config(server, role))
+            resolved = await _resolve_user_mcp_config(server, role)
         except ToolError as e:
             failed_servers[server.name] = _safe_user_mcp_error_summary(e)
+            continue
+        if isinstance(resolved, _StdioMCPTarget):
+            # Stdio servers are not started to list tools: use the saved list.
+            discovered.update(_stdio_mcp_tool_definitions(resolved))
+        else:
+            configs.append(resolved)
 
-    discovered: dict[str, MCPToolDefinition] = {}
     uncached_configs: list[MCPHttpServerConfig] = []
     for config in configs:
         cached = await _get_cached_user_mcp_discovery(config, role.workspace_id)
@@ -821,9 +930,12 @@ async def _execute_user_mcp(
         raise ToolError(f"User MCP server '{server_name}' not authorized") from None
 
     try:
-        config_dict = await _resolve_user_mcp_config(ref, role)
-        client = UserMCPClient([config_dict])
-        result = await client.call_tool(server_name, tool_name, args)
+        resolved = await _resolve_user_mcp_config(ref, role)
+        if isinstance(resolved, _StdioMCPTarget):
+            result = await _call_stdio_mcp_tool(resolved, tool_name, args, role)
+        else:
+            client = UserMCPClient([resolved])
+            result = await client.call_tool(server_name, tool_name, args)
 
         logger.info(
             "User MCP tool executed successfully",

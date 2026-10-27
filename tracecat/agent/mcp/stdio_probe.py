@@ -223,6 +223,7 @@ async def main() -> None:
                         {
                             "name": tool.name,
                             "description": tool.description,
+                            "input_schema": tool.inputSchema,
                         }
                         for tool in tools
                     ]
@@ -295,10 +296,12 @@ def _parse_probe_tools(output: object) -> list[MCPToolSummary]:
             )
             continue
         description = raw_tool.get("description")
+        input_schema = raw_tool.get("input_schema")
         tools.append(
             MCPToolSummary(
                 name=name,
                 description=description if isinstance(description, str) else None,
+                input_schema=input_schema if isinstance(input_schema, dict) else None,
             )
         )
     return tools

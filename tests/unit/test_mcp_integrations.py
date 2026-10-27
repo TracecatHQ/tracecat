@@ -8640,9 +8640,12 @@ class TestMCPConnectionVerification:
             },
         ]
 
+        search_schema = {"type": "object", "properties": {"q": {"type": "string"}}}
         merged = IntegrationService._merge_mcp_tool_summaries(
             [
-                MCPToolSummary(name="search", description="New search"),
+                MCPToolSummary(
+                    name="search", description="New search", input_schema=search_schema
+                ),
                 MCPToolSummary(name="create", description="Create issue"),
             ],
             stored,
@@ -8650,6 +8653,7 @@ class TestMCPConnectionVerification:
 
         assert [tool.name for tool in merged] == ["search", "create", "delete"]
         assert merged[0].description == "New search"
+        assert merged[0].input_schema == search_schema
         assert merged[0].enabled is False
         assert merged[0].requires_approval is True
         assert merged[0].status == "available"

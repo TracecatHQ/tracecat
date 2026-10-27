@@ -19,7 +19,7 @@ from tracecat_ee.agent.activities import (
 )
 
 from tracecat import config
-from tracecat.agent.common.types import is_http_mcp_server
+from tracecat.agent.common.types import MCPHttpServerConfig, is_http_mcp_server
 from tracecat.agent.mcp import user_client
 from tracecat.agent.mcp.trusted_server import _resolve_user_mcp_config
 from tracecat.agent.preset.service import AgentPresetService
@@ -187,10 +187,11 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
         (integration.slug, integration.id) for integration in integrations
     }
     # Rehydrate the actual claims at the trusted execution boundary, then route calls.
-    executable_configs = [
-        await _resolve_user_mcp_config(claim, role) for claim in result.user_mcp_claims
-    ]
-    assert all(is_http_mcp_server(config) for config in executable_configs)
+    executable_configs: list[MCPHttpServerConfig] = []
+    for claim in result.user_mcp_claims:
+        config = await _resolve_user_mcp_config(claim, role)
+        assert isinstance(config, dict) and is_http_mcp_server(config)
+        executable_configs.append(config)
     client = user_client.UserMCPClient(executable_configs)
     for name in result.tool_definitions:
         parsed = client.parse_user_mcp_tool_name(name)
