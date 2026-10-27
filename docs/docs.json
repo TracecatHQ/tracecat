@@ -319,6 +319,7 @@
               "tools/snowflake",
               "tools/socket",
               "tools/splunk",
+              "tools/spur",
               "tools/sublime",
               "tools/tavily",
               "tools/tenable_sc",
