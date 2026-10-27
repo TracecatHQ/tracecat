@@ -428,6 +428,7 @@ class IntegrationService(BaseWorkspaceService):
                     if previous is not None
                     else False,
                     status="available",
+                    input_schema=discovered.input_schema,
                 )
             )
             discovered_names.add(discovered.name)

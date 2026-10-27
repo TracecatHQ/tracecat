@@ -24157,6 +24157,18 @@ export const $MCPToolSummary = {
       title: "Status",
       default: "available",
     },
+    input_schema: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Input Schema",
+    },
   },
   type: "object",
   required: ["name"],

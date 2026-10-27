@@ -11,8 +11,10 @@ import tempfile
 import textwrap
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 import orjson
+from mcp.types import CallToolResult
 
 from tracecat import config
 from tracecat.agent.mcp.stdio_probe_types import (
@@ -27,6 +29,10 @@ from tracecat.agent.mcp.stdio_probe_types import (
     StdioMCPProbeWorkflowInput,
     build_stdio_mcp_probe_workflow_id,
     sanitize_stdio_probe_error,
+)
+from tracecat.agent.mcp.stdio_runner import (
+    StdioMCPRunnerUnsupportedError,
+    StdioMCPServer,
 )
 from tracecat.agent.mcp.utils import MCP_TOOL_NAME_RE
 from tracecat.agent.sandbox.cgroup import sandbox_cgroup
@@ -51,6 +57,7 @@ __all__ = [
     "MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER",
     "MCP_STDIO_PROBE_TIMEOUT_CAP",
     "MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX",
+    "NsjailStdioMCPRunner",
     "StdioMCPPersistInput",
     "StdioMCPProbeInput",
     "StdioMCPProbeResult",
@@ -216,6 +223,7 @@ async def main() -> None:
                         {
                             "name": tool.name,
                             "description": tool.description,
+                            "input_schema": tool.inputSchema,
                         }
                         for tool in tools
                     ]
@@ -288,10 +296,12 @@ def _parse_probe_tools(output: object) -> list[MCPToolSummary]:
             )
             continue
         description = raw_tool.get("description")
+        input_schema = raw_tool.get("input_schema")
         tools.append(
             MCPToolSummary(
                 name=name,
                 description=description if isinstance(description, str) else None,
+                input_schema=input_schema if isinstance(input_schema, dict) else None,
             )
         )
     return tools
@@ -484,3 +494,36 @@ async def probe_stdio_mcp_tools_in_sandbox(
         tools=tools,
         message=f"Connected successfully — {len(tools)} tools available",
     )
+
+
+class NsjailStdioMCPRunner:
+    """Built-in stdio MCP runner: probes under nsjail and refuses tool calls.
+
+    Runtimes that use the built-in runner start stdio servers themselves, so
+    the trusted MCP server never routes a stdio call here. Calls are refused
+    rather than run, because untrusted server code must not run in the
+    trusted plane.
+    """
+
+    async def list_tools(
+        self, server: StdioMCPServer, env: dict[str, str] | None
+    ) -> StdioMCPProbeResult:
+        return await probe_stdio_mcp_tools_in_sandbox(
+            command=server.command,
+            args=list(server.args),
+            env=env,
+            timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
+        )
+
+    async def call_tool(
+        self,
+        server: StdioMCPServer,
+        env: dict[str, str] | None,
+        tool: str,
+        args: dict[str, Any],
+    ) -> CallToolResult:
+        del env, tool, args
+        raise StdioMCPRunnerUnsupportedError(
+            f"Stdio MCP server '{server.name}' can't be called through the "
+            "Tracecat MCP server: no stdio MCP runner is installed"
+        )
