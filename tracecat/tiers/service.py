@@ -182,4 +182,5 @@ class TierService(BaseService):
             semantic_search=resolve_entitlement("semantic_search"),
             forms=resolve_entitlement("forms"),
             tunnels=resolve_entitlement("tunnels"),
+            agent_runtime_preview=resolve_entitlement("agent_runtime_preview"),
         )

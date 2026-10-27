@@ -662,6 +662,147 @@ class TestBuildToolDefinitionsActivity:
         )
         lock_service.resolve_lock_with_bindings.assert_awaited_once_with(set())
 
+    @staticmethod
+    def _stdio_server(integration_id: uuid.UUID, **extra: Any) -> dict[str, Any]:
+        return {
+            "type": "stdio",
+            "name": "files",
+            "command": "npx",
+            "args": ["-y", "example-files-server"],
+            "id": str(integration_id),
+            **extra,
+        }
+
+    @pytest.mark.anyio
+    async def test_stdio_servers_are_not_compiled_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """Runtimes that start stdio servers themselves get no gateway copy."""
+        integration_id = uuid.uuid4()
+        preset_service = _patch_preset_service(
+            monkeypatch,
+            policies={integration_id: {"read": MCPToolSummary(name="read")}},
+            refs=[self._stdio_server(integration_id)],
+        )
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[cast(Any, self._stdio_server(integration_id))],
+            )
+        )
+
+        assert result.tool_definitions == {}
+        assert not result.user_mcp_claims
+        preset_service.resolve_mcp_integration_tool_policies.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_stdio_servers_compile_from_saved_tools_when_enabled(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """Saved tools become definitions and claims; nothing is started."""
+        integration_id = uuid.uuid4()
+        read_schema = {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        }
+        preset_service = _patch_preset_service(
+            monkeypatch,
+            policies={
+                integration_id: {
+                    "read": MCPToolSummary(
+                        name="read", description="Read", input_schema=read_schema
+                    ),
+                    "write": MCPToolSummary(name="write", requires_approval=True),
+                    "delete": MCPToolSummary(name="delete", enabled=False),
+                    "gone": MCPToolSummary(name="gone", status="missing"),
+                    "unselected": MCPToolSummary(name="unselected"),
+                }
+            },
+            refs=[self._stdio_server(integration_id)],
+        )
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+        selected = [{"name": name} for name in ("read", "write", "delete", "gone")]
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    cast(Any, self._stdio_server(integration_id, tools=selected))
+                ],
+                include_stdio_mcp_servers=True,
+            )
+        )
+
+        assert result.tool_definitions == {
+            "mcp__files__read": MCPToolDefinition(
+                name="mcp__files__read",
+                description="Read",
+                parameters_json_schema=read_schema,
+            ),
+            "mcp__files__write": MCPToolDefinition(
+                name="mcp__files__write",
+                description="Tool from files",
+                parameters_json_schema={
+                    "type": "object",
+                    "additionalProperties": True,
+                },
+            ),
+        }
+        assert result.tool_approvals == {"mcp.files.write": True}
+        assert result.user_mcp_claims is not None
+        assert [(c.name, c.id, c.url) for c in result.user_mcp_claims] == [
+            ("files", integration_id, None)
+        ]
+        preset_service.resolve_mcp_integration_secrets.assert_not_awaited()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("strict", [False, True])
+    async def test_stdio_server_without_workspace_row_is_skipped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        strict: bool,
+    ) -> None:
+        """A stdio id that doesn't resolve in the role's workspace gets no claim."""
+        integration_id = uuid.uuid4()
+        _patch_preset_service(
+            monkeypatch,
+            policies={integration_id: {"read": MCPToolSummary(name="read")}},
+            refs=None,
+        )
+        _patch_registry(monkeypatch)
+        monkeypatch.setattr(
+            user_client, "discover_user_mcp_tools", AsyncMock(return_value={})
+        )
+        args = BuildToolDefsArgs(
+            role=mock_role,
+            tool_filters=ToolFilters(actions=[]),
+            mcp_servers=[cast(Any, self._stdio_server(integration_id))],
+            include_stdio_mcp_servers=True,
+            fail_on_mcp_discovery_error=strict,
+        )
+
+        if strict:
+            with pytest.raises(ApplicationError):
+                await AgentActivities().build_tool_definitions(args)
+            return
+        result = await AgentActivities().build_tool_definitions(args)
+        assert result.tool_definitions == {}
+        assert not result.user_mcp_claims
+
     @pytest.mark.anyio
     @pytest.mark.parametrize(
         "payload_tunnel_id", [None, "33333333-3333-3333-3333-333333333333"]

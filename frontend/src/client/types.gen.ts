@@ -4991,6 +4991,10 @@ export type EffectiveEntitlements = {
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
+  /**
+   * Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions
+   */
+  agent_runtime_preview?: boolean
 }
 
 /**
@@ -5124,6 +5128,10 @@ export type EntitlementsDict = {
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
+  /**
+   * Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions
+   */
+  agent_runtime_preview?: boolean
 }
 
 export type ErrorModel = {
@@ -7382,6 +7390,9 @@ export type MCPToolSummary = {
   enabled?: boolean
   requires_approval?: boolean
   status?: "available" | "missing"
+  input_schema?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -22525,7 +22536,7 @@ export type $OpenApiTs = {
          */
         200: AgentSessionRead
         /**
-         * Workspace Chat entitlement or parent session write access required
+         * Workspace Chat or agent backend entitlement, or parent session write access required
          */
         403: unknown
         /**

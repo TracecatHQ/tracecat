@@ -1,18 +1,31 @@
 from __future__ import annotations
 
 import json
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat import config
+from tracecat.agent.channels.schemas import SlackChannelTokenConfig
+from tracecat.agent.channels.sinks.session import (
+    AgentStreamSink,
+    FanoutStreamSink,
+    open_session_event_sink,
+)
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.session.types import AgentSessionEntity
 
 
 @dataclass
@@ -403,3 +416,163 @@ async def test_slack_stream_sink_ignores_pending_approval_interrupt_errors(
     ]
     assert "pending" in statuses
     assert "error" not in statuses
+
+
+class _FakeSinkTarget:
+    def __init__(self) -> None:
+        self.append = AsyncMock()
+        self.error = AsyncMock()
+        self.done = AsyncMock()
+
+
+class _FakeLookupResult:
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    def scalar_one_or_none(self) -> object:
+        return self._value
+
+
+class _FakeLookupSession:
+    """Answers the session lookup, then the channel token lookup, in order."""
+
+    def __init__(self, *rows: object) -> None:
+        self._rows = list(rows)
+
+    async def execute(self, _statement: object) -> _FakeLookupResult:
+        return _FakeLookupResult(self._rows.pop(0))
+
+
+@pytest.mark.anyio
+async def test_session_sink_falls_back_to_redis_when_channel_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed channel lookup still streams the turn to Redis."""
+    session_id, workspace_id, stream_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    external_lookup = AsyncMock(side_effect=SQLAlchemyError("database unavailable"))
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session._build_external_channel_sink",
+        external_lookup,
+    )
+    redis_stream = _FakeSinkTarget()
+    stream_new = AsyncMock(return_value=redis_stream)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.AgentStream.new", stream_new
+    )
+
+    sink = await open_session_event_sink(
+        session_id=session_id, workspace_id=workspace_id, stream_id=stream_id
+    )
+
+    assert isinstance(sink, AgentStreamSink)
+    assert sink.stream is redis_stream
+    external_lookup.assert_awaited_once_with(
+        session_id=session_id, workspace_id=workspace_id
+    )
+    stream_new.assert_awaited_once_with(
+        session_id=session_id, workspace_id=workspace_id, stream_id=stream_id
+    )
+
+
+@pytest.mark.anyio
+async def test_session_sink_sends_each_event_to_redis_and_the_channel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An external-channel session receives every event in Redis and the channel."""
+    external_sink = _FakeSinkTarget()
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session._build_external_channel_sink",
+        AsyncMock(return_value=external_sink),
+    )
+    redis_stream = _FakeSinkTarget()
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.AgentStream.new",
+        AsyncMock(return_value=redis_stream),
+    )
+
+    sink = await open_session_event_sink(
+        session_id=uuid.uuid4(), workspace_id=uuid.uuid4(), stream_id=None
+    )
+    event = UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
+    await sink.append(event)
+
+    assert isinstance(sink, FanoutStreamSink)
+    redis_stream.append.assert_awaited_once_with(event)
+    external_sink.append.assert_awaited_once_with(event)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entity_type", "fans_out"),
+    [
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True),
+        (AgentSessionEntity.CASE, False),
+        (AgentSessionEntity.WORKFLOW, False),
+    ],
+)
+async def test_session_sink_fans_out_only_for_slack_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+    patched_slack_client: _FakeSlackClient,
+    entity_type: AgentSessionEntity,
+    fans_out: bool,
+) -> None:
+    """Only Slack-bound sessions stream to their thread; others use Redis alone."""
+    channel_id = "C1"
+    thread_ts = "1700000000.100"
+    preset_id = uuid.uuid4()
+    agent_session = SimpleNamespace(
+        entity_type=entity_type.value,
+        channel_context={
+            "channel_type": "slack",
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+        },
+        agent_preset_id=preset_id,
+        entity_id=preset_id,
+    )
+    channel_token = SimpleNamespace(
+        id=uuid.uuid4(),
+        config=SlackChannelTokenConfig(
+            slack_bot_token="xoxb-test",
+            slack_signing_secret="signing-secret",
+        ),
+    )
+    lookup = _FakeLookupSession(agent_session, channel_token)
+
+    @asynccontextmanager
+    async def _session_context() -> AsyncIterator[_FakeLookupSession]:
+        yield lookup
+
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.get_async_session_context_manager",
+        _session_context,
+    )
+    redis_stream = _FakeSinkTarget()
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.AgentStream.new",
+        AsyncMock(return_value=redis_stream),
+    )
+
+    sink = await open_session_event_sink(
+        session_id=uuid.uuid4(), workspace_id=uuid.uuid4(), stream_id=uuid.uuid4()
+    )
+
+    if fans_out:
+        assert isinstance(sink, FanoutStreamSink)
+        redis_sink, channel_sink = sink.sinks
+        assert isinstance(redis_sink, AgentStreamSink)
+        assert redis_sink.stream is redis_stream
+        assert isinstance(channel_sink, SlackStreamSink)
+        # Through the fanout, so both Redis and the thread receive the events.
+        event = UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
+        await sink.append(event)
+        await sink.done()
+        redis_stream.append.assert_awaited_once_with(event)
+        redis_stream.done.assert_awaited_once_with()
+        start_method, start_payload = patched_slack_client.calls[0]
+        assert start_method == "chat.startStream"
+        assert start_payload["channel"] == channel_id
+        assert start_payload["thread_ts"] == thread_ts
+    else:
+        assert isinstance(sink, AgentStreamSink)
+        assert sink.stream is redis_stream

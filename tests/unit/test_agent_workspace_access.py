@@ -298,7 +298,7 @@ async def test_viewer_reads_agents_but_cannot_run_them(session: AsyncSession) ->
     await agent_catalog_router.get_workspace_models(
         workspace_id=workspace.id, role=role, session=session
     )
-    await agent_session_router.list_agent_backends(role=role)
+    await agent_session_router.list_agent_backends(role=role, session=session)
     with pytest.raises(ScopeDeniedError):
         await agent_session_router.create_session(
             request=MagicMock(), role=role, session=session

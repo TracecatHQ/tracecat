@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 import tracecat.agent.executor.loopback as loopback_module
+from tracecat.agent.channels.sinks.session import AgentStreamSink, FanoutStreamSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE, MessageType, build_message
@@ -26,8 +27,6 @@ from tracecat.agent.error_policy import (
     user_agent_execution_failed,
 )
 from tracecat.agent.executor.loopback import (
-    AgentStreamSink,
-    FanoutStreamSink,
     LoopbackHandler,
     LoopbackInput,
     RuntimeEnvelopeProtocolError,
@@ -114,11 +113,16 @@ async def test_terminal_error_falls_back_to_redis_on_external_lookup_error(
 ) -> None:
     handler = LoopbackHandler(input=loopback_input)
     external_lookup = AsyncMock(side_effect=SQLAlchemyError("database unavailable"))
-    monkeypatch.setattr(handler, "_build_external_channel_sink", external_lookup)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session._build_external_channel_sink",
+        external_lookup,
+    )
 
     fake_stream = _FakeStream()
     stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.AgentStream.new", stream_new
+    )
 
     emitted = await handler.emit_terminal_error(
         "runtime exited before connect",
@@ -141,43 +145,20 @@ async def test_terminal_error_falls_back_to_redis_on_external_lookup_error(
 
 
 @pytest.mark.anyio
-async def test_initialize_stream_sink_uses_fanout_when_external_sink_available(
-    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
-) -> None:
-    handler = LoopbackHandler(input=loopback_input)
-    external_sink = _FakeStream()
-    monkeypatch.setattr(
-        handler,
-        "_build_external_channel_sink",
-        AsyncMock(return_value=external_sink),
-    )
-    fake_stream = _FakeStream()
-    stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
-
-    sink = await handler._initialize_stream_sink()
-    event = UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
-    await sink.append(event)
-
-    assert isinstance(sink, FanoutStreamSink)
-    fake_stream.append.assert_awaited_once_with(event)
-    external_sink.append.assert_awaited_once_with(event)
-
-
-@pytest.mark.anyio
 async def test_emit_terminal_error_emits_failed_compaction_when_pending(
     monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
 ) -> None:
     handler = LoopbackHandler(input=loopback_input)
     monkeypatch.setattr(
-        handler,
-        "_build_external_channel_sink",
+        "tracecat.agent.channels.sinks.session._build_external_channel_sink",
         AsyncMock(side_effect=SQLAlchemyError("database unavailable")),
     )
 
     fake_stream = _FakeStream()
     stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.AgentStream.new", stream_new
+    )
 
     handler._started_compaction_event = True
 

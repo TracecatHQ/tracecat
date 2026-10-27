@@ -53,7 +53,9 @@ def resolve_oss_default_entitlements(
     legacy ``agent-channels`` feature flag maps to it. Semantic table search is
     closed source and gated by ``semantic_search``. Forms are gated by ``forms``;
     the ``forms`` feature flag maps to it, so one token turns on both the flag
-    and the entitlement on single-tenant deployments.
+    and the entitlement on single-tenant deployments. Non-default agent backends
+    are gated by ``agent_runtime_preview``; the ``agent-runtime`` feature flag
+    maps to it the same way.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -75,6 +77,7 @@ def resolve_oss_default_entitlements(
             semantic_search=False,
             forms=False,
             tunnels=False,
+            agent_runtime_preview=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -95,6 +98,7 @@ def resolve_oss_default_entitlements(
 
     agent_channels_enabled = "agent-channels" in normalized_flags
     forms_enabled = "forms" in normalized_flags
+    agent_runtime_preview_enabled = "agent-runtime" in normalized_flags
 
     rbac_enabled = False
     for flag in _RBAC_FLAGS:
@@ -117,6 +121,7 @@ def resolve_oss_default_entitlements(
         semantic_search=False,
         forms=forms_enabled,
         tunnels=False,
+        agent_runtime_preview=agent_runtime_preview_enabled,
     )
 
 

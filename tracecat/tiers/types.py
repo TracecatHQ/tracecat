@@ -100,3 +100,11 @@ class EntitlementsDict(TypedDict, total=False):
             " network tunnels such as Pangolin",
         ),
     ]
+    agent_runtime_preview: Annotated[
+        bool,
+        Field(
+            title="Agent runtime preview",
+            description="Whether agent backends other than the built-in one may be"
+            " listed and used to create or fork agent sessions",
+        ),
+    ]

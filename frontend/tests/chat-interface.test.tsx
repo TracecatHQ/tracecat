@@ -39,11 +39,10 @@ jest.mock("@/providers/workspace-id", () => ({
 jest.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { id: "user-1" } }),
 }))
+const mockUseEntitlements = jest.fn()
 jest.mock("@/hooks/use-entitlements", () => ({
-  useEntitlements: () => ({
-    hasEntitlement: () => false,
-    hasEntitlementData: true,
-  }),
+  useEntitlements: (options?: { enabled?: boolean }) =>
+    mockUseEntitlements(options),
 }))
 const mockCreateChat = jest.fn()
 const mockListChats = jest.fn()
@@ -129,6 +128,11 @@ beforeEach(() => {
   mockGetChat.mockReturnValue(undefined)
   mockGetChatError.mockReturnValue(null)
   mockCreateChat.mockResolvedValue({ id: "chat-1" })
+  mockUseEntitlements.mockReturnValue({
+    hasEntitlement: (key: string) => key === "agent_runtime_preview",
+    isLoading: false,
+    hasEntitlementData: true,
+  })
   mockUseFeatureFlag.mockReturnValue({
     isFeatureEnabled: () => false,
     isLoading: false,
@@ -235,6 +239,53 @@ describe("ChatInterface backend selection", () => {
     await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
     expect(mockCreateChat.mock.calls[0][0].backend_id).toBeUndefined()
     expect(screen.queryByText("Open source")).not.toBeInTheDocument()
+  })
+
+  it("keeps backend selection hidden without the entitlement", async () => {
+    mockUseFeatureFlag.mockReturnValue({
+      isFeatureEnabled: (flag) => flag === "agent-runtime",
+      isLoading: false,
+      hasFeatureData: true,
+    })
+    mockUseEntitlements.mockReturnValue({
+      hasEntitlement: () => false,
+      isLoading: false,
+      hasEntitlementData: true,
+    })
+    mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
+      backends: multipleBackends,
+      backendsLoading: false,
+    })
+    renderChat({ surface: "regular" })
+    expect(
+      screen.queryByRole("combobox", { name: "Backend (dev)" })
+    ).not.toBeInTheDocument()
+    expect(mockUseAgentBackends).toHaveBeenCalledWith("workspace-1", {
+      enabled: false,
+    })
+    await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
+    expect(mockCreateChat.mock.calls[0][0].backend_id).toBeUndefined()
+  })
+
+  it("waits for entitlements before auto-creating a flagged sidebar chat", () => {
+    mockUseFeatureFlag.mockReturnValue({
+      isFeatureEnabled: (flag) => flag === "agent-runtime",
+      isLoading: false,
+      hasFeatureData: true,
+    })
+    mockUseEntitlements.mockReturnValue({
+      hasEntitlement: () => false,
+      isLoading: true,
+      hasEntitlementData: false,
+    })
+    renderChat({ surface: "regular" })
+    expect(mockCreateChat).not.toHaveBeenCalled()
+  })
+
+  it("skips the entitlement lookup without the flag", () => {
+    renderChat({ surface: "regular" })
+    expect(mockUseEntitlements).toHaveBeenCalledWith({ enabled: false })
   })
 
   it("waits for feature flags before auto-creating a sidebar chat", () => {

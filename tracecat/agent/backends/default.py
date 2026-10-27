@@ -14,6 +14,7 @@ from tracecat.agent.backends.schemas import (
 from tracecat.agent.backends.types import (
     SessionForkContext,
     SessionWorkflowContext,
+    TurnResult,
 )
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
@@ -32,10 +33,23 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
     default_harness = "claude_code"
     supported_harnesses = frozenset({"claude_code"})
     history = None
+    caller_owned_turns = True
 
     async def prepare_fork(self, context: SessionForkContext) -> None:
         """Copy the working snapshot; native history uses the parent session link."""
         context.fork.work_dir_snapshot = copy.deepcopy(context.parent.work_dir_snapshot)
+
+    def parse_turn_result(self, result: object) -> TurnResult:
+        """Read the output; a failed turn raises in the workflow instead.
+
+        A cancelled turn returns normally with no output, and a completed turn
+        can too. Either way there is nothing to deliver, so a missing output is
+        reported as an error rather than an empty success.
+        """
+        output = AgentOutput.model_validate(result).output
+        if output is None:
+            return TurnResult(output=None, error="Agent turn ended without output")
+        return TurnResult(output=output)
 
     async def build_workflow_args(
         self, context: SessionWorkflowContext

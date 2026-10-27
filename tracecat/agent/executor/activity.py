@@ -59,15 +59,12 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
-from tracecat.agent.mcp.stdio_probe import (
-    probe_stdio_mcp_tools_in_sandbox,
-)
 from tracecat.agent.mcp.stdio_probe_types import (
-    MCP_STDIO_PROBE_TIMEOUT_CAP,
     StdioMCPProbeInput,
     StdioMCPProbeResult,
     sanitize_stdio_probe_error,
 )
+from tracecat.agent.mcp.stdio_runner import StdioMCPServer, get_stdio_mcp_runner
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
     ResolvedAgentOtelConfig,
@@ -1270,13 +1267,10 @@ async def _resolve_and_probe_stdio_config(
     *,
     preset_svc: AgentPresetService,
     integrations_svc: IntegrationService,
-    command: str,
-    args: list[str] | None,
+    server: StdioMCPServer,
     stdio_env: dict[str, str] | None,
-    mcp_integration_id: uuid.UUID,
-    mcp_integration_slug: str,
 ) -> StdioMCPProbeResult:
-    """Resolve env templates, validate, and probe an stdio config on the sandbox.
+    """Resolve env templates, validate, and list an stdio server's tools.
 
     ``stdio_env`` carries template references and workspace-owned plaintext
     config loaded from the saved integration row; secrets are resolved here
@@ -1286,8 +1280,8 @@ async def _resolve_and_probe_stdio_config(
         try:
             stdio_env = await preset_svc.resolve_stdio_env(
                 stdio_env=stdio_env,
-                mcp_integration_id=mcp_integration_id,
-                mcp_integration_slug=mcp_integration_slug,
+                mcp_integration_id=server.mcp_integration_id,
+                mcp_integration_slug=server.name,
             )
         except (TracecatException, ValueError) as exc:
             return StdioMCPProbeResult(
@@ -1298,8 +1292,8 @@ async def _resolve_and_probe_stdio_config(
 
     try:
         integrations_svc.validate_stdio_server_config(
-            command=command,
-            args=args,
+            command=server.command,
+            args=list(server.args),
             env=stdio_env,
         )
     except ValueError as exc:
@@ -1309,11 +1303,25 @@ async def _resolve_and_probe_stdio_config(
             error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
         )
 
-    return await probe_stdio_mcp_tools_in_sandbox(
-        command=command,
-        args=args,
-        env=stdio_env,
-        timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
+    # An installed runner sees the resolved env. Redact it from the result's
+    # diagnostics before they cross into workflow history.
+    try:
+        result = await get_stdio_mcp_runner().list_tools(server, stdio_env)
+    except Exception as exc:
+        return StdioMCPProbeResult(
+            success=False,
+            message="Failed to run stdio MCP probe",
+            error=sanitize_stdio_probe_error(
+                f"{type(exc).__name__}: {exc}", env=stdio_env
+            ),
+        )
+    return result.model_copy(
+        update={
+            "message": sanitize_stdio_probe_error(result.message, env=stdio_env),
+            "error": sanitize_stdio_probe_error(result.error, env=stdio_env)
+            if result.error is not None
+            else None,
+        }
     )
 
 
@@ -1351,11 +1359,15 @@ async def probe_stdio_mcp_connection_activity(
         result = await _resolve_and_probe_stdio_config(
             preset_svc=preset_svc,
             integrations_svc=integrations_svc,
-            command=integration.stdio_command,
-            args=integration.stdio_args,
+            server=StdioMCPServer(
+                workspace_id=integration.workspace_id,
+                mcp_integration_id=integration.id,
+                name=integration.slug,
+                command=integration.stdio_command,
+                args=tuple(integration.stdio_args or ()),
+                timeout=integration.timeout,
+            ),
             stdio_env=integrations_svc.decrypt_stdio_env(integration),
-            mcp_integration_id=integration.id,
-            mcp_integration_slug=integration.slug,
         )
         activity.heartbeat(f"Finished stdio MCP probe: {input.mcp_integration_id}")
         return result

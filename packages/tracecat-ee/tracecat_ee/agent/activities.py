@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import (
@@ -16,8 +17,10 @@ from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPServerConfig,
+    MCPStdioServerConfig,
     MCPToolDefinition,
     is_http_mcp_server,
+    is_stdio_mcp_server,
 )
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
@@ -31,6 +34,10 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
+)
+from tracecat.agent.mcp.stdio_runner import (
+    stdio_mcp_tool_definition,
+    usable_stdio_mcp_tools,
 )
 from tracecat.agent.mcp.utils import (
     MCP_TOOL_NAME_RE,
@@ -76,6 +83,13 @@ class BuildToolDefsArgs(BaseModel):
     """Context for internal tools (e.g., preset_id for builder assistant)."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
+    include_stdio_mcp_servers: bool = False
+    """If true, also expose stdio MCP servers through the trusted MCP server.
+
+    Their tools come from each integration's saved tool list, and calls run
+    through the installed stdio MCP runner. Off for runtimes that start stdio
+    servers themselves, which would otherwise list every stdio tool twice.
+    """
 
 
 class BuildAgentScopeToolDefsArgs(BaseModel):
@@ -89,6 +103,13 @@ class BuildAgentScopeToolDefsArgs(BaseModel):
     """Context for internal tools (e.g., preset_id for builder assistant)."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
+    include_stdio_mcp_servers: bool = False
+    """If true, also expose stdio MCP servers through the trusted MCP server.
+
+    Their tools come from each integration's saved tool list, and calls run
+    through the installed stdio MCP runner. Off for runtimes that start stdio
+    servers themselves, which would otherwise list every stdio tool twice.
+    """
 
 
 class BuildToolDefsResult(BaseModel):
@@ -227,6 +248,116 @@ def _stored_user_mcp_tool_policy(
     if integration_id is None:
         return None
     return policies_by_integration_id.get(integration_id, {}).get(remote_tool_name)
+
+
+@dataclass(frozen=True, slots=True)
+class _StdioMCPToolBuild:
+    definitions: dict[str, MCPToolDefinition]
+    claims: list[UserMCPServerClaim]
+    approvals: dict[str, bool]
+
+
+async def _build_stdio_mcp_tool_definitions(
+    servers: list[MCPStdioServerConfig],
+    *,
+    role: Role,
+    fail_on_error: bool,
+) -> _StdioMCPToolBuild:
+    """Compile stdio servers for the trusted MCP server from their saved tools.
+
+    Nothing is started here: the tool list and policy come from the last
+    successful verification stored on each integration row in the role's
+    workspace. A server whose row is missing or never verified is skipped,
+    or fails the build when ``fail_on_error`` is set.
+    """
+    from tracecat.agent.preset.service import AgentPresetService
+    from tracecat.integrations.mcp_validation import MCPConfigurationError
+
+    def skip(server_name: str, reason: str) -> None:
+        if fail_on_error:
+            raise MCPConfigurationError(reason)
+        logger.warning(
+            "Skipping stdio MCP server that cannot be used",
+            server_name=server_name,
+            reason=reason,
+        )
+
+    integration_ids: dict[str, uuid.UUID] = {}
+    for cfg in servers:
+        try:
+            integration_ids[cfg["name"]] = uuid.UUID(cfg.get("id") or "")
+        except ValueError:
+            continue
+
+    stdio_ref_ids: set[str] = set()
+    policies_by_integration_id: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
+    if integration_ids:
+        async with AgentPresetService.with_session(role=role) as svc:
+            try:
+                refs = await svc.resolve_mcp_integration_refs(
+                    [str(i) for i in integration_ids.values()]
+                )
+            except TracecatValidationError:
+                refs = None
+            stdio_ref_ids = {
+                ref_id
+                for ref in refs or []
+                if is_stdio_mcp_server(ref) and (ref_id := ref.get("id"))
+            }
+            policies_by_integration_id = (
+                await svc.resolve_mcp_integration_tool_policies(
+                    list(integration_ids.values())
+                )
+            )
+
+    definitions: dict[str, MCPToolDefinition] = {}
+    claims: list[UserMCPServerClaim] = []
+    approvals: dict[str, bool] = {}
+    for cfg in servers:
+        server_name = cfg["name"]
+        integration_id = integration_ids.get(server_name)
+        if integration_id is None:
+            skip(
+                server_name, f"Stdio MCP server {server_name!r} has no MCP integration"
+            )
+            continue
+        if str(integration_id) not in stdio_ref_ids:
+            skip(
+                server_name,
+                f"Stdio MCP integration for server {server_name!r} "
+                "was not found in this workspace",
+            )
+            continue
+        policies = policies_by_integration_id.get(integration_id)
+        if policies is None:
+            skip(
+                server_name,
+                f"Stdio MCP server {server_name!r} has no saved tools. "
+                "Verify the integration to list its tools.",
+            )
+            continue
+
+        selected_names = (
+            {tool["name"] for tool in tools}
+            if (tools := cfg.get("tools")) is not None
+            else None
+        )
+        for tool in usable_stdio_mcp_tools(policies.values()):
+            if selected_names is not None and tool.name not in selected_names:
+                continue
+            definition = stdio_mcp_tool_definition(server_name, tool)
+            definitions[definition.name] = definition
+            if tool.requires_approval:
+                approvals[
+                    normalize_mcp_tool_name(
+                        f"mcp__{REGISTRY_MCP_SERVER_NAME}__{definition.name}"
+                    )
+                ] = True
+        claims.append(UserMCPServerClaim(name=server_name, id=integration_id))
+
+    return _StdioMCPToolBuild(
+        definitions=definitions, claims=claims, approvals=approvals
+    )
 
 
 class AgentActivities:
@@ -595,6 +726,32 @@ class AgentActivities:
                 # is documentation more than enforcement.
                 hydrated_servers = []
 
+        stdio_servers = [
+            cfg for cfg in args.mcp_servers or () if is_stdio_mcp_server(cfg)
+        ]
+        if args.include_stdio_mcp_servers and stdio_servers:
+            try:
+                stdio_build = await _build_stdio_mcp_tool_definitions(
+                    stdio_servers,
+                    role=role,
+                    fail_on_error=args.fail_on_mcp_discovery_error,
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to compile stdio MCP tools",
+                    error_type=type(e).__name__,
+                    server_count=len(stdio_servers),
+                )
+                if args.fail_on_mcp_discovery_error:
+                    raise_application_error_from_classification(
+                        mcp_discovery_failure(e)
+                    )
+                stdio_build = None
+            if stdio_build is not None:
+                defs.update(stdio_build.definitions)
+                effective_tool_approvals.update(stdio_build.approvals)
+                user_mcp_claims = [*(user_mcp_claims or []), *stdio_build.claims]
+
         # Resolve registry lock for these actions
         # This provides origin→version mappings needed for action execution
         # Note: User MCP tools and internal tools don't need registry lock resolution
@@ -671,6 +828,7 @@ class AgentActivities:
                 mcp_servers=args.mcp_servers,
                 internal_tool_context=args.internal_tool_context,
                 fail_on_mcp_discovery_error=args.fail_on_mcp_discovery_error,
+                include_stdio_mcp_servers=args.include_stdio_mcp_servers,
             ),
             role=args.role,
         )
