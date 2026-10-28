@@ -102,6 +102,8 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "agent_session_command",
     "workspace_sync_operation",
     "case_search_word",
+    "managed_resource",
+    "managed_reference_match",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (
@@ -125,6 +127,7 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "mcp_personal_access_token",
     "agent_model_access",
     "workspace_secret_store_authorization",
+    "managed_target",
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(

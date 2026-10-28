@@ -91,8 +91,10 @@ from tracecat.identifiers import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.managed_resources.enums import ManagedReferenceKind, ManagedTargetStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.tiers.types import EntitlementsDict
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspaces.schemas import WorkspaceSettings
 
 _UNSET = object()
@@ -131,6 +133,32 @@ SCIM_CONNECTION_STATUS_ENUM = Enum(
     native_enum=False,
     length=32,
     values_callable=lambda enum: [status.value for status in enum],
+    validate_strings=True,
+)
+# Managed resource enums store lowercase VARCHAR values, so new members need no
+# migration.
+MANAGED_RESOURCE_TYPE_ENUM = Enum(
+    SyncResourceType,
+    name="managedresourcetype",
+    native_enum=False,
+    length=64,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+MANAGED_TARGET_STATUS_ENUM = Enum(
+    ManagedTargetStatus,
+    name="managedtargetstatus",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+MANAGED_REFERENCE_KIND_ENUM = Enum(
+    ManagedReferenceKind,
+    name="managedreferencekind",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
     validate_strings=True,
 )
 # Naming convention for constraints so Alembic can generate deterministic names
@@ -631,6 +659,93 @@ class WorkspaceSyncResourceMapping(WorkspaceModel):
     local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
 
     workspace: Mapped[Workspace] = relationship(back_populates="sync_resource_mappings")
+
+
+class ManagedResource(WorkspaceModel):
+    """A resource in a target workspace that a managed rollout owns."""
+
+    __tablename__ = "managed_resource"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "resource_type",
+            "local_id",
+            name="uq_managed_resource_local",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    resource_type: Mapped[SyncResourceType] = mapped_column(
+        MANAGED_RESOURCE_TYPE_ENUM, nullable=False
+    )
+    local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    source_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_path: Mapped[str] = mapped_column(String, nullable=False)
+    deployed_tag: Mapped[str] = mapped_column(String(255), nullable=False)
+    deployed_commit_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    deployed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    # No FK: rollout operations are not stored in a table yet.
+    rollout_operation_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+
+
+class ManagedTarget(OrganizationModel):
+    """A customer workspace assigned to receive the managed resource package."""
+
+    __tablename__ = "managed_target"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    pinned_tag: Mapped[str] = mapped_column(String(255), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    assigned_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    last_rollout_status: Mapped[ManagedTargetStatus | None] = mapped_column(
+        MANAGED_TARGET_STATUS_ENUM, nullable=True
+    )
+    last_applied_tag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_rollout_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class ManagedReferenceMatch(WorkspaceModel):
+    """Maps a source-side reference to its resolution in a target workspace."""
+
+    __tablename__ = "managed_reference_match"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "reference_kind",
+            "source_name",
+            name="uq_managed_reference_match_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    reference_kind: Mapped[ManagedReferenceKind] = mapped_column(
+        MANAGED_REFERENCE_KIND_ENUM, nullable=False
+    )
+    # Catalog or MCP integration UUID text, or a secret store name.
+    source_name: Mapped[str] = mapped_column(String, nullable=False)
+    # Target catalog, MCP integration or secret store id. No FK because the
+    # referenced table depends on reference_kind. NULL leaves it unlinked.
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
 
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
