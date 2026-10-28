@@ -160,7 +160,11 @@ def apply_vector_migration(
 
 
 def apply_word_migration(
-    engine: Engine, *, downgrade: bool = False, backfill_batch: int | None = None
+    engine: Engine,
+    *,
+    downgrade: bool = False,
+    backfill_batch: int | None = None,
+    search_path: str | None = None,
 ) -> None:
     """Apply only the stored word-list revision; it requires the vector revision."""
     migration = load_word_migration()
@@ -169,6 +173,11 @@ def apply_word_migration(
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
         with context.begin_transaction(), Operations.context(context):
+            if search_path is not None:
+                conn.execute(
+                    sa.text("SELECT set_config('search_path', :search_path, false)"),
+                    {"search_path": search_path},
+                )
             if downgrade:
                 migration.downgrade()
             else:

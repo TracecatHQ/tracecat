@@ -221,3 +221,28 @@ def test_vocabulary_is_workspace_isolated_for_a_non_owner_role(
             conn.execute(sa.text(f'DROP OWNED BY "{role}"'))
             conn.execute(sa.text(f'DROP ROLE IF EXISTS "{role}"'))
         operator.dispose()
+
+
+def test_vocabulary_policy_is_reset_and_survives_a_restricted_search_path(
+    search_database: Engine,
+) -> None:
+    """A same-named, altered policy is replaced; RLS is re-enabled on retry."""
+    with search_database.begin() as conn:
+        conn.execute(
+            sa.text(
+                "ALTER POLICY rls_policy_case_search_word ON case_search_word USING (true) WITH CHECK (true)"
+            )
+        )
+        conn.execute(sa.text("ALTER TABLE case_search_word DISABLE ROW LEVEL SECURITY"))
+    apply_word_migration(search_database, search_path="pg_catalog")
+    with search_database.begin() as conn:
+        enabled, using = conn.execute(
+            sa.text("""
+            SELECT c.relrowsecurity, p.qual FROM pg_class c
+            JOIN pg_policies p ON p.tablename = c.relname
+            WHERE c.oid = 'public.case_search_word'::regclass
+                AND p.policyname = 'rls_policy_case_search_word'
+        """)
+        ).one()
+        assert enabled is True
+        assert "app.current_workspace_id" in using

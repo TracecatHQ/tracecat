@@ -275,15 +275,24 @@ def _index_state(name: str, definition: str) -> _IndexState:
     return "ready" if row[1] else "invalid"
 
 
-def _vocabulary_policy_exists() -> bool:
-    return bool(
-        op.get_bind().scalar(
-            sa.text("""
-        SELECT EXISTS (SELECT 1 FROM pg_policy
-            WHERE polrelid = to_regclass(:table) AND polname = :name)
-    """),
-            {"table": f"public.{_TABLE}", "name": policy_name(_TABLE)},
-        )
+def _apply_vocabulary_policy() -> None:
+    """Install the standard workspace policy, replacing any same-named one.
+
+    The policy name belongs to this table, so a retry or an altered policy is
+    reset to the standard definition rather than trusted by name. The shared
+    helper names the table without a schema, so it runs with public first on a
+    transaction-local search_path that is restored afterwards.
+    """
+    bind = op.get_bind()
+    previous = bind.scalar(sa.text("SELECT current_setting('search_path')"))
+    op.execute(f"DROP POLICY IF EXISTS {policy_name(_TABLE)} ON public.{_TABLE}")
+    bind.execute(
+        sa.text("SELECT set_config('search_path', 'public, pg_catalog', true)")
+    )
+    op.execute(enable_workspace_table_rls(_TABLE))
+    bind.execute(
+        sa.text("SELECT set_config('search_path', :previous, true)"),
+        {"previous": previous},
     )
 
 
@@ -371,8 +380,7 @@ def upgrade() -> None:
     if not table_columns:
         op.execute(_TABLE_SQL)
     # The vocabulary copies case text, so it gets the same workspace isolation.
-    if not _vocabulary_policy_exists():
-        op.execute(enable_workspace_table_rls(_TABLE))
+    _apply_vocabulary_policy()
     for name, definition in _TABLE_INDEXES:
         if states[name] == "invalid":
             op.execute(f'DROP INDEX IF EXISTS public."{name}"')
