@@ -2089,8 +2089,8 @@ def _build_import_data_from_workflow_yaml(
         raise ToolError("Workflow definition YAML must include a definition object")
     if "title" not in definition and title is not None:
         definition["title"] = title
-    if "description" not in definition and description:
-        definition["description"] = description
+    if "description" not in definition:
+        definition["description"] = description or ""
 
     actions = definition.get("actions", [])
     if actions:

@@ -84,6 +84,7 @@ from tracecat.workflow.executions.shaping import (
     window_result_text,
 )
 from tracecat.workflow.management import layout as layout_module
+from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 from tracecat.workflow.schedules import bridge as schedules_bridge
 
 _original_create_mcp_auth = mcp_auth.create_mcp_auth
@@ -935,6 +936,58 @@ def test_graph_requires_relayout(
     expected: bool,
 ):
     assert layout_module.graph_requires_relayout(previous, updated) is expected
+
+
+@pytest.mark.parametrize("description", ["", "From argument"])
+def test_build_import_data_from_workflow_yaml_defaults_missing_description(
+    description: str,
+):
+    import_data = mcp_server._build_import_data_from_workflow_yaml(
+        definition_yaml=yaml.safe_dump(
+            {
+                "definition": {
+                    "entrypoint": {"ref": "fetch"},
+                    "actions": [
+                        {
+                            "ref": "fetch",
+                            "action": "core.transform.reshape",
+                            "args": {"value": 1},
+                        }
+                    ],
+                }
+            }
+        ),
+        title="Example",
+        description=description,
+    )
+
+    assert import_data["definition"]["description"] == description
+    definition = ExternalWorkflowDefinition.model_validate(import_data).definition
+    assert definition.description == description
+
+
+def test_build_import_data_from_workflow_yaml_keeps_yaml_description():
+    import_data = mcp_server._build_import_data_from_workflow_yaml(
+        definition_yaml=yaml.safe_dump(
+            {
+                "definition": {
+                    "title": "Example",
+                    "description": "From YAML",
+                    "entrypoint": {"ref": "fetch"},
+                    "actions": [
+                        {
+                            "ref": "fetch",
+                            "action": "core.transform.reshape",
+                            "args": {"value": 1},
+                        }
+                    ],
+                }
+            }
+        ),
+        description="From argument",
+    )
+
+    assert import_data["definition"]["description"] == "From YAML"
 
 
 def test_build_import_data_from_workflow_yaml_replaces_supplied_layout():
