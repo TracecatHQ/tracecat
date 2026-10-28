@@ -67,6 +67,8 @@ def require_lock_holder_on_commit(
     commit from landing after another process has taken the lock.
     """
 
+    if not (-(2**63) <= key < 2**63):
+        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
     if (holder_connection := holder.sync_connection) is None:
         raise RuntimeError("Lock holder connection is not open")
     # pg_locks splits a bigint advisory key into two 32-bit halves.

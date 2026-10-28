@@ -27,6 +27,7 @@ from tracecat.db.engine import (
 )
 from tracecat.db.exceptions import AdvisoryLockLostError
 from tracecat.db.locks import (
+    derive_lock_key_from_parts,
     hold_pg_advisory_xact_lock,
     require_lock_holder_on_commit,
 )
@@ -60,6 +61,29 @@ async def _terminate_lock_holder(key: int) -> None:
             ),
             {"high": key >> 32, "low": key & 0xFFFFFFFF},
         )
+
+
+async def _advisory_waiters(key: int) -> int:
+    async with get_async_engine().connect() as connection:
+        result = await connection.execute(
+            text(
+                "SELECT count(*) FROM pg_locks"
+                " WHERE locktype = 'advisory' AND NOT granted"
+                " AND database = (SELECT oid FROM pg_database"
+                " WHERE datname = current_database())"
+                " AND classid = :high AND objid = :low AND objsubid = 1"
+            ),
+            {"high": key >> 32, "low": key & 0xFFFFFFFF},
+        )
+        return result.scalar_one()
+
+
+def _schema_init_lock_key() -> int:
+    return derive_lock_key_from_parts(
+        "tracecat.custom_fields.initialize_workspace_schema",
+        CaseFieldsService.service_name,
+        CaseFieldsService._table,
+    )
 
 
 async def test_held_lock_blocks_waiters_and_fails_tries() -> None:
@@ -231,6 +255,8 @@ async def test_custom_field_schema_init_waits_for_the_first_commit(
             second = asyncio.create_task(initialize_second())
             await asyncio.sleep(CONTENTION_WINDOW)
             assert not second.done()
+            # Waiting on the advisory lock, not on the first one's DDL.
+            assert await _advisory_waiters(_schema_init_lock_key()) >= 1
             await session.commit()
             # The second initializer sees the committed schema instead of
             # racing the first transaction's uncommitted DDL.
