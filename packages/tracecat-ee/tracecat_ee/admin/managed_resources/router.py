@@ -28,7 +28,7 @@ from tracecat_ee.admin.managed_resources.service import AdminManagedResourcesSer
 router = APIRouter(prefix="/managed-resources", tags=["admin:managed-resources"])
 
 
-def provider_error_status(error: VcsProviderError) -> int:
+def _provider_error_status(error: VcsProviderError) -> int:
     """Choose the response status for a VCS provider failure.
 
     Errors without an upstream status (missing credentials, an app that is not
@@ -103,7 +103,7 @@ async def list_source_tags(
     except ManagedSourceUnavailableError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except VcsProviderError as e:
-        raise HTTPException(status_code=provider_error_status(e), detail=str(e)) from e
+        raise HTTPException(status_code=_provider_error_status(e), detail=str(e)) from e
     except (TracecatSettingsError, TracecatValidationError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import delete, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -42,9 +43,16 @@ class AdminManagedResourcesService(BasePlatformService):
             source=_source_read(source) if source is not None else None
         )
 
-    @audit_log(resource_type="platform_setting", action="update")
+    @audit_log(
+        resource_type="platform_setting",
+        action="update",
+        resource_id_attr="workspace_id",
+    )
     async def set_source(self, params: ManagedSourceUpdate) -> ManagedSourceRead:
         """Set the managed resources source and pin its current Git binding.
+
+        The audit events record the source workspace ID, read from ``params``
+        before the call and from the result after it.
 
         Raises:
             TracecatNotFoundError: The workspace does not exist.
@@ -71,15 +79,30 @@ class AdminManagedResourcesService(BasePlatformService):
         await self.session.commit()
         return _source_read(source)
 
-    @audit_log(resource_type="platform_setting", action="delete")
-    async def clear_source(self) -> None:
-        """Remove the managed resources source setting, if any."""
-        await self.session.execute(
-            delete(PlatformSetting).where(
-                PlatformSetting.key == MANAGED_RESOURCES_SOURCE_KEY
-            )
+    @audit_log(
+        resource_type="platform_setting",
+        action="delete",
+        resource_id_attr="workspace_id",
+    )
+    async def clear_source(self) -> ManagedSourceSetting | None:
+        """Remove the managed resources source setting, if any.
+
+        Returns the removed pinned setting so the audit success event records
+        the previous source workspace ID, or ``None`` when nothing was set or
+        the stored value was malformed.
+        """
+        raw = await self.session.scalar(
+            delete(PlatformSetting)
+            .where(PlatformSetting.key == MANAGED_RESOURCES_SOURCE_KEY)
+            .returning(PlatformSetting.value)
         )
         await self.session.commit()
+        if raw is None:
+            return None
+        try:
+            return ManagedSourceSetting.model_validate_json(raw)
+        except PydanticValidationError:
+            return None
 
     async def list_source_tags(self, page: PageParams) -> Page[GitTagInfo]:
         """List one page of source repository tags, newest first.

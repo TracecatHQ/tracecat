@@ -466,8 +466,11 @@ _GITHUB_GRAPHQL_PAGE_MAX = 100
 _BITBUCKET_TAG_PAGE_MAX = 100
 """Largest ``pagelen`` Bitbucket Cloud accepts for ref listings."""
 
-_DATA_CENTER_TAG_PAGE_MAX = 100
-"""Largest tag page read from Bitbucket Data Center in one request."""
+_DATA_CENTER_PAGE_MAX = 100
+"""Largest page read from Bitbucket Data Center in one request."""
+
+_OFFSET_CURSOR_MAX_DIGITS = 18
+"""Longest offset cursor accepted; real offsets are far shorter."""
 
 _DATA_CENTER_TAG_COMMIT_CONCURRENCY = 8
 """Concurrent commit reads when dating Data Center tags."""
@@ -542,11 +545,18 @@ def _offset(cursor: str | None) -> int:
     """Return the start offset an offset cursor (a decimal string) points at.
 
     Raises:
-        TracecatValidationError: The cursor is not a non-negative integer.
+        TracecatValidationError: The cursor is not a non-negative integer of at
+            most :data:`_OFFSET_CURSOR_MAX_DIGITS` ASCII digits. The length cap
+            also keeps ``int()`` below Python's digit limit, which would
+            otherwise raise a plain ``ValueError``.
     """
     if cursor is None:
         return 0
-    if not cursor.isdecimal():
+    if (
+        not cursor.isascii()
+        or not cursor.isdecimal()
+        or len(cursor) > _OFFSET_CURSOR_MAX_DIGITS
+    ):
         raise TracecatValidationError("Invalid tag cursor")
     return int(cursor)
 
@@ -599,6 +609,13 @@ def _gitlab_tag_target(tag: GitLabTag) -> tuple[str | None, str | None]:
     if tag.commit is None:
         return None, None
     return tag.commit.id, tag.created_at or _gitlab_commit_date(tag.commit)
+
+
+def _bitbucket_tag_target(tag: BitbucketTag) -> tuple[str | None, str | None]:
+    """Return the commit a Bitbucket tag points to, and its tag or commit date."""
+    if tag.target.type != "commit":
+        return None, None
+    return tag.target.hash, tag.date or tag.target.date
 
 
 def _data_center_timestamp(milliseconds: int) -> str:
@@ -2378,13 +2395,7 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             info
             for value in values
             if (tag := self._tag_entry(BitbucketTag, value))
-            and (
-                info := self._tag_info(
-                    tag.name,
-                    tag.target.hash if tag.target.type == "commit" else None,
-                    tag.date or tag.target.date,
-                )
-            )
+            and (info := self._tag_info(tag.name, *_bitbucket_tag_target(tag)))
         ]
         next_cursor = _encode_page_cursor(page + 1, pagelen) if next_link else None
         return tags, next_cursor
@@ -2634,7 +2645,7 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                 client,
                 path,
                 start=start,
-                limit=min(100, limit - len(results)),
+                limit=min(_DATA_CENTER_PAGE_MAX, limit - len(results)),
                 params=params,
             )
             results.extend(_bitbucket_models(model, values))
@@ -2727,7 +2738,7 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                 client,
                 f"{path}/tags",
                 start=_offset(cursor),
-                limit=min(limit, _DATA_CENTER_TAG_PAGE_MAX),
+                limit=min(limit, _DATA_CENTER_PAGE_MAX),
                 params={"orderBy": "MODIFICATION"},
             )
             entries = [

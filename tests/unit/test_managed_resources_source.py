@@ -167,6 +167,23 @@ async def test_get_managed_source_rejects_a_changed_binding(
 
 
 @pytest.mark.anyio
+async def test_non_object_settings_are_unusable_not_a_500() -> None:
+    pinned = _workspace(git_provider="github", git_repo_url=GITHUB_REPO)
+    # JSONB lets a malformed row hold a list where an object is expected.
+    live = Workspace(
+        id=pinned.id,
+        organization_id=pinned.organization_id,
+        name="source",
+        settings=["github", GITHUB_REPO],
+    )
+
+    with pytest.raises(TracecatValidationError, match="malformed"):
+        await load_managed_source(_session(live), live.id)
+    with pytest.raises(ManagedSourceUnavailableError, match="malformed"):
+        await get_managed_source(_session(_stored(pinned), live))
+
+
+@pytest.mark.anyio
 async def test_get_managed_source_rejects_a_deleted_workspace() -> None:
     pinned = _workspace(git_provider="github", git_repo_url=GITHUB_REPO)
     with pytest.raises(ManagedSourceUnavailableError, match="no longer valid"):
@@ -308,10 +325,17 @@ async def test_source_setting_round_trip(
     svc_workspace: Workspace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(AuditService, "create_event", AsyncMock())
+    create_event = AsyncMock()
+    monkeypatch.setattr(AuditService, "create_event", create_event)
     actor = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
     service = AdminManagedResourcesService(session, actor)
     assert (await service.get_source()).source is None
+
+    def audited_resource_ids() -> list[uuid.UUID | None]:
+        """Resource IDs of the audit events since the last call."""
+        ids = [call.kwargs["resource_id"] for call in create_event.call_args_list]
+        create_event.reset_mock()
+        return ids
 
     # A workspace without a Git binding, or no workspace, is rejected.
     with pytest.raises(TracecatValidationError):
@@ -324,9 +348,12 @@ async def test_source_setting_round_trip(
         git_provider=VcsProvider.GITHUB, git_repo_url=GITHUB_REPO
     )
     await session.commit()
+    audited_resource_ids()
     updated = await service.set_source(
         ManagedSourceUpdate(workspace_id=svc_workspace.id)
     )
+    # Both the attempt and the success event name the source workspace.
+    assert audited_resource_ids() == [svc_workspace.id, svc_workspace.id]
     # Setting it again upserts the same row.
     await service.set_source(ManagedSourceUpdate(workspace_id=svc_workspace.id))
     read = await service.get_source()
@@ -359,7 +386,11 @@ async def test_source_setting_round_trip(
     with pytest.raises(ManagedSourceUnavailableError, match="changed"):
         await service.get_source()
 
-    await service.clear_source()
+    audited_resource_ids()
+    cleared = await service.clear_source()
+    assert cleared is not None and cleared.workspace_id == svc_workspace.id
+    # The success event records the source that was removed.
+    assert audited_resource_ids() == [None, svc_workspace.id]
     assert (await service.get_source()).source is None
     # Clearing an unset source is a no-op.
-    await service.clear_source()
+    assert await service.clear_source() is None

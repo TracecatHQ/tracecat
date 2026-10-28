@@ -369,8 +369,13 @@ async def test_list_tags_pages_by_start_and_dates_each_commit_once():
     # The page size is capped like the other providers.
     await transport.list_tags(url=DC_URL, limit=500)
     assert server.tag_requests[-1].url.params["limit"] == "100"
-    with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
-        await transport.list_tags(url=DC_URL, cursor="-1")
+    requests_before = len(server.tag_requests)
+    # Over 4300 digits, int() itself raises a plain ValueError (a 500), so long
+    # cursors are rejected before parsing.
+    for cursor in ("-1", "1" * 19, "9" * 5000, "٣"):
+        with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
+            await transport.list_tags(url=DC_URL, cursor=cursor)
+    assert len(server.tag_requests) == requests_before
 
 
 @pytest.mark.anyio

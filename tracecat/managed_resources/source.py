@@ -102,10 +102,13 @@ async def load_managed_source(
     )
     if workspace is None:
         raise TracecatNotFoundError("Workspace not found")
-    settings = workspace.settings or {}
+    # Settings are JSONB, so a malformed row can hold a non-object value or a
+    # non-string URL despite the column's type.
+    settings: object = workspace.settings or {}
+    if not isinstance(settings, dict):
+        raise TracecatValidationError("The source workspace's settings are malformed")
     raw_provider = settings.get("git_provider")
     repo_url = settings.get("git_repo_url")
-    # Settings are JSONB, so a malformed row can hold a non-string URL.
     if not raw_provider or not isinstance(repo_url, str) or not repo_url:
         raise TracecatValidationError(
             "The source workspace must have both a Git provider and a Git "
