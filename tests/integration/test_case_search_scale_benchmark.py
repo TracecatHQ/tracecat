@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 import orjson
 import pytest
@@ -99,18 +100,32 @@ FROM generate_series(1, 2 * :count) g
 """
 
 
+type QueryKind = Literal["page", "count"]
+
+
 @dataclass(frozen=True, slots=True)
 class Measurement:
     term: str
     window: str
-    query: str
+    query: QueryKind
     elapsed_ms: float | None
     timed_out: bool
     rows: int | None
-    plan: str
 
 
-def _statements(term: str, cutoff: datetime | None) -> dict[str, sa.Select[tuple]]:
+@dataclass(frozen=True, slots=True)
+class ScaleReport:
+    postgres_version: str
+    cases_per_workspace: int
+    workspaces: int
+    vector_migration_seconds: float
+    timeout_ms: int
+    measurements: list[Measurement]
+
+
+def _statements(
+    term: str, cutoff: datetime | None
+) -> tuple[tuple[QueryKind, sa.Select[tuple]], ...]:
     """Build the page and count queries from the production expression builder."""
     expressions = build_case_text_expressions(parse_case_text_query(term))
     scope: list[sa.ColumnElement[bool]] = [
@@ -119,13 +134,14 @@ def _statements(term: str, cutoff: datetime | None) -> dict[str, sa.Select[tuple
     ]
     if cutoff is not None:
         scope.append(Case.created_at >= cutoff)
-    return {
-        "page": sa.select(Case.id, expressions.score)
+    page = (
+        sa.select(Case.id, expressions.score)
         .where(*scope)
         .order_by(expressions.score.desc(), Case.id.desc())
-        .limit(PAGE_SIZE),
-        "count": sa.select(sa.func.count()).select_from(Case).where(*scope),
-    }
+        .limit(PAGE_SIZE)
+    )
+    count = sa.select(sa.func.count()).select_from(Case).where(*scope)
+    return (("page", page), ("count", count))
 
 
 def _session_settings(conn: sa.Connection, timeout_ms: int) -> None:
@@ -200,12 +216,17 @@ def test_case_search_at_scale(search_database: Engine) -> None:
         postgres_version = str(conn.scalar(sa.text("SELECT version()")))
 
     measurements: list[Measurement] = []
+    plans: list[str] = []
     for term_name, term in TERMS:
         for window_name, window in WINDOWS:
             cutoff = cutoff_now - window if window is not None else None
-            for query, statement in _statements(term, cutoff).items():
+            for query, statement in _statements(term, cutoff):
                 elapsed_ms, rows, plan = _measure(
                     search_database, statement, timeout_ms
+                )
+                # The page returns rows; the count returns one row holding the total.
+                returned = (
+                    len(rows) if query == "page" else (rows[0][0] if rows else None)
                 )
                 measurement = Measurement(
                     term=term_name,
@@ -213,37 +234,31 @@ def test_case_search_at_scale(search_database: Engine) -> None:
                     query=query,
                     elapsed_ms=elapsed_ms,
                     timed_out=elapsed_ms is None,
-                    rows=rows[0][0] if query == "count" and rows else len(rows),
-                    plan=plan,
+                    rows=returned,
                 )
                 measurements.append(measurement)
                 shown = "TIMEOUT" if elapsed_ms is None else f"{elapsed_ms:>9.1f} ms"
+                plans.append(
+                    f"=== {term_name} / {window_name} / {query} "
+                    f"({'timeout' if elapsed_ms is None else f'{elapsed_ms} ms'}) ===\n{plan}"
+                )
                 print(
                     f"{term_name:<18} {window_name:<9} {query:<6} {shown:>12}"
                     f"  rows={measurement.rows}"
                 )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    report = {
-        "postgres_version": postgres_version,
-        "cases_per_workspace": count,
-        "workspaces": 2,
-        "vector_migration_seconds": migration_s,
-        "timeout_ms": timeout_ms,
-        "measurements": [
-            {key: value for key, value in asdict(m).items() if key != "plan"}
-            for m in measurements
-        ],
-    }
+    report = ScaleReport(
+        postgres_version=postgres_version,
+        cases_per_workspace=count,
+        workspaces=2,
+        vector_migration_seconds=migration_s,
+        timeout_ms=timeout_ms,
+        measurements=measurements,
+    )
     (OUTPUT_DIR / "results.json").write_bytes(
         orjson.dumps(report, option=orjson.OPT_INDENT_2)
     )
-    (OUTPUT_DIR / "plans.txt").write_text(
-        "\n\n".join(
-            f"=== {m.term} / {m.window} / {m.query} "
-            f"({'timeout' if m.timed_out else f'{m.elapsed_ms} ms'}) ===\n{m.plan}"
-            for m in measurements
-        )
-    )
+    (OUTPUT_DIR / "plans.txt").write_text("\n\n".join(plans))
     print(f"\nvector migration on {2 * count} cases: {migration_s}s")
     print(f"wrote {OUTPUT_DIR}/results.json and plans.txt")

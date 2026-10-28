@@ -20,7 +20,6 @@ import orjson
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ARRAY, REGCONFIG, UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import QueryableAttribute
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat import config
@@ -47,7 +46,6 @@ MAX_FUZZY_TERMS = 2
 MAX_EXCERPT_LENGTH = MAX_MATCH_EXCERPT_LENGTH
 CASE_TEXT_FIELDS = ("summary", "description")
 type CaseTextField = Literal["summary", "description"]
-STATEMENT_TIMEOUT_MS = 30_000
 FUZZY_THRESHOLD = 0.65
 _SHORT_ID = re.compile(r"CASE-(\d+)", re.IGNORECASE)
 _UUID = re.compile(
@@ -59,9 +57,6 @@ _HASH = re.compile(
 )
 _CONFIG = sa.literal_column("'pg_catalog.simple'::regconfig", type_=REGCONFIG())
 _EMPTY = sa.literal_column("''", type_=sa.Text())
-# Trigger-maintained tsvector columns (revision 5ca140c06ec2). Reading them
-# avoids recomputing the safe vector for every candidate row.
-_STORED_VECTORS = {"summary": Case.summary_tsv, "description": Case.description_tsv}
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +78,26 @@ class CaseTextQuery:
     columns: tuple[CaseTextField, ...] = CASE_TEXT_FIELDS
     case_number: int | None = None
     case_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SearchField:
+    """A searchable source column and its stored safe vector.
+
+    The vector is trigger-maintained (revision 5ca140c06ec2), so search reads it
+    instead of recomputing the safe vector for every candidate row. NULL marks
+    an over-budget or unsafe source that needs a complete-source recheck.
+    """
+
+    name: CaseTextField
+    source: sa.SQLColumnExpression[str]
+    vector: ColumnElement[str]
+
+
+_SEARCH_FIELDS = (
+    _SearchField("summary", Case.summary, Case.summary_tsv),
+    _SearchField("description", Case.description, Case.description_tsv),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,11 +225,6 @@ def _guarded_source(field: sa.SQLColumnExpression[str]) -> ColumnElement[str]:
     return sa.case((_within_budget(field), _source(field)), else_=_EMPTY)
 
 
-def _vector(field: QueryableAttribute[str]) -> ColumnElement[str]:
-    """Read the stored safe vector; NULL marks an over-budget or unsafe source."""
-    return _STORED_VECTORS[field.key]
-
-
 def _normalized(field: sa.SQLColumnExpression[str]) -> ColumnElement[str]:
     return sa.func.lower(_guarded_source(field))
 
@@ -231,11 +241,11 @@ def _native_match(
     )
 
 
-def _literal_match(field: QueryableAttribute[str], value: str) -> ColumnElement[bool]:
+def _literal_match(field: _SearchField, value: str) -> ColumnElement[bool]:
     pattern = sa.func.lower(_literal_pattern(value))
-    indexed = _normalized(field).like(pattern, escape="\\")
-    fallback = _full_normalized(field).like(pattern, escape="\\")
-    fallback_document = _vector(field).is_(None)
+    indexed = _normalized(field.source).like(pattern, escape="\\")
+    fallback = _full_normalized(field.source).like(pattern, escape="\\")
+    fallback_document = field.vector.is_(None)
     return sa.or_(
         indexed,
         sa.and_(
@@ -252,7 +262,7 @@ def _literal_pattern(value: str) -> str:
 
 
 def _field_clause(
-    field: QueryableAttribute[str], clause: SearchClause
+    field: _SearchField, clause: SearchClause
 ) -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[float]]:
     if clause.kind == "literal":
         exact = _literal_match(field, clause.value)
@@ -260,7 +270,8 @@ def _field_clause(
     tsquery = (
         sa.func.phraseto_tsquery if clause.kind == "phrase" else sa.func.plainto_tsquery
     )(_CONFIG, clause.value)
-    vector = _vector(field)
+    source = field.source
+    vector = field.vector
     words = sa.func.plainto_tsquery(_CONFIG, clause.value)
     indexed_words = vector.bool_op("@@")(words)
     native_exact = vector.bool_op("@@")(tsquery)
@@ -270,7 +281,7 @@ def _field_clause(
         # the256-occurrence cap; recover them from the complete native stream.
         indexed_exact = sa.and_(
             indexed_words,
-            sa.case((native_exact, sa.true()), else_=_native_match(field, clause)),
+            sa.case((native_exact, sa.true()), else_=_native_match(source, clause)),
         )
     else:
         indexed_exact = indexed_words
@@ -278,7 +289,9 @@ def _field_clause(
         indexed_exact,
         sa.and_(
             vector.is_(None),
-            sa.case((vector.is_(None), _native_match(field, clause)), else_=sa.false()),
+            sa.case(
+                (vector.is_(None), _native_match(source, clause)), else_=sa.false()
+            ),
         ),
     )
     native_rank = sa.func.ts_rank_cd(vector, tsquery, 32, type_=sa.Float())
@@ -287,7 +300,7 @@ def _field_clause(
         return exact, exact, rank
     # This is the indexable commutator of ``term <<% lower(coalesce(field,''))``.
     # A scalar strict_word_similarity predicate alone would scan source rows.
-    indexed_candidates = _normalized(field).bool_op("OPERATOR(public.%>>)")(
+    indexed_candidates = _normalized(source).bool_op("OPERATOR(public.%>>)")(
         clause.value.lower()
     )
     fallback_document = vector.is_(None)
@@ -298,7 +311,7 @@ def _field_clause(
             sa.case(
                 (
                     fallback_document,
-                    _full_normalized(field).bool_op("OPERATOR(public.%>>)")(
+                    _full_normalized(source).bool_op("OPERATOR(public.%>>)")(
                         clause.value.lower()
                     ),
                 ),
@@ -307,7 +320,7 @@ def _field_clause(
         ),
     )
     words = (
-        sa.func.regexp_split_to_table(_full_normalized(field), "[^[:alnum:]]+")
+        sa.func.regexp_split_to_table(_full_normalized(source), "[^[:alnum:]]+")
         .table_valued(sa.column("word", sa.Text()))
         .render_derived(name="case_search_words")
     )
@@ -326,7 +339,7 @@ def _field_clause(
     # moving regex/token work ahead of a rejected candidate during rechecks.
     fuzzy = sa.and_(candidates, sa.case((candidates, complete_word), else_=sa.false()))
     similarity = sa.func.public.strict_word_similarity(
-        clause.value.lower(), _full_normalized(field)
+        clause.value.lower(), _full_normalized(source)
     )
     return (
         exact,
@@ -358,12 +371,9 @@ def build_case_text_expressions(query: CaseTextQuery) -> CaseTextExpressions:
     ranks: list[ColumnElement[float]] = []
     for clause in query.clauses:
         field_matches = {
-            name: _field_clause(field, clause)
-            for name, field in (
-                ("summary", Case.summary),
-                ("description", Case.description),
-            )
-            if name in query.columns
+            field.name: _field_clause(field, clause)
+            for field in _SEARCH_FIELDS
+            if field.name in query.columns
         }
         summary_exact, summary_match, summary_rank = field_matches.get(
             "summary", (sa.false(), sa.false(), sa.literal(0.0))
@@ -394,11 +404,8 @@ def build_case_text_expressions(query: CaseTextQuery) -> CaseTextExpressions:
             sa.or_(
                 *(
                     _literal_match(field, contiguous)
-                    for name, field in (
-                        ("summary", Case.summary),
-                        ("description", Case.description),
-                    )
-                    if name in query.columns
+                    for field in _SEARCH_FIELDS
+                    if field.name in query.columns
                 ),
             ),
             3,
@@ -631,7 +638,8 @@ async def case_search_execution_context(
     """
     try:
         async with query_execution_context(
-            session, statement_timeout_ms=STATEMENT_TIMEOUT_MS
+            session,
+            statement_timeout_ms=config.TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS,
         ):
             if check_readiness:
                 await ensure_case_text_indexes(session)

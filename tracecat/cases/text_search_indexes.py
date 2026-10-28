@@ -173,8 +173,13 @@ async def _ensure_stored_vectors(session: AsyncSession) -> None:
             AND t.tgenabled IN ('O', 'A')
             AND t.tgtype = :trigger_type
             AND cardinality(t.tgattr::smallint[]) = 0
+            AND t.tgqual IS NULL
+            AND p.prorettype = 'trigger'::regtype AND l.lanname = 'plpgsql'
+            AND NOT p.prosecdef AND p.prokind = 'f'
+            AND p.proconfig = ARRAY['search_path=pg_catalog']::text[]
             AND md5(regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g')) = :body_hash
         FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+        JOIN pg_language l ON l.oid = p.prolang
         WHERE t.tgrelid = 'public.case'::regclass AND t.tgname = :name
     """),
             {

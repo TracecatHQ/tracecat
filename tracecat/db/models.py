@@ -2832,7 +2832,8 @@ class Case(WorkspaceModel):
     description: Mapped[str] = mapped_column(String(5000), nullable=False)
     # Search vectors are maintained by the trg_case_search_vectors trigger and
     # read only by search SQL. They are table columns, not mapped attributes
-    # (see __mapper_args__), so loading or serializing a Case never fetches them.
+    # (see __mapper_args__), so loading or serializing a Case never fetches them
+    # and ORM writes never name them: the trigger is their only writer.
     summary_tsv = Column(TSVECTOR, nullable=True)
     description_tsv = Column(TSVECTOR, nullable=True)
     priority: Mapped[CasePriority] = mapped_column(

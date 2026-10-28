@@ -65,6 +65,7 @@ class SearchMigration(Protocol):
 
 
 class VectorMigration(Protocol):
+    _BACKFILL_BATCH: int
     _TRIGGER_FUNCTION_SQL: str
     _TRIGGER_SQL: str
     _VECTOR_INDEXES: tuple[tuple[str, str], ...]
@@ -122,9 +123,13 @@ def apply_search_migration(
                 migration.upgrade()
 
 
-def apply_vector_migration(engine: Engine, *, downgrade: bool = False) -> None:
+def apply_vector_migration(
+    engine: Engine, *, downgrade: bool = False, backfill_batch: int | None = None
+) -> None:
     """Apply only the stored-vector revision; it requires the search revision."""
     migration = load_vector_migration()
+    if backfill_batch is not None:
+        migration._BACKFILL_BATCH = backfill_batch
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
         with context.begin_transaction(), Operations.context(context):
@@ -685,7 +690,7 @@ def test_incompatible_index_collisions_fail_without_adopting_or_dropping_them(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("kind", ["fts", "text_fallback"])
-async def test_private_same_named_helper_indexes_cannot_spoof_readiness(
+async def test_spoofed_legacy_expression_index_blocks_migration_not_readiness(
     search_database: Engine, kind: str
 ) -> None:
     name = f"ix_case_summary_{kind}"
@@ -988,7 +993,20 @@ def test_vector_migration_backfills_maintains_and_downgrades(
     with search_database.begin() as conn:
         existing = seed_case(conn, 1, "PowerShell encoded", "synthetic old write")
         oversized = seed_case(conn, 2, "synthetic large", "word " * 2000)
-    apply_vector_migration(search_database)
+        for number in range(4, 9):
+            seed_case(conn, number, f"synthetic batch {number}", "Credential access")
+    # One-row batches exercise the keyset paging across every row.
+    apply_vector_migration(search_database, backfill_batch=1)
+    with search_database.begin() as conn:
+        # Every stored vector equals the helper the expression indexes use.
+        assert (
+            conn.scalar(
+                sa.text("""SELECT count(*) FROM "case" WHERE
+                summary_tsv IS DISTINCT FROM public.tracecat_case_safe_vector_v1(coalesce(summary::text, ''))
+                OR description_tsv IS DISTINCT FROM public.tracecat_case_safe_vector_v1(coalesce(description::text, ''))""")
+            )
+            == 0
+        )
     with search_database.begin() as conn:
         conn.execute(
             sa.text("UPDATE \"case\" SET summary_tsv = 'stale' WHERE id=:id"),
@@ -1063,7 +1081,9 @@ def test_vector_migration_backfills_maintains_and_downgrades(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("collision", ["disabled", "after", "function"])
+@pytest.mark.parametrize(
+    "collision", ["disabled", "after", "function", "conditional", "security_definer"]
+)
 async def test_incompatible_vector_trigger_is_a_configuration_change(
     search_database: Engine, collision: str
 ) -> None:
@@ -1071,6 +1091,19 @@ async def test_incompatible_vector_trigger_is_a_configuration_change(
         if collision == "disabled":
             conn.execute(
                 sa.text('ALTER TABLE "case" DISABLE TRIGGER trg_case_search_vectors')
+            )
+        elif collision == "security_definer":
+            conn.execute(
+                sa.text(
+                    "ALTER FUNCTION public.tracecat_case_search_vectors_v1() SECURITY DEFINER"
+                )
+            )
+        elif collision == "conditional":
+            conn.execute(sa.text('DROP TRIGGER trg_case_search_vectors ON "case"'))
+            conn.execute(
+                sa.text(
+                    'CREATE TRIGGER trg_case_search_vectors BEFORE INSERT OR UPDATE ON "case" FOR EACH ROW WHEN (false) EXECUTE FUNCTION public.tracecat_case_search_vectors_v1()'
+                )
             )
         else:
             conn.execute(sa.text('DROP TRIGGER trg_case_search_vectors ON "case"'))

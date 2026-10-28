@@ -16,6 +16,7 @@ from tests.integration.test_case_text_search_postgres import (
 from tests.integration.test_case_text_search_postgres import (
     search_database as _search_database,
 )
+from tracecat import config
 from tracecat.cases.text_search import case_search_execution_context
 from tracecat.cases.text_search_indexes import ensure_case_text_indexes
 from tracecat.query.errors import TracecatQueryTimeoutError
@@ -129,7 +130,7 @@ async def test_live_timeout_and_settings_restore_on_rollback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # A short budget keeps the forced timeout fast.
-    monkeypatch.setattr("tracecat.cases.text_search.STATEMENT_TIMEOUT_MS", 1500)
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 1500)
     url = search_database.url.set(drivername="postgresql+asyncpg")
     engine = create_async_engine(url, poolclass=NullPool)
     try:
@@ -162,7 +163,7 @@ async def test_nested_fuzzy_timeout_preserves_outer_settings_and_recovers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # A short budget keeps the forced timeout fast.
-    monkeypatch.setattr("tracecat.cases.text_search.STATEMENT_TIMEOUT_MS", 1500)
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 1500)
     engine = create_async_engine(
         search_database.url.set(drivername="postgresql+asyncpg"), poolclass=NullPool
     )

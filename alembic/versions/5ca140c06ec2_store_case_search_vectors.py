@@ -26,6 +26,7 @@ never modifies source text.
 
 import uuid
 from collections.abc import Sequence
+from typing import Literal
 
 import sqlalchemy as sa
 
@@ -98,21 +99,30 @@ def _column_types() -> dict[str, str]:
     return dict(rows)
 
 
-def _trigger_function_exists() -> bool:
-    """Reuse this revision's function on retry; never replace another one."""
-    source = (
+def _check_trigger_function() -> bool:
+    """Return whether this revision's function exists; raise on a collision.
+
+    A retry reuses the function; any other same-named function is preserved.
+    """
+    row = (
         op.get_bind()
         .execute(
-            sa.text(
-                "SELECT p.prosrc FROM pg_proc p WHERE p.oid = to_regprocedure(:signature)"
-            ),
+            sa.text("""
+        SELECT p.prosrc, p.prorettype = 'trigger'::regtype AND l.lanname = 'plpgsql'
+            AND NOT p.prosecdef AND p.prokind = 'f'
+            AND p.proconfig = ARRAY['search_path=pg_catalog']::text[]
+        FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+        WHERE p.oid = to_regprocedure(:signature)
+    """),
             {"signature": f"public.{_TRIGGER_FUNCTION}()"},
         )
-        .scalar_one_or_none()
+        .tuples()
+        .one_or_none()
     )
-    if source is None:
+    if row is None:
         return False
-    if source.strip() != _TRIGGER_BODY:
+    source, attributes_match = row
+    if source.strip() != _TRIGGER_BODY or attributes_match is not True:
         raise RuntimeError(
             f"public.{_TRIGGER_FUNCTION}() has an incompatible existing definition; "
             "preserve it and ask an operator to resolve the collision."
@@ -120,8 +130,12 @@ def _trigger_function_exists() -> bool:
     return True
 
 
-def _trigger_exists() -> bool:
-    """Reuse only an enabled BEFORE INSERT OR UPDATE row trigger on our function."""
+def _check_trigger() -> bool:
+    """Return whether this revision's trigger exists; raise on a collision.
+
+    Only an enabled, unconditional BEFORE INSERT OR UPDATE row trigger on our
+    function is reused.
+    """
     compatible = (
         op.get_bind()
         .execute(
@@ -131,6 +145,7 @@ def _trigger_exists() -> bool:
             -- pg_trigger.tgtype bits: ROW (1) | BEFORE (2) | INSERT (4) | UPDATE (16).
             AND t.tgtype = 23
             AND cardinality(t.tgattr::smallint[]) = 0
+            AND t.tgqual IS NULL
         FROM pg_trigger t
         WHERE t.tgrelid = 'public.case'::regclass AND t.tgname = :name
     """),
@@ -143,14 +158,17 @@ def _trigger_exists() -> bool:
     if compatible is not True:
         raise RuntimeError(
             f"Trigger {_TRIGGER} on public.case is disabled or has an unexpected "
-            "function, timing, event, or column list; preserve it and ask an "
-            "operator to resolve the collision."
+            "function, timing, event, column list, or WHEN condition; preserve it "
+            "and ask an operator to resolve the collision."
         )
     return True
 
 
-def _index_state(name: str, definition: str) -> bool | None:
-    """Return whether this revision's index is ready, or None when it is absent."""
+type _IndexState = Literal["absent", "invalid", "ready"]
+
+
+def _index_state(name: str, definition: str) -> _IndexState:
+    """Return this revision's index state; raise on a same-named collision."""
     row = (
         op.get_bind()
         .execute(
@@ -165,45 +183,44 @@ def _index_state(name: str, definition: str) -> bool | None:
         .one_or_none()
     )
     if row is None:
-        return None
+        return "absent"
     if row[0] != definition:
         raise RuntimeError(
             f"Index public.{name} has an incompatible existing definition ({row[0]}); "
             "preserve it and resolve the name collision before retrying."
         )
-    return bool(row[1])
+    return "ready" if row[1] else "invalid"
 
 
 def _backfill() -> None:
     """Fill vectors in committed id-ordered batches; retries redo every row.
 
     The trigger fires on these updates but keeps the assigned vectors because
-    the source text is unchanged.
+    the source text is unchanged. SET reads the updated row itself, so a row
+    changed concurrently gets a vector for its new text.
     """
     bind = op.get_bind()
     after = uuid.UUID(int=0)
     while True:
-        ids = (
-            bind.execute(
-                sa.text("""
+        # Advance by the selected ids, not the updated ones: a batch whose rows
+        # were all deleted concurrently must not end the backfill early.
+        last = bind.execute(
+            sa.text("""
             WITH batch AS (
                 SELECT id FROM public."case" WHERE id > :after ORDER BY id LIMIT :limit
+            ), updated AS (
+                UPDATE public."case" c SET
+                    summary_tsv = public.tracecat_case_safe_vector_v1(coalesce(c.summary::text, '')),
+                    description_tsv = public.tracecat_case_safe_vector_v1(coalesce(c.description::text, ''))
+                FROM batch WHERE c.id = batch.id
             )
-            UPDATE public."case" c SET
-                summary_tsv = public.tracecat_case_safe_vector_v1(coalesce(c.summary::text, '')),
-                description_tsv = public.tracecat_case_safe_vector_v1(coalesce(c.description::text, ''))
-            FROM batch WHERE c.id = batch.id
-            RETURNING c.id
+            SELECT id FROM batch ORDER BY id DESC LIMIT 1
         """),
-                {"after": after, "limit": _BACKFILL_BATCH},
-            )
-            .scalars()
-            .all()
-        )
-        if not ids:
+            {"after": after, "limit": _BACKFILL_BATCH},
+        ).scalar_one_or_none()
+        if last is None:
             return
-        # Python UUID ordering matches PostgreSQL's byte-wise uuid ordering.
-        after = max(ids)
+        after = last
 
 
 def upgrade() -> None:
@@ -223,12 +240,17 @@ def upgrade() -> None:
             f"public.case has incompatible search vector columns ({columns}); "
             "preserve them and ask an operator to resolve the collision."
         )
-    function_exists = _trigger_function_exists()
-    trigger_exists = _trigger_exists()
+    function_exists = _check_trigger_function()
+    trigger_exists = _check_trigger()
     states = {
         name: _index_state(name, definition) for name, definition in _VECTOR_INDEXES
     }
 
+    # Adding nullable columns is catalog-only, but ALTER TABLE and CREATE
+    # TRIGGER still take brief exclusive locks on a hot table. Fail fast rather
+    # than queue every case read and write behind a long-running transaction.
+    # The upgrade is retry-safe.
+    op.execute("SET LOCAL lock_timeout = '10s'")
     op.execute(
         'ALTER TABLE public."case" '
         "ADD COLUMN IF NOT EXISTS summary_tsv tsvector, "
@@ -245,14 +267,14 @@ def upgrade() -> None:
     with op.get_context().autocommit_block():
         _backfill()
         for name, definition in _VECTOR_INDEXES:
-            if states[name] is False:
+            if states[name] == "invalid":
                 op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS public."{name}"')
             op.execute(
                 definition.replace(
                     "CREATE INDEX ", "CREATE INDEX CONCURRENTLY IF NOT EXISTS ", 1
                 )
             )
-            if _index_state(name, definition) is not True:
+            if _index_state(name, definition) != "ready":
                 raise RuntimeError(
                     f"Case search index public.{name} is not ready; retry the migration."
                 )
@@ -261,13 +283,16 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    _trigger_function_exists()
-    _trigger_exists()
+    # Called for their collision checks: never drop objects this revision
+    # did not create.
+    _check_trigger_function()
+    _check_trigger()
     for name, definition in _VECTOR_INDEXES:
         _index_state(name, definition)
     with op.get_context().autocommit_block():
         for name, _ in reversed(_VECTOR_INDEXES):
             op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS public."{name}"')
+    op.execute("SET LOCAL lock_timeout = '10s'")
     op.execute(f'DROP TRIGGER IF EXISTS {_TRIGGER} ON public."case"')
     op.execute(f"DROP FUNCTION IF EXISTS public.{_TRIGGER_FUNCTION}()")
     op.execute(

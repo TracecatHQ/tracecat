@@ -24,6 +24,7 @@ from tests.integration.test_case_text_search_postgres import (
     load_vector_migration,
 )
 from tests.unit.test_case_aggregation import add_case
+from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole, WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseStatus
@@ -463,7 +464,7 @@ async def timeout_service(
 
     # A short budget makes the blocked statements time out inside the tests'
     # own asyncio deadline.
-    monkeypatch.setattr("tracecat.cases.text_search.STATEMENT_TIMEOUT_MS", 1500)
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 1500)
     engine = create_async_engine(TEST_DB_CONFIG.test_url, poolclass=NullPool)
     org_id, workspace_id = uuid4(), uuid4()
     try:

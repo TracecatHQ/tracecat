@@ -1296,6 +1296,17 @@ TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
 )
 """PostgreSQL statement timeout for aggregation queries, in milliseconds."""
 
+TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS = bound_env(
+    "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS",
+    30_000,
+    lower=1,
+    upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
+)
+"""PostgreSQL statement timeout for case text search, in milliseconds.
+
+A slow search holds a pooled database connection for up to this long.
+"""
+
 TRACECAT__LIMIT_DEFAULT = 20
 """Default list/search page size."""
 
