@@ -7947,6 +7947,11 @@ def test_mcp_instruction_named_placeholders_are_all_rendered() -> None:
     assert mcp_server._SKILL_FILE_WARNING in mcp_server._MCP_INSTRUCTIONS_RENDERED
 
 
+def test_dsl_reference_documents_action_description() -> None:
+    assert "| `description` | str |" in mcp_server._DSL_REFERENCE_TEXT
+    assert any("description" in action for action in _prompt_yaml_action_fragments())
+
+
 def test_dsl_reference_text_stays_within_context_budget() -> None:
     # Raised from 15500 for the "Form Trigger" section.
     assert len(mcp_server._DSL_REFERENCE_TEXT) <= 17900
