@@ -196,7 +196,7 @@ class BitbucketDataCenterTokenService(BaseOrgService):
                 return BitbucketDataCenterTokenCredentialsStatus(exists=False)
 
     @requires_entitlement(Entitlement.GIT_SYNC)
-    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+    @require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
     async def get_bitbucket_data_center_token_credentials(
         self,
     ) -> BitbucketDataCenterTokenCredentials:

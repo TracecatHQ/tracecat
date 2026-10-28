@@ -28,7 +28,7 @@ from tracecat.workspace_sync.transport import VcsTreeSnapshot
 async def test_deletion_only_type_requires_read_scope_before_prepare_and_apply(
     monkeypatch, blob_only
 ):
-    scopes = {"workspace_sync:sync"} | {
+    scopes = {"workspace_sync:push"} | {
         adapter.read_scope
         for adapter in WORKSPACE_RESOURCE_ADAPTERS
         if adapter.read_scope

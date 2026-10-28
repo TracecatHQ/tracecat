@@ -420,7 +420,7 @@ class TestGitHubAppService:
         svc_role: Role,
     ) -> None:
         """Repository client access accepts the legacy or workspace sync grant."""
-        for scope in ("workflow:sync", "workspace_sync:sync"):
+        for scope in ("workspace_sync:pull", "workspace_sync:push"):
             service = GitHubAppService(
                 session=session,
                 role=svc_role.model_copy(update={"scopes": frozenset({scope})}),

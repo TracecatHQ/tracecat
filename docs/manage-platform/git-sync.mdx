@@ -14,7 +14,7 @@ Use Git sync to export workspace configuration to a repository you own as a pull
 
 Organization admins configure providers. Workspace admins connect or change a workspace repository. Workspace editors can push and pull from an existing connection; viewers cannot sync.
 
-For custom roles, provider setup requires `org:settings:update`, changing the workspace connection requires `workspace:update`, and the workspace Git sync page requires `workspace_sync:sync` to push and pull.
+For custom roles, provider setup requires `org:settings:update`, changing the workspace connection requires `workspace:update`, and the workspace Git sync page requires `workspace_sync:push` to push and `workspace_sync:pull` to pull. `workspace-editor` can push but not pull; `workspace-admin`, `organization-admin`, and `organization-owner` can do both.
 
 ## Connect a provider
 
@@ -176,7 +176,7 @@ Until you publish a pulled workflow, its runs resolve actions against the worksp
 
 <Steps>
   <Step title="Bind both workspaces">
-    Bind staging and production workspaces to the same repository. Role assignments are per workspace, so grant `workspace_sync:sync` (`workspace-editor` and above) in each.
+    Bind staging and production workspaces to the same repository. Role assignments are per workspace, so grant `workspace_sync:push` (`workspace-editor` and above) where changes are authored and `workspace_sync:pull` (`workspace-admin` and above) where they are pulled in.
   </Step>
   <Step title="Push from staging">
     Build in staging, then choose `Push and open PR` (`MR` on GitLab) from its `Push` tab.
@@ -191,17 +191,17 @@ Until you publish a pulled workflow, its runs resolve actions against the worksp
 
 ## API reference
 
-Exporting a workspace requires `workspace_sync:sync`. Reading branches and commits, pulling, and publishing one workflow also accept `workflow:sync`, so a service account holding only `workflow:sync` can pull from CI.
+Pushing requires `workspace_sync:push` and pulling requires `workspace_sync:pull`. Reading branches and commits accepts either, so a service account holding only `workspace_sync:pull` can pull from CI. Pulling also requires write access to every resource type in the commit, such as `workflow:create` and `workflow:update`.
 
 | Action | Endpoint | Scopes |
 | --- | --- | --- |
 | Save provider credentials | `POST /organization/vcs/{provider}/credentials` (`github` or `gitlab`) | `org:settings:update` |
 | Bind a repository | `PATCH /workspaces/{workspace_id}` with `settings.git_provider` and `settings.git_repo_url` | `workspace:update` |
-| Preview an export | `POST /workflows/sync/export/preview` | `workspace_sync:sync` |
-| Export and open a pull request | `POST /workflows/sync/export` | `workspace_sync:sync` |
-| Push one workflow | `POST /workflows/{workflow_id}/publish` | `workflow:update`, plus `workflow:sync` or `workspace_sync:sync` |
-| List branches and commits | `GET /workflows/sync/branches`, `GET /workflows/sync/commits?branch=` | `workflow:sync` or `workspace_sync:sync` |
-| Pull a commit | `POST /workflows/sync/pull` with a required `commit_sha` | `workflow:sync` or `workspace_sync:sync` |
+| Preview an export | `POST /workflows/sync/export/preview` | `workspace_sync:push` |
+| Export and open a pull request | `POST /workflows/sync/export` | `workspace_sync:push` |
+| Push one workflow | `POST /workflows/{workflow_id}/publish` | `workflow:update` and `workspace_sync:push` |
+| List branches and commits | `GET /workflows/sync/branches`, `GET /workflows/sync/commits?branch=` | `workspace_sync:push` or `workspace_sync:pull` |
+| Pull a commit | `POST /workflows/sync/pull` with a required `commit_sha` | `workspace_sync:pull` |
 
 ## Related pages
 

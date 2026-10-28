@@ -189,7 +189,7 @@ class GitLabTokenService(BaseOrgService):
                 }
 
     @requires_entitlement(Entitlement.GIT_SYNC)
-    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+    @require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
     async def get_gitlab_token_credentials(self) -> GitLabTokenCredentials:
         """Retrieve GitLab credentials for workspace sync API calls."""
         secret_state, _secret, credentials = await self._get_gitlab_token_secret_state()

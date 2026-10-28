@@ -36,21 +36,27 @@ jest.mock("@/components/loading/spinner", () => ({
 jest.mock("@/components/workspace-sync/git-sync-view", () => ({
   GitSyncHeader: () => <header>Git Sync</header>,
   GitSyncView: ({
-    canSync,
+    canPush,
+    canPull,
     canManageConnection,
   }: {
-    canSync: boolean
+    canPush: boolean
+    canPull: boolean
     canManageConnection: boolean
   }) => (
     <div>
-      Git Sync view sync={String(canSync)} manage=
+      Git Sync view push={String(canPush)} pull={String(canPull)} manage=
       {String(canManageConnection)}
     </div>
   ),
 }))
 
 beforeEach(() => {
-  mockScopes = { "workspace_sync:sync": true, "workspace:update": true }
+  mockScopes = {
+    "workspace_sync:push": true,
+    "workspace_sync:pull": true,
+    "workspace:update": true,
+  }
 })
 
 describe("WorkspaceGitSyncPage", () => {
@@ -90,7 +96,7 @@ describe("WorkspaceGitSyncPage", () => {
     render(<WorkspaceGitSyncPage />)
 
     expect(screen.getByText(/Git Sync view/)).toHaveTextContent(
-      "sync=true manage=true"
+      "push=true pull=true manage=true"
     )
   })
 
@@ -105,7 +111,8 @@ describe("WorkspaceGitSyncPage", () => {
 
     it("waits while a permission check is unresolved", () => {
       mockScopes = {
-        "workspace_sync:sync": undefined,
+        "workspace_sync:push": true,
+        "workspace_sync:pull": undefined,
         "workspace:update": true,
       }
 
@@ -115,7 +122,11 @@ describe("WorkspaceGitSyncPage", () => {
     })
 
     it("refuses viewers who can neither sync nor manage the connection", () => {
-      mockScopes = { "workspace_sync:sync": false, "workspace:update": false }
+      mockScopes = {
+        "workspace_sync:push": false,
+        "workspace_sync:pull": false,
+        "workspace:update": false,
+      }
 
       render(<WorkspaceGitSyncPage />)
 
@@ -126,12 +137,30 @@ describe("WorkspaceGitSyncPage", () => {
     })
 
     it("lets connection admins in without sync access", () => {
-      mockScopes = { "workspace_sync:sync": false, "workspace:update": true }
+      mockScopes = {
+        "workspace_sync:push": false,
+        "workspace_sync:pull": false,
+        "workspace:update": true,
+      }
 
       render(<WorkspaceGitSyncPage />)
 
       expect(screen.getByText(/Git Sync view/)).toHaveTextContent(
-        "sync=false manage=true"
+        "push=false pull=false manage=true"
+      )
+    })
+
+    it("passes push-only access through for editors", () => {
+      mockScopes = {
+        "workspace_sync:push": true,
+        "workspace_sync:pull": false,
+        "workspace:update": false,
+      }
+
+      render(<WorkspaceGitSyncPage />)
+
+      expect(screen.getByText(/Git Sync view/)).toHaveTextContent(
+        "push=true pull=false manage=false"
       )
     })
   })

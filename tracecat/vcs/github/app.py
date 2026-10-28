@@ -484,7 +484,7 @@ class GitHubAppService(BaseOrgService):
         raise GitHubAppError("Failed to retrieve GitHub App credentials")
 
     @requires_entitlement(Entitlement.GIT_SYNC)
-    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+    @require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
     async def get_github_client_for_repo(
         self, repo_url: GitUrl, *, release_read_session: bool = False
     ) -> Github:

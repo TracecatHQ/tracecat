@@ -80,7 +80,7 @@ export function WorkspaceResourceSyncActions({
     initialData: 0,
     enabled: false,
   })
-  const canSyncWorkspace = useScopeCheck("workspace_sync:sync")
+  const canSyncWorkspace = useScopeCheck("workspace_sync:push")
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const canPushWorkspaceSync =
     canSyncWorkspace === true &&

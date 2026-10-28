@@ -419,7 +419,7 @@ async def test_saved_preview_requires_current_resource_read_scope(
     await session.commit()
     restricted = SyncOperationService(
         session,
-        svc_role.model_copy(update={"scopes": frozenset({"workspace_sync:sync"})}),
+        svc_role.model_copy(update={"scopes": frozenset({"workspace_sync:push"})}),
     )
     with pytest.raises(ScopeDeniedError):
         await restricted.get(operation.id)

@@ -87,7 +87,7 @@ async def test_history_filters_unreadable_operations_before_pagination(
     hidden.summary = {"read_scopes": ["variable:read"]}
     await session.commit()
     limited = svc_role.model_copy(
-        update={"scopes": frozenset({"workflow:read", "workspace_sync:sync"})}
+        update={"scopes": frozenset({"workflow:read", "workspace_sync:push"})}
     )
     page = await SyncOperationService(session, limited).list(PageParams(limit=1))
     assert [item.id for item in page.items] == [visible.id]
