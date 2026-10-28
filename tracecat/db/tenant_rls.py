@@ -420,6 +420,13 @@ def enable_agent_catalog_table_rls() -> str:
     """
 
 
+def disable_service_account_child_table_rls(table: str) -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
+        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
+
+
 def _workspace_read_policy(table: str) -> str:
     return f"{policy_name(table)}_workspace_read"
 
@@ -451,13 +458,6 @@ def enable_workspace_read_only_table_rls(table: str) -> str:
 def disable_workspace_read_only_table_rls(table: str) -> str:
     return f"""
         DROP POLICY IF EXISTS {_workspace_read_policy(table)} ON "{table}";
-        DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
-        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
-    """
-
-
-def disable_service_account_child_table_rls(table: str) -> str:
-    return f"""
         DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """

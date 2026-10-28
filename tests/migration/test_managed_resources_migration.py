@@ -21,6 +21,8 @@ from tracecat.db.models import Base
 MIGRATION_REVISION = "21042b4645f1"
 PREVIOUS_REVISION = "002febfa86c3"
 TABLES = ("managed_resource", "managed_target", "managed_reference_match")
+# Operation names alembic_postgresql_enum puts first in its diff tuples.
+_POSTGRESQL_ENUM_DIFFS = frozenset({"create_enum", "drop_enum", "change_enum_variants"})
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -97,7 +99,7 @@ def test_upgrade_matches_the_model_and_downgrade_removes_the_tables(
             diffs = [
                 diff
                 for diff in compare_metadata(context, Base.metadata)
-                if "enum" not in str(diff[0])
+                if not (isinstance(diff, tuple) and diff[0] in _POSTGRESQL_ENUM_DIFFS)
             ]
             assert diffs == []
             for table in TABLES:
@@ -187,11 +189,17 @@ _INSERTERS = {
 }
 
 
-@pytest.mark.parametrize("table", TABLES)
-def test_tenant_sessions_are_read_only(db_url: str, table: str) -> None:
-    """A tenant role reads its workspace's rows but cannot write any row."""
+@pytest.fixture(scope="module")
+def migrated_db_url(db_url: str) -> str:
+    """The module database upgraded to this revision once."""
     _alembic(db_url, "upgrade", MIGRATION_REVISION)
-    engine = create_engine(db_url, poolclass=NullPool)
+    return db_url
+
+
+@pytest.mark.parametrize("table", TABLES)
+def test_tenant_sessions_are_read_only(migrated_db_url: str, table: str) -> None:
+    """A tenant role reads its workspace's rows but cannot write any row."""
+    engine = create_engine(migrated_db_url, poolclass=NullPool)
     role = f"managed_rls_{uuid.uuid4().hex[:8]}"
     org_id = uuid.uuid4()
     insert = _INSERTERS[table]

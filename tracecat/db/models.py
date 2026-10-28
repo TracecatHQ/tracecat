@@ -694,7 +694,9 @@ class ManagedTarget(WorkspaceModel):
     """A customer workspace assigned to receive the managed resource package."""
 
     __tablename__ = "managed_target"
-    __table_args__ = (UniqueConstraint("workspace_id"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_managed_target_workspace_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True

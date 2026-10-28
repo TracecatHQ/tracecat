@@ -118,9 +118,7 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_managed_target")),
-        sa.UniqueConstraint(
-            "workspace_id", name=op.f("uq_managed_target_workspace_id")
-        ),
+        sa.UniqueConstraint("workspace_id", name="uq_managed_target_workspace_id"),
     )
     op.create_index(op.f("ix_managed_target_id"), "managed_target", ["id"], unique=True)
     op.execute(enable_workspace_read_only_table_rls("managed_target"))
