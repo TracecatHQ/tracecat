@@ -221,13 +221,13 @@ async def test_excerpt_batch_skips_empty_inputs_and_bounds_returned_ids() -> Non
 async def test_execution_settings_are_transaction_local_and_restored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 30_000)
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 12_345)
     session = AsyncMock()
     session.scalar.side_effect = ["0", "0.5"]
     async with case_search_execution_context(session):
         pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
-    assert "SET LOCAL statement_timeout = 30000" in statements
+    assert "SET LOCAL statement_timeout = 12345" in statements
     parameters = [
         call.args[1] for call in session.execute.await_args_list if len(call.args) > 1
     ]
@@ -240,7 +240,7 @@ async def test_execution_settings_are_transaction_local_and_restored(
 async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 30_000)
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 12_345)
     session = AsyncMock()
     session.scalar.return_value = "0"
     async with case_search_execution_context(session, use_trigram_threshold=False):
@@ -249,7 +249,7 @@ async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings(
         "SHOW statement_timeout"
     ]
     assert [str(call.args[0]) for call in session.execute.await_args_list] == [
-        "SET LOCAL statement_timeout = 30000",
+        "SET LOCAL statement_timeout = 12345",
         "SELECT set_config('statement_timeout', :timeout, true)",
     ]
 
