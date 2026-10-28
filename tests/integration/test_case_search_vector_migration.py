@@ -120,7 +120,15 @@ def test_vector_migration_backfills_maintains_and_downgrades(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "collision", ["disabled", "after", "function", "conditional", "security_definer"]
+    "collision",
+    [
+        "disabled",
+        "after",
+        "function",
+        "conditional",
+        "security_definer",
+        "no_search_path",
+    ],
 )
 async def test_incompatible_vector_trigger_is_a_configuration_change(
     search_database: Engine, collision: str
@@ -134,6 +142,12 @@ async def test_incompatible_vector_trigger_is_a_configuration_change(
             conn.execute(
                 sa.text(
                     "ALTER FUNCTION public.tracecat_case_search_vectors_v1() SECURITY DEFINER"
+                )
+            )
+        elif collision == "no_search_path":
+            conn.execute(
+                sa.text(
+                    "ALTER FUNCTION public.tracecat_case_search_vectors_v1() RESET search_path"
                 )
             )
         elif collision == "conditional":

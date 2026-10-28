@@ -176,7 +176,9 @@ async def _ensure_stored_vectors(session: AsyncSession) -> None:
             AND t.tgqual IS NULL
             AND p.prorettype = 'trigger'::regtype AND l.lanname = 'plpgsql'
             AND NOT p.prosecdef AND p.prokind = 'f'
-            AND p.proconfig = ARRAY['search_path=pg_catalog']::text[]
+            -- proconfig is NULL without a SET clause; keep the result non-NULL
+            -- so that is a configuration change, not missing indexing.
+            AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
             AND md5(regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g')) = :body_hash
         FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
         JOIN pg_language l ON l.oid = p.prolang
