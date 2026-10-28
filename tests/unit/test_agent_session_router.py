@@ -3,11 +3,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
-from typing import Any, cast, get_args
+from typing import Annotated, Any, cast, get_args
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -69,6 +69,7 @@ from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
+    ScopeDeniedError,
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatServiceError,
@@ -1845,3 +1846,173 @@ def test_session_read_reports_backend_controls(
     # A disabled backend controls nothing.
     assert read.capabilities.steering is (enabled and steering)
     assert read.capabilities.withdrawing is (enabled and withdrawing)
+
+
+class _TrackedSession:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _session_release_app(
+    tracked: _TrackedSession, role: Role
+) -> tuple[FastAPI, list[bool]]:
+    """App whose auth dependency shares the request session, as in production."""
+    app = FastAPI()
+    app.include_router(router)
+
+    async def tracked_session() -> AsyncIterator[_TrackedSession]:
+        yield tracked
+
+    async def role_with_session(
+        session: Annotated[Any, Depends(get_async_session)],
+    ) -> Role:
+        assert session is tracked
+        return role
+
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[get_async_session] = tracked_session
+    app.dependency_overrides[role_dependency] = role_with_session
+    released_at_first_chunk: list[bool] = []
+    return app, released_at_first_chunk
+
+
+def _released_event_stream(
+    tracked: _TrackedSession, released_at_first_chunk: list[bool]
+) -> AsyncIterator[str]:
+    async def events() -> AsyncIterator[str]:
+        released_at_first_chunk.append(tracked.closed)
+        yield "data: {}\n\n"
+
+    return events()
+
+
+def _vercel_chat_request() -> VercelChatRequest:
+    return VercelChatRequest(
+        message=UIMessage(
+            id="msg-1", role="user", parts=[{"type": "text", "text": "hello"}]
+        ),
+        model="gpt-4o-mini",
+        model_provider="openai",
+    )
+
+
+def test_stream_session_events_releases_request_session_before_streaming() -> None:
+    """The live stream reads only Redis, so it must not pin a DB connection."""
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    tracked = _TrackedSession()
+    app, released_at_first_chunk = _session_release_app(
+        tracked, _make_stream_role(workspace_id)
+    )
+    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session),
+        get_stream_resume_state=AsyncMock(
+            return_value=_stream_state(
+                lifecycle=TurnLifecycle.RUNNING,
+                curr_run_id=uuid.uuid4(),
+                active_stream_id=uuid.uuid4(),
+                has_live_stream=True,
+            )
+        ),
+    )
+    fake_stream = SimpleNamespace(
+        sse=Mock(
+            side_effect=lambda *_a, **_kw: _released_event_stream(
+                tracked, released_at_first_chunk
+            )
+        )
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.get(f"/agent/sessions/{session_id}/stream")
+
+    assert response.status_code == 200
+    assert response.text == "data: {}\n\n"
+    assert released_at_first_chunk == [True]
+
+
+def test_send_message_releases_request_session_before_streaming() -> None:
+    """Sending a message streams the turn without pinning a DB connection."""
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    tracked = _TrackedSession()
+    app, released_at_first_chunk = _session_release_app(
+        tracked, _execute_role(workspace_id)
+    )
+    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
+    fake_svc = SimpleNamespace(
+        session=AsyncMock(),
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=agent_session),
+        run_turn=AsyncMock(
+            return_value=ChatResponse(
+                stream_url="/stream",
+                chat_id=session_id,
+                curr_run_id=uuid.uuid4(),
+            )
+        ),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
+    )
+    fake_stream = _fake_stream()
+    fake_stream.sse = Mock(
+        side_effect=lambda *_a, **_kw: _released_event_stream(
+            tracked, released_at_first_chunk
+        )
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            f"/agent/sessions/{session_id}/messages",
+            json=_vercel_chat_request().model_dump(mode="json"),
+        )
+
+    assert response.status_code == 200
+    assert response.text == "data: {}\n\n"
+    fake_svc.run_turn.assert_awaited_once()
+    assert released_at_first_chunk == [True]
+
+
+def test_send_message_still_requires_execute_scope() -> None:
+    """Releasing the session early leaves route authorization in place."""
+    session_id = uuid.uuid4()
+    tracked = _TrackedSession()
+    app, _ = _session_release_app(tracked, _read_role(uuid.uuid4()))
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session"
+        ) as with_session_mock,
+        TestClient(app) as client,
+        pytest.raises(ScopeDeniedError),
+    ):
+        client.post(
+            f"/agent/sessions/{session_id}/messages",
+            json=_vercel_chat_request().model_dump(mode="json"),
+        )
+
+    with_session_mock.assert_not_called()
