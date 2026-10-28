@@ -933,6 +933,65 @@ async def test_activation_cannot_grant_scopes_the_caller_lacks(
 
 
 @pytest.mark.anyio
+async def test_activation_checks_the_ceiling_before_purging_the_callers_groups(
+    session: AsyncSession, org: Organization
+) -> None:
+    """A mapping that purges the caller's own group cannot fail a later one.
+
+    The caller holds ``org:settings:read`` only through a manual row in ``held``.
+    Mapping ``held`` drops that row, and ``target`` grants the same scope back
+    through the caller's provider group, so the outcome must not depend on
+    which mapping installs first.
+    """
+    caller = await _make_user(session, org)
+    held = await _group_granting(session, org, "org:settings:read")
+    target = await _group_granting(session, org, "org:settings:read")
+    await seed_group_member(session, group_id=held.id, user_id=caller.id)
+    await session.execute(
+        update(ScimConnection)
+        .where(ScimConnection.organization_id == org.id)
+        .values(status=ScimConnectionStatus.PENDING)
+    )
+    without_caller = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-others"
+    )
+    await _pushed_member(session, org, without_caller.id)
+    with_caller = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-caller"
+    )
+    await seed_external_group_members(
+        session,
+        external_group_id=with_caller.id,
+        external_user_ids=[
+            await seed_external_user(session, organization_id=org.id, user_id=caller.id)
+        ],
+    )
+    role = Role(
+        type="user",
+        organization_id=org.id,
+        workspace_id=None,
+        user_id=caller.id,
+        service_id="tracecat-api",
+        scopes=frozenset({"org:scim:manage", "org:settings:read"}),
+    )
+
+    await SCIMService(session, role).activate(
+        [
+            ExternalGroupMappingCreate(
+                external_group_id=without_caller.id, group_id=held.id
+            ),
+            ExternalGroupMappingCreate(
+                external_group_id=with_caller.id, group_id=target.id
+            ),
+        ]
+    )
+
+    assert await _mapped_groups(session, org) == {held.id, target.id}
+    assert caller.id not in await _manual_members(session, held.id)
+    assert await _idp_members(session, target.id) == {caller.id}
+
+
+@pytest.mark.anyio
 async def test_owner_can_map_a_group_the_admin_cannot(
     session: AsyncSession, org: Organization
 ) -> None:

@@ -529,6 +529,9 @@ class SCIMService(BaseOrgService):
                 the caller does not hold.
         """
         await lock_role_changes(self.session, self.organization_id)
+        await RBACService(self.session, self.role).ensure_group_membership_assignable(
+            {mapping.group_id for mapping in create}
+        )
         await self._change_mappings(additions=create, removals=delete)
 
     async def _change_mappings(
@@ -537,7 +540,11 @@ class SCIMService(BaseOrgService):
         additions: Sequence[ExternalGroupMappingCreate],
         removals: Sequence[UUID],
     ) -> None:
-        """Remove then add mappings, auditing each one. Callers hold the org lock."""
+        """Remove then add mappings, auditing each one.
+
+        Callers hold the org lock and have checked the additions against the
+        grant ceiling.
+        """
         removal_ids = set(removals)
         removed: Sequence[tuple[UUID, UUID]] = (
             (
@@ -574,9 +581,6 @@ class SCIMService(BaseOrgService):
         await self._lock_groups({group_id for _, group_id in removed} | gaining)
         if pairs and not await self._connection_is_active():
             raise TracecatConflictError("Activate SCIM before creating group mappings")
-        await RBACService(self.session, self.role).ensure_group_membership_assignable(
-            gaining
-        )
 
         await self._freeze_idp_members_as_manual(
             await self._groups_losing_every_source(removed, gaining)
@@ -808,7 +812,9 @@ class SCIMService(BaseOrgService):
         # A stale client must not activate a disconnected or already active directory.
         if connection.status != ScimConnectionStatus.PENDING:
             raise TracecatConflictError("SCIM connection is not pending activation")
-        # Checked before anything is admitted, so a rejected mapping changes nothing.
+        # Checked once, before anything is admitted or purged: later steps can
+        # drop the caller's own manual membership, which must not fail a
+        # mapping this check already allowed.
         await RBACService(self.session, self.role).ensure_group_membership_assignable(
             {mapping.group_id for mapping in proposed}
         )
@@ -822,11 +828,7 @@ class SCIMService(BaseOrgService):
         # while retaining the administrator as the audit actor.
         provisioning_role = self.role.model_copy(update={"scopes": SCIM_ROLE_SCOPES})
         await SCIMService(self.session, provisioning_role)._admit_pushed_users()
-        for mapping in proposed:
-            await self.create_mapping(
-                external_group_id=mapping.external_group_id,
-                group_id=mapping.group_id,
-            )
+        await self._change_mappings(additions=proposed, removals=[])
         await self.session.commit()
 
     async def _admit_pushed_users(self) -> None:
