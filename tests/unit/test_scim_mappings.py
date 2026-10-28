@@ -28,6 +28,8 @@ from tests.support.membership import (
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_OWNER_SCOPES
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     ExternalGroup,
     ExternalGroupMapping,
@@ -35,13 +37,17 @@ from tracecat.db.models import (
     ExternalUser,
     Group,
     GroupMember,
+    GroupRoleAssignment,
     Organization,
     OrganizationMembership,
+    RoleScope,
     ScimConnection,
+    Scope,
     User,
     UserRoleAssignment,
     effective_group_members,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -773,6 +779,201 @@ async def test_deleting_requires_scim_management(
 
     with pytest.raises(TracecatAuthorizationError):
         await without_scim.delete_mapping(mapping.id)
+
+
+# =============================================================================
+# Grant ceiling
+# =============================================================================
+
+# Held by owners but not admins, so it marks a group above an admin's ceiling.
+OWNER_ONLY_SCOPE = "org:owner:assign"
+
+
+async def _group_granting(
+    session: AsyncSession, org: Organization, scope_name: str
+) -> Group:
+    """A group whose org-wide role assignment grants one scope."""
+    await seed_system_scopes(session)
+    scope = (
+        await session.execute(select(Scope).where(Scope.name == scope_name))
+    ).scalar_one()
+    group = await _make_group(session, org)
+    role = DBRole(
+        name=f"scim-role-{uuid.uuid4().hex[:8]}",
+        slug=None,
+        description=None,
+        organization_id=org.id,
+    )
+    session.add(role)
+    await session.flush()
+    session.add(RoleScope(role_id=role.id, scope_id=scope.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=org.id,
+            group_id=group.id,
+            workspace_id=None,
+            role_id=role.id,
+        )
+    )
+    await session.flush()
+    return group
+
+
+async def _mapped_groups(session: AsyncSession, org: Organization) -> set[uuid.UUID]:
+    stmt = select(ExternalGroupMapping.group_id).where(
+        ExternalGroupMapping.organization_id == org.id
+    )
+    return set((await session.execute(stmt)).scalars())
+
+
+def test_owner_only_scope_is_above_the_admin_ceiling() -> None:
+    assert OWNER_ONLY_SCOPE in ORG_OWNER_SCOPES
+    assert OWNER_ONLY_SCOPE not in ORG_ADMIN_SCOPES
+
+
+@pytest.mark.anyio
+async def test_mapping_cannot_grant_scopes_the_caller_lacks(
+    session: AsyncSession, org: Organization
+) -> None:
+    """A mapping is a membership grant, so it stays under the caller's ceiling."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    await _pushed_member(session, org, external.id)
+    group = await _group_granting(session, org, OWNER_ONLY_SCOPE)
+    service = SCIMService(session, _role(org, *ORG_ADMIN_SCOPES))
+
+    with pytest.raises(
+        TracecatAuthorizationError, match="Cannot grant scopes not held by the caller"
+    ):
+        await service.create_mapping(external_group_id=external.id, group_id=group.id)
+
+    assert await _mapped_groups(session, org) == set()
+
+
+@pytest.mark.anyio
+async def test_mapping_changes_cannot_grant_scopes_the_caller_lacks(
+    session: AsyncSession, org: Organization
+) -> None:
+    """One addition above the ceiling rejects the whole batch, removals too."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    member = await _pushed_member(session, org, external.id)
+    allowed = await _make_group(session, org)
+    privileged = await _group_granting(session, org, OWNER_ONLY_SCOPE)
+    service = SCIMService(session, _role(org, *ORG_ADMIN_SCOPES))
+    existing = await service.create_mapping(
+        external_group_id=external.id, group_id=allowed.id
+    )
+
+    with pytest.raises(
+        TracecatAuthorizationError, match="Cannot grant scopes not held by the caller"
+    ):
+        await service.apply_mapping_changes(
+            create=[
+                ExternalGroupMappingCreate(
+                    external_group_id=external.id, group_id=privileged.id
+                )
+            ],
+            delete=[existing.id],
+        )
+
+    assert await _mapped_groups(session, org) == {allowed.id}
+    assert await _idp_members(session, allowed.id) == {member.id}
+    assert await _manual_members(session, allowed.id) == set()
+
+
+@pytest.mark.anyio
+async def test_activation_cannot_grant_scopes_the_caller_lacks(
+    session: AsyncSession, org: Organization
+) -> None:
+    """Activation is rejected before it admits anyone or flips the status."""
+    group = await _group_granting(session, org, OWNER_ONLY_SCOPE)
+    await session.execute(
+        update(ScimConnection)
+        .where(ScimConnection.organization_id == org.id)
+        .values(status=ScimConnectionStatus.PENDING)
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"pending-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="test",
+    )
+    session.add(user)
+    await session.flush()
+    external_user_id = await seed_external_user(
+        session, organization_id=org.id, user_id=user.id
+    )
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-activate"
+    )
+    await seed_external_group_members(
+        session, external_group_id=external.id, external_user_ids=[external_user_id]
+    )
+    service = SCIMService(session, _role(org, *ORG_ADMIN_SCOPES))
+
+    with pytest.raises(
+        TracecatAuthorizationError, match="Cannot grant scopes not held by the caller"
+    ):
+        await service.activate(
+            [
+                ExternalGroupMappingCreate(
+                    external_group_id=external.id, group_id=group.id
+                )
+            ]
+        )
+
+    assert not await _is_member(session, user_id=user.id, organization_id=org.id)
+    assert await _mapped_groups(session, org) == set()
+    status = await session.scalar(
+        select(ScimConnection.status).where(ScimConnection.organization_id == org.id)
+    )
+    assert status == ScimConnectionStatus.PENDING
+
+
+@pytest.mark.anyio
+async def test_owner_can_map_a_group_the_admin_cannot(
+    session: AsyncSession, org: Organization
+) -> None:
+    """The ceiling follows the caller: an owner holds the group's scopes."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    member = await _pushed_member(session, org, external.id)
+    group = await _group_granting(session, org, OWNER_ONLY_SCOPE)
+    service = SCIMService(session, _role(org, *ORG_OWNER_SCOPES))
+
+    await service.create_mapping(external_group_id=external.id, group_id=group.id)
+
+    assert await _idp_members(session, group.id) == {member.id}
+
+
+@pytest.mark.anyio
+async def test_admin_can_map_a_group_within_their_scopes(
+    session: AsyncSession, org: Organization
+) -> None:
+    """Groups granting only scopes the admin holds still map through every path."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    member = await _pushed_member(session, org, external.id)
+    first = await _group_granting(session, org, "org:read")
+    second = await _group_granting(session, org, "org:read")
+    service = SCIMService(session, _role(org, *ORG_ADMIN_SCOPES))
+
+    await service.create_mapping(external_group_id=external.id, group_id=first.id)
+    await service.apply_mapping_changes(
+        create=[
+            ExternalGroupMappingCreate(
+                external_group_id=external.id, group_id=second.id
+            )
+        ],
+        delete=[],
+    )
+
+    assert await _idp_members(session, first.id) == {member.id}
+    assert await _idp_members(session, second.id) == {member.id}
 
 
 # =============================================================================
