@@ -39,6 +39,11 @@ async def hold_pg_advisory_xact_lock(
     # Closing the connection rolls back its transaction, releasing the lock.
     lock_fn = "pg_advisory_xact_lock" if wait else "pg_try_advisory_xact_lock"
     async with engine.connect() as connection:
+        # The transaction idles while other connections do the work. A server
+        # idle timeout would end it and release the lock mid-work.
+        await connection.execute(
+            text("SET LOCAL idle_in_transaction_session_timeout = 0")
+        )
         result = await connection.execute(text(f"SELECT {lock_fn}(:key)"), {"key": key})
         yield wait or result.scalar() is True
 

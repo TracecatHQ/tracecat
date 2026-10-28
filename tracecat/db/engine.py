@@ -435,7 +435,10 @@ def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManage
 
 @contextlib.asynccontextmanager
 async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, None]:
-    """Start a tenant-scoped serializable snapshot only after acquiring the lock."""
+    """Start a tenant-scoped serializable snapshot only after acquiring the lock.
+
+    Uses two main-pool connections: one holds the lock, one runs the snapshot.
+    """
     if not (-(2**63) <= lock_key < 2**63):
         raise ValueError(
             f"Lock key {lock_key} out of range for PostgreSQL advisory locks"

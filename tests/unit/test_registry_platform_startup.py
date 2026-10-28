@@ -545,13 +545,21 @@ async def test_promote_after_artifact_build_skips_when_current_changed(
     assert repo.current_version_id == newer_current.id
 
 
-async def _platform_sync_lock_is_free() -> bool:
+def _isolate_platform_sync_lock(monkeypatch: pytest.MonkeyPatch) -> int:
+    """Use a per-test key; the lock database is shared across xdist workers."""
+    from tracecat.registry.sync import jobs
+
+    key = uuid.uuid4().int % (2**63)
+    monkeypatch.setattr(jobs, "PLATFORM_SYNC_LOCK_KEY", key)
+    return key
+
+
+async def _lock_is_free(key: int) -> bool:
     from tracecat.db.engine import get_async_engine
     from tracecat.db.locks import hold_pg_advisory_xact_lock
-    from tracecat.registry.sync.jobs import PLATFORM_SYNC_LOCK_KEY
 
     async with hold_pg_advisory_xact_lock(
-        get_async_engine(), PLATFORM_SYNC_LOCK_KEY, wait=False
+        get_async_engine(), key, wait=False
     ) as acquired:
         return acquired
 
@@ -563,6 +571,7 @@ async def test_startup_sync_awaits_artifact_build_after_releasing_lock(
     from tracecat.registry.sync import jobs
     from tracecat.registry.sync.jobs import _ArtifactBuildRequest
 
+    lock_key = _isolate_platform_sync_lock(monkeypatch)
     build_started = asyncio.Event()
     release_build = asyncio.Event()
     artifact_build = _ArtifactBuildRequest(target_version="1.0.0")
@@ -574,7 +583,7 @@ async def test_startup_sync_awaits_artifact_build_after_releasing_lock(
         assert target_version == "1.0.0"
         # The leader keeps the lock across its own commits.
         await session.commit()
-        assert not await _platform_sync_lock_is_free()
+        assert not await _lock_is_free(lock_key)
         return artifact_build
 
     async def fake_build(
@@ -586,7 +595,7 @@ async def test_startup_sync_awaits_artifact_build_after_releasing_lock(
         assert target_version == "1.0.0"
         assert promote_version_id is None
         assert expected_current_version_id is None
-        assert await _platform_sync_lock_is_free()
+        assert await _lock_is_free(lock_key)
         build_started.set()
         await release_build.wait()
 
@@ -604,18 +613,16 @@ async def test_startup_sync_awaits_artifact_build_after_releasing_lock(
 
 
 @pytest.mark.anyio
-async def test_startup_sync_leader_election_non_leader_exits() -> None:
+async def test_startup_sync_leader_election_non_leader_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A process that finds the leader lock held exits without syncing."""
     from tracecat.db.engine import get_async_engine
     from tracecat.db.locks import hold_pg_advisory_xact_lock
-    from tracecat.registry.sync.jobs import (
-        PLATFORM_SYNC_LOCK_KEY,
-        sync_platform_registry_on_startup,
-    )
+    from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 
+    lock_key = _isolate_platform_sync_lock(monkeypatch)
     with patch("tracecat.registry.sync.jobs._sync_as_leader") as mock_sync:
-        async with hold_pg_advisory_xact_lock(
-            get_async_engine(), PLATFORM_SYNC_LOCK_KEY
-        ):
+        async with hold_pg_advisory_xact_lock(get_async_engine(), lock_key):
             await sync_platform_registry_on_startup()
         mock_sync.assert_not_called()

@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 from tracecat_ee.tunnels import gateways
 
 from tracecat.auth.types import Role
@@ -63,6 +65,24 @@ async def test_lock_is_released_when_the_body_raises() -> None:
     with pytest.raises(RuntimeError):
         async with hold_pg_advisory_xact_lock(get_async_engine(), key):
             raise RuntimeError("Synthetic failure")
+    assert await _lock_is_free(key)
+
+
+async def test_lock_survives_a_server_idle_in_transaction_timeout() -> None:
+    key = _lock_key()
+    engine = create_async_engine(
+        get_async_engine().url,
+        poolclass=NullPool,
+        connect_args={
+            "server_settings": {"idle_in_transaction_session_timeout": "100ms"}
+        },
+    )
+    try:
+        async with hold_pg_advisory_xact_lock(engine, key):
+            await asyncio.sleep(CONTENTION_WINDOW)
+            assert not await _lock_is_free(key)
+    finally:
+        await engine.dispose()
     assert await _lock_is_free(key)
 
 
@@ -149,6 +169,7 @@ async def test_tunnel_reconcile_skips_while_another_process_reconciles(
     client = MagicMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(gateways, "_RECONCILE_LOCK_KEY", _lock_key())
     monkeypatch.setattr(gateways, "desired_gateway_specs", desired_specs)
     monkeypatch.setattr(gateways, "KubernetesClient", lambda: client)
     monkeypatch.setattr(
