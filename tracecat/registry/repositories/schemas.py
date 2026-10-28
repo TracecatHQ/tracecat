@@ -136,6 +136,31 @@ class GitBranchInfo(BaseModel):
     )
 
 
+class GitTagInfo(BaseModel):
+    """Git tag information for repository management."""
+
+    name: str = Field(
+        ...,
+        description="Tag name",
+        min_length=1,
+        max_length=255,
+    )
+    commit_sha: str = Field(
+        ...,
+        description="SHA of the commit the tag points to",
+        min_length=40,
+        max_length=40,
+    )
+    date: str = Field(
+        ...,
+        description=(
+            "Tag date in ISO format. The provider's tag date when it has one, "
+            "otherwise the tagged commit's date."
+        ),
+        max_length=50,
+    )
+
+
 class RegistryRepositorySync(BaseModel):
     """Parameters for syncing a repository to a specific commit."""
 

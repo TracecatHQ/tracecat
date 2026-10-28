@@ -20400,6 +20400,36 @@ export const $GitSettingsUpdate = {
   title: "GitSettingsUpdate",
 } as const
 
+export const $GitTagInfo = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+      description: "Tag name",
+    },
+    commit_sha: {
+      type: "string",
+      maxLength: 40,
+      minLength: 40,
+      title: "Commit Sha",
+      description: "SHA of the commit the tag points to",
+    },
+    date: {
+      type: "string",
+      maxLength: 50,
+      title: "Date",
+      description:
+        "Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.",
+    },
+  },
+  type: "object",
+  required: ["name", "commit_sha", "date"],
+  title: "GitTagInfo",
+  description: "Git tag information for repository management.",
+} as const
+
 export const $GraphOperation = {
   properties: {
     type: {
@@ -26875,6 +26905,82 @@ export const $PlatformMCPCatalogRead = {
   ],
   title: "PlatformMCPCatalogRead",
   description: "Catalog row joined with workspace-specific MCP state.",
+} as const
+
+export const $PlatformManagedResourcesSourceRead = {
+  properties: {
+    configured: {
+      type: "boolean",
+      title: "Configured",
+      default: false,
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    git_provider: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/VcsProvider",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  title: "PlatformManagedResourcesSourceRead",
+  description: `The workspace managed resources are published from.
+
+All fields other than \`\`configured\`\` are null when no source is set.`,
+} as const
+
+export const $PlatformManagedResourcesSourceUpdate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "PlatformManagedResourcesSourceUpdate",
+  description: `Set the workspace managed resources are published from.
+
+The workspace must have a Git sync provider and repository URL.`,
 } as const
 
 export const $PlatformRegistrySettingsRead = {

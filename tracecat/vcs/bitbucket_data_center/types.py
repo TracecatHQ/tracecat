@@ -9,6 +9,12 @@ class DataCenterBranch(BaseModel):
     isDefault: bool = False
 
 
+class DataCenterTag(BaseModel):
+    id: str
+    name: str = Field(alias="displayId")
+    latestCommit: str
+
+
 class DataCenterAuthor(BaseModel):
     name: str
     emailAddress: str = ""

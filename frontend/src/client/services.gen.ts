@@ -43,6 +43,7 @@ import type {
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
   AdminGetAuditSettingsResponse,
+  AdminGetManagedResourcesSourceResponse,
   AdminGetMfaSettingsResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationInvitationTokenData,
@@ -56,6 +57,8 @@ import type {
   AdminGetTierResponse,
   AdminGetUserData,
   AdminGetUserResponse,
+  AdminListManagedResourcesSourceTagsData,
+  AdminListManagedResourcesSourceTagsResponse,
   AdminListOrganizationDomainsData,
   AdminListOrganizationDomainsResponse,
   AdminListOrganizationInvitationsData,
@@ -105,6 +108,8 @@ import type {
   AdminTestAuditWebhookResponse,
   AdminUpdateAuditSettingsData,
   AdminUpdateAuditSettingsResponse,
+  AdminUpdateManagedResourcesSourceData,
+  AdminUpdateManagedResourcesSourceResponse,
   AdminUpdateMfaSettingsData,
   AdminUpdateMfaSettingsResponse,
   AdminUpdateOrganizationData,
@@ -9478,6 +9483,67 @@ export const adminUpdateRegistrySettings = (
     url: "/admin/settings/registry",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Managed Resources Source
+ * Get the workspace managed resources are published from.
+ * @returns PlatformManagedResourcesSourceRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetManagedResourcesSource =
+  (): CancelablePromise<AdminGetManagedResourcesSourceResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/managed-resources/source",
+    })
+  }
+
+/**
+ * Update Managed Resources Source
+ * Set the workspace managed resources are published from.
+ *
+ * The workspace must have a Git sync provider and repository URL.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns PlatformManagedResourcesSourceRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateManagedResourcesSource = (
+  data: AdminUpdateManagedResourcesSourceData
+): CancelablePromise<AdminUpdateManagedResourcesSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/admin/settings/managed-resources/source",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Managed Resources Source Tags
+ * List tags in the managed resources source repository.
+ * @param data The data for the request.
+ * @param data.limit Maximum number of tags to return
+ * @returns GitTagInfo Successful Response
+ * @throws ApiError
+ */
+export const adminListManagedResourcesSourceTags = (
+  data: AdminListManagedResourcesSourceTagsData = {}
+): CancelablePromise<AdminListManagedResourcesSourceTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/settings/managed-resources/source/tags",
+    query: {
+      limit: data.limit,
+    },
     errors: {
       422: "Validation Error",
     },

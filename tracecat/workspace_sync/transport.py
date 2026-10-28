@@ -23,6 +23,7 @@ from urllib.parse import quote, unquote, urlparse
 
 import httpx
 from github.GithubException import GithubException
+from github.GitRef import GitRef
 from github.GitTreeElement import GitTreeElement
 from github.InputGitTreeElement import InputGitTreeElement
 from github.Repository import Repository
@@ -34,7 +35,11 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.git.plumbing import GitPlumbing, GitRefConflictError, validate_path
 from tracecat.git.types import GitUrl
-from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
+from tracecat.registry.repositories.schemas import (
+    GitBranchInfo,
+    GitCommitInfo,
+    GitTagInfo,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import CommitInfo, PushStatus
 from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
@@ -45,6 +50,7 @@ from tracecat.vcs.bitbucket.types import (
     BitbucketPage,
     BitbucketPullRequest,
     BitbucketRepository,
+    BitbucketTag,
 )
 from tracecat.vcs.bitbucket_data_center.app import BitbucketDataCenterTokenService
 from tracecat.vcs.bitbucket_data_center.types import (
@@ -52,6 +58,7 @@ from tracecat.vcs.bitbucket_data_center.types import (
     DataCenterCommit,
     DataCenterPage,
     DataCenterPullRequest,
+    DataCenterTag,
 )
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.gitlab.app import GitLabApiError, GitLabError, GitLabTokenService
@@ -67,8 +74,10 @@ from tracecat.vcs.gitlab.types import (
     GitLabCreateMergeRequestPayload,
     GitLabListCommitsParams,
     GitLabListMergeRequestsParams,
+    GitLabListTagsParams,
     GitLabMergeRequest,
     GitLabProject,
+    GitLabTag,
     GitLabTreeEntry,
     GitLabTreeParams,
 )
@@ -148,6 +157,19 @@ class VcsSyncTransport(Protocol):
         limit: int = 100,
     ) -> list[GitBranchInfo]:
         """List repository branches."""
+        ...
+
+    async def list_tags(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+    ) -> list[GitTagInfo]:
+        """List repository tags with the commit each one points to."""
+        ...
+
+    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
+        """Return the commit SHA that ``tag`` points to."""
         ...
 
 
@@ -427,6 +449,25 @@ async def _github_write_with_retry[T](
                 raise
             budget.remaining_seconds -= retry_after
             await asyncio.sleep(retry_after)
+
+
+def _github_peel_tag(
+    repo: Repository, object_type: str, object_sha: str
+) -> tuple[str, datetime | None]:
+    """Follow a tag ref to its commit (blocking; run in a thread).
+
+    Returns the commit SHA and the outermost tag's tagger date. Lightweight
+    tags point straight at a commit and carry no date, so that is ``None``.
+    """
+    tag_date: datetime | None = None
+    while object_type == "tag":
+        git_tag = repo.get_git_tag(object_sha)
+        if tag_date is None:
+            tag_date = git_tag.tagger.date
+        object_type, object_sha = git_tag.object.type, git_tag.object.sha
+    if object_type != "commit":
+        raise GitHubAppError(f"Tag points to a {object_type}, not a commit")
+    return object_sha, tag_date
 
 
 class BaseWorkspaceSyncTransport(BaseWorkspaceService):
@@ -1114,6 +1155,74 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         finally:
             gh.close()
 
+    async def list_tags(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+    ) -> list[GitTagInfo]:
+        """Return up to ``limit`` tags in ref-name order.
+
+        GitHub's ref listing has no dates, so each tag costs one more read: the
+        tagger date for annotated tags, else the commit's author date.
+        """
+        if limit <= 0:
+            return []
+        gh_svc = GitHubAppService(session=self.session, role=self.role)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
+        try:
+            repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            refs_paginated = await asyncio.to_thread(
+                repo.get_git_matching_refs, "tags/"
+            )
+            raw_refs = await asyncio.to_thread(
+                lambda: list(itertools.islice(refs_paginated, limit))
+            )
+            semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
+
+            def describe(object_type: str, object_sha: str) -> tuple[str, datetime]:
+                commit_sha, date = _github_peel_tag(repo, object_type, object_sha)
+                if date is None:
+                    date = repo.get_git_commit(commit_sha).author.date
+                return commit_sha, date
+
+            async def tag_info(ref: GitRef) -> GitTagInfo:
+                async with semaphore:
+                    commit_sha, date = await asyncio.to_thread(
+                        describe, ref.object.type, ref.object.sha
+                    )
+                return GitTagInfo(
+                    name=ref.ref.removeprefix("refs/tags/"),
+                    commit_sha=commit_sha,
+                    date=date.isoformat(),
+                )
+
+            return list(await asyncio.gather(*(tag_info(ref) for ref in raw_refs)))
+        except GithubException as e:
+            raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+        finally:
+            gh.close()
+
+    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
+        """Return the commit SHA that ``tag`` points to."""
+        gh_svc = GitHubAppService(session=self.session, role=self.role)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
+        try:
+            repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            ref = await asyncio.to_thread(repo.get_git_ref, f"tags/{tag}")
+            commit_sha, _date = await asyncio.to_thread(
+                _github_peel_tag, repo, ref.object.type, ref.object.sha
+            )
+            return commit_sha
+        except GithubException as e:
+            raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+        finally:
+            gh.close()
+
     async def _upsert_pull_request(
         self,
         *,
@@ -1462,6 +1571,53 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 url=url,
                 limit=limit,
             )
+
+    async def list_tags(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+    ) -> list[GitTagInfo]:
+        """Return up to ``limit`` tags, most recently updated first.
+
+        Annotated tags carry GitLab's tag ``created_at``; lightweight tags fall
+        back to the commit date that :meth:`list_commits` reports.
+        """
+        if limit <= 0:
+            return []
+        async with self._authed_client(url) as client:
+            tags_params: GitLabListTagsParams = {"order_by": "updated", "sort": "desc"}
+            raw_tags = await self._gitlab_list(
+                client,
+                f"/projects/{_gitlab_project_id(url)}/repository/tags",
+                model=GitLabTag,
+                params=tags_params,
+                limit=limit,
+            )
+        return [
+            GitTagInfo(
+                name=tag.name,
+                commit_sha=tag.commit.id,
+                date=tag.created_at
+                or tag.commit.authored_date
+                or tag.commit.committed_date
+                or tag.commit.created_at
+                or "",
+            )
+            for tag in raw_tags
+        ]
+
+    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
+        """Return the commit SHA that ``tag`` points to."""
+        async with self._authed_client(url) as client:
+            gitlab_tag = await self._gitlab_model(
+                client,
+                "GET",
+                f"/projects/{_gitlab_project_id(url)}/repository/tags/"
+                f"{quote(tag, safe='')}",
+                model=GitLabTag,
+            )
+        return gitlab_tag.commit.id
 
     async def _credentials(self) -> GitLabTokenCredentials:
         """Load organization GitLab token credentials."""
@@ -2014,6 +2170,39 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 )
             return result
 
+    async def list_tags(self, *, url: GitUrl, limit: int = 100) -> list[GitTagInfo]:
+        """Return up to ``limit`` tags, newest target commit first.
+
+        Uses the tag's own ``date`` when Bitbucket has one (annotated tags),
+        otherwise the target commit's ``date``.
+        """
+        if limit <= 0:
+            return []
+        async with self._connection(url) as (client, _git, path):
+            tags = await self._list(
+                client,
+                f"{path}/refs/tags",
+                BitbucketTag,
+                limit=limit,
+                params={"pagelen": min(limit, 100), "sort": "-target.date"},
+            )
+            return [
+                GitTagInfo(
+                    name=tag.name,
+                    commit_sha=tag.target.hash,
+                    date=tag.date or tag.target.date,
+                )
+                for tag in tags
+            ]
+
+    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
+        """Return the commit SHA that ``tag`` points to."""
+        async with self._connection(url) as (client, _git, path):
+            bitbucket_tag = await self._model(
+                client, f"{path}/refs/tags/{quote(tag, safe='')}", BitbucketTag
+            )
+            return bitbucket_tag.target.hash
+
     def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
         return f"https://bitbucket.org/{repository_path(url)}.git"
 
@@ -2317,6 +2506,54 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                 )
                 for c in commits
             ]
+
+    async def list_tags(self, *, url: GitUrl, limit: int = 100) -> list[GitTagInfo]:
+        """Return up to ``limit`` tags, most recently modified first.
+
+        Data Center's tag API has no tag date, so this uses the tagged commit's
+        author date, read with one request per distinct commit.
+        """
+        if limit <= 0:
+            return []
+        async with self._connection(url) as (client, _git, path):
+            tags = await self._list(
+                client,
+                f"{path}/tags",
+                DataCenterTag,
+                limit=limit,
+                params={"orderBy": "MODIFICATION"},
+            )
+            # Bound concurrent commit reads against the customer's instance.
+            semaphore = asyncio.Semaphore(8)
+
+            async def commit_date(sha: str) -> tuple[str, str]:
+                async with semaphore:
+                    commit = await self._model(
+                        client,
+                        f"{path}/commits/{quote(sha, safe='')}",
+                        DataCenterCommit,
+                    )
+                date = datetime.fromtimestamp(commit.authorTimestamp / 1000, UTC)
+                return sha, date.isoformat()
+
+            shas = {tag.latestCommit for tag in tags}
+            dates = dict(await asyncio.gather(*(commit_date(sha) for sha in shas)))
+            return [
+                GitTagInfo(
+                    name=tag.name,
+                    commit_sha=tag.latestCommit,
+                    date=dates[tag.latestCommit],
+                )
+                for tag in tags
+            ]
+
+    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
+        """Return the commit SHA that ``tag`` points to."""
+        async with self._connection(url) as (client, _git, path):
+            data_center_tag = await self._model(
+                client, f"{path}/tags/{quote(tag, safe='')}", DataCenterTag
+            )
+            return data_center_tag.latestCommit
 
     async def write_files(
         self,

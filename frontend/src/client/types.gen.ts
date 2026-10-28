@@ -6200,6 +6200,24 @@ export type GitSettingsUpdate = {
 }
 
 /**
+ * Git tag information for repository management.
+ */
+export type GitTagInfo = {
+  /**
+   * Tag name
+   */
+  name: string
+  /**
+   * SHA of the commit the tag points to
+   */
+  commit_sha: string
+  /**
+   * Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.
+   */
+  date: string
+}
+
+/**
  * A single graph operation.
  */
 export type GraphOperation = {
@@ -8137,6 +8155,28 @@ export type PlatformMCPCatalogRead = {
 }
 
 export type status7 = "available" | "coming_soon" | "deprecated" | "hidden"
+
+/**
+ * The workspace managed resources are published from.
+ *
+ * All fields other than ``configured`` are null when no source is set.
+ */
+export type PlatformManagedResourcesSourceRead = {
+  configured?: boolean
+  workspace_id?: string | null
+  organization_id?: string | null
+  git_provider?: VcsProvider | null
+  git_repo_url?: string | null
+}
+
+/**
+ * Set the workspace managed resources are published from.
+ *
+ * The workspace must have a Git sync provider and repository URL.
+ */
+export type PlatformManagedResourcesSourceUpdate = {
+  workspace_id: string
+}
 
 /**
  * Platform registry settings response.
@@ -16329,6 +16369,25 @@ export type AdminUpdateRegistrySettingsData = {
 
 export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
 
+export type AdminGetManagedResourcesSourceResponse =
+  PlatformManagedResourcesSourceRead
+
+export type AdminUpdateManagedResourcesSourceData = {
+  requestBody: PlatformManagedResourcesSourceUpdate
+}
+
+export type AdminUpdateManagedResourcesSourceResponse =
+  PlatformManagedResourcesSourceRead
+
+export type AdminListManagedResourcesSourceTagsData = {
+  /**
+   * Maximum number of tags to return
+   */
+  limit?: number
+}
+
+export type AdminListManagedResourcesSourceTagsResponse = Array<GitTagInfo>
+
 export type AdminGetSecuritySettingsResponse = PlatformSecuritySettingsRead
 
 export type AdminUpdateSecuritySettingsData = {
@@ -23566,6 +23625,44 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PlatformRegistrySettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/managed-resources/source": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformManagedResourcesSourceRead
+      }
+    }
+    put: {
+      req: AdminUpdateManagedResourcesSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformManagedResourcesSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/managed-resources/source/tags": {
+    get: {
+      req: AdminListManagedResourcesSourceTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitTagInfo>
         /**
          * Validation Error
          */

@@ -22,6 +22,18 @@ class BitbucketCommit(BaseModel):
     author: BitbucketAuthor
 
 
+class BitbucketTagTarget(BaseModel):
+    hash: str
+    date: str
+
+
+class BitbucketTag(BaseModel):
+    name: str
+    target: BitbucketTagTarget
+    date: str | None = None
+    """Tagger date; Bitbucket sets it only for annotated tags."""
+
+
 class BitbucketLink(BaseModel):
     href: str
 

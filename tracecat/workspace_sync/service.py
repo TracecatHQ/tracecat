@@ -41,7 +41,11 @@ from tracecat.exceptions import (
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
+from tracecat.registry.repositories.schemas import (
+    GitBranchInfo,
+    GitCommitInfo,
+    GitTagInfo,
+)
 from tracecat.sync import (
     CatalogMappingRequirement,
     McpIntegrationMappingRequirement,
@@ -863,6 +867,29 @@ class WorkspaceSyncService(SyncMappingService):
         url = await self._workspace_git_url()
         transport = self._transport_for_provider()
         return await transport.list_branches(url=url, limit=limit)
+
+    async def list_tags(
+        self,
+        *,
+        limit: int = 100,
+    ) -> list[GitTagInfo]:
+        """List tags for the workspace repository."""
+        self._require_sync_operation_scope()
+        url = await self._workspace_git_url()
+        transport = self._transport_for_provider()
+        return await transport.list_tags(url=url, limit=limit)
+
+    async def read_files_at_tag(self, tag: str) -> VcsTreeSnapshot:
+        """Read workspace sync files at ``tag``.
+
+        The tag is resolved to a commit SHA first and the tree is read at that
+        commit, so a tag moved mid-read cannot mix two trees.
+        """
+        self._require_sync_operation_scope()
+        url = await self._workspace_git_url()
+        transport = self._transport_for_provider()
+        commit_sha = await transport.resolve_tag(url=url, tag=tag)
+        return await transport.read_files(url=url, ref=commit_sha, ref_kind="commit")
 
     def _transport_for_provider(self) -> VcsSyncTransport:
         """Build the VCS transport for the workspace provider using the factory."""

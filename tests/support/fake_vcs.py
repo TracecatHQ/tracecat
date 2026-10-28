@@ -6,9 +6,13 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.git.types import GitUrl
-from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
+from tracecat.registry.repositories.schemas import (
+    GitBranchInfo,
+    GitCommitInfo,
+    GitTagInfo,
+)
 from tracecat.sync import CommitInfo, PushStatus
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.transport import (
@@ -55,6 +59,13 @@ class FakeVcsServer:
     def repo_files(self, url: GitUrl, *, ref: str | None = None) -> dict[str, str]:
         repo = self._repo(url)
         return repo.files_at_ref(ref or self.default_branch)
+
+    def create_tag(self, url: GitUrl, *, tag: str, ref: str) -> str:
+        """Point ``tag`` at the commit ``ref`` resolves to and return its SHA."""
+        repo = self._repo(url)
+        sha = repo.commit_at_ref(ref).sha
+        repo.tags[tag] = sha
+        return sha
 
     def _repo(self, url: GitUrl) -> _FakeRepo:
         key = f"{url.host}/{url.org}/{url.repo}"
@@ -161,6 +172,28 @@ class FakeVcsTransport:
             for branch in repo.branch_names(limit=limit)
         ]
 
+    async def list_tags(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+    ) -> list[GitTagInfo]:
+        repo = self._server._repo(url)
+        return [
+            GitTagInfo(
+                name=name,
+                commit_sha=sha,
+                date=repo._commits[sha].created_at.isoformat(),
+            )
+            for name, sha in sorted(repo.tags.items())[:limit]
+        ]
+
+    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
+        repo = self._server._repo(url)
+        if tag not in repo.tags:
+            raise TracecatNotFoundError(f"Unknown fake VCS tag: {tag}")
+        return repo.tags[tag]
+
 
 class _FakeRepo:
     def __init__(self, *, default_branch: str) -> None:
@@ -168,6 +201,7 @@ class _FakeRepo:
         self._counter = 0
         self._commits: dict[str, _FakeCommit] = {}
         self._branches: dict[str, str] = {}
+        self.tags: dict[str, str] = {}
         initial = self._new_commit(
             branch=default_branch,
             message="Initial fake VCS commit",

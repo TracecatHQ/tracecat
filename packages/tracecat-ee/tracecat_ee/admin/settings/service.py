@@ -25,12 +25,22 @@ from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import PlatformSetting
 from tracecat.exceptions import TracecatValidationError
+from tracecat.managed_resources.source import (
+    MANAGED_RESOURCES_SOURCE_WORKSPACE_ID_KEY,
+    ManagedSource,
+    get_managed_source,
+    load_managed_source,
+    source_sync_service,
+)
+from tracecat.registry.repositories.schemas import GitTagInfo
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BasePlatformService
 from tracecat.settings.schemas import AuditSettingsUpdate, parse_stored_ip_allowlists
 from tracecat_ee.admin.settings.schemas import (
     PlatformAuditSettingsRead,
     PlatformAuditSettingsUpdate,
+    PlatformManagedResourcesSourceRead,
+    PlatformManagedResourcesSourceUpdate,
     PlatformRegistrySettingsRead,
     PlatformRegistrySettingsUpdate,
     PlatformSecuritySettingsRead,
@@ -189,6 +199,43 @@ class AdminSettingsService(BasePlatformService):
         await self.session.commit()
         return await self.get_registry_settings()
 
+    async def get_managed_resources_source(
+        self,
+    ) -> PlatformManagedResourcesSourceRead:
+        """Get the workspace managed resources are published from."""
+        source = await get_managed_source(self.session)
+        if source is None:
+            return PlatformManagedResourcesSourceRead(configured=False)
+        return _managed_source_read(source)
+
+    @audit_log(resource_type="platform_setting", action="update")
+    async def update_managed_resources_source(
+        self, params: PlatformManagedResourcesSourceUpdate
+    ) -> PlatformManagedResourcesSourceRead:
+        """Set the managed resources source workspace.
+
+        Raises:
+            TracecatNotFoundError: The workspace does not exist.
+            TracecatValidationError: The workspace has no Git sync binding.
+        """
+        source = await load_managed_source(self.session, params.workspace_id)
+        await self._upsert_setting(
+            MANAGED_RESOURCES_SOURCE_WORKSPACE_ID_KEY, str(source.workspace_id)
+        )
+        await self.session.commit()
+        return _managed_source_read(source)
+
+    async def list_managed_resources_source_tags(
+        self, *, limit: int
+    ) -> list[GitTagInfo]:
+        """List tags in the managed resources source repository.
+
+        Raises:
+            ManagedSourceNotConfiguredError: No source workspace is configured.
+        """
+        sync_service = await source_sync_service(self.session, self.role)
+        return await sync_service.list_tags(limit=limit)
+
     async def get_security_settings(self) -> PlatformSecuritySettingsRead:
         """Get the platform admin IP allowlist."""
         settings = await self._get_settings(SECURITY_SETTINGS_KEYS)
@@ -238,3 +285,13 @@ class AdminSettingsService(BasePlatformService):
         await self._upsert_setting(PLATFORM_ADMIN_MFA_REQUIRED_KEY, params.mfa_required)
         await self.session.commit()
         return await self.get_mfa_settings()
+
+
+def _managed_source_read(source: ManagedSource) -> PlatformManagedResourcesSourceRead:
+    return PlatformManagedResourcesSourceRead(
+        configured=True,
+        workspace_id=source.workspace_id,
+        organization_id=source.organization_id,
+        git_provider=source.git_provider,
+        git_repo_url=source.git_repo_url,
+    )
