@@ -7,6 +7,8 @@ import uuid
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.pool import NullPool
 
 from tests.integration.test_case_text_search_postgres import (
     OTHER_WORKSPACE,
@@ -171,3 +173,51 @@ def test_vocabulary_index_collision_fails_without_dropping_it(
         ) == (
             "CREATE INDEX ix_case_search_word_word_trgm ON public.case_search_word USING btree (word)"
         )
+
+
+def test_vocabulary_is_workspace_isolated_for_a_non_owner_role(
+    search_database: Engine,
+) -> None:
+    """The vocabulary copies case text, so it carries the workspace RLS policy."""
+    with search_database.begin() as conn:
+        seed_case(conn, 1, "alpha synthetic")
+        seed_case(conn, 2, "bravo synthetic", workspace=OTHER_WORKSPACE)
+    role = f"case_search_word_runtime_{uuid.uuid4().hex}"
+    operator = sa.create_engine(search_database.url, poolclass=NullPool)
+    runtime = sa.create_engine(
+        search_database.url,
+        poolclass=NullPool,
+        connect_args={"options": f"-c role={role}"},
+    )
+    try:
+        with operator.begin() as conn:
+            conn.execute(sa.text(f'CREATE ROLE "{role}"'))
+            conn.execute(sa.text(f'GRANT USAGE ON SCHEMA public TO "{role}"'))
+            conn.execute(sa.text(f'GRANT SELECT, INSERT ON "case" TO "{role}"'))
+            conn.execute(
+                sa.text(f'GRANT SELECT, INSERT ON case_search_word TO "{role}"')
+            )
+        with runtime.begin() as conn:
+            conn.execute(
+                sa.text("SELECT set_config('app.current_workspace_id', :ws, true)"),
+                {"ws": str(WORKSPACE)},
+            )
+            # The trigger's vocabulary insert passes the policy's check.
+            seed_case(conn, 3, "charlie synthetic")
+            visible = set(
+                conn.execute(sa.text("SELECT word FROM case_search_word")).scalars()
+            )
+            assert visible == {"alpha", "charlie", "synthetic"}
+        with pytest.raises(DBAPIError, match="row-level security"):
+            with runtime.begin() as conn:
+                conn.execute(
+                    sa.text("SELECT set_config('app.current_workspace_id', :ws, true)"),
+                    {"ws": str(WORKSPACE)},
+                )
+                seed_case(conn, 4, "delta synthetic", workspace=OTHER_WORKSPACE)
+    finally:
+        runtime.dispose()
+        with operator.begin() as conn:
+            conn.execute(sa.text(f'DROP OWNED BY "{role}"'))
+            conn.execute(sa.text(f'DROP ROLE IF EXISTS "{role}"'))
+        operator.dispose()

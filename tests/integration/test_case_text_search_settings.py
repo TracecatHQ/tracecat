@@ -108,10 +108,13 @@ async def test_separate_runtime_role_needs_explicit_helper_grants(
             "VALUES (:id, :workspace, 900, 'synthetic runtime write', '')"
         )
         values = {"id": uuid.uuid4(), "workspace": WORKSPACE}
+        # The vocabulary's workspace RLS policy applies to the trigger insert.
+        scope = sa.text("SELECT set_config('app.current_workspace_id', :ws, true)")
         with operator.begin() as conn:
             conn.execute(sa.text(f'GRANT INSERT ON public."case" TO "{role}"'))
         with pytest.raises(DBAPIError, match="permission denied"):
             async with runtime.begin() as conn:
+                await conn.execute(scope, {"ws": str(WORKSPACE)})
                 await conn.execute(write, values)
         with operator.begin() as conn:
             conn.execute(
@@ -123,6 +126,7 @@ async def test_separate_runtime_role_needs_explicit_helper_grants(
                 sa.text(f'GRANT INSERT ON public.case_search_word TO "{role}"')
             )
         async with runtime.begin() as conn:
+            await conn.execute(scope, {"ws": str(WORKSPACE)})
             await conn.execute(write, values)
     finally:
         await runtime.dispose()

@@ -122,7 +122,8 @@ reach 0.65 similarity with a typo unit of at most 32 letters. A source over
 index entry, stores a NULL list, and search splits its complete text per row as
 before. The vocabulary has a trigram GIN index and no unique constraint, so
 concurrent case writes never wait on each other's new words; a race may store
-a duplicate, which search ignores. The vocabulary is insert-only. Words of
+a duplicate, which search ignores. It copies case text, so it carries the
+standard workspace row-level security policy. The vocabulary is insert-only. Words of
 deleted or edited cases remain until their workspace is deleted, and cannot
 produce matches because each case's own list is always checked.
 

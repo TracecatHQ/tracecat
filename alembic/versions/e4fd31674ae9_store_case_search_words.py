@@ -12,8 +12,9 @@ This revision stores the inputs to answer it from indexes instead:
 1. Add nullable ``summary_words`` and ``description_words`` text[] columns
    (metadata-only). Each holds the distinct lowercase words of its source.
 2. Create ``case_search_word``: every word seen in each workspace, with a
-   trigram index. Search finds the few vocabulary words within typo distance of
-   the term, then keeps cases whose word list overlaps them.
+   trigram index and the standard workspace row-level security policy.
+   Search finds the few vocabulary words within typo distance of the term,
+   then keeps cases whose word list overlaps them.
 3. Install a BEFORE INSERT/UPDATE trigger that recomputes a word list only when
    its source text changes and adds new words to the vocabulary.
 4. Backfill existing rows in committed batches, then build GIN and
@@ -34,6 +35,7 @@ from typing import Literal
 import sqlalchemy as sa
 
 from alembic import op
+from tracecat.db.tenant_rls import enable_workspace_table_rls, policy_name
 
 revision: str = "e4fd31674ae9"
 down_revision: str | None = "5ca140c06ec2"
@@ -273,6 +275,18 @@ def _index_state(name: str, definition: str) -> _IndexState:
     return "ready" if row[1] else "invalid"
 
 
+def _vocabulary_policy_exists() -> bool:
+    return bool(
+        op.get_bind().scalar(
+            sa.text("""
+        SELECT EXISTS (SELECT 1 FROM pg_policy
+            WHERE polrelid = to_regclass(:table) AND polname = :name)
+    """),
+            {"table": f"public.{_TABLE}", "name": policy_name(_TABLE)},
+        )
+    )
+
+
 def _backfill() -> None:
     """Fill word lists and vocabulary in committed id-ordered batches.
 
@@ -356,6 +370,9 @@ def upgrade() -> None:
     )
     if not table_columns:
         op.execute(_TABLE_SQL)
+    # The vocabulary copies case text, so it gets the same workspace isolation.
+    if not _vocabulary_policy_exists():
+        op.execute(enable_workspace_table_rls(_TABLE))
     for name, definition in _TABLE_INDEXES:
         if states[name] == "invalid":
             op.execute(f'DROP INDEX IF EXISTS public."{name}"')
