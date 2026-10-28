@@ -5533,7 +5533,7 @@ wheels = [
 
 [[package]]
 name = "temporalio"
-version = "1.34.0"
+version = "1.32.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nexus-rpc" },
@@ -5541,15 +5541,15 @@ dependencies = [
     { name = "types-protobuf" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/13/85/9ece6f400552ed21951c8c5c534056e7d015cb065e3384470ec23ac24f28/temporalio-1.34.0.tar.gz", hash = "sha256:6453cb20e18df485e16578b22c82a9c4bcb1cf7eedd94147dfd373551d80f5b6", size = 3163890, upload-time = "2026-09-30T20:22:56.056Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/d8/18cf5bbbcc4b4c884d7723c9b54bf8d1d2556d9fbef3e99599dd3db12034/temporalio-1.32.0.tar.gz", hash = "sha256:2cfa50ec7ebdab66902b80c3a09da3258883d68540811ebfbf44f7f293a4d7d0", size = 2997642, upload-time = "2026-08-24T21:24:37.631Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/71/e55380e7820819357afada375d4e5c33d141bb94a08fda35aa0551b4369b/temporalio-1.34.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:87118447ad13e1062b79bfc8b44b1695e8328ac9c6be1776e426e87b501b135a", size = 14064102, upload-time = "2026-09-30T20:22:35.601Z" },
-    { url = "https://files.pythonhosted.org/packages/db/78/356c8e2f0ec1678b757d4c5e8a1b0b1c65b15b8afb2335ad2944c158ea10/temporalio-1.34.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:023fff9cd9dd21860061e003880dcf95250700f5afab96c030c9cb258504dab8", size = 13763219, upload-time = "2026-09-30T20:22:38.774Z" },
-    { url = "https://files.pythonhosted.org/packages/e9/00/4a4b4e018c4c12b4691211aca1d97db8707ed4c9e31f40dcf09784c9913d/temporalio-1.34.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cdb6e2fb525ea5635afa4a3f1ae4c992c16dbe29dc92939a85153baeb69d95a2", size = 14121901, upload-time = "2026-09-30T20:22:41.428Z" },
-    { url = "https://files.pythonhosted.org/packages/c1/20/b032d4a0df51d466fd929d8205e1288e83d97a890f021479f43af9bd6f9b/temporalio-1.34.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:540761f738bdfe5cb5bd7240b659e116a0b5094b94282aef09b8d8c2d66e9c52", size = 14457183, upload-time = "2026-09-30T20:22:44.215Z" },
-    { url = "https://files.pythonhosted.org/packages/b6/0d/b08ffeca93bbc29200a5bd85a45cca3c6be0a123de605ecd1798b617df4f/temporalio-1.34.0-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:87647f87f42ecd45efb675642e2ec8ca34aa42359f5968f31f5391f1db5ebcbe", size = 14179836, upload-time = "2026-09-30T20:22:47.474Z" },
-    { url = "https://files.pythonhosted.org/packages/81/55/acde4d1b7c9f23434e263752ef0a3ef58adeb3b95ef8472607414798dfaa/temporalio-1.34.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:71caa4b9061628b22a457c87c3b16da40f7ac6ac1a26ece9aa1ee6b4934404d7", size = 14570248, upload-time = "2026-09-30T20:22:50.569Z" },
-    { url = "https://files.pythonhosted.org/packages/cc/c5/6bdc3b02ec483093a71e9f887e8a50ae20fcc79e0578ed7435a81d4271b1/temporalio-1.34.0-cp310-abi3-win_amd64.whl", hash = "sha256:03bd86561188c18d88425178bc690fe0791104b78566dcebd98f59cbdbce0952", size = 15415684, upload-time = "2026-09-30T20:22:53.342Z" },
+    { url = "https://files.pythonhosted.org/packages/37/0b/adad9dcd8b96c760cd04dcc75f0a0f136aabdb78c4b180219589749469a4/temporalio-1.32.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:47c128732e5d49235c9daeeb084d55093cee5ebc200ccc3afaeb4468f08d809e", size = 13796063, upload-time = "2026-08-24T21:24:16.638Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/84/6cc96518a2aff3ce9fb132479811bb29db563fbcdc947c279df8f089721a/temporalio-1.32.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:e78a209dc5ef3303bc6a3033fe11ffd813b778e4b176ec18d20386d65952daa9", size = 13467827, upload-time = "2026-08-24T21:24:19.731Z" },
+    { url = "https://files.pythonhosted.org/packages/92/d0/720e5e9bb51ae1af6b9fea4d5c56d6ac6e94fbf4c8b86a6b0b318b6aef1e/temporalio-1.32.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a86be3a6d237ea6cc2d632015a5df4cead2aa3143b9601721428b53b87df81e2", size = 13854003, upload-time = "2026-08-24T21:24:22.743Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/6b/8c8973ad314efc8c124e9a0f602ae96533c7e624b3cde7fcc9704aa46dd2/temporalio-1.32.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4dd44a60ba54901560011a32f085353c0f5e7dac6b8d7a7e0c7c4ba508c6bf5d", size = 14193177, upload-time = "2026-08-24T21:24:25.849Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/ad/7496f8424a6ccc9b6ce6c629f9375744e8a439e9a692bd27b4f77b99977a/temporalio-1.32.0-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:6a7100b1f1bf781f8f1800f89bb787b3dd7ce883e78603442d0c7a40e1143a86", size = 13920043, upload-time = "2026-08-24T21:24:28.667Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/16/73fa24d69e70035323217e87d33cb3df6415e1906db07b2112c9a6b09e33/temporalio-1.32.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:311abb9f0650f4ad9f24944ef16d8ed47954ddc3075c1e8c73dcd968d70ccdce", size = 14309243, upload-time = "2026-08-24T21:24:31.727Z" },
+    { url = "https://files.pythonhosted.org/packages/07/72/4a49f38f294f9cc1ba15c0b5272adfa7d2a0da38e924ed7f0b1ea2e5bbc9/temporalio-1.32.0-cp310-abi3-win_amd64.whl", hash = "sha256:158386bcd9a6dce1ab63d732fc967c5a5830e15c3012ffaa4b8772bdac099e0f", size = 15196754, upload-time = "2026-08-24T21:24:34.931Z" },
 ]
 
 [[package]]
@@ -5838,7 +5838,7 @@ requires-dist = [
     { name = "sentry-sdk", specifier = "==2.24.1" },
     { name = "sqlalchemy", specifier = "==2.0.45" },
     { name = "starlette", specifier = "==1.3.1" },
-    { name = "temporalio", specifier = "==1.34.0" },
+    { name = "temporalio", specifier = "==1.32.0" },
     { name = "tenacity", specifier = "==8.3.0" },
     { name = "tiktoken", specifier = "==0.14.0" },
     { name = "tomli", specifier = "==2.2.1" },
@@ -5928,7 +5928,7 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "rich", specifier = "==13.9.4" },
     { name = "sqlalchemy", specifier = "==2.0.45" },
-    { name = "temporalio", specifier = "==1.34.0" },
+    { name = "temporalio", specifier = "==1.32.0" },
     { name = "tracecat", editable = "." },
 ]
 
