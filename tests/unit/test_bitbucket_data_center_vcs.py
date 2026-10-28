@@ -17,6 +17,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.git.types import GitUrl
 from tracecat.secrets.schemas import SecretKeyValue
@@ -268,9 +269,9 @@ TIMESTAMPS = {
 class _TagServer:
     """Data Center ``/tags`` and ``/commits/{id}`` with start/limit paging."""
 
-    def __init__(self, tags: list[tuple[str, str]]) -> None:
+    def __init__(self, tags: list[dict[str, str]]) -> None:
         self.tags = tags
-        """``(name, latestCommit)`` pairs in ``orderBy=MODIFICATION`` order."""
+        """Tag payloads in ``orderBy=MODIFICATION`` order."""
         self.tag_requests: list[httpx.Request] = []
         self.commit_reads: list[str] = []
 
@@ -278,25 +279,20 @@ class _TagServer:
         path = request.url.path
         if path == f"{DC_REPO_PATH}/tags":
             self.tag_requests.append(request)
-            tags = self.tags
-            if text := request.url.params.get("filterText"):
-                tags = [tag for tag in tags if text in tag[0]]
             start = int(request.url.params["start"])
             end = start + int(request.url.params["limit"])
-            values = [
-                {"id": f"refs/tags/{name}", "displayId": name, "latestCommit": sha}
-                for name, sha in tags[start:end]
-            ]
             return httpx.Response(
                 200,
                 json={
-                    "values": values,
-                    "isLastPage": end >= len(tags),
+                    "values": self.tags[start:end],
+                    "isLastPage": end >= len(self.tags),
                     "nextPageStart": end,
                 },
             )
         sha = path.removeprefix(f"{DC_REPO_PATH}/commits/")
         self.commit_reads.append(sha)
+        if sha not in TIMESTAMPS:
+            return httpx.Response(404)
         return httpx.Response(
             200,
             json={
@@ -329,18 +325,29 @@ class _MockDataCenterTransport(BitbucketDataCenterWorkspaceSyncTransport):
                 )
 
 
+def _dc_tag(name: str, sha: str) -> dict[str, str]:
+    return {"id": f"refs/tags/{name}", "displayId": name, "latestCommit": sha}
+
+
 @pytest.mark.anyio
 async def test_list_tags_pages_by_start_and_dates_each_commit_once():
     server = _TagServer(
-        [("v3", SHA_A), ("v2", SHA_B), ("v2-alias", SHA_B), ("v1", SHA_C)]
+        [
+            _dc_tag("v3", SHA_A),
+            _dc_tag("v2", SHA_B),
+            _dc_tag("v2-alias", SHA_B),
+            _dc_tag("v1", SHA_C),
+        ]
     )
     transport = _MockDataCenterTransport(server.respond)
 
     pages: list[list[tuple[str, str]]] = []
+    cursors: list[str | None] = []
     cursor: str | None = None
     while True:
         tags, cursor = await transport.list_tags(url=DC_URL, limit=3, cursor=cursor)
         pages.append([(t.name, t.date) for t in tags])
+        cursors.append(cursor)
         if cursor is None:
             break
 
@@ -352,32 +359,32 @@ async def test_list_tags_pages_by_start_and_dates_each_commit_once():
         ],
         [("v1", "2026-01-01T00:00:00+00:00")],
     ]
+    # The cursor is the next start offset.
+    assert cursors == ["3", None]
     assert [r.url.params["start"] for r in server.tag_requests] == ["0", "3"]
     assert {r.url.params["orderBy"] for r in server.tag_requests} == {"MODIFICATION"}
     # v2 and v2-alias share a commit, so it is read once.
     assert sorted(server.commit_reads) == [SHA_A, SHA_B, SHA_C]
 
-
-@pytest.mark.anyio
-async def test_list_tags_maps_malformed_payloads_to_provider_errors():
-    def respond(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, json={"values": [{"displayId": "v1"}], "isLastPage": True}
-        )
-
-    with pytest.raises(BitbucketError, match="invalid tag response"):
-        await _MockDataCenterTransport(respond).list_tags(url=DC_URL)
+    # The page size is capped like the other providers.
+    await transport.list_tags(url=DC_URL, limit=500)
+    assert server.tag_requests[-1].url.params["limit"] == "100"
+    with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
+        await transport.list_tags(url=DC_URL, cursor="-1")
 
 
 @pytest.mark.anyio
-async def test_resolve_tag_filters_by_name_instead_of_a_path():
-    server = _TagServer([("release/1.0.1", SHA_B), ("release/1.0", SHA_A)])
-    transport = _MockDataCenterTransport(server.respond)
+async def test_list_tags_skips_malformed_and_undatable_tags():
+    server = _TagServer(
+        [
+            _dc_tag("v2", SHA_B),
+            # Its commit read fails, so it has no date.
+            _dc_tag("gone", "d" * 40),
+            {"displayId": "broken"},
+        ]
+    )
 
-    assert await transport.resolve_tag(url=DC_URL, tag="release/1.0") == SHA_A
-    request = server.tag_requests[-1]
-    assert request.url.path == f"{DC_REPO_PATH}/tags"
-    assert request.url.params["filterText"] == "release/1.0"
-    with pytest.raises(BitbucketError) as exc:
-        await transport.resolve_tag(url=DC_URL, tag="missing")
-    assert exc.value.status_code == 404
+    tags, cursor = await _MockDataCenterTransport(server.respond).list_tags(url=DC_URL)
+
+    assert [(t.name, t.commit_sha) for t in tags] == [("v2", SHA_B)]
+    assert cursor is None

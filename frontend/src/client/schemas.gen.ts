@@ -24244,6 +24244,69 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $ManagedSourceRead = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    git_provider: {
+      $ref: "#/components/schemas/VcsProvider",
+    },
+    git_repo_url: {
+      type: "string",
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "organization_id", "git_provider", "git_repo_url"],
+  title: "ManagedSourceRead",
+  description:
+    "The workspace managed resources are published from, and its Git binding.",
+} as const
+
+export const $ManagedSourceSettingRead = {
+  properties: {
+    source: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ManagedSourceRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "ManagedSourceSettingRead",
+  description:
+    "The managed resources source setting; ``source`` is null when unset.",
+} as const
+
+export const $ManagedSourceUpdate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "ManagedSourceUpdate",
+  description: `Set the managed resources source.
+
+The workspace must have a Git sync provider and repository URL; both are
+pinned with the setting.`,
+} as const
+
 export const $ManagedTunnelCreate = {
   properties: {
     name: {
@@ -26944,82 +27007,6 @@ export const $PlatformMCPCatalogRead = {
   ],
   title: "PlatformMCPCatalogRead",
   description: "Catalog row joined with workspace-specific MCP state.",
-} as const
-
-export const $PlatformManagedResourcesSourceRead = {
-  properties: {
-    configured: {
-      type: "boolean",
-      title: "Configured",
-      default: false,
-    },
-    workspace_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Workspace Id",
-    },
-    organization_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Organization Id",
-    },
-    git_provider: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/VcsProvider",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    git_repo_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Git Repo Url",
-    },
-  },
-  type: "object",
-  title: "PlatformManagedResourcesSourceRead",
-  description: `The workspace managed resources are published from.
-
-All fields other than \`\`configured\`\` are null when no source is set.`,
-} as const
-
-export const $PlatformManagedResourcesSourceUpdate = {
-  properties: {
-    workspace_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workspace Id",
-    },
-  },
-  type: "object",
-  required: ["workspace_id"],
-  title: "PlatformManagedResourcesSourceUpdate",
-  description: `Set the workspace managed resources are published from.
-
-The workspace must have a Git sync provider and repository URL.`,
 } as const
 
 export const $PlatformRegistrySettingsRead = {

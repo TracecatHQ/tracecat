@@ -21,7 +21,6 @@ from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
-    TracecatValidationError,
 )
 from tracecat.git.plumbing import validate_path
 from tracecat.git.types import GitUrl
@@ -31,7 +30,7 @@ from tracecat.sync import PushStatus
 from tracecat.tiers.enums import Entitlement
 from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
 from tracecat.vcs.bitbucket.git import BitbucketGit, repository_path
-from tracecat.vcs.bitbucket.types import BitbucketBranch
+from tracecat.vcs.bitbucket.types import BitbucketBranch, BitbucketRepository
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import (
@@ -134,9 +133,6 @@ class LocalTransport(BitbucketWorkspaceSyncTransport):
     def tag_response(self, request: httpx.Request) -> httpx.Response:
         self.tag_requests.append(request)
         tags = self.tags
-        if query := request.url.params.get("q"):
-            name = json.loads(query.split("=", 1)[1])
-            tags = [tag for tag in tags if tag.get("name") == name]
         pagelen = int(request.url.params.get("pagelen", "10"))
         page = int(request.url.params.get("page", "1"))
         start = (page - 1) * pagelen
@@ -487,7 +483,10 @@ async def test_list_tags_pages_newest_first_and_skips_unusable_tags(remote: Path
         ),
         _tag("v3", SHA_C, "2026-03-01T00:00:00+00:00"),
         {"name": "tree", "target": {"type": "tree", "hash": SHA_B}},
+        # Without target.type the entry is malformed, not assumed a commit.
+        {"name": "no-type", "target": {"hash": SHA_B, "date": "2026-02-01"}},
         _tag("v2", SHA_B, "2026-02-01T00:00:00+00:00"),
+        {"name": "missing-target"},
         _tag("v1", SHA_A, "2026-01-01T00:00:00+00:00"),
         _tag("undated", SHA_A, None),
     ]
@@ -506,41 +505,41 @@ async def test_list_tags_pages_newest_first_and_skips_unusable_tags(remote: Path
             ("v4", SHA_D, "2026-04-02T00:00:00+00:00"),
             ("v3", SHA_C, "2026-03-01T00:00:00+00:00"),
         ],
+        # Malformed and non-commit entries are skipped without failing a page.
+        [],
         [("v2", SHA_B, "2026-02-01T00:00:00+00:00")],
         [("v1", SHA_A, "2026-01-01T00:00:00+00:00")],
     ]
     params = [dict(r.url.params) for r in transport.tag_requests]
-    assert [p["page"] for p in params] == ["1", "2", "3"]
+    assert [p["page"] for p in params] == ["1", "2", "3", "4"]
     assert {(p["pagelen"], p["sort"]) for p in params} == {("2", "-target.date")}
 
 
 @pytest.mark.anyio
-async def test_list_tags_maps_malformed_payloads_to_provider_errors(remote: Path):
-    transport = LocalTransport(remote)
-    transport.tags = [{"name": "missing-target"}]
-    with pytest.raises(BitbucketError, match="invalid tag response"):
-        await transport.list_tags(url=URL, limit=10)
+async def test_malformed_payloads_are_provider_errors():
+    """Branch, commit and page payloads map to BitbucketError, not a 500."""
+    transport = BitbucketWorkspaceSyncTransport(session=AsyncMock(), role=role())
 
+    def response(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/refs/branches"):
+            return httpx.Response(200, json={"values": [{"label": "no-name"}]})
+        if request.url.path.endswith("/refs/tags"):
+            return httpx.Response(200, json={"values": "not-a-list"})
+        return httpx.Response(200, json={"mainbranch": "not-an-object"})
 
-@pytest.mark.anyio
-async def test_resolve_tag_uses_exact_name_query(remote: Path):
-    transport = LocalTransport(remote)
-    transport.tags = [
-        _tag("release/1.0", SHA_A, "2026"),
-        _tag("release/1.0.1", SHA_B, "2026"),
-    ]
-
-    assert await transport.resolve_tag(url=URL, tag="release/1.0") == SHA_A
-    query = transport.tag_requests[-1].url.params["q"]
-    assert query == 'name="release/1.0"'
-    with pytest.raises(BitbucketError) as exc:
-        await transport.resolve_tag(url=URL, tag="missing")
-    assert exc.value.status_code == 404
-
-    requests_before = len(transport.tag_requests)
-    with pytest.raises(TracecatValidationError):
-        await transport.resolve_tag(url=URL, tag="../escape")
-    assert len(transport.tag_requests) == requests_before
+    async with httpx.AsyncClient(
+        base_url="https://api.bitbucket.org/2.0/",
+        transport=httpx.MockTransport(response),
+    ) as client:
+        repo = "repositories/example/repo"
+        with pytest.raises(BitbucketError, match="invalid BitbucketBranch"):
+            await transport._list(
+                client, f"{repo}/refs/branches", BitbucketBranch, limit=10
+            )
+        with pytest.raises(BitbucketError, match="invalid BitbucketRepository"):
+            await transport._model(client, repo, BitbucketRepository)
+        with pytest.raises(BitbucketError, match="invalid page"):
+            await transport._page(client, f"{repo}/refs/tags")
 
 
 @pytest.mark.anyio

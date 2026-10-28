@@ -29,7 +29,6 @@ from tracecat.sync import PushStatus
 from tracecat.vcs.gitlab.app import (
     GITLAB_TOKEN_SECRET_NAME,
     GitLabApiError,
-    GitLabError,
     GitLabTokenService,
 )
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
@@ -72,6 +71,8 @@ class _MockGitLabApi:
         """Annotated tag dates; lightweight tags are absent."""
         self.tree_tags: set[str] = set()
         """Tags GitLab reports without a commit (they point at a tree or blob)."""
+        self.malformed_tags: set[str] = set()
+        """Tags whose payload fails validation."""
         self.tag_list_params: list[dict[str, str]] = []
         self._commit_branches: dict[str, str] = {}
         self._blobs: dict[str, _FileContent] = {}
@@ -215,11 +216,6 @@ class _MockGitLabApi:
                 return self._json(mr, status_code=201)
             if request.method == "GET" and subpath == "/repository/tags":
                 return self._tag_page(request)
-            if request.method == "GET" and subpath.startswith("/repository/tags/"):
-                name = unquote(subpath.removeprefix("/repository/tags/"))
-                if name not in self._tags:
-                    return httpx.Response(404, json={"message": "404 Tag Not Found"})
-                return self._json(self._tag_json(name))
         except KeyError as e:
             return httpx.Response(404, json={"message": f"Not Found: {str(e)}"})
 
@@ -242,6 +238,8 @@ class _MockGitLabApi:
 
     def _tag_json(self, name: str) -> dict[str, Any]:
         sha = self._tags[name]
+        if name in self.malformed_tags:
+            return {"name": name, "commit": "not-an-object"}
         commit = {"id": sha, "authored_date": self.commit_date(sha)}
         return {
             "name": name,
@@ -467,7 +465,10 @@ async def test_gitlab_transport_encodes_nested_project_path_and_lists_refs() -> 
 
 
 def _tagged_gitlab_api() -> _MockGitLabApi:
-    """v1..v4 on successive commits; v3 is annotated; tree-tag has no commit."""
+    """v1..v4 on successive commits; v3 is annotated.
+
+    tree-tag has no commit and broken has a malformed payload; both are skipped.
+    """
     api = _MockGitLabApi(
         project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
     )
@@ -486,6 +487,8 @@ def _tagged_gitlab_api() -> _MockGitLabApi:
         )
     api._tags["tree-tag"] = api._tags["v2"]
     api.tree_tags.add("tree-tag")
+    api._tags["broken"] = api._tags["v1"]
+    api.malformed_tags.add("broken")
     return api
 
 
@@ -506,7 +509,8 @@ async def test_gitlab_list_tags_pages_newest_first() -> None:
     assert pages == [
         # v3 is annotated, so it carries the tag date instead of the commit's.
         [("v4", api.commit_date(sha["v4"])), ("v3", "2026-02-01T00:00:00Z")],
-        # tree-tag points at no commit and is skipped, not fatal.
+        # tree-tag points at no commit and broken is malformed: both are
+        # skipped without failing their page.
         [("v2", api.commit_date(sha["v2"]))],
         [("v1", api.commit_date(sha["v1"]))],
     ]
@@ -528,28 +532,6 @@ async def test_gitlab_list_tags_rejects_foreign_cursors() -> None:
     with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
         await transport.list_tags(url=_git_url(), limit=2, cursor="not-a-cursor")
     assert await transport.list_tags(url=_git_url(), limit=0) == ([], None)
-
-
-@pytest.mark.anyio
-async def test_gitlab_resolve_tag_encodes_slashes_and_rejects_bad_names() -> None:
-    api = _tagged_gitlab_api()
-    sha = api.create_tag("release/1.0", "main")
-    transport = _MockGitLabTransport(api=api)
-
-    assert await transport.resolve_tag(url=_git_url(), tag="release/1.0") == sha
-    assert any(
-        path.endswith("/repository/tags/release%2F1.0") for path in api.raw_paths
-    )
-    with pytest.raises(GitLabApiError) as exc:
-        await transport.resolve_tag(url=_git_url(), tag="missing")
-    assert exc.value.status_code == 404
-    with pytest.raises(GitLabError, match="does not point to a commit"):
-        await transport.resolve_tag(url=_git_url(), tag="tree-tag")
-
-    requests_before = len(api.requests)
-    with pytest.raises(TracecatValidationError):
-        await transport.resolve_tag(url=_git_url(), tag="../escape")
-    assert len(api.requests) == requests_before
 
 
 @pytest.mark.anyio

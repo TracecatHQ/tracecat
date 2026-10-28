@@ -40,16 +40,13 @@ methods require, and it grants nothing else.
 """
 
 
-class ManagedSourceNotConfiguredError(TracecatSettingsError):
-    """No managed resources source workspace has been configured."""
+class ManagedSourceUnavailableError(TracecatSettingsError):
+    """There is no usable managed resources source.
 
-
-class ManagedSourceInvalidError(TracecatSettingsError):
-    """The configured source can no longer be used.
-
-    The workspace was deleted, lost its Git binding, or had its binding changed
+    Either none is configured, or the configured one can no longer be used:
+    the workspace was deleted, lost its Git binding, or had its binding changed
     after a platform admin pinned it, or the stored setting is malformed. A
-    platform admin must set the source again.
+    platform admin must set the source (again).
     """
 
 
@@ -108,7 +105,8 @@ async def load_managed_source(
     settings = workspace.settings or {}
     raw_provider = settings.get("git_provider")
     repo_url = settings.get("git_repo_url")
-    if not raw_provider or not repo_url:
+    # Settings are JSONB, so a malformed row can hold a non-string URL.
+    if not raw_provider or not isinstance(repo_url, str) or not repo_url:
         raise TracecatValidationError(
             "The source workspace must have both a Git provider and a Git "
             "repository URL configured"
@@ -132,9 +130,9 @@ async def get_managed_source(session: AsyncSession) -> ManagedSource | None:
     """Return the configured source workspace, or ``None`` if none is set.
 
     Raises:
-        ManagedSourceInvalidError: The stored setting is malformed, or the
-            workspace is gone, lost its Git binding, or no longer has the
-            binding that was pinned when the source was set.
+        ManagedSourceUnavailableError: The stored setting is malformed, or the
+            workspace is gone, lost or has a malformed Git binding, or no longer
+            has the binding that was pinned when the source was set.
     """
     raw = await session.scalar(
         select(PlatformSetting.value).where(
@@ -146,17 +144,17 @@ async def get_managed_source(session: AsyncSession) -> ManagedSource | None:
     try:
         pinned = ManagedSourceSetting.model_validate_json(raw)
     except PydanticValidationError as e:
-        raise ManagedSourceInvalidError(
+        raise ManagedSourceUnavailableError(
             "The stored managed resources source setting is malformed"
         ) from e
     try:
         source = await load_managed_source(session, pinned.workspace_id)
     except (TracecatNotFoundError, TracecatValidationError) as e:
-        raise ManagedSourceInvalidError(
+        raise ManagedSourceUnavailableError(
             f"The managed resources source workspace is no longer valid: {e}"
         ) from e
     if ManagedSourceSetting.pin(source) != pinned:
-        raise ManagedSourceInvalidError(
+        raise ManagedSourceUnavailableError(
             "The managed resources source workspace's Git binding changed after "
             "it was set. A platform admin must set the source again."
         )
@@ -196,12 +194,12 @@ async def source_sync_service(
         actor: The platform superuser making the request.
 
     Raises:
-        ManagedSourceNotConfiguredError: No source workspace is configured.
-        ManagedSourceInvalidError: The configured source can no longer be used.
+        ManagedSourceUnavailableError: No source is configured, or the
+            configured one can no longer be used.
     """
     source = await get_managed_source(session)
     if source is None:
-        raise ManagedSourceNotConfiguredError(
+        raise ManagedSourceUnavailableError(
             "Managed resources source workspace is not configured"
         )
     logger.info(

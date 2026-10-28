@@ -7428,6 +7428,33 @@ export type status6 =
   | "superseded"
 
 /**
+ * The workspace managed resources are published from, and its Git binding.
+ */
+export type ManagedSourceRead = {
+  workspace_id: string
+  organization_id: string
+  git_provider: VcsProvider
+  git_repo_url: string
+}
+
+/**
+ * The managed resources source setting; ``source`` is null when unset.
+ */
+export type ManagedSourceSettingRead = {
+  source?: ManagedSourceRead | null
+}
+
+/**
+ * Set the managed resources source.
+ *
+ * The workspace must have a Git sync provider and repository URL; both are
+ * pinned with the setting.
+ */
+export type ManagedSourceUpdate = {
+  workspace_id: string
+}
+
+/**
  * Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.
  */
 export type ManagedTunnelCreate = {
@@ -8167,28 +8194,6 @@ export type PlatformMCPCatalogRead = {
 }
 
 export type status7 = "available" | "coming_soon" | "deprecated" | "hidden"
-
-/**
- * The workspace managed resources are published from.
- *
- * All fields other than ``configured`` are null when no source is set.
- */
-export type PlatformManagedResourcesSourceRead = {
-  configured?: boolean
-  workspace_id?: string | null
-  organization_id?: string | null
-  git_provider?: VcsProvider | null
-  git_repo_url?: string | null
-}
-
-/**
- * Set the workspace managed resources are published from.
- *
- * The workspace must have a Git sync provider and repository URL.
- */
-export type PlatformManagedResourcesSourceUpdate = {
-  workspace_id: string
-}
 
 /**
  * Platform registry settings response.
@@ -16221,6 +16226,16 @@ export type WatchtowerEnableWatchtowerAgentData = {
 
 export type WatchtowerEnableWatchtowerAgentResponse = void
 
+export type AdminGetSourceResponse = ManagedSourceSettingRead
+
+export type AdminSetSourceData = {
+  requestBody: ManagedSourceUpdate
+}
+
+export type AdminSetSourceResponse = ManagedSourceRead
+
+export type AdminClearSourceResponse = void
+
 export type AdminListSourceTagsData = {
   cursor?: string | null
   limit?: number
@@ -16387,18 +16402,6 @@ export type AdminUpdateRegistrySettingsData = {
 }
 
 export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
-
-export type AdminGetManagedResourcesSourceResponse =
-  PlatformManagedResourcesSourceRead
-
-export type AdminUpdateManagedResourcesSourceData = {
-  requestBody: PlatformManagedResourcesSourceUpdate
-}
-
-export type AdminUpdateManagedResourcesSourceResponse =
-  PlatformManagedResourcesSourceRead
-
-export type AdminClearManagedResourcesSourceResponse = void
 
 export type AdminGetSecuritySettingsResponse = PlatformSecuritySettingsRead
 
@@ -23330,6 +23333,37 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/managed-resources/source": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedSourceSettingRead
+      }
+    }
+    put: {
+      req: AdminSetSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
   "/admin/managed-resources/source/tags": {
     get: {
       req: AdminListSourceTagsData
@@ -23656,37 +23690,6 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/settings/managed-resources/source": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: PlatformManagedResourcesSourceRead
-      }
-    }
-    put: {
-      req: AdminUpdateManagedResourcesSourceData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: PlatformManagedResourcesSourceRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
       }
     }
   }

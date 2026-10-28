@@ -6,20 +6,21 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import httpx
+import orjson
 import pytest
 import respx
 from pydantic import SecretStr
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.admin.managed_resources.schemas import ManagedSourceUpdate
 from tracecat_ee.admin.managed_resources.service import AdminManagedResourcesService
-from tracecat_ee.admin.settings.schemas import PlatformManagedResourcesSourceUpdate
-from tracecat_ee.admin.settings.service import AdminSettingsService
 
 from tracecat import config
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.authz.controls import check_scopes
 from tracecat.authz.scopes import ADMIN_SCOPES, ORG_ADMIN_SCOPES
-from tracecat.db.models import Workspace
+from tracecat.db.models import PlatformSetting, Workspace
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
@@ -28,11 +29,11 @@ from tracecat.exceptions import (
 )
 from tracecat.managed_resources import source as source_module
 from tracecat.managed_resources.source import (
+    MANAGED_RESOURCES_SOURCE_KEY,
     SOURCE_REPOSITORY_SCOPES,
     ManagedSource,
-    ManagedSourceInvalidError,
-    ManagedSourceNotConfiguredError,
     ManagedSourceSetting,
+    ManagedSourceUnavailableError,
     get_managed_source,
     load_managed_source,
     source_repository_role,
@@ -146,10 +147,12 @@ async def test_get_managed_source_returns_pinned_binding() -> None:
         {"git_provider": "gitlab", "git_repo_url": GITHUB_REPO},
         # The binding was removed.
         {},
+        # The live binding is malformed: a 409, not a 500.
+        {"git_provider": "github", "git_repo_url": 42},
     ],
 )
 async def test_get_managed_source_rejects_a_changed_binding(
-    live_settings: dict[str, str],
+    live_settings: dict[str, object],
 ) -> None:
     pinned = _workspace(git_provider="github", git_repo_url=GITHUB_REPO)
     live = Workspace(
@@ -159,14 +162,14 @@ async def test_get_managed_source_rejects_a_changed_binding(
         settings=live_settings,
     )
 
-    with pytest.raises(ManagedSourceInvalidError):
+    with pytest.raises(ManagedSourceUnavailableError):
         await get_managed_source(_session(_stored(pinned), live))
 
 
 @pytest.mark.anyio
 async def test_get_managed_source_rejects_a_deleted_workspace() -> None:
     pinned = _workspace(git_provider="github", git_repo_url=GITHUB_REPO)
-    with pytest.raises(ManagedSourceInvalidError, match="no longer valid"):
+    with pytest.raises(ManagedSourceUnavailableError, match="no longer valid"):
         await get_managed_source(_session(_stored(pinned), None))
 
 
@@ -181,7 +184,7 @@ async def test_get_managed_source_rejects_a_deleted_workspace() -> None:
     ],
 )
 async def test_get_managed_source_rejects_a_malformed_setting(raw: bytes) -> None:
-    with pytest.raises(ManagedSourceInvalidError, match="malformed"):
+    with pytest.raises(ManagedSourceUnavailableError, match="malformed"):
         await get_managed_source(_session(raw))
 
 
@@ -212,7 +215,7 @@ async def test_source_sync_service_uses_source_role() -> None:
 
     with (
         patch.object(source_module, "get_managed_source", AsyncMock(return_value=None)),
-        pytest.raises(ManagedSourceNotConfiguredError),
+        pytest.raises(ManagedSourceUnavailableError, match="not configured"),
     ):
         await source_sync_service(session, actor)
 
@@ -280,10 +283,8 @@ async def test_source_tags_pass_real_scope_and_entitlement_checks(
         base_url=f"https://{GITLAB_HOST}", token=SecretStr("synthetic-token")
     )
     actor = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
-    await AdminSettingsService(session, actor).update_managed_resources_source(
-        PlatformManagedResourcesSourceUpdate(workspace_id=svc_workspace.id)
-    )
     service = AdminManagedResourcesService(session, actor)
+    await service.set_source(ManagedSourceUpdate(workspace_id=svc_workspace.id))
 
     with respx.mock(assert_all_called=True) as router:
         router.route(host=GITLAB_HOST).mock(side_effect=_gitlab_tags)
@@ -298,3 +299,67 @@ async def test_source_tags_pass_real_scope_and_entitlement_checks(
         with pytest.raises(EntitlementRequired):
             await service.list_source_tags(PageParams(limit=10))
     assert not route.called
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_source_setting_round_trip(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(AuditService, "create_event", AsyncMock())
+    actor = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
+    service = AdminManagedResourcesService(session, actor)
+    assert (await service.get_source()).source is None
+
+    # A workspace without a Git binding, or no workspace, is rejected.
+    with pytest.raises(TracecatValidationError):
+        await service.set_source(ManagedSourceUpdate(workspace_id=svc_workspace.id))
+    with pytest.raises(TracecatNotFoundError):
+        await service.set_source(ManagedSourceUpdate(workspace_id=uuid.uuid4()))
+    assert (await service.get_source()).source is None
+
+    svc_workspace.settings = WorkspaceSettings(
+        git_provider=VcsProvider.GITHUB, git_repo_url=GITHUB_REPO
+    )
+    await session.commit()
+    updated = await service.set_source(
+        ManagedSourceUpdate(workspace_id=svc_workspace.id)
+    )
+    # Setting it again upserts the same row.
+    await service.set_source(ManagedSourceUpdate(workspace_id=svc_workspace.id))
+    read = await service.get_source()
+
+    assert read.source == updated
+    assert updated.workspace_id == svc_workspace.id
+    assert updated.organization_id == svc_workspace.organization_id
+    assert updated.git_provider == VcsProvider.GITHUB
+    stored = (
+        await session.scalars(
+            select(PlatformSetting).where(
+                PlatformSetting.key == MANAGED_RESOURCES_SOURCE_KEY
+            )
+        )
+    ).all()
+    assert len(stored) == 1
+    assert orjson.loads(stored[0].value) == {
+        "workspace_id": str(svc_workspace.id),
+        "git_provider": "github",
+        "git_repo_url": GITHUB_REPO,
+    }
+    assert not stored[0].is_encrypted
+
+    # Repointing the workspace's repository makes the source unavailable.
+    svc_workspace.settings = WorkspaceSettings(
+        git_provider=VcsProvider.GITHUB,
+        git_repo_url="https://github.com/example-org/other.git",
+    )
+    await session.commit()
+    with pytest.raises(ManagedSourceUnavailableError, match="changed"):
+        await service.get_source()
+
+    await service.clear_source()
+    assert (await service.get_source()).source is None
+    # Clearing an unset source is a no-op.
+    await service.clear_source()

@@ -47,7 +47,7 @@ class DataCenterPullRequest(BaseModel):
     toRef: DataCenterRef
 
 
-class DataCenterPage[T: BaseModel](BaseModel):
+class DataCenterPage[T](BaseModel):
     values: list[T] = Field(default_factory=list)
     isLastPage: bool
     nextPageStart: int | None = None

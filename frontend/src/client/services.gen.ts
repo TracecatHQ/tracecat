@@ -22,7 +22,7 @@ import type {
   AdminAgentListPlatformCatalogResponse,
   AdminCheckIpAllowlistData,
   AdminCheckIpAllowlistResponse,
-  AdminClearManagedResourcesSourceResponse,
+  AdminClearSourceResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
@@ -44,7 +44,6 @@ import type {
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
   AdminGetAuditSettingsResponse,
-  AdminGetManagedResourcesSourceResponse,
   AdminGetMfaSettingsResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationInvitationTokenData,
@@ -54,6 +53,7 @@ import type {
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
   AdminGetSecuritySettingsResponse,
+  AdminGetSourceResponse,
   AdminGetTierData,
   AdminGetTierResponse,
   AdminGetUserData,
@@ -103,14 +103,14 @@ import type {
   AdminResetUserMfaResponse,
   AdminRevokeOrganizationInvitationData,
   AdminRevokeOrganizationInvitationResponse,
+  AdminSetSourceData,
+  AdminSetSourceResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminTestAuditWebhookData,
   AdminTestAuditWebhookResponse,
   AdminUpdateAuditSettingsData,
   AdminUpdateAuditSettingsResponse,
-  AdminUpdateManagedResourcesSourceData,
-  AdminUpdateManagedResourcesSourceResponse,
   AdminUpdateMfaSettingsData,
   AdminUpdateMfaSettingsResponse,
   AdminUpdateOrganizationData,
@@ -8946,6 +8946,55 @@ export const watchtowerEnableWatchtowerAgent = (
 }
 
 /**
+ * Get Source
+ * Get the workspace managed resources are published from.
+ * @returns ManagedSourceSettingRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetSource = (): CancelablePromise<AdminGetSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/source",
+  })
+}
+
+/**
+ * Set Source
+ * Set the managed resources source and pin its Git binding.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ManagedSourceRead Successful Response
+ * @throws ApiError
+ */
+export const adminSetSource = (
+  data: AdminSetSourceData
+): CancelablePromise<AdminSetSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/admin/managed-resources/source",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Clear Source
+ * Remove the managed resources source setting.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminClearSource =
+  (): CancelablePromise<AdminClearSourceResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/admin/managed-resources/source",
+    })
+  }
+
+/**
  * List Source Tags
  * List tags in the managed resources source repository, newest first.
  * @param data The data for the request.
@@ -9514,58 +9563,6 @@ export const adminUpdateRegistrySettings = (
     },
   })
 }
-
-/**
- * Get Managed Resources Source
- * Get the workspace managed resources are published from.
- * @returns PlatformManagedResourcesSourceRead Successful Response
- * @throws ApiError
- */
-export const adminGetManagedResourcesSource =
-  (): CancelablePromise<AdminGetManagedResourcesSourceResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/admin/settings/managed-resources/source",
-    })
-  }
-
-/**
- * Update Managed Resources Source
- * Set the workspace managed resources are published from.
- *
- * The workspace must have a Git sync provider and repository URL.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns PlatformManagedResourcesSourceRead Successful Response
- * @throws ApiError
- */
-export const adminUpdateManagedResourcesSource = (
-  data: AdminUpdateManagedResourcesSourceData
-): CancelablePromise<AdminUpdateManagedResourcesSourceResponse> => {
-  return __request(OpenAPI, {
-    method: "PUT",
-    url: "/admin/settings/managed-resources/source",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Clear Managed Resources Source
- * Remove the managed resources source setting.
- * @returns void Successful Response
- * @throws ApiError
- */
-export const adminClearManagedResourcesSource =
-  (): CancelablePromise<AdminClearManagedResourcesSourceResponse> => {
-    return __request(OpenAPI, {
-      method: "DELETE",
-      url: "/admin/settings/managed-resources/source",
-    })
-  }
 
 /**
  * Get Security Settings

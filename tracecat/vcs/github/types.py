@@ -51,8 +51,7 @@ class GitHubTagRefConnection(BaseModel):
 class GitHubTagRefsRepository(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    refs: GitHubTagRefConnection | None = None
-    ref: GitHubTagRef | None = None
+    refs: GitHubTagRefConnection
 
 
 class GitHubTagRefsData(BaseModel):
@@ -62,7 +61,7 @@ class GitHubTagRefsData(BaseModel):
 
 
 class GitHubTagRefsResponse(BaseModel):
-    """``{"data": {"repository": ...}}`` for the tag list and tag lookup queries."""
+    """``{"data": {"repository": ...}}`` for the tag list query."""
 
     model_config = ConfigDict(extra="ignore")
 

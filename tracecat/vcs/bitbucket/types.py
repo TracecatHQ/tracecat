@@ -23,7 +23,8 @@ class BitbucketCommit(BaseModel):
 
 
 class BitbucketTagTarget(BaseModel):
-    type: str = "commit"
+    type: str
+    """Only ``commit`` targets can be rolled out; anything else is skipped."""
     hash: str
     date: str | None = None
 
@@ -48,6 +49,6 @@ class BitbucketPullRequest(BaseModel):
     links: BitbucketLinks
 
 
-class BitbucketPage[T: BaseModel](BaseModel):
+class BitbucketPage[T](BaseModel):
     values: list[T] = Field(default_factory=list)
     next: str | None = None

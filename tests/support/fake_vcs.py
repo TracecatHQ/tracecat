@@ -14,7 +14,6 @@ from tracecat.registry.repositories.schemas import (
     GitTagInfo,
 )
 from tracecat.sync import CommitInfo, PushStatus
-from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.transport import (
     VcsSyncTransport,
@@ -201,12 +200,6 @@ class FakeVcsTransport:
             for name, sha in ordered[start:end]
         ]
         return tags, str(end) if end < len(ordered) else None
-
-    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
-        repo = self._server._repo(url)
-        if tag not in repo.tags:
-            raise VcsProviderError(f"Tag not found: {tag}", status_code=404)
-        return repo.tags[tag]
 
 
 class _FakeRepo:

@@ -5,7 +5,6 @@ import pytest
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
-from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.workspace_sync.enums import VcsProvider
 
 
@@ -100,7 +99,6 @@ async def test_tags_page_newest_first_like_the_real_providers():
     server = FakeVcsServer()
     url = GitUrl(host="github.com", org="example", repo="sync-test")
     transport = server.transport_factory(VcsProvider.GITHUB, session=None, role=None)
-    shas: dict[str, str] = {}
     for version in range(1, 6):
         await transport.write_files(
             url=url,
@@ -109,7 +107,7 @@ async def test_tags_page_newest_first_like_the_real_providers():
             branch="main",
             create_pr=False,
         )
-        shas[f"v{version}"] = server.create_tag(url, tag=f"v{version}", ref="main")
+        server.create_tag(url, tag=f"v{version}", ref="main")
 
     names: list[str] = []
     cursor: str | None = None
@@ -125,7 +123,3 @@ async def test_tags_page_newest_first_like_the_real_providers():
     assert page_sizes == [2, 2, 1]
     for limit in (0, -1):
         assert await transport.list_tags(url=url, limit=limit) == ([], None)
-    assert await transport.resolve_tag(url=url, tag="v3") == shas["v3"]
-    with pytest.raises(VcsProviderError) as exc:
-        await transport.resolve_tag(url=url, tag="missing")
-    assert exc.value.status_code == 404

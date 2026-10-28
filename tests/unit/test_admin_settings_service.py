@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.settings import service as admin_settings_service_module
 from tracecat_ee.admin.settings.schemas import (
     PlatformAuditSettingsUpdate,
-    PlatformManagedResourcesSourceUpdate,
     PlatformSecuritySettingsUpdate,
 )
 from tracecat_ee.admin.settings.service import AdminSettingsService
@@ -20,19 +19,8 @@ from tracecat_ee.admin.settings.service import AdminSettingsService
 from tracecat.audit.service import AuditService
 from tracecat.auth import ip_allowlist_enforcement
 from tracecat.auth.types import PlatformRole
-from tracecat.db.models import (
-    OrganizationSetting,
-    PlatformSetting,
-    Workspace,
-)
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.managed_resources.source import (
-    MANAGED_RESOURCES_SOURCE_KEY,
-    ManagedSourceInvalidError,
-)
+from tracecat.db.models import OrganizationSetting, PlatformSetting
 from tracecat.settings.schemas import IPAllowlist
-from tracecat.workspace_sync.enums import VcsProvider
-from tracecat.workspaces.schemas import WorkspaceSettings
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -260,69 +248,3 @@ async def test_platform_admin_allowlist_ignores_malformed_rows(
     loaded = await ip_allowlist_enforcement.get_platform_admin_ip_allowlist()
     assert not loaded.enforced
     ip_allowlist_enforcement.clear_ip_allowlist_cache()
-
-
-@pytest.mark.anyio
-async def test_managed_resources_source_round_trip(
-    session: AsyncSession,
-    platform_role: PlatformRole,
-    svc_workspace: Workspace,
-) -> None:
-    service = AdminSettingsService(session, platform_role)
-    assert not (await service.get_managed_resources_source()).configured
-
-    # A workspace without a Git binding is rejected and nothing is stored.
-    with pytest.raises(TracecatValidationError):
-        await service.update_managed_resources_source(
-            PlatformManagedResourcesSourceUpdate(workspace_id=svc_workspace.id)
-        )
-    with pytest.raises(TracecatNotFoundError):
-        await service.update_managed_resources_source(
-            PlatformManagedResourcesSourceUpdate(workspace_id=uuid.uuid4())
-        )
-    assert not (await service.get_managed_resources_source()).configured
-
-    repo_url = "https://github.com/example-org/managed.git"
-    svc_workspace.settings = WorkspaceSettings(
-        git_provider=VcsProvider.GITHUB, git_repo_url=repo_url
-    )
-    await session.commit()
-
-    updated = await service.update_managed_resources_source(
-        PlatformManagedResourcesSourceUpdate(workspace_id=svc_workspace.id)
-    )
-    read = await service.get_managed_resources_source()
-
-    assert updated == read
-    assert read.configured
-    assert read.workspace_id == svc_workspace.id
-    assert read.organization_id == svc_workspace.organization_id
-    assert read.git_provider == VcsProvider.GITHUB
-    assert read.git_repo_url == repo_url
-    stored = await session.scalar(
-        select(PlatformSetting).where(
-            PlatformSetting.key == MANAGED_RESOURCES_SOURCE_KEY
-        )
-    )
-    assert stored is not None
-    # The binding is pinned alongside the workspace.
-    assert orjson.loads(stored.value) == {
-        "workspace_id": str(svc_workspace.id),
-        "git_provider": "github",
-        "git_repo_url": repo_url,
-    }
-    assert not stored.is_encrypted
-
-    # Repointing the workspace's repository invalidates the source.
-    svc_workspace.settings = WorkspaceSettings(
-        git_provider=VcsProvider.GITHUB,
-        git_repo_url="https://github.com/example-org/other.git",
-    )
-    await session.commit()
-    with pytest.raises(ManagedSourceInvalidError, match="changed"):
-        await service.get_managed_resources_source()
-
-    await service.clear_managed_resources_source()
-    assert not (await service.get_managed_resources_source()).configured
-    # Clearing an unset source is a no-op.
-    await service.clear_managed_resources_source()

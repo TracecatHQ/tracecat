@@ -18,8 +18,7 @@ from tracecat.auth.ip_allowlist_enforcement import (
 from tracecat.auth.mfa.policy import clear_mfa_policy_cache
 from tracecat.auth.mfa.schemas import MfaPolicyRead, MfaPolicyUpdate
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.managed_resources.source import ManagedSourceInvalidError
+from tracecat.exceptions import TracecatValidationError
 from tracecat.settings.schemas import (
     AuditWebhookTestResult,
     IPAllowlistCheckRequest,
@@ -28,8 +27,6 @@ from tracecat.settings.schemas import (
 from tracecat_ee.admin.settings.schemas import (
     PlatformAuditSettingsRead,
     PlatformAuditSettingsUpdate,
-    PlatformManagedResourcesSourceRead,
-    PlatformManagedResourcesSourceUpdate,
     PlatformRegistrySettingsRead,
     PlatformRegistrySettingsUpdate,
     PlatformSecuritySettingsRead,
@@ -105,54 +102,6 @@ async def update_registry_settings(
     """Update platform registry settings."""
     service = AdminSettingsService(session, role)
     return await service.update_registry_settings(params)
-
-
-@router.get(
-    "/managed-resources/source", response_model=PlatformManagedResourcesSourceRead
-)
-async def get_managed_resources_source(
-    role: SuperuserRole,
-    session: AsyncDBSessionBypass,
-) -> PlatformManagedResourcesSourceRead:
-    """Get the workspace managed resources are published from."""
-    service = AdminSettingsService(session, role)
-    try:
-        return await service.get_managed_resources_source()
-    except ManagedSourceInvalidError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
-
-
-@router.put(
-    "/managed-resources/source", response_model=PlatformManagedResourcesSourceRead
-)
-async def update_managed_resources_source(
-    role: SuperuserStepUpRole,
-    session: AsyncDBSessionBypass,
-    params: PlatformManagedResourcesSourceUpdate,
-) -> PlatformManagedResourcesSourceRead:
-    """Set the workspace managed resources are published from.
-
-    The workspace must have a Git sync provider and repository URL.
-    """
-    service = AdminSettingsService(session, role)
-    try:
-        return await service.update_managed_resources_source(params)
-    except TracecatNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
-
-
-@router.delete("/managed-resources/source", status_code=status.HTTP_204_NO_CONTENT)
-async def clear_managed_resources_source(
-    role: SuperuserStepUpRole,
-    session: AsyncDBSessionBypass,
-) -> None:
-    """Remove the managed resources source setting."""
-    service = AdminSettingsService(session, role)
-    await service.clear_managed_resources_source()
 
 
 @router.get("/security", response_model=PlatformSecuritySettingsRead)

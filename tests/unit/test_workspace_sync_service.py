@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import httpx
 import pytest
 import respx
-from github.GithubException import GithubException
+from github.GithubException import GithubException, RateLimitExceededException
 
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat.auth.types import Role
@@ -2394,10 +2394,11 @@ async def test_github_list_tags_pages_one_graphql_query_per_page(
                         "name": "v1",
                         "target": _gh_commit("a" * 40, "2026-01-01T00:00:00Z"),
                     },
-                    # A tag on a tree, and a tag of a tag, are skipped.
+                    # A tag on a tree, and a chain deeper than the query
+                    # follows (its innermost target has no fields), are skipped.
                     {"name": "tree", "target": {"__typename": "Tree"}},
                     {
-                        "name": "nested",
+                        "name": "too-deep",
                         "target": {
                             "__typename": "Tag",
                             "tagger": {"date": "2026"},
@@ -2437,11 +2438,65 @@ async def test_github_list_tags_pages_one_graphql_query_per_page(
 
 
 @pytest.mark.anyio
-async def test_github_list_tags_keeps_the_upstream_status(
+async def test_github_list_tags_follows_a_two_level_tag_chain(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
+    chained = {
+        "name": "release",
+        "target": {
+            "__typename": "Tag",
+            "tagger": {"date": "2026-05-02T00:00:00Z"},
+            "target": {
+                "__typename": "Tag",
+                "tagger": {"date": "2026-05-01T00:00:00Z"},
+                "target": _gh_commit("e" * 40, "2026-04-01T00:00:00Z"),
+            },
+        },
+    }
     gh = Mock()
-    gh.requester.graphql_query.side_effect = GithubException(502, "bad gateway")
+    gh.requester.graphql_query.return_value = ({}, _gh_refs_page([chained]))
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=_github_graphql_service(gh),
+    ):
+        tags, _cursor = await transport.list_tags(url=_TAG_URL)
+
+    # Peeled to the commit, dated by the outermost tagger.
+    assert [(t.name, t.commit_sha, t.date) for t in tags] == [
+        ("release", "e" * 40, "2026-05-02T00:00:00Z")
+    ]
+    query = gh.requester.graphql_query.call_args.args[0]
+    assert query.count("... on Tag") == 3
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (GithubException(502, "bad gateway"), 502),
+        # Primary GraphQL limits arrive as HTTP 200 + RATE_LIMITED; PyGithub
+        # raises them as 400, which must not look like a bad request.
+        (
+            GithubException(
+                400, {"errors": [{"type": "RATE_LIMITED", "message": "limited"}]}
+            ),
+            429,
+        ),
+        # Secondary limits arrive as 403s.
+        (RateLimitExceededException(403, {"message": "secondary rate limit"}), 429),
+    ],
+)
+async def test_github_list_tags_reports_upstream_status(
+    workspace_sync_service: WorkspaceSyncService,
+    error: GithubException,
+    expected_status: int,
+) -> None:
+    gh = Mock()
+    gh.requester.graphql_query.side_effect = error
     transport = GitHubWorkspaceSyncTransport(
         session=workspace_sync_service.session, role=workspace_sync_service.role
     )
@@ -2453,46 +2508,7 @@ async def test_github_list_tags_keeps_the_upstream_status(
         pytest.raises(GitHubAppError) as exc,
     ):
         await transport.list_tags(url=_TAG_URL)
-    assert exc.value.status_code == 502
-
-
-@pytest.mark.anyio
-async def test_github_resolve_tag_sends_the_name_as_a_variable(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    annotated = {
-        "name": "release/1.0",
-        "target": {
-            "__typename": "Tag",
-            "tagger": {"date": "2026"},
-            "target": _gh_commit("a" * 40, "2026"),
-        },
-    }
-    gh = Mock()
-    gh.requester.graphql_query.side_effect = [
-        ({}, {"data": {"repository": {"ref": annotated}}}),
-        ({}, {"data": {"repository": {"ref": None}}}),
-    ]
-    transport = GitHubWorkspaceSyncTransport(
-        session=workspace_sync_service.session, role=workspace_sync_service.role
-    )
-
-    with patch(
-        "tracecat.workspace_sync.transport.GitHubAppService",
-        return_value=_github_graphql_service(gh),
-    ):
-        sha = await transport.resolve_tag(url=_TAG_URL, tag="release/1.0")
-        with pytest.raises(GitHubAppError) as exc:
-            await transport.resolve_tag(url=_TAG_URL, tag="missing")
-        with pytest.raises(TracecatValidationError):
-            await transport.resolve_tag(url=_TAG_URL, tag="../escape")
-
-    assert sha == "a" * 40
-    assert exc.value.status_code == 404
-    variables = gh.requester.graphql_query.call_args_list[0].args[1]
-    assert variables["qualifiedName"] == "refs/tags/release/1.0"
-    # The invalid name never reached GitHub.
-    assert gh.requester.graphql_query.call_count == 2
+    assert exc.value.status_code == expected_status
 
 
 _ARCHIVE_URL = "https://codeload.github.com/TracecatHQ/sync/legacy.tar.gz/archive"

@@ -11,15 +11,8 @@ import json
 import re
 import tarfile
 import uuid
-from collections.abc import (
-    AsyncIterator,
-    Awaitable,
-    Callable,
-    Iterator,
-    Mapping,
-    Sequence,
-)
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from email.utils import parseaddr
@@ -29,11 +22,11 @@ from typing import Any, Literal, Protocol
 from urllib.parse import quote, unquote, urlparse
 
 import httpx
-from github.GithubException import GithubException
+from github.GithubException import GithubException, RateLimitExceededException
 from github.GitTreeElement import GitTreeElement
 from github.InputGitTreeElement import InputGitTreeElement
 from github.Repository import Repository
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from pydantic import ValidationError as PydanticValidationError
 
 from tracecat.db.models import User
@@ -67,11 +60,7 @@ from tracecat.vcs.bitbucket_data_center.types import (
     DataCenterTag,
 )
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
-from tracecat.vcs.github.types import (
-    GitHubRefTarget,
-    GitHubTagRefsRepository,
-    GitHubTagRefsResponse,
-)
+from tracecat.vcs.github.types import GitHubRefTarget, GitHubTagRefsResponse
 from tracecat.vcs.gitlab.app import GitLabApiError, GitLabError, GitLabTokenService
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
 from tracecat.vcs.gitlab.types import (
@@ -92,7 +81,6 @@ from tracecat.vcs.gitlab.types import (
     GitLabTreeEntry,
     GitLabTreeParams,
 )
-from tracecat.workflow.store.schemas import validate_short_branch_name
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -181,19 +169,15 @@ class VcsSyncTransport(Protocol):
         """Return one page of tags, newest first, and the next page's cursor.
 
         Tags are ordered newest first by the provider's tag or commit date.
-        ``cursor`` is an opaque token from a previous call; ``None`` starts at
-        the newest tag. The returned cursor is ``None`` on the last page. Tags
-        that do not point at a commit, or have no date, are skipped, so a page
-        can hold fewer than ``limit`` tags.
-        """
-        ...
-
-    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
-        """Return the commit SHA that ``tag`` points to.
-
-        Raises:
-            TracecatValidationError: ``tag`` is not a valid Git tag name.
-            VcsProviderError: The tag does not exist or the provider failed.
+        ``cursor`` is an opaque token from a previous call on the same
+        repository; ``None`` starts at the newest tag, and ``None`` is returned
+        after the last page. GitHub passes its GraphQL ``endCursor`` through;
+        GitLab and Bitbucket Cloud encode a page number with the page size that
+        issued it, so a different ``limit`` is rejected; Bitbucket Data Center
+        uses the next ``start`` offset as a decimal string. ``limit`` is capped
+        at each provider's page maximum. Malformed tags, tags that do not point
+        at a commit, and undated tags are skipped with a warning, so a page can
+        hold fewer than ``limit`` tags.
         """
         ...
 
@@ -482,20 +466,24 @@ _GITHUB_GRAPHQL_PAGE_MAX = 100
 _BITBUCKET_TAG_PAGE_MAX = 100
 """Largest ``pagelen`` Bitbucket Cloud accepts for ref listings."""
 
+_DATA_CENTER_TAG_PAGE_MAX = 100
+"""Largest tag page read from Bitbucket Data Center in one request."""
+
 _DATA_CENTER_TAG_COMMIT_CONCURRENCY = 8
 """Concurrent commit reads when dating Data Center tags."""
 
-_DATA_CENTER_TAG_FILTER_LIMIT = 1000
-"""Most substring matches scanned when resolving one Data Center tag by name."""
+_GITHUB_TAG_PEEL_DEPTH = 3
+"""Annotated tags followed per ref; GraphQL fragments cannot recurse."""
 
-_GITHUB_TAG_TARGET_FIELDS = """
-  __typename
-  ... on Commit { oid committedDate }
-  ... on Tag {
-    tagger { date }
-    target { __typename ... on Commit { oid committedDate } }
-  }
-"""
+
+def _github_tag_target_fields(depth: int) -> str:
+    """GraphQL selection for a ref target, peeling up to ``depth`` tags."""
+    commit = "__typename ... on Commit { oid committedDate }"
+    if depth == 0:
+        return commit
+    inner = _github_tag_target_fields(depth - 1)
+    return f"{commit} ... on Tag {{ tagger {{ date }} target {{ {inner} }} }}"
+
 
 _GITHUB_LIST_TAGS_QUERY = f"""
 query($owner: String!, $name: String!, $first: Int!, $after: String) {{
@@ -507,98 +495,98 @@ query($owner: String!, $name: String!, $first: Int!, $after: String) {{
       orderBy: {{field: TAG_COMMIT_DATE, direction: DESC}}
     ) {{
       pageInfo {{ hasNextPage endCursor }}
-      nodes {{ name target {{ {_GITHUB_TAG_TARGET_FIELDS} }} }}
-    }}
-  }}
-}}
-"""
-
-_GITHUB_RESOLVE_TAG_QUERY = f"""
-query($owner: String!, $name: String!, $qualifiedName: String!) {{
-  repository(owner: $owner, name: $name) {{
-    ref(qualifiedName: $qualifiedName) {{
-      name target {{ {_GITHUB_TAG_TARGET_FIELDS} }}
+      nodes {{
+        name
+        target {{ {_github_tag_target_fields(_GITHUB_TAG_PEEL_DEPTH)} }}
+      }}
     }}
   }}
 }}
 """
 
 
-class _TagPageCursor(BaseModel):
-    """Where the next page of a provider's tag listing starts.
-
-    ``position`` is a 1-based page number for GitLab and Bitbucket Cloud, and a
-    0-based ``start`` offset for Bitbucket Data Center.
-    """
+class _PageCursor(BaseModel):
+    """Position in a page-numbered listing, tied to the page size that issued it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    position: int = Field(ge=0)
+    page: int = Field(ge=1)
     page_size: int = Field(ge=1)
 
 
-def _encode_tag_cursor(position: int, page_size: int) -> str:
-    """Encode a tag page position as an opaque cursor."""
-    payload = _TagPageCursor(position=position, page_size=page_size)
-    return base64.urlsafe_b64encode(payload.model_dump_json().encode()).decode()
+def _encode_page_cursor(page: int, page_size: int) -> str:
+    """Encode a page-numbered position as an opaque cursor."""
+    payload = _PageCursor(page=page, page_size=page_size).model_dump_json()
+    return base64.urlsafe_b64encode(payload.encode()).decode()
 
 
-def _decode_tag_cursor(cursor: str) -> _TagPageCursor:
-    """Decode a cursor from :func:`_encode_tag_cursor`.
-
-    Raises:
-        TracecatValidationError: The cursor is malformed.
-    """
-    try:
-        return _TagPageCursor.model_validate_json(base64.urlsafe_b64decode(cursor))
-    except ValueError as e:
-        raise TracecatValidationError("Invalid tag cursor") from e
-
-
-def _tag_page_number(cursor: str | None, page_size: int) -> int:
-    """Return the 1-based page a page-numbered tag listing should read next.
+def _page_number(cursor: str | None, page_size: int) -> int:
+    """Return the 1-based page a page-numbered listing should read next.
 
     Raises:
         TracecatValidationError: The cursor is malformed or was issued for a
-            different page size, so its page number would skip or repeat tags.
+            different page size, so its page number would skip or repeat items.
     """
     if cursor is None:
         return 1
-    decoded = _decode_tag_cursor(cursor)
-    if decoded.position < 1 or decoded.page_size != page_size:
+    try:
+        decoded = _PageCursor.model_validate_json(base64.urlsafe_b64decode(cursor))
+    except ValueError as e:
+        raise TracecatValidationError("Invalid tag cursor") from e
+    if decoded.page_size != page_size:
         raise TracecatValidationError("Tag cursor was issued for a different page size")
-    return decoded.position
+    return decoded.page
 
 
-def _validated_tag_name(tag: str) -> str:
-    """Return ``tag`` if it is a valid short Git ref name.
-
-    Tag names reach provider URLs and queries, so ``..``, leading ``/`` and
-    control characters are rejected before any request is made.
+def _offset(cursor: str | None) -> int:
+    """Return the start offset an offset cursor (a decimal string) points at.
 
     Raises:
-        TracecatValidationError: ``tag`` is not a valid Git ref name.
+        TracecatValidationError: The cursor is not a non-negative integer.
     """
-    try:
-        return validate_short_branch_name(tag, field_name="tag")
-    except ValueError as e:
-        raise TracecatValidationError(str(e)) from e
+    if cursor is None:
+        return 0
+    if not cursor.isdecimal():
+        raise TracecatValidationError("Invalid tag cursor")
+    return int(cursor)
 
 
 def _github_tag_commit(target: GitHubRefTarget | None) -> tuple[str | None, str | None]:
     """Return the commit SHA a GitHub tag ref points to, and its date.
 
-    Annotated tags are peeled one level and dated by the tagger, falling back
-    to the commit's committed date. Lightweight tags use the committed date.
-    Targets that are not commits (trees, blobs, tags of tags) give ``None``.
+    Annotated tags are peeled up to :data:`_GITHUB_TAG_PEEL_DEPTH` levels and
+    dated by the outermost tagger, falling back to the commit's committed date.
+    Lightweight tags use the committed date. Targets that are not commits
+    (trees, blobs, or deeper tag chains) give ``None``.
     """
     tag_date: str | None = None
     if target is not None and target.typename == "Tag":
         tag_date = target.tagger.date if target.tagger else None
+    while target is not None and target.typename == "Tag":
         target = target.target
     if target is None or target.typename != "Commit":
         return None, None
     return target.oid, tag_date or target.committedDate
+
+
+def _github_upstream_status(error: GithubException) -> int:
+    """Return the HTTP status to report for a GitHub failure.
+
+    GitHub answers a GraphQL rate limit with HTTP 200 and an error of type
+    ``RATE_LIMITED``, which PyGithub raises as a 400; secondary limits arrive
+    as 403s that PyGithub raises as ``RateLimitExceededException``. Both are
+    reported as 429 so callers see an upstream limit, not a bad request.
+    """
+    if isinstance(error, RateLimitExceededException):
+        return 429
+    match error.data:
+        case {"errors": list(errors)} if any(
+            isinstance(item, dict) and item.get("type") == "RATE_LIMITED"
+            for item in errors
+        ):
+            return 429
+        case _:
+            return error.status
 
 
 def _gitlab_commit_date(commit: GitLabCommit) -> str | None:
@@ -606,18 +594,26 @@ def _gitlab_commit_date(commit: GitLabCommit) -> str | None:
     return commit.authored_date or commit.committed_date or commit.created_at
 
 
+def _gitlab_tag_target(tag: GitLabTag) -> tuple[str | None, str | None]:
+    """Return the commit a GitLab tag points to, and its tag or commit date."""
+    if tag.commit is None:
+        return None, None
+    return tag.commit.id, tag.created_at or _gitlab_commit_date(tag.commit)
+
+
 def _data_center_timestamp(milliseconds: int) -> str:
     """Convert a Data Center epoch-millisecond timestamp to ISO 8601."""
     return datetime.fromtimestamp(milliseconds / 1000, UTC).isoformat()
 
 
-@contextmanager
-def _bitbucket_tag_payload_errors() -> Iterator[None]:
-    """Report a malformed Bitbucket tag payload as a provider error, not a 500."""
+def _bitbucket_models[T: BaseModel](
+    model: type[T], values: Sequence[JsonValue]
+) -> list[T]:
+    """Validate a Bitbucket page's values, reporting bad payloads as provider errors."""
     try:
-        yield
+        return [model.model_validate(value) for value in values]
     except PydanticValidationError as e:
-        raise BitbucketError("Bitbucket returned an invalid tag response") from e
+        raise BitbucketError(f"Bitbucket returned an invalid {model.__name__}") from e
 
 
 class BaseWorkspaceSyncTransport(BaseWorkspaceService):
@@ -656,6 +652,16 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
             return GitTagInfo(name=name, commit_sha=commit_sha, date=date)
         except PydanticValidationError:
             self.logger.warning("Skipping tag with an unexpected name or SHA", tag=name)
+            return None
+
+    def _tag_entry[ModelT: BaseModel](
+        self, model: type[ModelT], value: JsonValue
+    ) -> ModelT | None:
+        """Validate one tag entry from a provider page, or log and skip it."""
+        try:
+            return model.model_validate(value)
+        except PydanticValidationError:
+            self.logger.warning("Skipping malformed tag entry", model=model.__name__)
             return None
 
     @staticmethod
@@ -1342,54 +1348,24 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         """
         if limit <= 0:
             return [], None
-        repository = await self._github_tag_query(
-            url,
-            _GITHUB_LIST_TAGS_QUERY,
-            {"first": min(limit, _GITHUB_GRAPHQL_PAGE_MAX), "after": cursor},
-        )
-        if repository.refs is None:
-            raise GitHubAppError("GitHub returned an invalid tag response")
-        tags = [
-            info
-            for ref in repository.refs.nodes
-            if (info := self._tag_info(ref.name, *_github_tag_commit(ref.target)))
-        ]
-        page_info = repository.refs.pageInfo
-        return tags, page_info.endCursor if page_info.hasNextPage else None
-
-    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
-        """Return the commit SHA that ``tag`` points to.
-
-        The tag name travels as a GraphQL variable, never in a URL path.
-        """
-        name = _validated_tag_name(tag)
-        repository = await self._github_tag_query(
-            url, _GITHUB_RESOLVE_TAG_QUERY, {"qualifiedName": f"refs/tags/{name}"}
-        )
-        if repository.ref is None:
-            raise GitHubAppError(f"Tag not found: {name}", status_code=404)
-        commit_sha, _date = _github_tag_commit(repository.ref.target)
-        if commit_sha is None:
-            raise GitHubAppError(f"Tag does not point to a commit: {name}")
-        return commit_sha
-
-    async def _github_tag_query(
-        self, url: GitUrl, query: str, variables: Mapping[str, object]
-    ) -> GitHubTagRefsRepository:
-        """Run a tag GraphQL query against ``url`` and validate the repository."""
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(
             url, release_read_session=self.release_read_session
         )
+        variables = {
+            "owner": url.org,
+            "name": url.repo,
+            "first": min(limit, _GITHUB_GRAPHQL_PAGE_MAX),
+            "after": cursor,
+        }
         try:
             _headers, data = await asyncio.to_thread(
-                gh.requester.graphql_query,
-                query,
-                {"owner": url.org, "name": url.repo, **variables},
+                gh.requester.graphql_query, _GITHUB_LIST_TAGS_QUERY, variables
             )
         except GithubException as e:
             raise GitHubAppError(
-                f"GitHub API error: {e.status} - {e.data}", status_code=e.status
+                f"GitHub API error: {e.status} - {e.data}",
+                status_code=_github_upstream_status(e),
             ) from e
         finally:
             gh.close()
@@ -1397,9 +1373,16 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             response = GitHubTagRefsResponse.model_validate(data)
         except PydanticValidationError as e:
             raise GitHubAppError("GitHub returned an invalid tag response") from e
-        if response.data.repository is None:
+        repository = response.data.repository
+        if repository is None:
             raise GitHubAppError("GitHub repository not found", status_code=404)
-        return response.data.repository
+        tags = [
+            info
+            for ref in repository.refs.nodes
+            if (info := self._tag_info(ref.name, *_github_tag_commit(ref.target)))
+        ]
+        page_info = repository.refs.pageInfo
+        return tags, page_info.endCursor if page_info.hasNextPage else None
 
     async def _upsert_pull_request(
         self,
@@ -1763,48 +1746,26 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         if limit <= 0:
             return [], None
         per_page = min(limit, _GITLAB_PAGE_SIZE)
-        page = _tag_page_number(cursor, per_page)
+        page = _page_number(cursor, per_page)
         async with self._authed_client(url) as client:
             tags_params: GitLabListTagsParams = {"order_by": "updated", "sort": "desc"}
-            raw_tags, next_page = await self._gitlab_page(
+            values, next_page = await self._gitlab_page(
                 client,
                 f"/projects/{_gitlab_project_id(url)}/repository/tags",
-                model=GitLabTag,
                 params=tags_params,
                 page=page,
                 per_page=per_page,
             )
         tags = [
             info
-            for tag in raw_tags
-            if (
-                info := self._tag_info(
-                    tag.name,
-                    tag.commit.id if tag.commit else None,
-                    tag.created_at
-                    or (_gitlab_commit_date(tag.commit) if tag.commit else None),
-                )
-            )
+            for value in values
+            if (tag := self._tag_entry(GitLabTag, value))
+            and (info := self._tag_info(tag.name, *_gitlab_tag_target(tag)))
         ]
         next_cursor = (
-            _encode_tag_cursor(next_page, per_page) if next_page is not None else None
+            _encode_page_cursor(next_page, per_page) if next_page is not None else None
         )
         return tags, next_cursor
-
-    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
-        """Return the commit SHA that ``tag`` points to."""
-        name = _validated_tag_name(tag)
-        async with self._authed_client(url) as client:
-            gitlab_tag = await self._gitlab_model(
-                client,
-                "GET",
-                f"/projects/{_gitlab_project_id(url)}/repository/tags/"
-                f"{quote(name, safe='')}",
-                model=GitLabTag,
-            )
-        if gitlab_tag.commit is None:
-            raise GitLabError(f"Tag does not point to a commit: {name}")
-        return gitlab_tag.commit.id
 
     async def _credentials(self) -> GitLabTokenCredentials:
         """Load organization GitLab token credentials."""
@@ -2106,32 +2067,33 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         results: list[ModelT] = []
         page = 1
         while True:
-            items, next_page = await self._gitlab_page(
+            values, next_page = await self._gitlab_page(
                 client,
                 path,
-                model=model,
                 params=params,
                 page=page,
                 per_page=_GITLAB_PAGE_SIZE,
             )
-            results.extend(items)
+            try:
+                results.extend(model.model_validate(value) for value in values)
+            except PydanticValidationError as e:
+                raise GitLabError("GitLab list response was invalid") from e
             if limit is not None and len(results) >= limit:
                 return results[:limit]
             if next_page is None:
                 return results
             page = next_page
 
-    async def _gitlab_page[ModelT: BaseModel](
+    async def _gitlab_page(
         self,
         client: httpx.AsyncClient,
         path: str,
         *,
-        model: type[ModelT],
         params: Mapping[str, Any] | None,
         page: int,
         per_page: int,
-    ) -> tuple[list[ModelT], int | None]:
-        """Read and validate one page of a GitLab list, plus the next page number."""
+    ) -> tuple[list[JsonValue], int | None]:
+        """Read one page of a GitLab list: its raw items and the next page number."""
         response = await self._gitlab_response(
             client,
             "GET",
@@ -2141,15 +2103,11 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         data = self._json(response)
         if not isinstance(data, list):
             raise GitLabError("GitLab list response was invalid")
-        try:
-            items = [model.model_validate(item) for item in data]
-        except PydanticValidationError as e:
-            raise GitLabError("GitLab list response was invalid") from e
         next_page = response.headers.get("x-next-page")
         if not next_page:
-            return items, None
+            return data, None
         try:
-            return items, int(next_page)
+            return data, int(next_page)
         except ValueError as e:
             raise GitLabError("GitLab pagination response was invalid") from e
 
@@ -2296,7 +2254,12 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         self, client: httpx.AsyncClient, path: str, model: type[T]
     ) -> T:
         response = await self._request(client, "GET", path)
-        return model.model_validate_json(response.content)
+        try:
+            return model.model_validate_json(response.content)
+        except PydanticValidationError as e:
+            raise BitbucketError(
+                f"Bitbucket returned an invalid {model.__name__}"
+            ) from e
 
     async def _list[T: BaseModel](
         self,
@@ -2313,12 +2276,26 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             if path in seen:
                 raise BitbucketError("Invalid Bitbucket pagination loop")
             seen.add(path)
-            response = await self._request(client, "GET", path, params=params)
-            page = BitbucketPage[model].model_validate_json(response.content)
-            results.extend(page.values)
-            path = page.next or ""
+            values, next_path = await self._page(client, path, params=params)
+            results.extend(_bitbucket_models(model, values))
+            path = next_path or ""
             params = None
         return results[:limit]
+
+    async def _page(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+    ) -> tuple[list[JsonValue], str | None]:
+        """Read one page of a Cloud listing: its raw values and ``next`` link."""
+        response = await self._request(client, "GET", path, params=params)
+        try:
+            page = BitbucketPage[JsonValue].model_validate_json(response.content)
+        except PydanticValidationError as e:
+            raise BitbucketError("Bitbucket returned an invalid page") from e
+        return page.values, page.next
 
     async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
         async with self._connection(url) as (client, git, _path):
@@ -2390,20 +2367,18 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         if limit <= 0:
             return [], None
         pagelen = min(limit, _BITBUCKET_TAG_PAGE_MAX)
-        page = _tag_page_number(cursor, pagelen)
+        page = _page_number(cursor, pagelen)
         async with self._connection(url) as (client, _git, path):
-            response = await self._request(
+            values, next_link = await self._page(
                 client,
-                "GET",
                 f"{path}/refs/tags",
                 params={"pagelen": pagelen, "page": page, "sort": "-target.date"},
             )
-        with _bitbucket_tag_payload_errors():
-            tag_page = BitbucketPage[BitbucketTag].model_validate_json(response.content)
         tags = [
             info
-            for tag in tag_page.values
-            if (
+            for value in values
+            if (tag := self._tag_entry(BitbucketTag, value))
+            and (
                 info := self._tag_info(
                     tag.name,
                     tag.target.hash if tag.target.type == "commit" else None,
@@ -2411,31 +2386,8 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 )
             )
         ]
-        next_cursor = _encode_tag_cursor(page + 1, pagelen) if tag_page.next else None
+        next_cursor = _encode_page_cursor(page + 1, pagelen) if next_link else None
         return tags, next_cursor
-
-    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
-        """Return the commit SHA that ``tag`` points to.
-
-        Looks the tag up with an exact-name query rather than a URL path, so
-        names containing ``/`` need no path encoding.
-        """
-        name = _validated_tag_name(tag)
-        async with self._connection(url) as (client, _git, path):
-            with _bitbucket_tag_payload_errors():
-                matches = await self._list(
-                    client,
-                    f"{path}/refs/tags",
-                    BitbucketTag,
-                    limit=1,
-                    params={"q": f"name={json.dumps(name)}", "pagelen": 1},
-                )
-        match = next((m for m in matches if m.name == name), None)
-        if match is None:
-            raise BitbucketError(f"Tag not found: {name}", status_code=404)
-        if match.target.type != "commit":
-            raise BitbucketError(f"Tag does not point to a commit: {name}")
-        return match.target.hash
 
     def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
         return f"https://bitbucket.org/{repository_path(url)}.git"
@@ -2676,26 +2628,45 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
         params: Mapping[str, str | int] | None = None,
     ) -> list[T]:
         results: list[T] = []
-        start = 0
-        while len(results) < limit:
-            response = await self._request(
+        start: int | None = 0
+        while start is not None and len(results) < limit:
+            values, start = await self._page_at(
                 client,
-                "GET",
                 path,
-                params={
-                    **(params or {}),
-                    "start": start,
-                    "limit": min(100, limit - len(results)),
-                },
+                start=start,
+                limit=min(100, limit - len(results)),
+                params=params,
             )
-            page = DataCenterPage[model].model_validate_json(response.content)
-            results.extend(page.values)
-            if page.isLastPage:
-                break
-            if page.nextPageStart is None or page.nextPageStart <= start:
-                raise BitbucketError("Invalid Data Center pagination")
-            start = page.nextPageStart
+            results.extend(_bitbucket_models(model, values))
         return results[:limit]
+
+    async def _page_at(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        start: int,
+        limit: int,
+        params: Mapping[str, str | int] | None = None,
+    ) -> tuple[list[JsonValue], int | None]:
+        """Read one page from ``start``: its raw values and the next start, if any."""
+        response = await self._request(
+            client,
+            "GET",
+            path,
+            params={**(params or {}), "start": start, "limit": limit},
+        )
+        try:
+            page = DataCenterPage[JsonValue].model_validate_json(response.content)
+        except PydanticValidationError as e:
+            raise BitbucketError(
+                "Bitbucket Data Center returned an invalid page"
+            ) from e
+        if page.isLastPage:
+            return page.values, None
+        if page.nextPageStart is None or page.nextPageStart <= start:
+            raise BitbucketError("Invalid Data Center pagination")
+        return page.values, page.nextPageStart
 
     async def list_branches(
         self, *, url: GitUrl, limit: int = 100
@@ -2746,73 +2717,63 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
         """Return one page of tags, most recently modified first.
 
         Data Center's tag API has no tag date, so this uses the tagged commit's
-        author date, read with one request per distinct commit. The cursor
-        carries Data Center's ``nextPageStart`` offset.
+        author date, read with one request per distinct commit. The cursor is
+        Data Center's ``nextPageStart`` offset as a decimal string.
         """
         if limit <= 0:
             return [], None
-        start = _decode_tag_cursor(cursor).position if cursor else 0
         async with self._connection(url) as (client, _git, path):
-            response = await self._request(
+            values, next_start = await self._page_at(
                 client,
-                "GET",
                 f"{path}/tags",
-                params={"orderBy": "MODIFICATION", "start": start, "limit": limit},
+                start=_offset(cursor),
+                limit=min(limit, _DATA_CENTER_TAG_PAGE_MAX),
+                params={"orderBy": "MODIFICATION"},
             )
-            with _bitbucket_tag_payload_errors():
-                tag_page = DataCenterPage[DataCenterTag].model_validate_json(
-                    response.content
-                )
-                dates = await self._data_center_commit_dates(
-                    client, path, {tag.latestCommit for tag in tag_page.values}
-                )
+            entries = [
+                tag
+                for value in values
+                if (tag := self._tag_entry(DataCenterTag, value))
+            ]
+            dates = await self._data_center_commit_dates(
+                client, path, {tag.latestCommit for tag in entries}
+            )
         tags = [
             info
-            for tag in tag_page.values
+            for tag in entries
             if (
                 info := self._tag_info(
                     tag.name, tag.latestCommit, dates[tag.latestCommit]
                 )
             )
         ]
-        if tag_page.isLastPage:
-            return tags, None
-        if tag_page.nextPageStart is None or tag_page.nextPageStart <= start:
-            raise BitbucketError("Invalid Data Center pagination")
-        return tags, _encode_tag_cursor(tag_page.nextPageStart, limit)
-
-    async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
-        """Return the commit SHA that ``tag`` points to.
-
-        Filters the tag list by name and takes the exact match, so names
-        containing ``/`` never travel in a URL path.
-        """
-        name = _validated_tag_name(tag)
-        async with self._connection(url) as (client, _git, path):
-            with _bitbucket_tag_payload_errors():
-                candidates = await self._list(
-                    client,
-                    f"{path}/tags",
-                    DataCenterTag,
-                    limit=_DATA_CENTER_TAG_FILTER_LIMIT,
-                    params={"filterText": name},
-                )
-        match = next((c for c in candidates if c.name == name), None)
-        if match is None:
-            raise BitbucketError(f"Tag not found: {name}", status_code=404)
-        return match.latestCommit
+        return tags, str(next_start) if next_start is not None else None
 
     async def _data_center_commit_dates(
         self, client: httpx.AsyncClient, path: str, shas: set[str]
-    ) -> dict[str, str]:
-        """Return each commit's author date, reading commits concurrently."""
+    ) -> dict[str, str | None]:
+        """Return each commit's author date, or ``None`` if it could not be read.
+
+        One unreadable commit leaves its tags undated, so they are skipped
+        instead of failing the whole page.
+        """
         semaphore = asyncio.Semaphore(_DATA_CENTER_TAG_COMMIT_CONCURRENCY)
 
-        async def commit_date(sha: str) -> tuple[str, str]:
-            async with semaphore:
-                commit = await self._model(
-                    client, f"{path}/commits/{quote(sha, safe='')}", DataCenterCommit
+        async def commit_date(sha: str) -> tuple[str, str | None]:
+            try:
+                async with semaphore:
+                    commit = await self._model(
+                        client,
+                        f"{path}/commits/{quote(sha, safe='')}",
+                        DataCenterCommit,
+                    )
+            except BitbucketError as e:
+                self.logger.warning(
+                    "Could not read a tagged commit's date",
+                    commit_sha=sha,
+                    status_code=e.status_code,
                 )
+                return sha, None
             return sha, _data_center_timestamp(commit.authorTimestamp)
 
         return dict(await asyncio.gather(*(commit_date(sha) for sha in shas)))
