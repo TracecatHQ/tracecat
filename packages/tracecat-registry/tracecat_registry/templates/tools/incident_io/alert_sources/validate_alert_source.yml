@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Validate alert source
+  description: >-
+    Check whether an alert source template is valid, without creating or updating anything. Calls
+    POST /v2/alert_sources/actions/validate directly. Requires API key scope: alert_sources.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alert-sources-v2/validate
+  namespace: tools.incident_io
+  name: validate_alert_source
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    owning_team_ids:
+      type: list[str] | None
+      description: IDs of teams that own this alert source
+      default: null
+    source_type:
+      type: str
+      description: >-
+        Type of alert source. Allowed values: `alertmanager`, `app_optics`, `azure_monitor`,
+        `azure_devops`, `big_panda`, `bugsnag`, `checkly`, `chronosphere`, `cloudwatch`,
+        `cloudflare`, `coralogix`, `cronitor`, `crowdstrike_falcon`, `dash0`, `datadog`,
+        `dynatrace`, `elasticsearch`, `email`, `expel`, `git_guardian`, `github_issue`,
+        `google_cloud`, `google_secops`, `grafana`, `heartbeat`, `http`, `http_custom`,
+        `honeycomb`, `icinga2`, `incoming_calls`, `jira`, `jsm`, `logzio`, `monte_carlo`,
+        `nagios`, `new_relic`, `opsgenie`, `prtg`, `pager_duty`, `panther`, `pingdom`, `posthog`,
+        `runscope`, `sns`, `salesforce_case`, `sentry`, `sentry_metric`, `service_now`, `splunk`,
+        `status_cake`, `status_page_views`, `sumo_logic`, `uptime`, `upwind`, `vercel`, `wiz`,
+        `zendesk`.
+    template:
+      type: dict[str, Any]
+      description: >-
+        `template` object. Fields: attributes, description, expressions, is_private, title,
+        visible_to_teams.
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alert_sources/actions/validate
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          owning_team_ids: ${{ inputs.owning_team_ids }}
+          source_type: ${{ inputs.source_type }}
+          template: ${{ inputs.template }}
+  returns: ${{ steps.request.result }}

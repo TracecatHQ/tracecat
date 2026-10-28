@@ -1,0 +1,95 @@
+type: action
+definition:
+  title: Update announcement rule
+  description: >-
+    Update an announcement rule. Calls PUT /v2/announcement_rules/{id} directly. Requires API key
+    scope: announcement_rules.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/announcement-rules-v2/update
+  namespace: tools.incident_io
+  name: update_announcement_rule
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Unique identifier for this announcement rule
+    condition_groups:
+      type: list[dict[str, Any]]
+      description: Incidents are announced when they match any of these condition groups
+    conditions_no_longer_apply_behaviour:
+      type: str | None
+      description: >-
+        Whether to remove announcement posts when the incident no longer matches this rule's
+        conditions. Defaults to leaving them in place. Allowed values: `leave_in_place`, `remove`.
+      default: null
+    microsoft_teams_channel_ids:
+      type: list[str] | None
+      description: >-
+        Microsoft Teams channels to post announcements into, as team_id/channel_id. Required when
+        the organisation uses Microsoft Teams.
+      default: null
+    mode:
+      type: str
+      description: >-
+        Which incidents are announced: live incidents only, or triage incidents too. Allowed
+        values: `live_and_closed`, `include_triage`, `include_triage_and_merged`,
+        `include_declined_and_merged`, `include_all`.
+    name:
+      type: str
+      description: Human readable name for the rule
+    owning_team_ids:
+      type: list[str] | None
+      description: >-
+        IDs of the teams that own this rule. The existing owning teams are kept when omitted.
+      default: null
+    private_incident_scope:
+      type: str | None
+      description: >-
+        Which private incidents this rule announces: every private incident (all), those an owning
+        team can see (owning_teams), or none. Defaults to none on create, and is left unchanged on
+        update when omitted. Allowed values: `all`, `owning_teams`, `none`.
+      default: null
+    slack_channel_ids:
+      type: list[str] | None
+      description: >-
+        IDs of the Slack channels to post announcements into. Required when the organisation uses
+        Slack.
+      default: null
+    template_id:
+      type: str | None
+      description: >-
+        ID of the announcement template used to render this rule's posts. The existing template is
+        kept when omitted.
+      default: null
+    update_sharing_mode:
+      type: str
+      description: >-
+        Where incident updates are shared once the incident is announced. Allowed values: `none`,
+        `thread`, `thread_and_channel`.
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/announcement_rules/${{ FN.url_encode(inputs.id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          condition_groups: ${{ inputs.condition_groups }}
+          conditions_no_longer_apply_behaviour: ${{ inputs.conditions_no_longer_apply_behaviour }}
+          microsoft_teams_channel_ids: ${{ inputs.microsoft_teams_channel_ids }}
+          mode: ${{ inputs.mode }}
+          name: ${{ inputs.name }}
+          owning_team_ids: ${{ inputs.owning_team_ids }}
+          private_incident_scope: ${{ inputs.private_incident_scope }}
+          slack_channel_ids: ${{ inputs.slack_channel_ids }}
+          template_id: ${{ inputs.template_id }}
+          update_sharing_mode: ${{ inputs.update_sharing_mode }}
+  returns: ${{ steps.request.result }}

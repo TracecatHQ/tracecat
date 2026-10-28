@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Update alert note
+  description: >-
+    Replace the content of an alert note. Calls PUT /v1/alert_notes/{id} directly. Requires API
+    key scope: alerts.edit.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alert-notes-v1/update
+  namespace: tools.incident_io
+  name: update_alert_note
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: ID of the alert note
+    content:
+      type: str
+      description: Markdown body of the note
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v1/alert_notes/${{ FN.url_encode(inputs.id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          content: ${{ inputs.content }}
+  returns: ${{ steps.request.result }}

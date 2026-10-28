@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: Update follow up
+  description: >-
+    Update an existing incident follow-up. Calls PUT /v3/follow_ups/{id} directly. Requires API
+    key scope: follow_ups.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/follow-ups-v3/update
+  namespace: tools.incident_io
+  name: update_follow_up
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Unique identifier for the follow-up
+    assignee_id:
+      type: str | None
+      description: ID of the user this follow-up is assigned to. Set to null to unassign.
+      default: null
+    assignee_team_id:
+      type: str | None
+      description: ID of the team this follow-up is assigned to. Set to null to unassign.
+      default: null
+    description:
+      type: str | None
+      description: Description of the follow-up. Supports Markdown.
+      default: null
+    follow_up_category_id:
+      type: str | None
+      description: ID of the category for this follow-up
+      default: null
+    follow_up_priority_option_id:
+      type: str | None
+      description: ID of the priority for this follow-up
+      default: null
+    labels:
+      type: list[str] | None
+      description: Labels associated with this follow-up
+      default: null
+    status:
+      type: str
+      description: >-
+        Status of the follow-up. Setting this to `deleted` is not allowed; use the delete endpoint
+        instead. Allowed values: `outstanding`, `completed`, `deleted`, `not_doing`.
+    title:
+      type: str
+      description: Title of the follow-up
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/follow_ups/${{ FN.url_encode(inputs.id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          assignee_id: ${{ inputs.assignee_id }}
+          assignee_team_id: ${{ inputs.assignee_team_id }}
+          description: ${{ inputs.description }}
+          follow_up_category_id: ${{ inputs.follow_up_category_id }}
+          follow_up_priority_option_id: ${{ inputs.follow_up_priority_option_id }}
+          labels: ${{ inputs.labels }}
+          status: ${{ inputs.status }}
+          title: ${{ inputs.title }}
+  returns: ${{ steps.request.result }}

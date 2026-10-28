@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Create follow up from link
+  description: >-
+    Create a follow-up from the URL of an issue that already exists in an issue tracker. Calls
+    POST /v3/follow_ups/actions/create_from_link directly. Requires API key scope:
+    follow_ups.create_from_link.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/follow-ups-v3/create-from-link
+  namespace: tools.incident_io
+  name: create_follow_up_from_link
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    incident_id:
+      type: str
+      description: Unique identifier of the incident the follow-up belongs to
+    url:
+      type: str
+      description: URL of the issue in the external provider
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/follow_ups/actions/create_from_link
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          incident_id: ${{ inputs.incident_id }}
+          url: ${{ inputs.url }}
+  returns: ${{ steps.request.result }}

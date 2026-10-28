@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: Update alert attribute
+  description: >-
+    Update an alert attribute. Calls PUT /v2/alert_attributes/{id} directly. Requires API key
+    scope: alert_schema.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alert-attributes-v2/update
+  namespace: tools.incident_io
+  name: update_alert_attribute
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: The ID of this attribute
+    array:
+      type: bool
+      description: Whether this attribute is an array
+    emoji:
+      type: str | None
+      description: >-
+        The emoji to display alongside this attribute in chat messages, stored without colons
+      default: null
+    name:
+      type: str
+      description: Unique name of this attribute
+    required:
+      type: bool | None
+      description: >-
+        Whether this attribute is required. If this field is not set, the existing setting will be
+        preserved.
+      default: null
+    type:
+      type: str
+      description: Engine resource name for this attribute
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alert_attributes/${{ FN.url_encode(inputs.id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          array: ${{ inputs.array }}
+          emoji: ${{ inputs.emoji }}
+          name: ${{ inputs.name }}
+          required: ${{ inputs.required }}
+          type: ${{ inputs.type }}
+  returns: ${{ steps.request.result }}

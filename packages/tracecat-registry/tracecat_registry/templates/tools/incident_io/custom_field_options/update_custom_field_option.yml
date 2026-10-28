@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Update custom field option
+  description: >-
+    Update a custom field option. Calls PUT /v1/custom_field_options/{id} directly. Requires API
+    key scope: organisation_settings.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/custom-field-options-v1/update
+  namespace: tools.incident_io
+  name: update_custom_field_option
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Unique identifier for the custom field option
+    sort_key:
+      type: int
+      description: Sort key used to order the custom field options correctly
+    value:
+      type: str
+      description: >-
+        Human readable name for the custom field option. Values must not start or end with
+        whitespace, or contain tabs or newlines.
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v1/custom_field_options/${{ FN.url_encode(inputs.id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          sort_key: ${{ inputs.sort_key }}
+          value: ${{ inputs.value }}
+  returns: ${{ steps.request.result }}

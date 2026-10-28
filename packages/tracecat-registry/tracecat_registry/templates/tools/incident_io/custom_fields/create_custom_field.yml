@@ -1,0 +1,69 @@
+type: action
+definition:
+  title: Create custom field
+  description: >-
+    Create a new custom field. Calls POST /v2/custom_fields directly. Requires API key scope:
+    organisation_settings.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/custom-fields-v2/create
+  namespace: tools.incident_io
+  name: create_custom_field
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    catalog_type_id:
+      type: str | None
+      description: For catalog fields, the ID of the associated catalog type
+      default: null
+    description:
+      type: str
+      description: Description of the custom field
+    field_type:
+      type: str
+      description: >-
+        Type of custom field. Allowed values: `single_select`, `multi_select`, `text`, `link`,
+        `numeric`.
+    filter_by:
+      type: dict[str, Any] | None
+      description: '`filter_by` object. Fields: catalog_attribute_id, custom_field_id.'
+      default: null
+    fixed_filter:
+      type: dict[str, Any] | None
+      description: '`fixed_filter` object. Fields: catalog_attribute_id, values.'
+      default: null
+    group_by_catalog_attribute_id:
+      type: str | None
+      description: >-
+        For catalog fields, the ID of the attribute used to group catalog entries (if applicable)
+      default: null
+    helptext_catalog_attribute_id:
+      type: str | None
+      description: Which catalog attribute provides helptext for the options
+      default: null
+    name:
+      type: str
+      description: Human readable name for the custom field
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/custom_fields
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          catalog_type_id: ${{ inputs.catalog_type_id }}
+          description: ${{ inputs.description }}
+          field_type: ${{ inputs.field_type }}
+          filter_by: ${{ inputs.filter_by }}
+          fixed_filter: ${{ inputs.fixed_filter }}
+          group_by_catalog_attribute_id: ${{ inputs.group_by_catalog_attribute_id }}
+          helptext_catalog_attribute_id: ${{ inputs.helptext_catalog_attribute_id }}
+          name: ${{ inputs.name }}
+  returns: ${{ steps.request.result }}

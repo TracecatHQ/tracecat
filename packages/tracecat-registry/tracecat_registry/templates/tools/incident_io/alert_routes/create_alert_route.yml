@@ -1,0 +1,80 @@
+type: action
+definition:
+  title: Create alert route
+  description: >-
+    Create a new alert route in your account. Calls POST /v3/alert_routes directly. Requires API
+    key scope: alert_route.create.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alert-routes-v3/create
+  namespace: tools.incident_io
+  name: create_alert_route
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    alert_sources:
+      type: list[dict[str, Any]]
+      description: Which alert sources this route matches
+    condition_groups:
+      type: list[dict[str, Any]]
+      description: 'Filter: the condition groups that must be true for this route to fire'
+    enabled:
+      type: bool
+      description: Whether this alert route is enabled
+    escalation_config:
+      type: dict[str, Any]
+      description: >-
+        `escalation_config` object. Fields: auto_cancel_escalations, escalation_targets,
+        when_alert_joins_group.
+    expressions:
+      type: list[dict[str, Any]]
+      description: The expressions used by bindings in this route
+    grouping_config:
+      type: dict[str, Any]
+      description: '`grouping_config` object. Fields: default.'
+    incident_config:
+      type: dict[str, Any]
+      description: >-
+        `incident_config` object. Fields: auto_decline_enabled, condition_groups, enabled,
+        incident_template, membership_teams, template.
+    is_private:
+      type: bool
+      description: >-
+        Whether this alert route is private. Private alert routes only create private incidents
+        from alerts.
+    message_config:
+      type: dict[str, Any]
+      description: '`message_config` object. Fields: destinations, template.'
+    name:
+      type: str
+      description: The name of this alert route, for the user's reference
+    owning_team_ids:
+      type: list[str] | None
+      description: IDs of teams that own this alert route
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/alert_routes
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          alert_sources: ${{ inputs.alert_sources }}
+          condition_groups: ${{ inputs.condition_groups }}
+          enabled: ${{ inputs.enabled }}
+          escalation_config: ${{ inputs.escalation_config }}
+          expressions: ${{ inputs.expressions }}
+          grouping_config: ${{ inputs.grouping_config }}
+          incident_config: ${{ inputs.incident_config }}
+          is_private: ${{ inputs.is_private }}
+          message_config: ${{ inputs.message_config }}
+          name: ${{ inputs.name }}
+          owning_team_ids: ${{ inputs.owning_team_ids }}
+  returns: ${{ steps.request.result }}

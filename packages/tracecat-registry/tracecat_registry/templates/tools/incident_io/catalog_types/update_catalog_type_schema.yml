@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Update catalog type schema
+  description: >-
+    Update an existing catalog types schema, adding or removing attributes. Calls POST
+    /v3/catalog_types/{id}/actions/update_schema directly. Requires API key scope:
+    catalog_types.edit.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/catalog-types-v3/update-type-schema
+  namespace: tools.incident_io
+  name: update_catalog_type_schema
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: ID of this catalog type
+    attributes:
+      type: list[dict[str, Any]]
+      description: >-
+        `attributes` object. Fields: array, backlink_attribute, id, mode, name, path, type.
+    version:
+      type: int
+      description: '`version` object.'
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/catalog_types/${{ FN.url_encode(inputs.id) }}/actions/update_schema
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          attributes: ${{ inputs.attributes }}
+          version: ${{ inputs.version }}
+  returns: ${{ steps.request.result }}

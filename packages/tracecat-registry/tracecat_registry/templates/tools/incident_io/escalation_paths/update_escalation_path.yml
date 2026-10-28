@@ -1,0 +1,78 @@
+type: action
+definition:
+  title: Update escalation path
+  description: >-
+    Updates an escalation path. Calls PUT /v2/escalation_paths/{id} directly. Requires API key
+    scope: escalation_paths.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/escalation-paths-v2/update
+  namespace: tools.incident_io
+  name: update_escalation_path
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Unique identifier for this escalation path.
+    kind:
+      type: str | None
+      description: >-
+        Whether this path carries its own nodes, or is built from an escalation path template.
+        Allowed values: `standalone`, `templated`.
+      default: null
+    name:
+      type: str
+      description: The name of this escalation path, for the user's reference.
+    param_bindings:
+      type: dict[str, Any] | None
+      description: >-
+        For a templated path, the values to bind to the template's declared parameters, keyed by
+        parameter name.
+      default: null
+    path:
+      type: list[dict[str, Any]]
+      description: The nodes that form the levels and branches of this escalation path.
+    repeat_config:
+      type: dict[str, Any] | None
+      description: '`repeat_config` object. Fields: delay_repeat_on_activity, repeat_after_seconds.'
+      default: null
+    team_ids:
+      type: list[str] | None
+      description: >-
+        IDs of the teams that own this escalation path. This will automatically sync escalation
+        paths with the right teams in Catalog. If you have an escalation paths attribute on your
+        Teams, this attribute is required.
+      default: null
+    template_id:
+      type: str | None
+      description: >-
+        For a templated path, the template to build it from. Required when kind is templated.
+      default: null
+    working_hours:
+      type: list[dict[str, Any]] | None
+      description: The working hours for this escalation path.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/escalation_paths/${{ FN.url_encode(inputs.id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          kind: ${{ inputs.kind }}
+          name: ${{ inputs.name }}
+          param_bindings: ${{ inputs.param_bindings }}
+          path: ${{ inputs.path }}
+          repeat_config: ${{ inputs.repeat_config }}
+          team_ids: ${{ inputs.team_ids }}
+          template_id: ${{ inputs.template_id }}
+          working_hours: ${{ inputs.working_hours }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: Create follow up
+  description: >-
+    Create a new incident follow-up. Calls POST /v3/follow_ups directly. Requires API key scope:
+    follow_ups.create.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/follow-ups-v3/create
+  namespace: tools.incident_io
+  name: create_follow_up
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    assignee_id:
+      type: str | None
+      description: ID of the user this follow-up is assigned to
+      default: null
+    assignee_team_id:
+      type: str | None
+      description: ID of the team this follow-up is assigned to
+      default: null
+    description:
+      type: str | None
+      description: Description of the follow-up. Supports Markdown.
+      default: null
+    external_issue_reference_id:
+      type: str | None
+      description: If this follow-up is related to an external issue, the ID of that issue
+      default: null
+    follow_up_category_id:
+      type: str | None
+      description: ID of the category for this follow-up
+      default: null
+    follow_up_priority_option_id:
+      type: str | None
+      description: ID of the priority for this follow-up
+      default: null
+    incident_id:
+      type: str
+      description: Unique identifier of the incident the follow-up belongs to
+    labels:
+      type: list[str] | None
+      description: Labels associated with this follow-up
+      default: null
+    title:
+      type: str
+      description: Title of the follow-up
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/follow_ups
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          assignee_id: ${{ inputs.assignee_id }}
+          assignee_team_id: ${{ inputs.assignee_team_id }}
+          description: ${{ inputs.description }}
+          external_issue_reference_id: ${{ inputs.external_issue_reference_id }}
+          follow_up_category_id: ${{ inputs.follow_up_category_id }}
+          follow_up_priority_option_id: ${{ inputs.follow_up_priority_option_id }}
+          incident_id: ${{ inputs.incident_id }}
+          labels: ${{ inputs.labels }}
+          title: ${{ inputs.title }}
+  returns: ${{ steps.request.result }}

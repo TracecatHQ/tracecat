@@ -1,0 +1,115 @@
+type: action
+definition:
+  title: Update alert source
+  description: >-
+    Update an existing alert source in your account. Calls PUT /v2/alert_sources/{id} directly.
+    Requires API key scope: alert_source.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alert-sources-v2/update
+  namespace: tools.incident_io
+  name: update_alert_source
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: The ID of this alert source
+    auto_resolve_incident_alerts:
+      type: bool | None
+      description: >-
+        Whether alerts from this source keep counting down to auto-resolve while attached to an
+        incident. Defaults to true. Has no effect without auto_resolve_timeout_minutes.
+      default: null
+    auto_resolve_timeout_minutes:
+      type: int | None
+      description: >-
+        When set, alerts from this source will automatically resolve after this many minutes.
+      default: null
+    azure_devops_options:
+      type: dict[str, Any] | None
+      description: '`azure_devops_options` object. Fields: project_ids.'
+      default: null
+    disabled:
+      type: bool | None
+      description: For heartbeat sources, set to true to disable monitoring
+      default: null
+    email_options:
+      type: dict[str, Any] | None
+      description: '`email_options` object. Fields: redactions, transform_expression.'
+      default: null
+    filter_condition_groups:
+      type: list[dict[str, Any]] | None
+      description: >-
+        Conditions an incoming event must match to be ingested from this source, evaluated against
+        the event's payload and this source's expressions. When empty, everything is ingested;
+        otherwise a firing event that doesn't match is dropped and never creates or updates an
+        alert. Resolve events are never filtered. Omit to leave unchanged.
+      default: null
+    fixed_team_id:
+      type: str | None
+      description: >-
+        Fix the team every alert from this source is attributed to. While set, the team attribute
+        is managed from this field: a team binding sent in the template is ignored. Omit to leave
+        unchanged; set to an empty string to clear it, making the team attribute editable again.
+      default: null
+    heartbeat_options:
+      type: dict[str, Any] | None
+      description: >-
+        `heartbeat_options` object. Fields: failure_threshold, grace_period_seconds,
+        interval_seconds.
+      default: null
+    http_custom_options:
+      type: dict[str, Any] | None
+      description: >-
+        `http_custom_options` object. Fields: deduplication_key_path, transform_expression.
+      default: null
+    jira_options:
+      type: dict[str, Any] | None
+      description: '`jira_options` object. Fields: project_ids.'
+      default: null
+    name:
+      type: str
+      description: Unique name of the alert source
+    owning_team_ids:
+      type: list[str] | None
+      description: IDs of teams that own this alert source
+      default: null
+    rate_limit_sharding:
+      type: dict[str, Any] | None
+      description: Controls how this source's ingest rate limit is split into buckets.
+      default: null
+    template:
+      type: dict[str, Any]
+      description: >-
+        `template` object. Fields: attributes, description, expressions, is_private, title,
+        visible_to_teams.
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alert_sources/${{ FN.url_encode(inputs.id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          auto_resolve_incident_alerts: ${{ inputs.auto_resolve_incident_alerts }}
+          auto_resolve_timeout_minutes: ${{ inputs.auto_resolve_timeout_minutes }}
+          azure_devops_options: ${{ inputs.azure_devops_options }}
+          disabled: ${{ inputs.disabled }}
+          email_options: ${{ inputs.email_options }}
+          filter_condition_groups: ${{ inputs.filter_condition_groups }}
+          fixed_team_id: ${{ inputs.fixed_team_id }}
+          heartbeat_options: ${{ inputs.heartbeat_options }}
+          http_custom_options: ${{ inputs.http_custom_options }}
+          jira_options: ${{ inputs.jira_options }}
+          name: ${{ inputs.name }}
+          owning_team_ids: ${{ inputs.owning_team_ids }}
+          rate_limit_sharding: ${{ inputs.rate_limit_sharding }}
+          template: ${{ inputs.template }}
+  returns: ${{ steps.request.result }}

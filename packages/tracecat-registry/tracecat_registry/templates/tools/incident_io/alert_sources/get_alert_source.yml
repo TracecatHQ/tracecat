@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Get alert source
+  description: >-
+    Load details about a specific alert source in your account. Calls GET /v2/alert_sources/{id}
+    directly. Requires API key scope: alert_sources.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alert-sources-v2/show
+  namespace: tools.incident_io
+  name: get_alert_source
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: The ID of this alert source
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alert_sources/${{ FN.url_encode(inputs.id) }}
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+  returns: ${{ steps.request.result }}

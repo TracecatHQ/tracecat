@@ -1,0 +1,160 @@
+type: action
+definition:
+  title: List alerts
+  description: >-
+    List all alerts for your account. ```bash. Calls GET /v2/alerts directly. Requires API key
+    scope: alerts.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alerts-v2/list
+  namespace: tools.incident_io
+  name: list_alerts
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    page_size:
+      type: int | None
+      description: Number of alerts to return per page. Maximum 50.
+      default: null
+    after:
+      type: str | None
+      description: If provided, pass this as the 'after' param to load the next page
+      default: null
+    deduplication_key_is:
+      type: str | None
+      description: >-
+        Filter on alert deduplication key. The accepted operator is 'is'. Value for the `is`
+        operator.
+      default: null
+    status_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on alert status. The accepted operators are 'one_of', or 'not_in'. Value for the
+        `one_of` operator.
+      default: null
+    status_not_in:
+      type: list[str] | None
+      description: >-
+        Filter on alert status. The accepted operators are 'one_of', or 'not_in'. Value for the
+        `not_in` operator.
+      default: null
+    alert_source_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on alert source by ID. The accepted operators are 'one_of', or 'not_in'. Value for
+        the `one_of` operator.
+      default: null
+    alert_source_not_in:
+      type: list[str] | None
+      description: >-
+        Filter on alert source by ID. The accepted operators are 'one_of', or 'not_in'. Value for
+        the `not_in` operator.
+      default: null
+    alert_group_id_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on alert group ID. Returns alerts that belong to any of the specified groups. The
+        accepted operator is 'one_of'. Value for the `one_of` operator.
+      default: null
+    created_at_gte:
+      type: str | None
+      description: >-
+        Filter on alert created at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `gte` operator.
+      default: null
+    created_at_lte:
+      type: str | None
+      description: >-
+        Filter on alert created at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `lte` operator.
+      default: null
+    created_at_date_range:
+      type: str | None
+      description: >-
+        Filter on alert created at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example
+        `2024-12-02~2024-12-08`.
+      default: null
+    updated_at_gte:
+      type: str | None
+      description: >-
+        Filter on alert updated at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `gte` operator.
+      default: null
+    updated_at_lte:
+      type: str | None
+      description: >-
+        Filter on alert updated at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `lte` operator.
+      default: null
+    updated_at_date_range:
+      type: str | None
+      description: >-
+        Filter on alert updated at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example
+        `2024-12-02~2024-12-08`.
+      default: null
+    has_notes_is:
+      type: str | None
+      description: >-
+        Filter on whether an alert has notes. The accepted operator is 'is'. Value for the `is`
+        operator.
+      default: null
+    tags_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on the tags applied to an alert, by tag name. The accepted operators are 'one_of',
+        'all_of' and 'not_in'. Value for the `one_of` operator.
+      default: null
+    tags_all_of:
+      type: list[str] | None
+      description: >-
+        Filter on the tags applied to an alert, by tag name. The accepted operators are 'one_of',
+        'all_of' and 'not_in'. Value for the `all_of` operator.
+      default: null
+    tags_not_in:
+      type: list[str] | None
+      description: >-
+        Filter on the tags applied to an alert, by tag name. The accepted operators are 'one_of',
+        'all_of' and 'not_in'. Value for the `not_in` operator.
+      default: null
+    include_maintenance_window_is:
+      type: str | None
+      description: >-
+        Filter on whether to include maintenance window alerts. The accepted operator is 'is'.
+        Value for the `is` operator.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alerts
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          page_size: ${{ inputs.page_size }}
+          after: ${{ inputs.after }}
+          deduplication_key[is]: ${{ inputs.deduplication_key_is }}
+          status[one_of]: ${{ inputs.status_one_of }}
+          status[not_in]: ${{ inputs.status_not_in }}
+          alert_source[one_of]: ${{ inputs.alert_source_one_of }}
+          alert_source[not_in]: ${{ inputs.alert_source_not_in }}
+          alert_group_id[one_of]: ${{ inputs.alert_group_id_one_of }}
+          created_at[gte]: ${{ inputs.created_at_gte }}
+          created_at[lte]: ${{ inputs.created_at_lte }}
+          created_at[date_range]: ${{ inputs.created_at_date_range }}
+          updated_at[gte]: ${{ inputs.updated_at_gte }}
+          updated_at[lte]: ${{ inputs.updated_at_lte }}
+          updated_at[date_range]: ${{ inputs.updated_at_date_range }}
+          has_notes[is]: ${{ inputs.has_notes_is }}
+          tags[one_of]: ${{ inputs.tags_one_of }}
+          tags[all_of]: ${{ inputs.tags_all_of }}
+          tags[not_in]: ${{ inputs.tags_not_in }}
+          include_maintenance_window[is]: ${{ inputs.include_maintenance_window_is }}
+  returns: ${{ steps.request.result }}

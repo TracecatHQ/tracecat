@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Bulk update catalog entries
+  description: >-
+    Update multiple catalog entries in a single operation. You can update up to 250 entries at
+    once. This operation is atomic - either all entries are updated successfully, or none are
+    updated. Calls POST /v3/catalog_entries/actions/bulk_update directly. Requires API key scope:
+    catalog_entries.edit.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/catalog-entries-v3/bulk-update-entries
+  namespace: tools.incident_io
+  name: bulk_update_catalog_entries
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    catalog_type_id:
+      type: str
+      description: The unique identifier of the catalog type containing the entries
+    entries:
+      type: list[dict[str, Any]]
+      description: >-
+        A list of entries to update with their new values. Maximum 250 entries per request.
+    update_attributes:
+      type: list[str] | None
+      description: >-
+        Optional list of specific attribute IDs to update across all entries. When provided, only
+        these attributes in attribute_values will be updated and all other attributes will be
+        preserved. This parameter only affects attribute_values - it does not affect core entry
+        fields like name, rank, aliases, or external_id, which follow their individual omission
+        rules.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/catalog_entries/actions/bulk_update
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          catalog_type_id: ${{ inputs.catalog_type_id }}
+          entries: ${{ inputs.entries }}
+          update_attributes: ${{ inputs.update_attributes }}
+  returns: ${{ steps.request.result }}

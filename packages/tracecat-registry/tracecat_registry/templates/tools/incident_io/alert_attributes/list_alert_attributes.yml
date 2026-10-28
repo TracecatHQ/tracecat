@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: List alert attributes
+  description: >-
+    List alert attributes. Calls GET /v2/alert_attributes directly. Requires API key scope:
+    alert_schema.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alert-attributes-v2/list
+  namespace: tools.incident_io
+  name: list_alert_attributes
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alert_attributes
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+  returns: ${{ steps.request.result }}

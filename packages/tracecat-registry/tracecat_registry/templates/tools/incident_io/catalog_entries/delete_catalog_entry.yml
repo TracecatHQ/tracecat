@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Delete catalog entry
+  description: >-
+    Archives a catalog entry. Calls DELETE /v3/catalog_entries/{id} directly. Requires API key
+    scope: catalog_entries.destroy.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/catalog-entries-v3/delete-entry
+  namespace: tools.incident_io
+  name: delete_catalog_entry
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: ID of this catalog entry
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/catalog_entries/${{ FN.url_encode(inputs.id) }}
+        method: DELETE
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+  returns: ${{ steps.request.result }}
