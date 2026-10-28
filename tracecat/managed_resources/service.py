@@ -29,13 +29,8 @@ class ManagedResourceService(BaseWorkspaceService):
         Returns:
             The managed resource row, or None when the resource is unmanaged.
         """
-        stmt = select(ManagedResource).where(
-            ManagedResource.workspace_id == self.workspace_id,
-            ManagedResource.resource_type == resource_type,
-            ManagedResource.local_id == local_id,
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        rows = await self.get_managed_resources(resource_type, [local_id])
+        return rows.get(local_id)
 
     async def get_managed_resources(
         self, resource_type: SyncResourceType, local_ids: Collection[uuid.UUID]
