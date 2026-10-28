@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from tracecat import config
 from tracecat.cases.text_search import (
     MAX_EXCERPT_LENGTH,
     build_case_text_expressions,
@@ -217,7 +218,10 @@ async def test_excerpt_batch_skips_empty_inputs_and_bounds_returned_ids() -> Non
 
 
 @pytest.mark.anyio
-async def test_execution_settings_are_transaction_local_and_restored() -> None:
+async def test_execution_settings_are_transaction_local_and_restored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 30_000)
     session = AsyncMock()
     session.scalar.side_effect = ["0", "0.5"]
     async with case_search_execution_context(session):
@@ -233,7 +237,10 @@ async def test_execution_settings_are_transaction_local_and_restored() -> None:
 
 
 @pytest.mark.anyio
-async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings() -> None:
+async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 30_000)
     session = AsyncMock()
     session.scalar.return_value = "0"
     async with case_search_execution_context(session, use_trigram_threshold=False):

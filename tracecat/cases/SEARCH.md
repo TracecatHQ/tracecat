@@ -201,9 +201,9 @@ localized helper signatures/bodies, fixed simple configuration, the two trigram
 index definitions, the stored-vector trigger, its function attributes and body,
 and the four stored-vector index definitions/readiness. Missing prerequisites
 produce shared typed availability errors rather than a silent sequential-search
-fallback. The
-existing signed paginator fingerprints query values, ordering, and lexical
-mode/columns/configuration generation; incompatible continuations are rejected.
+fallback. The existing signed paginator fingerprints query values, ordering,
+and lexical mode/columns/configuration generation; incompatible continuations
+are rejected.
 
 Synthetic benchmarks cover four workspaces, selective/broad queries, exact/
 phrase/fuzzy judgments, write cost, and complete-source oversized documents.

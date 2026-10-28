@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Literal, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
 
 import orjson
 import sqlalchemy as sa
@@ -91,7 +91,7 @@ class _SearchField:
 
     name: CaseTextField
     source: sa.SQLColumnExpression[str]
-    vector: ColumnElement[str]
+    vector: ColumnElement[Any]
 
 
 _SEARCH_FIELDS = (
