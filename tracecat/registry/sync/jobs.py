@@ -21,7 +21,11 @@ from tracecat.db.engine import (
     get_async_engine,
     get_async_session_bypass_rls_context_manager,
 )
-from tracecat.db.locks import derive_lock_key_from_parts, hold_pg_advisory_xact_lock
+from tracecat.db.locks import (
+    derive_lock_key_from_parts,
+    hold_pg_advisory_xact_lock,
+    require_lock_holder_on_commit,
+)
 from tracecat.db.models import PlatformRegistryVersion
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
@@ -126,13 +130,14 @@ async def sync_platform_registry_on_startup() -> None:
         # several times, so the lock is held on its own connection.
         async with hold_pg_advisory_xact_lock(
             get_async_engine(), PLATFORM_SYNC_LOCK_KEY, wait=False
-        ) as acquired:
-            if not acquired:
+        ) as holder:
+            if holder is None:
                 logger.info(
                     "Another process is handling platform registry sync, exiting"
                 )
                 return
             async with get_async_session_bypass_rls_context_manager() as session:
+                require_lock_holder_on_commit(session, holder)
                 artifact_build = await _sync_as_leader(session, target_version)
 
         # This coroutine itself is supervised by the API lifespan. Awaiting the

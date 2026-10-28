@@ -5,8 +5,9 @@ import uuid
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
+from sqlalchemy.orm import Session
 
 from tracecat.identifiers import WorkspaceID
 
@@ -14,14 +15,15 @@ from tracecat.identifiers import WorkspaceID
 @asynccontextmanager
 async def hold_pg_advisory_xact_lock(
     engine: AsyncEngine, key: int, *, wait: bool = True
-) -> AsyncIterator[bool]:
+) -> AsyncIterator[AsyncConnection | None]:
     """Hold a transaction-scoped lock on a dedicated connection.
 
     The lock's transaction stays open until the context exits, so work that
     commits several times on other connections stays serialized. The lock
     never outlives that transaction, which keeps it correct behind a
     transaction-mode connection pooler. Finish the protected work inside the
-    context so a waiter starts only after that work has committed.
+    context so a waiter starts only after that work has committed, and guard
+    its sessions with ``require_lock_holder_on_commit``.
 
     Args:
         engine: Engine to check the lock connection out of
@@ -29,7 +31,7 @@ async def hold_pg_advisory_xact_lock(
         wait: Block until the lock is free instead of trying once
 
     Yields:
-        Whether the lock was acquired; always True when ``wait`` is set
+        The holder connection, or None if ``wait`` is unset and the lock is held
 
     Raises:
         ValueError: If key is out of valid range for PostgreSQL advisory locks
@@ -45,7 +47,26 @@ async def hold_pg_advisory_xact_lock(
             text("SET LOCAL idle_in_transaction_session_timeout = 0")
         )
         result = await connection.execute(text(f"SELECT {lock_fn}(:key)"), {"key": key})
-        yield wait or result.scalar() is True
+        yield connection if wait or result.scalar() is True else None
+
+
+def require_lock_holder_on_commit(
+    session: AsyncSession, holder: AsyncConnection
+) -> None:
+    """Fail each commit of ``session`` once the holder's lock transaction ended.
+
+    If the holder connection drops, PostgreSQL releases its lock while this
+    session's connection stays usable. Checking the holder first keeps a
+    commit from landing after another process has taken the lock.
+    """
+
+    if (holder_connection := holder.sync_connection) is None:
+        raise RuntimeError("Lock holder connection is not open")
+
+    def check_holder(_session: Session) -> None:
+        holder_connection.exec_driver_sql("SELECT 1")
+
+    event.listen(session.sync_session, "before_commit", check_holder)
 
 
 async def try_pg_advisory_xact_lock(session: AsyncSession, key: int) -> bool:

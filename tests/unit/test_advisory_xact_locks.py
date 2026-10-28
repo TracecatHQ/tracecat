@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 from tracecat_ee.tunnels import gateways
@@ -38,8 +39,8 @@ def _lock_key() -> int:
 async def _lock_is_free(key: int) -> bool:
     async with hold_pg_advisory_xact_lock(
         get_async_engine(), key, wait=False
-    ) as acquired:
-        return acquired
+    ) as holder:
+        return holder is not None
 
 
 async def test_held_lock_blocks_waiters_and_fails_tries() -> None:
@@ -50,8 +51,8 @@ async def test_held_lock_blocks_waiters_and_fails_tries() -> None:
         async with hold_pg_advisory_xact_lock(get_async_engine(), key):
             waiter_acquired.set()
 
-    async with hold_pg_advisory_xact_lock(get_async_engine(), key) as acquired:
-        assert acquired
+    async with hold_pg_advisory_xact_lock(get_async_engine(), key) as holder:
+        assert holder is not None
         waiter = asyncio.create_task(wait_for_lock())
         await asyncio.sleep(CONTENTION_WINDOW)
         assert not waiter_acquired.is_set()
@@ -121,6 +122,35 @@ async def test_serialized_session_waiter_sees_every_commit_of_the_holder() -> No
         release_holder.set()
         await asyncio.wait_for(holder_task, timeout=10)
         assert await asyncio.wait_for(waiter_task, timeout=10) == 2
+    finally:
+        async with get_async_engine().begin() as connection:
+            await connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
+
+
+async def test_serialized_session_cannot_commit_after_losing_the_lock() -> None:
+    """A dropped holder connection fails the work commit instead of racing."""
+    key = _lock_key()
+    table = f"lock_probe_{uuid.uuid4().hex}"
+    async with get_async_engine().begin() as connection:
+        await connection.execute(text(f"CREATE TABLE {table} (n integer)"))
+    try:
+        async with get_serialized_session(key) as session:
+            await session.execute(text(f"INSERT INTO {table} VALUES (1)"))
+            async with get_async_engine().connect() as admin:
+                await admin.execute(
+                    text(
+                        "SELECT pg_terminate_backend(pid) FROM pg_locks"
+                        " WHERE locktype = 'advisory' AND granted"
+                        " AND classid = :high AND objid = :low AND objsubid = 1"
+                    ),
+                    {"high": key >> 32, "low": key & 0xFFFFFFFF},
+                )
+            assert await _lock_is_free(key)
+            with pytest.raises(DBAPIError):
+                await session.commit()
+        async with get_async_engine().connect() as connection:
+            count = await connection.execute(text(f"SELECT count(*) FROM {table}"))
+            assert count.scalar_one() == 0
     finally:
         async with get_async_engine().begin() as connection:
             await connection.execute(text(f"DROP TABLE IF EXISTS {table}"))

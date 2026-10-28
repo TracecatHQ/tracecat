@@ -560,8 +560,8 @@ async def _lock_is_free(key: int) -> bool:
 
     async with hold_pg_advisory_xact_lock(
         get_async_engine(), key, wait=False
-    ) as acquired:
-        return acquired
+    ) as holder:
+        return holder is not None
 
 
 @pytest.mark.anyio

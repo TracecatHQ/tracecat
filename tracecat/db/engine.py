@@ -24,7 +24,10 @@ from tracecat.db.exceptions import (
     AuthPoolExhaustedError,
     DatabasePoolAcquisitionOrderError,
 )
-from tracecat.db.locks import hold_pg_advisory_xact_lock
+from tracecat.db.locks import (
+    hold_pg_advisory_xact_lock,
+    require_lock_holder_on_commit,
+)
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
 # Global so we don't create more than one engine per process.
@@ -447,10 +450,12 @@ async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, 
     engine = get_async_engine()
     # The lock lives on its own connection so the snapshot transaction begins
     # after the previous holder committed, and may commit more than once.
-    async with hold_pg_advisory_xact_lock(engine, lock_key):
+    async with hold_pg_advisory_xact_lock(engine, lock_key) as holder:
+        assert holder is not None
         async with engine.connect() as connection:
             await connection.execution_options(isolation_level="SERIALIZABLE")
             async with AsyncSession(connection, expire_on_commit=False) as session:
+                require_lock_holder_on_commit(session, holder)
                 await _initialize_session_rls_context(session)
                 yield session
 
