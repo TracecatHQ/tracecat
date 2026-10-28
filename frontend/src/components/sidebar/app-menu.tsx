@@ -7,6 +7,7 @@ import {
   CircleCheck,
   Plus,
   RadarIcon,
+  SearchIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -47,6 +48,9 @@ import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 
+/** Show the workspace search input once the list grows past this size. */
+const WORKSPACE_SEARCH_THRESHOLD = 5
+
 export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
   const { workspaces, createWorkspace } = useWorkspaceManager()
@@ -63,6 +67,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
+  const [workspaceSearch, setWorkspaceSearch] = useState("")
 
   // SCIM-only administrators land on SCIM, which needs the plan entitlement.
   const canOpenScim =
@@ -71,6 +76,14 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
     !entitlementsLoading &&
     hasEntitlement("rbac_addons")
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
+  const showWorkspaceSearch =
+    (workspaces?.length ?? 0) > WORKSPACE_SEARCH_THRESHOLD
+  const normalizedSearch = workspaceSearch.trim().toLowerCase()
+  const filteredWorkspaces = normalizedSearch
+    ? workspaces?.filter((ws) =>
+        ws.name.toLowerCase().includes(normalizedSearch)
+      )
+    : workspaces
   const showOrganizationSelector = (organizations?.length ?? 0) > 1
   const canCreateAdditionalWorkspace =
     canCreateWorkspace === true &&
@@ -108,6 +121,30 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       .toUpperCase()
   }
 
+  const handleWorkspaceSearchKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (e.key === "Escape") return
+    if (e.key === "ArrowDown") {
+      // Hand focus to the first menu item so arrow navigation continues.
+      e.preventDefault()
+      e.currentTarget
+        .closest('[role="menu"]')
+        ?.querySelector<HTMLElement>('[role="menuitem"]')
+        ?.focus()
+      return
+    }
+    // Keep Radix typeahead from stealing keystrokes meant for the input.
+    e.stopPropagation()
+    if (e.key === "Enter") {
+      const match = filteredWorkspaces?.[0]
+      if (match) {
+        e.preventDefault()
+        router.push(getWorkspaceLandingPath(match.id))
+      }
+    }
+  }
+
   const handleSelectOrganization = (organizationId: string) => {
     if (organizationId === activeOrganization?.id) {
       return
@@ -126,7 +163,11 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        <DropdownMenu
+          onOpenChange={(open) => {
+            if (!open) setWorkspaceSearch("")
+          }}
+        >
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="default"
@@ -148,7 +189,28 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
               Workspaces
             </DropdownMenuLabel>
-            {workspaces?.map((workspace) => (
+            {showWorkspaceSearch && (
+              <div className="sticky top-0 z-10 bg-popover px-1 pb-1">
+                <div className="relative">
+                  <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    autoFocus
+                    value={workspaceSearch}
+                    onChange={(e) => setWorkspaceSearch(e.target.value)}
+                    onKeyDown={handleWorkspaceSearchKeyDown}
+                    placeholder="Search workspaces..."
+                    aria-label="Search workspaces"
+                    className="h-8 pl-7 text-xs"
+                  />
+                </div>
+              </div>
+            )}
+            {filteredWorkspaces?.length === 0 && (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                No workspaces found
+              </div>
+            )}
+            {filteredWorkspaces?.map((workspace) => (
               <DropdownMenuItem key={workspace.id} asChild>
                 <Link
                   key={workspace.id}
