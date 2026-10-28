@@ -77,7 +77,7 @@ class WordMigration(Protocol):
     _WORDS_FUNCTION_SQL: str
     _TRIGGER_FUNCTION_SQL: str
     _TRIGGER_SQL: str
-    _TABLE_INDEXES: tuple[str, ...]
+    _TABLE_INDEXES: tuple[tuple[str, str], ...]
     _WORD_INDEXES: tuple[tuple[str, str], ...]
 
     def upgrade(self) -> None: ...

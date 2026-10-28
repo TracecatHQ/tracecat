@@ -30,7 +30,7 @@ CASE_SEARCH_WORDS_TRIGGER = "trg_case_search_words"
 CASE_SEARCH_WORDS_TRIGGER_FUNCTION = "tracecat_case_search_words_v1"
 CASE_SEARCH_WORDS_TRIGGER_BODY_HASH = "d48a65db907b7efea28d3277250298d8"
 CASE_WORDS_FUNCTION = "tracecat_case_words_v1"
-CASE_WORDS_BODY_HASH = "c63966a4aca47c18354e00508920ffa1"
+CASE_WORDS_BODY_HASH = "c1884ffb8b8da892b01688030163fe80"
 CASE_SEARCH_WORD_INDEXES = {
     "ix_case_summary_words": 'CREATE INDEX ix_case_summary_words ON public."case" USING gin (summary_words)',
     "ix_case_description_words": 'CREATE INDEX ix_case_description_words ON public."case" USING gin (description_words)',

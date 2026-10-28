@@ -49,12 +49,18 @@ _BACKFILL_BATCH = 1000
 # Digit-only words share no trigram with a letters-only typo term, and a word
 # with more than 50 distinct trigrams cannot reach 0.65 similarity with a term
 # of at most 32 letters (33 trigrams / 0.65 < 51), so neither is stored.
+# A longer word with few distinct trigrams (a repeated short pattern) could
+# still match, but may exceed the B-tree and GIN entry limit (about 2.7 kB).
+# Dropping it would lose matches, so its whole source gets the NULL fallback.
 _WORDS_BODY = r"""
-SELECT CASE WHEN octet_length(source_text) <= 8192 THEN ARRAY(
-    SELECT DISTINCT w.word
-    FROM regexp_split_to_table(lower(source_text), '[^[:alnum:]]+') AS w(word)
-    WHERE w.word ~ '[^0-9]' AND cardinality(public.show_trgm(w.word)) <= 50
-    ORDER BY w.word
+SELECT CASE WHEN octet_length(source_text) <= 8192 THEN (
+    SELECT CASE WHEN bool_or(octet_length(w.word) > 1000) THEN NULL
+        ELSE coalesce(array_agg(w.word ORDER BY w.word), '{}') END
+    FROM (
+        SELECT DISTINCT t.word
+        FROM regexp_split_to_table(lower(source_text), '[^[:alnum:]]+') AS t(word)
+        WHERE t.word ~ '[^0-9]' AND cardinality(public.show_trgm(t.word)) <= 50
+    ) AS w
 ) END
 """.strip()
 _WORDS_FUNCTION_SQL = f"""CREATE FUNCTION public.{_WORDS_FUNCTION}(source_text text)
@@ -103,12 +109,17 @@ _TABLE_SQL = f"""CREATE TABLE public.{_TABLE} (
         REFERENCES public.workspace (id) ON DELETE CASCADE
 )"""
 # The table is new and empty, so its indexes are built in the transaction
-# before the backfill needs them.
+# before the backfill needs them. Definitions use the unqualified operator
+# class that pg_get_indexdef() reports when public is on the search_path.
 _TABLE_INDEXES = (
-    f"CREATE INDEX IF NOT EXISTS ix_{_TABLE}_workspace_id_word "
-    f"ON public.{_TABLE} USING btree (workspace_id, word)",
-    f"CREATE INDEX IF NOT EXISTS ix_{_TABLE}_word_trgm "
-    f"ON public.{_TABLE} USING gin (word public.gin_trgm_ops)",
+    (
+        f"ix_{_TABLE}_workspace_id_word",
+        f"CREATE INDEX ix_{_TABLE}_workspace_id_word ON public.{_TABLE} USING btree (workspace_id, word)",
+    ),
+    (
+        f"ix_{_TABLE}_word_trgm",
+        f"CREATE INDEX ix_{_TABLE}_word_trgm ON public.{_TABLE} USING gin (word gin_trgm_ops)",
+    ),
 )
 # Each definition is exactly what pg_get_indexdef() reports once it is built.
 _WORD_INDEXES = (
@@ -253,7 +264,8 @@ def _index_state(name: str, definition: str) -> _IndexState:
     )
     if row is None:
         return "absent"
-    if row[0] != definition:
+    # The operator class is schema-qualified when public is not on search_path.
+    if row[0].replace(" public.gin_trgm_ops)", " gin_trgm_ops)") != definition:
         raise RuntimeError(
             f"Index public.{name} has an incompatible existing definition ({row[0]}); "
             "preserve it and resolve the name collision before retrying."
@@ -328,7 +340,8 @@ def upgrade() -> None:
     function_exists = _check_trigger_function()
     trigger_exists = _check_trigger()
     states = {
-        name: _index_state(name, definition) for name, definition in _WORD_INDEXES
+        name: _index_state(name, definition)
+        for name, definition in (*_TABLE_INDEXES, *_WORD_INDEXES)
     }
 
     # Adding nullable columns is catalog-only, but ALTER TABLE and CREATE
@@ -343,8 +356,14 @@ def upgrade() -> None:
     )
     if not table_columns:
         op.execute(_TABLE_SQL)
-    for statement in _TABLE_INDEXES:
-        op.execute(statement)
+    for name, definition in _TABLE_INDEXES:
+        if states[name] == "invalid":
+            op.execute(f'DROP INDEX IF EXISTS public."{name}"')
+        op.execute(
+            definition.replace(
+                "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1
+            ).replace(" gin_trgm_ops)", " public.gin_trgm_ops)")
+        )
     if not words_exists:
         op.execute(_WORDS_FUNCTION_SQL)
     if not function_exists:

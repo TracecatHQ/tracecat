@@ -91,9 +91,7 @@ async def provision_case_search(session: AsyncSession) -> None:
     await session.execute(
         sa.text(words._TRIGGER_SQL.replace("CREATE ", "CREATE OR REPLACE ", 1))
     )
-    for statement in words._TABLE_INDEXES:
-        await session.execute(sa.text(statement))
-    for _, definition in words._WORD_INDEXES:
+    for _, definition in (*words._TABLE_INDEXES, *words._WORD_INDEXES):
         await session.execute(
             sa.text(
                 definition.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)

@@ -118,7 +118,8 @@ A third migration stores each field's distinct lowercase words in
 vectors, and adds a moved case's words to its new workspace. Lists omit
 digit-only words and words with more than 50 distinct trigrams: neither can
 reach 0.65 similarity with a typo unit of at most 32 letters. A source over
-8,192 bytes stores a NULL list, and search splits its complete text per row as
+8,192 bytes, or with a remaining word over 1,000 bytes that could exceed an
+index entry, stores a NULL list, and search splits its complete text per row as
 before. The vocabulary has a trigram GIN index and no unique constraint, so
 concurrent case writes never wait on each other's new words; a race may store
 a duplicate, which search ignores. The vocabulary is insert-only. Words of
@@ -176,9 +177,11 @@ functions; it cannot check case helpers before they exist. A migration owner's
 hardened default privileges can withhold helper execution from the API even
 when the migration and index builds succeed.
 
-Case writes run the word-list trigger as the writing role, so that role also
-needs `SELECT` and `INSERT` on `public.case_search_word`; without them case
-creation and edits fail rather than skip the vocabulary.
+Case writes run the word-list trigger as the writing role. Creating a case, or
+changing its summary or description, calls the word-list helper and may add
+vocabulary words, so that role also needs `SELECT` and `INSERT` on
+`public.case_search_word`. Without them those writes fail rather than skip the
+vocabulary; status and other field updates are unaffected.
 
 Run this read-only check with the actual API database credentials. Every row
 must report `schema_usage` and `can_execute` as true:

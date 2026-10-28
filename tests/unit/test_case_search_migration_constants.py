@@ -61,15 +61,10 @@ def test_stored_word_constants_match_word_migration() -> None:
     assert _md5(migration._TRIGGER_BODY) == CASE_SEARCH_WORDS_TRIGGER_BODY_HASH
     assert migration._WORDS_FUNCTION == CASE_WORDS_FUNCTION
     assert _md5(migration._WORDS_BODY) == CASE_WORDS_BODY_HASH
-    # The vocabulary indexes are created with IF NOT EXISTS in the migration
-    # and reported with an unqualified operator class by readiness.
-    vocabulary = {
-        statement.split()[5]: statement.replace("IF NOT EXISTS ", "").replace(
-            "public.gin_trgm_ops", "gin_trgm_ops"
-        )
-        for statement in migration._TABLE_INDEXES
-    }
-    assert {**dict(migration._WORD_INDEXES), **vocabulary} == CASE_SEARCH_WORD_INDEXES
+    assert {
+        **dict(migration._TABLE_INDEXES),
+        **dict(migration._WORD_INDEXES),
+    } == CASE_SEARCH_WORD_INDEXES
 
 
 def test_stored_word_filters_cannot_drop_a_possible_typo_match() -> None:
@@ -82,7 +77,7 @@ def test_stored_word_filters_cannot_drop_a_possible_typo_match() -> None:
     migration = _load("e4fd31674ae9_store_case_search_words.py")
     assert _FUZZY_WORD.pattern == "[a-zA-Z]{5,32}"
     assert int((32 + 1) / FUZZY_THRESHOLD) == 50
-    assert "cardinality(public.show_trgm(w.word)) <= 50" in migration._WORDS_BODY
+    assert "cardinality(public.show_trgm(t.word)) <= 50" in migration._WORDS_BODY
     assert f"octet_length(source_text) <= {CASE_TEXT_DOCUMENT_BYTES}" in (
         migration._WORDS_BODY
     )

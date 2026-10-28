@@ -12,6 +12,7 @@ from tests.integration.test_case_text_search_postgres import (
     OTHER_WORKSPACE,
     WORKSPACE,
     apply_word_migration,
+    search_ids,
     seed_case,
 )
 from tests.integration.test_case_text_search_postgres import (
@@ -125,4 +126,48 @@ def test_word_migration_backfills_maintains_and_downgrades(
                 )
             )
             == 0
+        )
+
+
+def test_long_low_variety_word_falls_back_to_a_null_list(
+    search_database: Engine,
+) -> None:
+    """A long word with few trigrams is never stored where it could overflow."""
+    with search_database.begin() as conn:
+        # 3,000 bytes but only five distinct trigrams, so it passes the
+        # similarity filter and could otherwise reach an index entry.
+        long_word = seed_case(conn, 1, "synthetic", "ab" * 1500 + " powershel")
+        bounded = seed_case(conn, 2, "synthetic", "ab" * 500 + " powershel")
+        lists = dict(
+            conn.execute(sa.text('SELECT id, description_words FROM "case"'))
+            .tuples()
+            .all()
+        )
+        assert lists[long_word] is None
+        assert lists[bounded] == ["ab" * 500, "powershel"]
+        assert set(search_ids(conn, "powershell")) == {long_word, bounded}
+
+
+def test_vocabulary_index_collision_fails_without_dropping_it(
+    search_database: Engine,
+) -> None:
+    apply_word_migration(search_database, downgrade=True)
+    with search_database.begin() as conn:
+        conn.execute(
+            sa.text(
+                "CREATE TABLE case_search_word (id bigint GENERATED ALWAYS AS IDENTITY, workspace_id uuid NOT NULL, word text NOT NULL)"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "CREATE INDEX ix_case_search_word_word_trgm ON case_search_word (word)"
+            )
+        )
+    with pytest.raises(RuntimeError, match="incompatible existing definition"):
+        apply_word_migration(search_database)
+    with search_database.begin() as conn:
+        assert conn.scalar(
+            sa.text("SELECT pg_get_indexdef('ix_case_search_word_word_trgm'::regclass)")
+        ) == (
+            "CREATE INDEX ix_case_search_word_word_trgm ON public.case_search_word USING btree (word)"
         )
