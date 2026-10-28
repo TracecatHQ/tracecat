@@ -10,8 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.secrets import get_db_encryption_key
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.locks import try_pg_advisory_xact_lock
+from tracecat.db.engine import (
+    get_async_engine,
+    get_async_session_bypass_rls_context_manager,
+)
+from tracecat.db.locks import hold_pg_advisory_xact_lock
 from tracecat.db.models import Workspace, WorkspaceTunnel
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
@@ -144,11 +147,14 @@ async def desired_gateway_specs(session: AsyncSession) -> list[GatewaySpec]:
 
 async def reconcile_gateways_once() -> None:
     """Reconcile gateway objects if this process holds the leader lock."""
-    async with get_async_session_bypass_rls_context_manager() as session:
-        # The session never commits, so the lock is held until it closes.
-        if not await try_pg_advisory_xact_lock(session, _RECONCILE_LOCK_KEY):
+    # The lock spans the Kubernetes calls, so it lives on its own connection.
+    async with hold_pg_advisory_xact_lock(
+        get_async_engine(), _RECONCILE_LOCK_KEY, wait=False
+    ) as holder:
+        if holder is None:
             return
-        specs = await desired_gateway_specs(session)
+        async with get_async_session_bypass_rls_context_manager() as session:
+            specs = await desired_gateway_specs(session)
         async with KubernetesClient() as client:
             applied, deleted = await KubernetesGateways(client).reconcile(specs)
         if deleted:
