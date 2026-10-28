@@ -280,14 +280,16 @@ def _apply_vocabulary_policy() -> None:
 
     The policy name belongs to this table, so a retry or an altered policy is
     reset to the standard definition rather than trusted by name. The shared
-    helper names the table without a schema, so it runs with public first on a
-    transaction-local search_path that is restored afterwards.
+    helper names the table without a schema, so it runs on a transaction-local
+    search_path that resolves it in public, restored afterwards. pg_catalog
+    comes first and pg_temp last, so no writable or temporary object can shadow
+    a name in the policy.
     """
     bind = op.get_bind()
     previous = bind.scalar(sa.text("SELECT current_setting('search_path')"))
     op.execute(f"DROP POLICY IF EXISTS {policy_name(_TABLE)} ON public.{_TABLE}")
     bind.execute(
-        sa.text("SELECT set_config('search_path', 'public, pg_catalog', true)")
+        sa.text("SELECT set_config('search_path', 'pg_catalog, public, pg_temp', true)")
     )
     op.execute(enable_workspace_table_rls(_TABLE))
     bind.execute(
