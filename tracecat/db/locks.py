@@ -12,6 +12,12 @@ from sqlalchemy.orm import Session
 from tracecat.db.exceptions import AdvisoryLockLostError
 from tracecat.identifiers import WorkspaceID
 
+_HOLDS_LOCK = text(
+    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory'"
+    " AND granted AND pid = pg_backend_pid() AND objsubid = 1"
+    " AND classid::bigint = :high AND objid::bigint = :low)"
+)
+
 
 @asynccontextmanager
 async def hold_pg_advisory_xact_lock(
@@ -52,26 +58,30 @@ async def hold_pg_advisory_xact_lock(
 
 
 def require_lock_holder_on_commit(
-    session: AsyncSession, holder: AsyncConnection
+    session: AsyncSession, holder: AsyncConnection, key: int
 ) -> None:
-    """Fail each commit of ``session`` once the holder's lock transaction ended.
+    """Fail each commit of ``session`` unless ``holder`` still holds the lock.
 
-    If the holder connection drops, PostgreSQL releases its lock while this
+    If the holder's transaction ends, PostgreSQL releases its lock while this
     session's connection stays usable. Checking the holder first keeps a
     commit from landing after another process has taken the lock.
     """
 
     if (holder_connection := holder.sync_connection) is None:
         raise RuntimeError("Lock holder connection is not open")
+    # pg_locks splits a bigint advisory key into two 32-bit halves.
+    key_parts = {"high": (key >> 32) & 0xFFFFFFFF, "low": key & 0xFFFFFFFF}
 
     def check_holder(sync_session: Session) -> None:
         # Commit flushes after this hook; flush first so no write waits after
         # the check.
         sync_session.flush()
         try:
-            holder_connection.exec_driver_sql("SELECT 1")
+            held = holder_connection.execute(_HOLDS_LOCK, key_parts).scalar()
         except Exception as exc:
             raise AdvisoryLockLostError("Advisory lock holder ended") from exc
+        if held is not True:
+            raise AdvisoryLockLostError("Advisory lock is no longer held")
 
     event.listen(session.sync_session, "before_commit", check_holder)
 

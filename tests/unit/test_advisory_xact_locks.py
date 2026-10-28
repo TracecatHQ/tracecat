@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import event, text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import NullPool
 from sqlalchemy.util import await_only
@@ -26,7 +26,10 @@ from tracecat.db.engine import (
     get_serialized_session,
 )
 from tracecat.db.exceptions import AdvisoryLockLostError
-from tracecat.db.locks import hold_pg_advisory_xact_lock
+from tracecat.db.locks import (
+    hold_pg_advisory_xact_lock,
+    require_lock_holder_on_commit,
+)
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 
@@ -51,6 +54,8 @@ async def _terminate_lock_holder(key: int) -> None:
             text(
                 "SELECT pg_terminate_backend(pid) FROM pg_locks"
                 " WHERE locktype = 'advisory' AND granted"
+                " AND database = (SELECT oid FROM pg_database"
+                " WHERE datname = current_database())"
                 " AND classid = :high AND objid = :low AND objsubid = 1"
             ),
             {"high": key >> 32, "low": key & 0xFFFFFFFF},
@@ -160,6 +165,23 @@ async def test_serialized_session_cannot_commit_after_losing_the_lock() -> None:
     finally:
         async with get_async_engine().begin() as connection:
             await connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
+
+
+async def test_commit_fails_when_the_holder_transaction_ended_on_a_live_socket() -> (
+    None
+):
+    """The guard checks ownership, not just that the holder connection answers."""
+    key = _lock_key()
+    engine = get_async_engine()
+    async with hold_pg_advisory_xact_lock(engine, key) as holder:
+        assert holder is not None
+        async with AsyncSession(engine) as session:
+            require_lock_holder_on_commit(session, holder, key)
+            await session.execute(text("SELECT 1"))
+            # Ends the lock transaction; the holder connection stays open.
+            await holder.rollback()
+            with pytest.raises(AdvisoryLockLostError):
+                await session.commit()
 
 
 async def test_serialized_session_checks_the_holder_after_flushing() -> None:

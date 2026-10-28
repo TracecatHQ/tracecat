@@ -137,7 +137,7 @@ async def sync_platform_registry_on_startup() -> None:
                 )
                 return
             async with get_async_session_bypass_rls_context_manager() as session:
-                require_lock_holder_on_commit(session, holder)
+                require_lock_holder_on_commit(session, holder, PLATFORM_SYNC_LOCK_KEY)
                 artifact_build = await _sync_as_leader(session, target_version)
 
         # This coroutine itself is supervised by the API lifespan. Awaiting the

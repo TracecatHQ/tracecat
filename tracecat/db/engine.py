@@ -455,7 +455,7 @@ async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, 
         async with engine.connect() as connection:
             await connection.execution_options(isolation_level="SERIALIZABLE")
             async with AsyncSession(connection, expire_on_commit=False) as session:
-                require_lock_holder_on_commit(session, holder)
+                require_lock_holder_on_commit(session, holder, lock_key)
                 await _initialize_session_rls_context(session)
                 yield session
 

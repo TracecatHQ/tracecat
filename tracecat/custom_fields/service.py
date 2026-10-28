@@ -119,7 +119,6 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         lock_key = derive_lock_key_from_parts(
             "tracecat.custom_fields.initialize_workspace_schema",
             self.service_name,
-            self.schema_name,
             self._table,
         )
         # Held until the caller's transaction ends, so a waiter sees committed DDL.
