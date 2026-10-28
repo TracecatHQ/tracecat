@@ -91,7 +91,27 @@ describe("with more than five workspaces", () => {
 
     await userEvent.type(input, "SECUR")
 
-    expect(workspaceItemNames()).toEqual(["FSFoxtrot Security"])
+    expect(workspaceItemNames()).toHaveLength(1)
+    expect(screen.getByText("Foxtrot Security")).toBeInTheDocument()
+  })
+
+  it("focuses the search input when the menu opens", async () => {
+    await openMenu()
+
+    expect(
+      screen.getByRole("textbox", { name: "Search workspaces" })
+    ).toHaveFocus()
+  })
+
+  it("moves focus to the first workspace on ArrowDown", async () => {
+    await openMenu()
+
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Search workspaces" }),
+      "a{ArrowDown}"
+    )
+
+    expect(screen.getAllByRole("menuitem")[0]).toHaveFocus()
   })
 
   it("shows an empty state when nothing matches", async () => {
@@ -114,6 +134,9 @@ describe("with more than five workspaces", () => {
     )
 
     expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("ws-2"))
+    expect(
+      screen.queryByRole("textbox", { name: "Search workspaces" })
+    ).not.toBeInTheDocument()
   })
 
   it("clears the query when the menu is reopened", async () => {

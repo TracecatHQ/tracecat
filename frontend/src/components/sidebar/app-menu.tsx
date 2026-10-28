@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
@@ -67,7 +67,9 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [workspaceSearch, setWorkspaceSearch] = useState("")
+  const workspaceSearchRef = useRef<HTMLInputElement>(null)
 
   // SCIM-only administrators land on SCIM, which needs the plan entitlement.
   const canOpenScim =
@@ -121,6 +123,11 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       .toUpperCase()
   }
 
+  const handleMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open)
+    if (!open) setWorkspaceSearch("")
+  }
+
   const handleWorkspaceSearchKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>
   ) => {
@@ -140,6 +147,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       const match = filteredWorkspaces?.[0]
       if (match) {
         e.preventDefault()
+        handleMenuOpenChange(false)
         router.push(getWorkspaceLandingPath(match.id))
       }
     }
@@ -163,11 +171,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu
-          onOpenChange={(open) => {
-            if (!open) setWorkspaceSearch("")
-          }}
-        >
+        <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange}>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="default"
@@ -185,6 +189,12 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             align="start"
             side="right"
             sideOffset={4}
+            onOpenAutoFocus={(e) => {
+              // Radix focuses the menu on open; send focus to the search instead.
+              if (!showWorkspaceSearch) return
+              e.preventDefault()
+              workspaceSearchRef.current?.focus()
+            }}
           >
             <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
               Workspaces
@@ -194,7 +204,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 <div className="relative">
                   <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    autoFocus
+                    ref={workspaceSearchRef}
                     value={workspaceSearch}
                     onChange={(e) => setWorkspaceSearch(e.target.value)}
                     onKeyDown={handleWorkspaceSearchKeyDown}
