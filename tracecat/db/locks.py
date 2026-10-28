@@ -9,6 +9,7 @@ from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 from sqlalchemy.orm import Session
 
+from tracecat.db.exceptions import AdvisoryLockLostError
 from tracecat.identifiers import WorkspaceID
 
 
@@ -63,8 +64,14 @@ def require_lock_holder_on_commit(
     if (holder_connection := holder.sync_connection) is None:
         raise RuntimeError("Lock holder connection is not open")
 
-    def check_holder(_session: Session) -> None:
-        holder_connection.exec_driver_sql("SELECT 1")
+    def check_holder(sync_session: Session) -> None:
+        # Commit flushes after this hook; flush first so no write waits after
+        # the check.
+        sync_session.flush()
+        try:
+            holder_connection.exec_driver_sql("SELECT 1")
+        except Exception as exc:
+            raise AdvisoryLockLostError("Advisory lock holder ended") from exc
 
     event.listen(session.sync_session, "before_commit", check_holder)
 

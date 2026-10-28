@@ -11,10 +11,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import NullPool
+from sqlalchemy.util import await_only
 from tracecat_ee.tunnels import gateways
 
 from tracecat.auth.types import Role
@@ -24,6 +25,7 @@ from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_serialized_session,
 )
+from tracecat.db.exceptions import AdvisoryLockLostError
 from tracecat.db.locks import hold_pg_advisory_xact_lock
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
@@ -41,6 +43,18 @@ async def _lock_is_free(key: int) -> bool:
         get_async_engine(), key, wait=False
     ) as holder:
         return holder is not None
+
+
+async def _terminate_lock_holder(key: int) -> None:
+    async with get_async_engine().connect() as admin:
+        await admin.execute(
+            text(
+                "SELECT pg_terminate_backend(pid) FROM pg_locks"
+                " WHERE locktype = 'advisory' AND granted"
+                " AND classid = :high AND objid = :low AND objsubid = 1"
+            ),
+            {"high": key >> 32, "low": key & 0xFFFFFFFF},
+        )
 
 
 async def test_held_lock_blocks_waiters_and_fails_tries() -> None:
@@ -136,17 +150,9 @@ async def test_serialized_session_cannot_commit_after_losing_the_lock() -> None:
     try:
         async with get_serialized_session(key) as session:
             await session.execute(text(f"INSERT INTO {table} VALUES (1)"))
-            async with get_async_engine().connect() as admin:
-                await admin.execute(
-                    text(
-                        "SELECT pg_terminate_backend(pid) FROM pg_locks"
-                        " WHERE locktype = 'advisory' AND granted"
-                        " AND classid = :high AND objid = :low AND objsubid = 1"
-                    ),
-                    {"high": key >> 32, "low": key & 0xFFFFFFFF},
-                )
+            await _terminate_lock_holder(key)
             assert await _lock_is_free(key)
-            with pytest.raises(DBAPIError):
+            with pytest.raises(AdvisoryLockLostError):
                 await session.commit()
         async with get_async_engine().connect() as connection:
             count = await connection.execute(text(f"SELECT count(*) FROM {table}"))
@@ -154,6 +160,38 @@ async def test_serialized_session_cannot_commit_after_losing_the_lock() -> None:
     finally:
         async with get_async_engine().begin() as connection:
             await connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
+
+
+async def test_serialized_session_checks_the_holder_after_flushing() -> None:
+    """Losing the holder while pending ORM writes flush still fails the commit."""
+    key = _lock_key()
+    table = f"lock_probe_{uuid.uuid4().hex}"
+
+    class Base(DeclarativeBase):
+        pass
+
+    class Probe(Base):
+        __tablename__ = table
+        id: Mapped[int] = mapped_column(primary_key=True)
+
+    async with get_async_engine().begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    try:
+        async with get_serialized_session(key) as session:
+
+            def lose_holder_during_flush(*_args: object) -> None:
+                await_only(_terminate_lock_holder(key))
+
+            event.listen(session.sync_session, "after_flush", lose_holder_during_flush)
+            session.add(Probe(id=1))
+            with pytest.raises(AdvisoryLockLostError):
+                await session.commit()
+        async with get_async_engine().connect() as connection:
+            count = await connection.execute(text(f"SELECT count(*) FROM {table}"))
+            assert count.scalar_one() == 0
+    finally:
+        async with get_async_engine().begin() as connection:
+            await connection.run_sync(Base.metadata.drop_all)
 
 
 async def test_custom_field_schema_init_waits_for_the_first_commit(
