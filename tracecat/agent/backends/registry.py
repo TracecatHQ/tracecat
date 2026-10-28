@@ -179,6 +179,19 @@ def get_agent_backend(
     return backend
 
 
+def get_workflow_type(backend: AgentBackend[Any, Any]) -> str:
+    """Return the registered Temporal workflow type of a backend's turn workflow.
+
+    Callers that start a turn as their own child use the type name, so they
+    never import another backend's workflow class. Discovery already rejected
+    workflows without a named definition.
+    """
+    name = workflow._Definition.must_from_class(backend.workflow).name
+    if name is None:
+        raise TypeError("Agent backend workflow requires a named @workflow.defn")
+    return name
+
+
 def agent_backend_available(identifier: str | None, harness_type: str | None) -> bool:
     """Whether the installed provider can execute this session."""
     backend = find_agent_backend(identifier)

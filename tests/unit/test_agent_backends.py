@@ -1088,12 +1088,19 @@ async def test_backends_do_not_steer_or_withdraw_by_default():
 
 
 @pytest.mark.anyio
-async def test_caller_owned_dispatch_remains_builtin_only():
+async def test_caller_owned_dispatch_needs_a_backend_that_returns_results():
+    class NoCallerTurnsBackend(DefaultBackend):
+        caller_owned_turns = False
+
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
     with (
         patch.object(service, "validate_turn_request", return_value=ctx.session),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend",
+            return_value=NoCallerTurnsBackend(),
+        ),
     ):
         with pytest.raises(TracecatValidationError, match="caller-owned"):
             await service.prepare_new_turn(ctx.session.id, "Hello")
