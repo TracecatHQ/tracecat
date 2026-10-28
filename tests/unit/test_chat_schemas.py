@@ -7,7 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.chat.schemas import ApprovalRead, ChatMessage
+from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.chat.schemas import ApprovalRead, ChatCreate, ChatMessage, ChatUpdate
 from tracecat.db import models
 
 
@@ -81,3 +82,18 @@ def test_chat_message_from_db_raises_on_malformed_claude_message() -> None:
 
     with pytest.raises(ValidationError):
         ChatMessage.from_db(db_message)
+
+
+def test_chat_payloads_accept_more_than_50_tools() -> None:
+    tools = [f"tools.example.action_{i}" for i in range(55)]
+
+    create = ChatCreate(
+        title="Chat",
+        entity_type=AgentSessionEntity.AGENT_PRESET,
+        entity_id=uuid.uuid4(),
+        tools=tools,
+    )
+    update = ChatUpdate(tools=tools)
+
+    assert create.tools == tools
+    assert update.tools == tools

@@ -4544,7 +4544,6 @@ export const $AgentSessionCreate = {
             type: "string",
           },
           type: "array",
-          maxItems: 50,
         },
         {
           type: "null",
@@ -5441,7 +5440,6 @@ export const $AgentSessionUpdate = {
             type: "string",
           },
           type: "array",
-          maxItems: 50,
         },
         {
           type: "null",

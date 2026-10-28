@@ -87,3 +87,13 @@ def test_agent_session_read_defaults_binding_without_availability_flags() -> Non
     assert session.agents_binding is None
     assert "backend_available" not in session.model_dump()
     assert "history_available" not in session.model_dump()
+
+
+@pytest.mark.parametrize("schema", [AgentSessionCreate, AgentSessionUpdate])
+def test_agent_session_payloads_accept_more_than_50_tools(schema: Any) -> None:
+    tools = [f"tools.example.action_{i}" for i in range(55)]
+    base = _CREATE_BASE if schema is AgentSessionCreate else {}
+
+    parsed = schema.model_validate(base | {"tools": tools})
+
+    assert parsed.tools == tools
