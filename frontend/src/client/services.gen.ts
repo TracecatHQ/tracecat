@@ -22,6 +22,7 @@ import type {
   AdminAgentListPlatformCatalogResponse,
   AdminCheckIpAllowlistData,
   AdminCheckIpAllowlistResponse,
+  AdminClearManagedResourcesSourceResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
@@ -57,8 +58,6 @@ import type {
   AdminGetTierResponse,
   AdminGetUserData,
   AdminGetUserResponse,
-  AdminListManagedResourcesSourceTagsData,
-  AdminListManagedResourcesSourceTagsResponse,
   AdminListOrganizationDomainsData,
   AdminListOrganizationDomainsResponse,
   AdminListOrganizationInvitationsData,
@@ -70,6 +69,8 @@ import type {
   AdminListOrgRepositoryVersionsResponse,
   AdminListOrgTiersData,
   AdminListOrgTiersResponse,
+  AdminListSourceTagsData,
+  AdminListSourceTagsResponse,
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
@@ -8945,6 +8946,31 @@ export const watchtowerEnableWatchtowerAgent = (
 }
 
 /**
+ * List Source Tags
+ * List tags in the managed resources source repository, newest first.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_GitTagInfo_ Successful Response
+ * @throws ApiError
+ */
+export const adminListSourceTags = (
+  data: AdminListSourceTagsData = {}
+): CancelablePromise<AdminListSourceTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/source/tags",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Organizations
  * List all organizations.
  * @returns tracecat_ee__admin__organizations__schemas__OrgRead Successful Response
@@ -9528,27 +9554,18 @@ export const adminUpdateManagedResourcesSource = (
 }
 
 /**
- * List Managed Resources Source Tags
- * List tags in the managed resources source repository.
- * @param data The data for the request.
- * @param data.limit Maximum number of tags to return
- * @returns GitTagInfo Successful Response
+ * Clear Managed Resources Source
+ * Remove the managed resources source setting.
+ * @returns void Successful Response
  * @throws ApiError
  */
-export const adminListManagedResourcesSourceTags = (
-  data: AdminListManagedResourcesSourceTagsData = {}
-): CancelablePromise<AdminListManagedResourcesSourceTagsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/admin/settings/managed-resources/source/tags",
-    query: {
-      limit: data.limit,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
+export const adminClearManagedResourcesSource =
+  (): CancelablePromise<AdminClearManagedResourcesSourceResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/admin/settings/managed-resources/source",
+    })
+  }
 
 /**
  * Get Security Settings

@@ -2,6 +2,9 @@
 
 import json
 import uuid
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -20,6 +23,7 @@ from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.tiers.enums import Entitlement
 from tracecat.vcs.bitbucket.app import BitbucketError
+from tracecat.vcs.bitbucket.git import BitbucketGit
 from tracecat.vcs.bitbucket_data_center.app import BitbucketDataCenterTokenService
 from tracecat.vcs.bitbucket_data_center.schemas import (
     BitbucketDataCenterTokenCredentials,
@@ -248,3 +252,132 @@ async def test_data_center_pr_payload_and_reuse():
     )
     assert second == (first[0], 42, True)
     assert len(prs) == 1
+
+
+DC_URL = GitUrl(host="example.test", org="DEMO", repo="sync")
+DC_REPO_PATH = "/rest/api/1.0/projects/DEMO/repos/sync"
+SHA_A, SHA_B, SHA_C = ("a" * 40, "b" * 40, "c" * 40)
+# 2026-03-01, 2026-02-01 and 2026-01-01 at 00:00 UTC, in epoch milliseconds.
+TIMESTAMPS = {
+    SHA_A: 1_772_323_200_000,
+    SHA_B: 1_769_904_000_000,
+    SHA_C: 1_767_225_600_000,
+}
+
+
+class _TagServer:
+    """Data Center ``/tags`` and ``/commits/{id}`` with start/limit paging."""
+
+    def __init__(self, tags: list[tuple[str, str]]) -> None:
+        self.tags = tags
+        """``(name, latestCommit)`` pairs in ``orderBy=MODIFICATION`` order."""
+        self.tag_requests: list[httpx.Request] = []
+        self.commit_reads: list[str] = []
+
+    def respond(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == f"{DC_REPO_PATH}/tags":
+            self.tag_requests.append(request)
+            tags = self.tags
+            if text := request.url.params.get("filterText"):
+                tags = [tag for tag in tags if text in tag[0]]
+            start = int(request.url.params["start"])
+            end = start + int(request.url.params["limit"])
+            values = [
+                {"id": f"refs/tags/{name}", "displayId": name, "latestCommit": sha}
+                for name, sha in tags[start:end]
+            ]
+            return httpx.Response(
+                200,
+                json={
+                    "values": values,
+                    "isLastPage": end >= len(tags),
+                    "nextPageStart": end,
+                },
+            )
+        sha = path.removeprefix(f"{DC_REPO_PATH}/commits/")
+        self.commit_reads.append(sha)
+        return httpx.Response(
+            200,
+            json={
+                "id": sha,
+                "message": "Release",
+                "authorTimestamp": TIMESTAMPS[sha],
+                "author": {"name": "Example"},
+            },
+        )
+
+
+class _MockDataCenterTransport(BitbucketDataCenterWorkspaceSyncTransport):
+    def __init__(self, respond: Callable[[httpx.Request], httpx.Response]) -> None:
+        super().__init__(session=AsyncMock(), role=role())
+        self._respond = respond
+
+    @asynccontextmanager
+    async def _connection(
+        self, url: GitUrl
+    ) -> AsyncIterator[tuple[httpx.AsyncClient, BitbucketGit, str]]:
+        with TemporaryDirectory() as directory:
+            async with httpx.AsyncClient(
+                base_url="https://example.test/rest/api/1.0/",
+                transport=httpx.MockTransport(self._respond),
+            ) as client:
+                yield (
+                    client,
+                    BitbucketGit(directory, SecretStr(TOKEN)),
+                    f"projects/{url.org}/repos/{url.repo}",
+                )
+
+
+@pytest.mark.anyio
+async def test_list_tags_pages_by_start_and_dates_each_commit_once():
+    server = _TagServer(
+        [("v3", SHA_A), ("v2", SHA_B), ("v2-alias", SHA_B), ("v1", SHA_C)]
+    )
+    transport = _MockDataCenterTransport(server.respond)
+
+    pages: list[list[tuple[str, str]]] = []
+    cursor: str | None = None
+    while True:
+        tags, cursor = await transport.list_tags(url=DC_URL, limit=3, cursor=cursor)
+        pages.append([(t.name, t.date) for t in tags])
+        if cursor is None:
+            break
+
+    assert pages == [
+        [
+            ("v3", "2026-03-01T00:00:00+00:00"),
+            ("v2", "2026-02-01T00:00:00+00:00"),
+            ("v2-alias", "2026-02-01T00:00:00+00:00"),
+        ],
+        [("v1", "2026-01-01T00:00:00+00:00")],
+    ]
+    assert [r.url.params["start"] for r in server.tag_requests] == ["0", "3"]
+    assert {r.url.params["orderBy"] for r in server.tag_requests} == {"MODIFICATION"}
+    # v2 and v2-alias share a commit, so it is read once.
+    assert sorted(server.commit_reads) == [SHA_A, SHA_B, SHA_C]
+
+
+@pytest.mark.anyio
+async def test_list_tags_maps_malformed_payloads_to_provider_errors():
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"values": [{"displayId": "v1"}], "isLastPage": True}
+        )
+
+    with pytest.raises(BitbucketError, match="invalid tag response"):
+        await _MockDataCenterTransport(respond).list_tags(url=DC_URL)
+
+
+@pytest.mark.anyio
+async def test_resolve_tag_filters_by_name_instead_of_a_path():
+    server = _TagServer([("release/1.0.1", SHA_B), ("release/1.0", SHA_A)])
+    transport = _MockDataCenterTransport(server.respond)
+
+    assert await transport.resolve_tag(url=DC_URL, tag="release/1.0") == SHA_A
+    request = server.tag_requests[-1]
+    assert request.url.path == f"{DC_REPO_PATH}/tags"
+    assert request.url.params["filterText"] == "release/1.0"
+    with pytest.raises(BitbucketError) as exc:
+        await transport.resolve_tag(url=DC_URL, tag="missing")
+    assert exc.value.status_code == 404

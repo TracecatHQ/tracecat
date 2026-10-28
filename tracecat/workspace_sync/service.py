@@ -872,24 +872,13 @@ class WorkspaceSyncService(SyncMappingService):
         self,
         *,
         limit: int = 100,
-    ) -> list[GitTagInfo]:
-        """List tags for the workspace repository."""
+        cursor: str | None = None,
+    ) -> tuple[list[GitTagInfo], str | None]:
+        """List one page of tags for the workspace repository, newest first."""
         self._require_sync_operation_scope()
         url = await self._workspace_git_url()
         transport = self._transport_for_provider()
-        return await transport.list_tags(url=url, limit=limit)
-
-    async def read_files_at_tag(self, tag: str) -> VcsTreeSnapshot:
-        """Read workspace sync files at ``tag``.
-
-        The tag is resolved to a commit SHA first and the tree is read at that
-        commit, so a tag moved mid-read cannot mix two trees.
-        """
-        self._require_sync_operation_scope()
-        url = await self._workspace_git_url()
-        transport = self._transport_for_provider()
-        commit_sha = await transport.resolve_tag(url=url, tag=tag)
-        return await transport.read_files(url=url, ref=commit_sha, ref_kind="commit")
+        return await transport.list_tags(url=url, limit=limit, cursor=cursor)
 
     def _transport_for_provider(self) -> VcsSyncTransport:
         """Build the VCS transport for the workspace provider using the factory."""

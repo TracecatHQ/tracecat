@@ -8,7 +8,7 @@ import orjson
 from cryptography.fernet import InvalidToken
 from pydantic import SecretStr
 from pydantic_core import to_jsonable_python
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
@@ -26,13 +26,12 @@ from tracecat.auth.types import PlatformRole
 from tracecat.db.models import PlatformSetting
 from tracecat.exceptions import TracecatValidationError
 from tracecat.managed_resources.source import (
-    MANAGED_RESOURCES_SOURCE_WORKSPACE_ID_KEY,
+    MANAGED_RESOURCES_SOURCE_KEY,
     ManagedSource,
+    ManagedSourceSetting,
     get_managed_source,
     load_managed_source,
-    source_sync_service,
 )
-from tracecat.registry.repositories.schemas import GitTagInfo
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BasePlatformService
 from tracecat.settings.schemas import AuditSettingsUpdate, parse_stored_ip_allowlists
@@ -202,7 +201,11 @@ class AdminSettingsService(BasePlatformService):
     async def get_managed_resources_source(
         self,
     ) -> PlatformManagedResourcesSourceRead:
-        """Get the workspace managed resources are published from."""
+        """Get the workspace managed resources are published from.
+
+        Raises:
+            ManagedSourceInvalidError: The configured source can no longer be used.
+        """
         source = await get_managed_source(self.session)
         if source is None:
             return PlatformManagedResourcesSourceRead(configured=False)
@@ -212,7 +215,7 @@ class AdminSettingsService(BasePlatformService):
     async def update_managed_resources_source(
         self, params: PlatformManagedResourcesSourceUpdate
     ) -> PlatformManagedResourcesSourceRead:
-        """Set the managed resources source workspace.
+        """Set the managed resources source and pin its current Git binding.
 
         Raises:
             TracecatNotFoundError: The workspace does not exist.
@@ -220,21 +223,21 @@ class AdminSettingsService(BasePlatformService):
         """
         source = await load_managed_source(self.session, params.workspace_id)
         await self._upsert_setting(
-            MANAGED_RESOURCES_SOURCE_WORKSPACE_ID_KEY, str(source.workspace_id)
+            MANAGED_RESOURCES_SOURCE_KEY,
+            ManagedSourceSetting.pin(source).model_dump(mode="json"),
         )
         await self.session.commit()
         return _managed_source_read(source)
 
-    async def list_managed_resources_source_tags(
-        self, *, limit: int
-    ) -> list[GitTagInfo]:
-        """List tags in the managed resources source repository.
-
-        Raises:
-            ManagedSourceNotConfiguredError: No source workspace is configured.
-        """
-        sync_service = await source_sync_service(self.session, self.role)
-        return await sync_service.list_tags(limit=limit)
+    @audit_log(resource_type="platform_setting", action="delete")
+    async def clear_managed_resources_source(self) -> None:
+        """Remove the managed resources source setting, if any."""
+        await self.session.execute(
+            delete(PlatformSetting).where(
+                PlatformSetting.key == MANAGED_RESOURCES_SOURCE_KEY
+            )
+        )
+        await self.session.commit()
 
     async def get_security_settings(self) -> PlatformSecuritySettingsRead:
         """Get the platform admin IP allowlist."""

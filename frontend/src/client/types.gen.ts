@@ -6208,7 +6208,7 @@ export type GitTagInfo = {
    */
   name: string
   /**
-   * SHA of the commit the tag points to
+   * SHA of the commit the tag points to (SHA-1 or SHA-256)
    */
   commit_sha: string
   /**
@@ -7948,6 +7948,18 @@ export type Page_ExternalGroupMappingRead_ = {
 
 export type Page_ExternalGroupRead_ = {
   items: Array<ExternalGroupRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_GitTagInfo_ = {
+  items: Array<GitTagInfo>
   /**
    * Next-page cursor
    */
@@ -16209,6 +16221,13 @@ export type WatchtowerEnableWatchtowerAgentData = {
 
 export type WatchtowerEnableWatchtowerAgentResponse = void
 
+export type AdminListSourceTagsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type AdminListSourceTagsResponse = Page_GitTagInfo_
+
 export type AdminListOrganizationsResponse =
   Array<tracecat_ee__admin__organizations__schemas__OrgRead>
 
@@ -16379,14 +16398,7 @@ export type AdminUpdateManagedResourcesSourceData = {
 export type AdminUpdateManagedResourcesSourceResponse =
   PlatformManagedResourcesSourceRead
 
-export type AdminListManagedResourcesSourceTagsData = {
-  /**
-   * Maximum number of tags to return
-   */
-  limit?: number
-}
-
-export type AdminListManagedResourcesSourceTagsResponse = Array<GitTagInfo>
+export type AdminClearManagedResourcesSourceResponse = void
 
 export type AdminGetSecuritySettingsResponse = PlatformSecuritySettingsRead
 
@@ -23318,6 +23330,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/managed-resources/source/tags": {
+    get: {
+      req: AdminListSourceTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_GitTagInfo_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/organizations": {
     get: {
       res: {
@@ -23654,19 +23681,12 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-  }
-  "/admin/settings/managed-resources/source/tags": {
-    get: {
-      req: AdminListManagedResourcesSourceTagsData
+    delete: {
       res: {
         /**
          * Successful Response
          */
-        200: Array<GitTagInfo>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
+        204: void
       }
     }
   }

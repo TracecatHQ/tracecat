@@ -104,7 +104,8 @@ class GitLabTag(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str = Field(min_length=1)
-    commit: GitLabCommit
+    commit: GitLabCommit | None = None
+    """The tagged commit; absent when the tag points at a tree or blob."""
     created_at: str | None = None
     """Tag creation date; GitLab sets it only for annotated tags."""
 

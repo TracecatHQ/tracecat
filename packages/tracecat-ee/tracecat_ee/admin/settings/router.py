@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 
-from tracecat import config
 from tracecat.audit.service import (
     AuditService,
     AuditWebhookNotConfiguredError,
@@ -19,19 +18,13 @@ from tracecat.auth.ip_allowlist_enforcement import (
 from tracecat.auth.mfa.policy import clear_mfa_policy_cache
 from tracecat.auth.mfa.schemas import MfaPolicyRead, MfaPolicyUpdate
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.exceptions import (
-    TracecatNotFoundError,
-    TracecatSettingsError,
-    TracecatValidationError,
-)
-from tracecat.managed_resources.source import ManagedSourceNotConfiguredError
-from tracecat.registry.repositories.schemas import GitTagInfo
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.managed_resources.source import ManagedSourceInvalidError
 from tracecat.settings.schemas import (
     AuditWebhookTestResult,
     IPAllowlistCheckRequest,
     IPAllowlistCheckResult,
 )
-from tracecat.vcs.exceptions import VcsProviderError
 from tracecat_ee.admin.settings.schemas import (
     PlatformAuditSettingsRead,
     PlatformAuditSettingsUpdate,
@@ -125,12 +118,8 @@ async def get_managed_resources_source(
     service = AdminSettingsService(session, role)
     try:
         return await service.get_managed_resources_source()
-    except (TracecatNotFoundError, TracecatValidationError) as e:
-        # The saved workspace was deleted or lost its Git binding.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Configured managed resources source is invalid: {e}",
-        ) from e
+    except ManagedSourceInvalidError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.put(
@@ -156,29 +145,14 @@ async def update_managed_resources_source(
         ) from e
 
 
-@router.get("/managed-resources/source/tags", response_model=list[GitTagInfo])
-async def list_managed_resources_source_tags(
-    role: SuperuserRole,
+@router.delete("/managed-resources/source", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_managed_resources_source(
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
-    limit: int = Query(
-        default=100,
-        description="Maximum number of tags to return",
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    ),
-) -> list[GitTagInfo]:
-    """List tags in the managed resources source repository."""
+) -> None:
+    """Remove the managed resources source setting."""
     service = AdminSettingsService(session, role)
-    try:
-        return await service.list_managed_resources_source_tags(limit=limit)
-    except ManagedSourceNotConfiguredError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
-    except TracecatNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except (TracecatSettingsError, TracecatValidationError, VcsProviderError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
+    await service.clear_managed_resources_source()
 
 
 @router.get("/security", response_model=PlatformSecuritySettingsRead)

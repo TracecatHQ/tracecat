@@ -147,9 +147,8 @@ class GitTagInfo(BaseModel):
     )
     commit_sha: str = Field(
         ...,
-        description="SHA of the commit the tag points to",
-        min_length=40,
-        max_length=40,
+        description="SHA of the commit the tag points to (SHA-1 or SHA-256)",
+        pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
     )
     date: str = Field(
         ...,
@@ -157,6 +156,7 @@ class GitTagInfo(BaseModel):
             "Tag date in ISO format. The provider's tag date when it has one, "
             "otherwise the tagged commit's date."
         ),
+        min_length=1,
         max_length=50,
     )
 

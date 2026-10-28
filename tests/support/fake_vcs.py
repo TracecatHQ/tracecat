@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.registry.repositories.schemas import (
     GitBranchInfo,
@@ -14,6 +14,7 @@ from tracecat.registry.repositories.schemas import (
     GitTagInfo,
 )
 from tracecat.sync import CommitInfo, PushStatus
+from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.transport import (
     VcsSyncTransport,
@@ -177,21 +178,34 @@ class FakeVcsTransport:
         *,
         url: GitUrl,
         limit: int = 100,
-    ) -> list[GitTagInfo]:
+        cursor: str | None = None,
+    ) -> tuple[list[GitTagInfo], str | None]:
+        """Page tags newest commit first; the cursor is the next offset."""
+        if limit <= 0:
+            return [], None
         repo = self._server._repo(url)
-        return [
+        # Commit SHAs come from a counter, so they break created_at ties in order.
+        ordered = sorted(
+            repo.tags.items(),
+            key=lambda item: (repo._commits[item[1]].created_at, item[1], item[0]),
+            reverse=True,
+        )
+        start = int(cursor) if cursor else 0
+        end = start + limit
+        tags = [
             GitTagInfo(
                 name=name,
                 commit_sha=sha,
                 date=repo._commits[sha].created_at.isoformat(),
             )
-            for name, sha in sorted(repo.tags.items())[:limit]
+            for name, sha in ordered[start:end]
         ]
+        return tags, str(end) if end < len(ordered) else None
 
     async def resolve_tag(self, *, url: GitUrl, tag: str) -> str:
         repo = self._server._repo(url)
         if tag not in repo.tags:
-            raise TracecatNotFoundError(f"Unknown fake VCS tag: {tag}")
+            raise VcsProviderError(f"Tag not found: {tag}", status_code=404)
         return repo.tags[tag]
 
 

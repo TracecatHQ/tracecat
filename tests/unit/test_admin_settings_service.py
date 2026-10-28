@@ -26,7 +26,10 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.managed_resources.source import MANAGED_RESOURCES_SOURCE_WORKSPACE_ID_KEY
+from tracecat.managed_resources.source import (
+    MANAGED_RESOURCES_SOURCE_KEY,
+    ManagedSourceInvalidError,
+)
 from tracecat.settings.schemas import IPAllowlist
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspaces.schemas import WorkspaceSettings
@@ -298,9 +301,28 @@ async def test_managed_resources_source_round_trip(
     assert read.git_repo_url == repo_url
     stored = await session.scalar(
         select(PlatformSetting).where(
-            PlatformSetting.key == MANAGED_RESOURCES_SOURCE_WORKSPACE_ID_KEY
+            PlatformSetting.key == MANAGED_RESOURCES_SOURCE_KEY
         )
     )
     assert stored is not None
-    assert orjson.loads(stored.value) == str(svc_workspace.id)
+    # The binding is pinned alongside the workspace.
+    assert orjson.loads(stored.value) == {
+        "workspace_id": str(svc_workspace.id),
+        "git_provider": "github",
+        "git_repo_url": repo_url,
+    }
     assert not stored.is_encrypted
+
+    # Repointing the workspace's repository invalidates the source.
+    svc_workspace.settings = WorkspaceSettings(
+        git_provider=VcsProvider.GITHUB,
+        git_repo_url="https://github.com/example-org/other.git",
+    )
+    await session.commit()
+    with pytest.raises(ManagedSourceInvalidError, match="changed"):
+        await service.get_managed_resources_source()
+
+    await service.clear_managed_resources_source()
+    assert not (await service.get_managed_resources_source()).configured
+    # Clearing an unset source is a no-op.
+    await service.clear_managed_resources_source()

@@ -2334,6 +2334,167 @@ async def test_github_list_branches_includes_default_beyond_limit(
     assert [(b.name, b.is_default) for b in branches] == expected
 
 
+_TAG_URL = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+
+
+def _gh_commit(oid: str, date: str) -> dict[str, Any]:
+    return {"__typename": "Commit", "oid": oid, "committedDate": date}
+
+
+def _gh_refs_page(
+    nodes: list[dict[str, Any]], *, end_cursor: str | None = None
+) -> dict[str, Any]:
+    page_info = {"hasNextPage": end_cursor is not None, "endCursor": end_cursor}
+    return {"data": {"repository": {"refs": {"pageInfo": page_info, "nodes": nodes}}}}
+
+
+def _github_graphql_service(gh: Mock) -> AsyncMock:
+    gh_service = AsyncMock()
+    gh_service.get_github_client_for_repo.return_value = gh
+    return gh_service
+
+
+@pytest.mark.anyio
+async def test_github_list_tags_pages_one_graphql_query_per_page(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    gh = Mock()
+    gh.requester.graphql_query.side_effect = [
+        (
+            {},
+            _gh_refs_page(
+                [
+                    # Annotated: dated by the tagger.
+                    {
+                        "name": "v3",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": {"date": "2026-03-02T00:00:00Z"},
+                            "target": _gh_commit("c" * 40, "2026-03-01T00:00:00Z"),
+                        },
+                    },
+                    # Annotated with no tagger: falls back to the commit date.
+                    {
+                        "name": "v2",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": None,
+                            "target": _gh_commit("b" * 40, "2026-02-01T00:00:00Z"),
+                        },
+                    },
+                ],
+                end_cursor="Y3Vyc29yOjI=",
+            ),
+        ),
+        (
+            {},
+            _gh_refs_page(
+                [
+                    {
+                        "name": "v1",
+                        "target": _gh_commit("a" * 40, "2026-01-01T00:00:00Z"),
+                    },
+                    # A tag on a tree, and a tag of a tag, are skipped.
+                    {"name": "tree", "target": {"__typename": "Tree"}},
+                    {
+                        "name": "nested",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": {"date": "2026"},
+                            "target": {"__typename": "Tag"},
+                        },
+                    },
+                ]
+            ),
+        ),
+    ]
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=_github_graphql_service(gh),
+    ):
+        first, cursor = await transport.list_tags(url=_TAG_URL, limit=2)
+        second, last_cursor = await transport.list_tags(
+            url=_TAG_URL, limit=2, cursor=cursor
+        )
+
+    assert [(t.name, t.commit_sha, t.date) for t in [*first, *second]] == [
+        ("v3", "c" * 40, "2026-03-02T00:00:00Z"),
+        ("v2", "b" * 40, "2026-02-01T00:00:00Z"),
+        ("v1", "a" * 40, "2026-01-01T00:00:00Z"),
+    ]
+    assert (cursor, last_cursor) == ("Y3Vyc29yOjI=", None)
+    calls = gh.requester.graphql_query.call_args_list
+    assert [call.args[1] for call in calls] == [
+        {"owner": "TracecatHQ", "name": "sync", "first": 2, "after": None},
+        {"owner": "TracecatHQ", "name": "sync", "first": 2, "after": "Y3Vyc29yOjI="},
+    ]
+    assert "orderBy: {field: TAG_COMMIT_DATE, direction: DESC}" in calls[0].args[0]
+    assert gh.close.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_github_list_tags_keeps_the_upstream_status(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    gh = Mock()
+    gh.requester.graphql_query.side_effect = GithubException(502, "bad gateway")
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+    with (
+        patch(
+            "tracecat.workspace_sync.transport.GitHubAppService",
+            return_value=_github_graphql_service(gh),
+        ),
+        pytest.raises(GitHubAppError) as exc,
+    ):
+        await transport.list_tags(url=_TAG_URL)
+    assert exc.value.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_github_resolve_tag_sends_the_name_as_a_variable(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    annotated = {
+        "name": "release/1.0",
+        "target": {
+            "__typename": "Tag",
+            "tagger": {"date": "2026"},
+            "target": _gh_commit("a" * 40, "2026"),
+        },
+    }
+    gh = Mock()
+    gh.requester.graphql_query.side_effect = [
+        ({}, {"data": {"repository": {"ref": annotated}}}),
+        ({}, {"data": {"repository": {"ref": None}}}),
+    ]
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=_github_graphql_service(gh),
+    ):
+        sha = await transport.resolve_tag(url=_TAG_URL, tag="release/1.0")
+        with pytest.raises(GitHubAppError) as exc:
+            await transport.resolve_tag(url=_TAG_URL, tag="missing")
+        with pytest.raises(TracecatValidationError):
+            await transport.resolve_tag(url=_TAG_URL, tag="../escape")
+
+    assert sha == "a" * 40
+    assert exc.value.status_code == 404
+    variables = gh.requester.graphql_query.call_args_list[0].args[1]
+    assert variables["qualifiedName"] == "refs/tags/release/1.0"
+    # The invalid name never reached GitHub.
+    assert gh.requester.graphql_query.call_count == 2
+
+
 _ARCHIVE_URL = "https://codeload.github.com/TracecatHQ/sync/legacy.tar.gz/archive"
 _ARCHIVE_GIT_URL = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
 

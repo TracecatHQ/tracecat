@@ -20411,14 +20411,14 @@ export const $GitTagInfo = {
     },
     commit_sha: {
       type: "string",
-      maxLength: 40,
-      minLength: 40,
+      pattern: "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
       title: "Commit Sha",
-      description: "SHA of the commit the tag points to",
+      description: "SHA of the commit the tag points to (SHA-1 or SHA-256)",
     },
     date: {
       type: "string",
       maxLength: 50,
+      minLength: 1,
       title: "Date",
       description:
         "Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.",
@@ -26201,6 +26201,45 @@ export const $Page_ExternalGroupRead_ = {
   type: "object",
   required: ["items"],
   title: "Page[ExternalGroupRead]",
+} as const
+
+export const $Page_GitTagInfo_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/GitTagInfo",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[GitTagInfo]",
 } as const
 
 export const $Page_SecretStoreRead_ = {

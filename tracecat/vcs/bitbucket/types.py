@@ -23,8 +23,9 @@ class BitbucketCommit(BaseModel):
 
 
 class BitbucketTagTarget(BaseModel):
+    type: str = "commit"
     hash: str
-    date: str
+    date: str | None = None
 
 
 class BitbucketTag(BaseModel):
