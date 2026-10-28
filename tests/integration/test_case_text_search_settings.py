@@ -30,7 +30,7 @@ search_database = _search_database
 async def test_separate_runtime_role_needs_explicit_helper_grants(
     search_database: Engine,
 ) -> None:
-    """A hardened migration owner succeeds; the runtime role needs both grants."""
+    """A hardened migration owner succeeds; the runtime role needs every grant."""
     apply_search_migration(search_database, downgrade=True)
     with search_database.begin() as conn:
         conn.execute(
@@ -70,6 +70,15 @@ async def test_separate_runtime_role_needs_explicit_helper_grants(
                 sa.text(
                     f'GRANT EXECUTE ON FUNCTION public.tracecat_case_text_matches_v1(text,text,boolean) TO "{role}"'
                 )
+            )
+        async with AsyncSession(runtime) as session:
+            with pytest.raises(LexicalSearchError) as error:
+                await ensure_case_text_indexes(session)
+            assert error.value.code == LexicalSearchErrorCode.UNAVAILABLE
+
+        with operator.begin() as conn:
+            conn.execute(
+                sa.text(f'GRANT SELECT ON public.case_search_word TO "{role}"')
             )
         async with AsyncSession(runtime) as session:
             await ensure_case_text_indexes(session)

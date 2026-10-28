@@ -22,6 +22,7 @@ from tests.integration.test_case_search_reads import (
 from tests.integration.test_case_text_search_postgres import (
     load_search_migration,
     load_vector_migration,
+    load_word_migration,
 )
 from tests.unit.test_case_aggregation import add_case
 from tracecat import config
@@ -44,10 +45,10 @@ pytestmark = [pytest.mark.anyio, pytest.mark.integration]
 
 
 async def provision_case_search(session: AsyncSession) -> None:
-    """Install both case search revisions' objects in the disposable test database.
+    """Install the case search revisions' objects in the disposable test database.
 
-    The model already declares the vector columns, so only functions, the
-    trigger, and indexes are created here.
+    The model already declares the vector and word columns and the vocabulary
+    table, so only functions, triggers, and indexes are created here.
     """
     await session.execute(
         sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
@@ -77,6 +78,22 @@ async def provision_case_search(session: AsyncSession) -> None:
         sa.text(vectors._TRIGGER_SQL.replace("CREATE ", "CREATE OR REPLACE ", 1))
     )
     for _, definition in vectors._VECTOR_INDEXES:
+        await session.execute(
+            sa.text(
+                definition.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+            )
+        )
+    words = load_word_migration()
+    for command in (words._WORDS_FUNCTION_SQL, words._TRIGGER_FUNCTION_SQL):
+        await session.execute(
+            sa.text(command.replace("CREATE ", "CREATE OR REPLACE ", 1))
+        )
+    await session.execute(
+        sa.text(words._TRIGGER_SQL.replace("CREATE ", "CREATE OR REPLACE ", 1))
+    )
+    for statement in words._TABLE_INDEXES:
+        await session.execute(sa.text(statement))
+    for _, definition in words._WORD_INDEXES:
         await session.execute(
             sa.text(
                 definition.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)

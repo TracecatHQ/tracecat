@@ -1,0 +1,128 @@
+"""Stored case word lists: migration backfill, trigger upkeep, and downgrade."""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+import sqlalchemy as sa
+from sqlalchemy.engine import Connection, Engine
+
+from tests.integration.test_case_text_search_postgres import (
+    OTHER_WORKSPACE,
+    WORKSPACE,
+    apply_word_migration,
+    seed_case,
+)
+from tests.integration.test_case_text_search_postgres import (
+    search_database as _search_database,
+)
+
+pytestmark = pytest.mark.integration
+search_database = _search_database
+
+
+def test_word_migration_backfills_maintains_and_downgrades(
+    search_database: Engine,
+) -> None:
+    apply_word_migration(search_database, downgrade=True)
+    with search_database.begin() as conn:
+        existing = seed_case(conn, 1, "PowerShell encoded", "Ran 42 times; x86 host")
+        oversized = seed_case(conn, 2, "synthetic large", "word " * 2000)
+    # One-row batches exercise the loop and vocabulary dedup across commits.
+    apply_word_migration(search_database, backfill_batch=1)
+    # A retry reuses every object and backfills again without failing.
+    apply_word_migration(search_database)
+
+    def words(conn: Connection, case_id: uuid.UUID) -> tuple[list[str] | None, ...]:
+        return (
+            conn.execute(
+                sa.text(
+                    'SELECT summary_words, description_words FROM "case" WHERE id=:id'
+                ),
+                {"id": case_id},
+            )
+            .one()
+            ._tuple()
+        )
+
+    def vocabulary(conn: Connection, workspace: uuid.UUID) -> list[str]:
+        return list(
+            conn.execute(
+                sa.text(
+                    "SELECT DISTINCT word FROM case_search_word WHERE workspace_id=:ws ORDER BY word"
+                ),
+                {"ws": workspace},
+            ).scalars()
+        )
+
+    with search_database.begin() as conn:
+        # Digit-only words cannot match a typo term, so they are not stored.
+        assert words(conn, existing) == (
+            ["encoded", "powershell"],
+            ["host", "ran", "times", "x86"],
+        )
+        # Over the byte budget keeps the NULL fallback marker.
+        assert words(conn, oversized) == (["large", "synthetic"], None)
+        assert vocabulary(conn, WORKSPACE) == [
+            "encoded",
+            "host",
+            "large",
+            "powershell",
+            "ran",
+            "synthetic",
+            "times",
+            "x86",
+        ]
+        # A retried backfill does not duplicate stored words.
+        assert conn.scalar(sa.text("SELECT count(*) FROM case_search_word")) == 8
+
+        inserted = seed_case(conn, 3, "Credential access", workspace=OTHER_WORKSPACE)
+        assert words(conn, inserted) == (["access", "credential"], [])
+        assert vocabulary(conn, OTHER_WORKSPACE) == ["access", "credential"]
+
+        conn.execute(
+            sa.text("UPDATE \"case\" SET summary_words = '{marker}' WHERE id=:id"),
+            {"id": existing},
+        )
+        conn.execute(
+            sa.text("UPDATE \"case\" SET status = 'CLOSED' WHERE id=:id"),
+            {"id": existing},
+        )
+        # Writes that leave the source text unchanged do not recompute it.
+        assert words(conn, existing)[0] == ["marker"]
+        conn.execute(
+            sa.text("UPDATE \"case\" SET summary = 'Lateral movement' WHERE id=:id"),
+            {"id": existing},
+        )
+        assert words(conn, existing)[0] == ["lateral", "movement"]
+        assert {"lateral", "movement"} <= set(vocabulary(conn, WORKSPACE))
+        # Moving a case adds its words to the destination vocabulary.
+        conn.execute(
+            sa.text('UPDATE "case" SET workspace_id = :ws WHERE id=:id'),
+            {"ws": OTHER_WORKSPACE, "id": existing},
+        )
+        assert {"lateral", "movement", "host"} <= set(vocabulary(conn, OTHER_WORKSPACE))
+
+    apply_word_migration(search_database, downgrade=True)
+    with search_database.begin() as conn:
+        assert conn.scalar(
+            sa.text('SELECT summary FROM "case" WHERE id=:id'), {"id": existing}
+        ) == ("Lateral movement")
+        columns = set(
+            conn.execute(
+                sa.text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'case'"
+                )
+            ).scalars()
+        )
+        assert not {"summary_words", "description_words"} & columns
+        assert conn.scalar(sa.text("SELECT to_regclass('case_search_word')")) is None
+        assert (
+            conn.scalar(
+                sa.text(
+                    "SELECT count(*) FROM pg_trigger WHERE tgname = 'trg_case_search_words'"
+                )
+            )
+            == 0
+        )

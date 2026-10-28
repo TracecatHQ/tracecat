@@ -2786,11 +2786,36 @@ class CaseTableRow(WorkspaceModel):
     )
 
 
+class CaseSearchWord(Base):
+    """A word seen in a workspace's case text, for typo-tolerant search.
+
+    Written only by the trg_case_search_words trigger. Rows are insert-only and
+    may repeat a word; there is no unique constraint so concurrent case writes
+    never wait on each other. Like the case search indexes, its indexes are
+    owned by revision e4fd31674ae9 because one needs pg_trgm.
+    """
+
+    __tablename__ = "case_search_word"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    word: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class Case(WorkspaceModel):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
     __tablename__ = "case"
-    __mapper_args__ = {"exclude_properties": ["summary_tsv", "description_tsv"]}
+    __mapper_args__ = {
+        "exclude_properties": [
+            "summary_tsv",
+            "description_tsv",
+            "summary_words",
+            "description_words",
+        ]
+    }
     __table_args__ = (
         UniqueConstraint(
             "workspace_id",
@@ -2836,6 +2861,10 @@ class Case(WorkspaceModel):
     # and ORM writes never name them: the trigger is their only writer.
     summary_tsv = Column(TSVECTOR, nullable=True)
     description_tsv = Column(TSVECTOR, nullable=True)
+    # Distinct lowercase words for typo search, maintained the same way by the
+    # trg_case_search_words trigger.
+    summary_words = Column(ARRAY(Text), nullable=True)
+    description_words = Column(ARRAY(Text), nullable=True)
     priority: Mapped[CasePriority] = mapped_column(
         CASE_PRIORITY_ENUM,
         nullable=False,
