@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: List incident relationships
+  description: >-
+    List related incidents for a specific incident. Calls GET /v1/incident_relationships directly.
+    Requires API key scope: incidents.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-relationships-v1/list
+  namespace: tools.incident_io
+  name: list_incident_relationships
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    incident_id:
+      type: str | None
+      description: ID of the incident to find relationships for
+      default: null
+    page_size:
+      type: int | None
+      description: Integer number of records to return. Maximum 250.
+      default: null
+    after:
+      type: str | None
+      description: >-
+        An record's ID. This endpoint will return a list of records after this ID in relation to
+        the API response order.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v1/incident_relationships
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          incident_id: ${{ inputs.incident_id }}
+          page_size: ${{ inputs.page_size }}
+          after: ${{ inputs.after }}
+  returns: ${{ steps.request.result }}

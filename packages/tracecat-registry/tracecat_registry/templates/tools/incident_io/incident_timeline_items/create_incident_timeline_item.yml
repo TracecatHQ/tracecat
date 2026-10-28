@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Create incident timeline item
+  description: >-
+    Add a custom item to an incident's timeline. Calls POST /v2/incident_timeline_items directly.
+    Requires API key scope: timeline_items.create.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-timeline-items-v2/create
+  namespace: tools.incident_io
+  name: create_incident_timeline_item
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    description:
+      type: str | None
+      description: Description of the timeline item, in markdown
+      default: null
+    idempotency_key:
+      type: str
+      description: >-
+        Unique string used to de-duplicate timeline item requests. Retrying with the same key
+        returns the item the first request created, rather than adding a second one.
+    incident_id:
+      type: str
+      description: Incident to add this item to
+    timestamp:
+      type: str
+      description: >-
+        When the thing this item describes happened. This is where the item sits on the timeline,
+        and can be in the past.
+    title:
+      type: str
+      description: Title of the timeline item
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incident_timeline_items
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          description: ${{ inputs.description }}
+          idempotency_key: ${{ inputs.idempotency_key }}
+          incident_id: ${{ inputs.incident_id }}
+          timestamp: ${{ inputs.timestamp }}
+          title: ${{ inputs.title }}
+  returns: ${{ steps.request.result }}

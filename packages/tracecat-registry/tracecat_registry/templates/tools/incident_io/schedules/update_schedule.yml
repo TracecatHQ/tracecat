@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Update schedule
+  description: >-
+    Update a schedule. Calls PUT /v2/schedules/{id} directly. Requires API key scope:
+    schedules.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/schedules-v2/update
+  namespace: tools.incident_io
+  name: update_schedule
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: The schedule ID to update.
+    schedule:
+      type: dict[str, Any]
+      description: >-
+        `schedule` object. Fields: annotations, config, holidays_public_config, name, team_ids,
+        timezone.
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/schedules/${{ FN.url_encode(inputs.id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          schedule: ${{ inputs.schedule }}
+  returns: ${{ steps.request.result }}

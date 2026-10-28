@@ -636,6 +636,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.elastic_security": createCatalogIconRenderer("elastic_mcp"),
     "tools.elasticsearch": createCatalogIconRenderer("elastic_mcp"),
     "tools.greynoise": createCatalogIconRenderer("greynoise_mcp"),
+    "tools.incident_io": createCatalogIconRenderer("incident_io_mcp"),
     "tools.iru": createCatalogIconRenderer("iru_mcp"),
     "tools.jamf": createCatalogIconRenderer("jamf_mcp"),
     "tools.panther": createCatalogIconRenderer("panther_mcp"),
@@ -1169,6 +1170,8 @@ export const secretIcons: Record<
       <SpurIcon {...rest} />
     </div>
   ),
+  incident_io: createCatalogIconRenderer("incident_io_mcp"),
+  incident_io_alert_source: createCatalogIconRenderer("incident_io_mcp"),
   jamf: createCatalogIconRenderer("jamf_mcp"),
   iru: createCatalogIconRenderer("iru_mcp"),
   datadog: ({ className, ...rest }) => (

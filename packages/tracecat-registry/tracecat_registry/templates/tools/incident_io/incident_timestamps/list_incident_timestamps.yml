@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: List incident timestamps
+  description: >-
+    List all incident timestamps for an organisation. Calls GET /v2/incident_timestamps directly.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-timestamps-v2/list
+  namespace: tools.incident_io
+  name: list_incident_timestamps
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incident_timestamps
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+  returns: ${{ steps.request.result }}

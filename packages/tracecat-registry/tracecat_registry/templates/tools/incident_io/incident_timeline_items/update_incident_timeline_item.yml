@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Update incident timeline item
+  description: >-
+    Edit a timeline item. Calls PATCH /v2/incident_timeline_items/{id} directly. Requires API key
+    scope: timeline_items.update.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-timeline-items-v2/update
+  namespace: tools.incident_io
+  name: update_incident_timeline_item
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Timeline item to edit
+    description:
+      type: str | None
+      description: Description of the timeline item, in markdown. Send an empty string to remove it.
+      default: null
+    timestamp:
+      type: str | None
+      description: When the thing this item describes happened. Only editable on a custom item.
+      default: null
+    title:
+      type: str | None
+      description: Title of the timeline item
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incident_timeline_items/${{ FN.url_encode(inputs.id) }}
+        method: PATCH
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          description: ${{ inputs.description }}
+          timestamp: ${{ inputs.timestamp }}
+          title: ${{ inputs.title }}
+  returns: ${{ steps.request.result }}

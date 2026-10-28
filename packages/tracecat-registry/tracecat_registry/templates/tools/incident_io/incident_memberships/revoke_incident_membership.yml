@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Revoke incident membership
+  description: >-
+    Revoke a user's membership of a private incident. Calls POST
+    /v1/incident_memberships/actions/revoke directly. Requires API key scope:
+    incident_memberships.revoke.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-memberships-v1/revoke
+  namespace: tools.incident_io
+  name: revoke_incident_membership
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    incident_id:
+      type: str
+      description: Revoke memberships to incident
+    user_id:
+      type: str
+      description: '`user_id` object.'
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v1/incident_memberships/actions/revoke
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          incident_id: ${{ inputs.incident_id }}
+          user_id: ${{ inputs.user_id }}
+  returns: ${{ steps.request.result }}

@@ -273,6 +273,7 @@
               "tools/hudsonrock",
               "tools/hunter",
               "tools/hybrid_analysis",
+              "tools/incident_io",
               "tools/ipinfo",
               "tools/iru",
               "tools/jamf",

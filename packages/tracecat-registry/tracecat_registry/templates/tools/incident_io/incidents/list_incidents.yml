@@ -1,0 +1,177 @@
+type: action
+definition:
+  title: List incidents
+  description: >-
+    List all incidents for an organisation. Calls GET /v2/incidents directly. Requires API key
+    scope: incidents.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incidents-v2/list
+  namespace: tools.incident_io
+  name: list_incidents
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    page_size:
+      type: int | None
+      description: Integer number of records to return. Maximum 500.
+      default: null
+    after:
+      type: str | None
+      description: >-
+        An incident's ID. This endpoint will return a list of incidents after this ID in relation
+        to the API response order.
+      default: null
+    sort_by:
+      type: str | None
+      description: >-
+        What order to return results in. Allowed values: `created_at_newest_first`,
+        `created_at_oldest_first`.
+      default: null
+    filter_mode:
+      type: str | None
+      description: >-
+        How to combine the filters: 'all' combines them with AND logic (all must match), 'any'
+        combines them with OR logic (any can match). Defaults to 'all'.
+      default: null
+    status_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on incident status. The accepted operators are 'one_of', or 'not_in'. Value for the
+        `one_of` operator.
+      default: null
+    status_not_in:
+      type: list[str] | None
+      description: >-
+        Filter on incident status. The accepted operators are 'one_of', or 'not_in'. Value for the
+        `not_in` operator.
+      default: null
+    status_category_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on the category of the incidents status. The accepted operators are 'one_of', or
+        'not_in'. Value for the `one_of` operator.
+      default: null
+    status_category_not_in:
+      type: list[str] | None
+      description: >-
+        Filter on the category of the incidents status. The accepted operators are 'one_of', or
+        'not_in'. Value for the `not_in` operator.
+      default: null
+    created_at_gte:
+      type: str | None
+      description: >-
+        Filter on incident created at timestamp. The accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `gte` operator.
+      default: null
+    created_at_lte:
+      type: str | None
+      description: >-
+        Filter on incident created at timestamp. The accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `lte` operator.
+      default: null
+    created_at_date_range:
+      type: str | None
+      description: >-
+        Filter on incident created at timestamp. The accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example
+        `2024-12-02~2024-12-08`.
+      default: null
+    updated_at_gte:
+      type: str | None
+      description: >-
+        Filter on incident updated at timestamp. The accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `gte` operator.
+      default: null
+    updated_at_lte:
+      type: str | None
+      description: >-
+        Filter on incident updated at timestamp. The accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `lte` operator.
+      default: null
+    updated_at_date_range:
+      type: str | None
+      description: >-
+        Filter on incident updated at timestamp. The accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example
+        `2024-12-02~2024-12-08`.
+      default: null
+    severity_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on incident severity. The accepted operators are 'one_of', 'not_in', 'gte', 'lte'.
+        Value for the `one_of` operator.
+      default: null
+    severity_not_in:
+      type: list[str] | None
+      description: >-
+        Filter on incident severity. The accepted operators are 'one_of', 'not_in', 'gte', 'lte'.
+        Value for the `not_in` operator.
+      default: null
+    severity_gte:
+      type: str | None
+      description: >-
+        Filter on incident severity. The accepted operators are 'one_of', 'not_in', 'gte', 'lte'.
+        Value for the `gte` operator.
+      default: null
+    severity_lte:
+      type: str | None
+      description: >-
+        Filter on incident severity. The accepted operators are 'one_of', 'not_in', 'gte', 'lte'.
+        Value for the `lte` operator.
+      default: null
+    incident_type_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on incident type. The accepted operators are 'one_of, or 'not_in'. Value for the
+        `one_of` operator.
+      default: null
+    incident_type_not_in:
+      type: list[str] | None
+      description: >-
+        Filter on incident type. The accepted operators are 'one_of, or 'not_in'. Value for the
+        `not_in` operator.
+      default: null
+    mode_one_of:
+      type: list[str] | None
+      description: >-
+        Filter on incident mode. The accepted operator is 'one_of'.  If this is not provided, this
+        value defaults to `{"one_of": ["standard", "retrospective"] }`, meaning that test and
+        tutorial incidents are not included. Value for the `one_of` operator.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incidents
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          page_size: ${{ inputs.page_size }}
+          after: ${{ inputs.after }}
+          sort_by: ${{ inputs.sort_by }}
+          filter_mode: ${{ inputs.filter_mode }}
+          status[one_of]: ${{ inputs.status_one_of }}
+          status[not_in]: ${{ inputs.status_not_in }}
+          status_category[one_of]: ${{ inputs.status_category_one_of }}
+          status_category[not_in]: ${{ inputs.status_category_not_in }}
+          created_at[gte]: ${{ inputs.created_at_gte }}
+          created_at[lte]: ${{ inputs.created_at_lte }}
+          created_at[date_range]: ${{ inputs.created_at_date_range }}
+          updated_at[gte]: ${{ inputs.updated_at_gte }}
+          updated_at[lte]: ${{ inputs.updated_at_lte }}
+          updated_at[date_range]: ${{ inputs.updated_at_date_range }}
+          severity[one_of]: ${{ inputs.severity_one_of }}
+          severity[not_in]: ${{ inputs.severity_not_in }}
+          severity[gte]: ${{ inputs.severity_gte }}
+          severity[lte]: ${{ inputs.severity_lte }}
+          incident_type[one_of]: ${{ inputs.incident_type_one_of }}
+          incident_type[not_in]: ${{ inputs.incident_type_not_in }}
+          mode[one_of]: ${{ inputs.mode_one_of }}
+  returns: ${{ steps.request.result }}

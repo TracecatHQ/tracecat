@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: List incident participant workloads
+  description: >-
+    List the participants of an incident with their workload. Calls GET
+    /v2/incident_participant_workloads directly. Requires API key scope: incident_workloads.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-participant-workloads-v2/list
+  namespace: tools.incident_io
+  name: list_incident_participant_workloads
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    incident_id:
+      type: str | None
+      description: Find participant workload for this incident
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incident_participant_workloads
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          incident_id: ${{ inputs.incident_id }}
+  returns: ${{ steps.request.result }}

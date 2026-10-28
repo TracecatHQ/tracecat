@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Transition incident alert
+  description: >-
+    Confirm or detach the connection between an alert and an incident. Calls POST
+    /v2/incident_alerts/{id}/actions/transition directly. Requires API key scope:
+    incident_alerts.transition.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-alerts-v2/transition
+  namespace: tools.incident_io
+  name: transition_incident_alert
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Unique identifier for the incident alert
+    state:
+      type: str
+      description: 'What state to move the connection to. Allowed values: `related`, `unrelated`.'
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incident_alerts/${{ FN.url_encode(inputs.id) }}/actions/transition
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          state: ${{ inputs.state }}
+  returns: ${{ steps.request.result }}

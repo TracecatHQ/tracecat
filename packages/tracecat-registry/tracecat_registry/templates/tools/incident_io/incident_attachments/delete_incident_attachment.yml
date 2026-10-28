@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Delete incident attachment
+  description: >-
+    Unattaches an external resource from an incident. Calls DELETE /v1/incident_attachments/{id}
+    directly. Requires API key scope: attachments.destroy.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-attachments-v1/delete
+  namespace: tools.incident_io
+  name: delete_incident_attachment
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Unique identifier of this incident membership
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v1/incident_attachments/${{ FN.url_encode(inputs.id) }}
+        method: DELETE
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+  returns: ${{ steps.request.result }}

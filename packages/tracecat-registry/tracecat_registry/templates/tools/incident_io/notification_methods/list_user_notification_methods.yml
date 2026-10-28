@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: List user notification methods
+  description: >-
+    List notification methods for a user. Phone numbers are partially redacted unless the API key
+    holds the notification_methods.view_unredacted scope. Calls GET
+    /v2/users/{user_id}/notification_methods directly. Requires API key scope:
+    notification_methods.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/notification-methods-v2/list
+  namespace: tools.incident_io
+  name: list_user_notification_methods
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    user_id:
+      type: str
+      description: The ID of the user whose notification methods you want to list.
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/users/${{ FN.url_encode(inputs.user_id) }}/notification_methods
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+  returns: ${{ steps.request.result }}
