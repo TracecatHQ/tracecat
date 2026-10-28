@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.locks import pg_advisory_unlock, try_pg_advisory_lock
+from tracecat.db.locks import try_pg_advisory_xact_lock
 from tracecat.db.models import Workspace, WorkspaceTunnel
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
@@ -145,18 +145,14 @@ async def desired_gateway_specs(session: AsyncSession) -> list[GatewaySpec]:
 async def reconcile_gateways_once() -> None:
     """Reconcile gateway objects if this process holds the leader lock."""
     async with get_async_session_bypass_rls_context_manager() as session:
-        if not await try_pg_advisory_lock(session, _RECONCILE_LOCK_KEY):
+        # The session never commits, so the lock is held until it closes.
+        if not await try_pg_advisory_xact_lock(session, _RECONCILE_LOCK_KEY):
             return
-        try:
-            specs = await desired_gateway_specs(session)
-            async with KubernetesClient() as client:
-                applied, deleted = await KubernetesGateways(client).reconcile(specs)
-            if deleted:
-                logger.info(
-                    "Reconciled tunnel gateways", applied=applied, deleted=deleted
-                )
-        finally:
-            await pg_advisory_unlock(session, _RECONCILE_LOCK_KEY)
+        specs = await desired_gateway_specs(session)
+        async with KubernetesClient() as client:
+            applied, deleted = await KubernetesGateways(client).reconcile(specs)
+        if deleted:
+            logger.info("Reconciled tunnel gateways", applied=applied, deleted=deleted)
 
 
 async def start_tunnel_gateway_reconciler(

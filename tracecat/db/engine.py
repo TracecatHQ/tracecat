@@ -24,7 +24,7 @@ from tracecat.db.exceptions import (
     AuthPoolExhaustedError,
     DatabasePoolAcquisitionOrderError,
 )
-from tracecat.db.locks import pg_advisory_connection_lock
+from tracecat.db.locks import hold_pg_advisory_xact_lock
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
 # Global so we don't create more than one engine per process.
@@ -441,8 +441,11 @@ async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, 
             f"Lock key {lock_key} out of range for PostgreSQL advisory locks"
         )
     _assert_main_pool_checkout_allowed()
-    async with get_async_engine().connect() as connection:
-        async with pg_advisory_connection_lock(connection, lock_key):
+    engine = get_async_engine()
+    # The lock lives on its own connection so the snapshot transaction begins
+    # after the previous holder committed, and may commit more than once.
+    async with hold_pg_advisory_xact_lock(engine, lock_key):
+        async with engine.connect() as connection:
             await connection.execution_options(isolation_level="SERIALIZABLE")
             async with AsyncSession(connection, expire_on_commit=False) as session:
                 await _initialize_session_rls_context(session)

@@ -6,107 +6,41 @@ from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from tracecat.identifiers import WorkspaceID
 
 
 @asynccontextmanager
-async def pg_advisory_connection_lock(
-    connection: AsyncConnection, key: int
-) -> AsyncIterator[None]:
-    """Hold a lock across transactions on a pinned connection.
+async def hold_pg_advisory_xact_lock(
+    engine: AsyncEngine, key: int, *, wait: bool = True
+) -> AsyncIterator[bool]:
+    """Hold a transaction-scoped lock on a dedicated connection.
 
-    End the acquisition transaction before yielding so a subsequent repeatable
-    snapshot includes everything committed by the previous lock holder.
-    """
-    if not (-(2**63) <= key < 2**63):
-        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
-    try:
-        await connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
-        await connection.commit()
-    except BaseException:
-        # Cancellation may race with lock acquisition. Never return a connection
-        # carrying a session lock to the pool, even if cleanup SQL cannot run.
-        await connection.invalidate()
-        raise
-    try:
-        yield
-    except Exception:
-        try:
-            await _release_connection_lock(connection, key)
-        except BaseException:
-            # Cleanup must not replace the original domain error.
-            await connection.invalidate()
-        raise
-    except BaseException:
-        await connection.invalidate()
-        raise
-    else:
-        try:
-            await _release_connection_lock(connection, key)
-        except BaseException:
-            await connection.invalidate()
-            raise
-
-
-async def _release_connection_lock(connection: AsyncConnection, key: int) -> None:
-    if connection.invalidated:
-        return
-    await connection.rollback()
-    await connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
-    await connection.commit()
-
-
-@asynccontextmanager
-async def pg_advisory_lock(session: AsyncSession, key: int) -> AsyncIterator[None]:
-    """Acquire a PostgreSQL advisory lock with the given key.
+    The lock's transaction stays open until the context exits, so work that
+    commits several times on other connections stays serialized. The lock
+    never outlives that transaction, which keeps it correct behind a
+    transaction-mode connection pooler. Finish the protected work inside the
+    context so a waiter starts only after that work has committed.
 
     Args:
-        session: Database session
+        engine: Engine to check the lock connection out of
         key: 64-bit integer key for the lock
+        wait: Block until the lock is free instead of trying once
 
     Yields:
-        None while lock is held
-
-    Raises:
-        ValueError: If key is out of valid range for PostgreSQL advisory locks
-
-    Note:
-        Key must be a 64-bit signed integer (-2^63 to 2^63-1)
-    """
-    if not (-(2**63) <= key < 2**63):
-        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
-
-    try:
-        # Acquire the lock (blocks until available)
-        await session.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
-        yield
-    finally:
-        # Always release the lock
-        await session.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
-
-
-async def try_pg_advisory_lock(session: AsyncSession, key: int) -> bool:
-    """Try to acquire a PostgreSQL advisory lock without blocking.
-
-    Args:
-        session: Database session
-        key: 64-bit integer key for the lock
-
-    Returns:
-        True if lock was acquired, False if already held
+        Whether the lock was acquired; always True when ``wait`` is set
 
     Raises:
         ValueError: If key is out of valid range for PostgreSQL advisory locks
     """
     if not (-(2**63) <= key < 2**63):
         raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
-
-    result = await session.execute(
-        text("SELECT pg_try_advisory_lock(:key)"), {"key": key}
-    )
-    return result.scalar() is True
+    # Closing the connection rolls back its transaction, releasing the lock.
+    lock_fn = "pg_advisory_xact_lock" if wait else "pg_try_advisory_xact_lock"
+    async with engine.connect() as connection:
+        result = await connection.execute(text(f"SELECT {lock_fn}(:key)"), {"key": key})
+        yield wait or result.scalar() is True
 
 
 async def try_pg_advisory_xact_lock(session: AsyncSession, key: int) -> bool:
@@ -123,34 +57,12 @@ async def try_pg_advisory_xact_lock(session: AsyncSession, key: int) -> bool:
 async def pg_advisory_xact_lock(session: AsyncSession, key: int) -> None:
     """Acquire a transaction-scoped lock; use before reading at READ COMMITTED.
 
-    Repeatable snapshots that may wait need ``pg_advisory_connection_lock``
+    Repeatable snapshots that may wait need ``hold_pg_advisory_xact_lock``
     before the snapshot transaction starts instead.
     """
     if not (-(2**63) <= key < 2**63):
         raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
     await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
-
-
-async def pg_advisory_unlock(session: AsyncSession, key: int) -> bool:
-    """Release a PostgreSQL advisory lock.
-
-    Args:
-        session: Database session
-        key: 64-bit integer key for the lock
-
-    Returns:
-        True if lock was released, False if not held by this session
-
-    Raises:
-        ValueError: If key is out of valid range for PostgreSQL advisory locks
-    """
-    if not (-(2**63) <= key < 2**63):
-        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
-
-    result = await session.execute(
-        text("SELECT pg_advisory_unlock(:key)"), {"key": key}
-    )
-    return result.scalar() is True
 
 
 async def lock_mcp_refresh_token_users(

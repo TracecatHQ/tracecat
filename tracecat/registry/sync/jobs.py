@@ -17,12 +17,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.seeding import seed_registry_scopes
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.locks import (
-    derive_lock_key_from_parts,
-    pg_advisory_unlock,
-    try_pg_advisory_lock,
+from tracecat.db.engine import (
+    get_async_engine,
+    get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.locks import derive_lock_key_from_parts, hold_pg_advisory_xact_lock
 from tracecat.db.models import PlatformRegistryVersion
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
@@ -123,20 +122,18 @@ async def sync_platform_registry_on_startup() -> None:
 
     try:
         artifact_build: _ArtifactBuildRequest | None = None
-        async with get_async_session_bypass_rls_context_manager() as session:
-            # Leader election: try to acquire lock (non-blocking)
-            acquired = await try_pg_advisory_lock(session, PLATFORM_SYNC_LOCK_KEY)
+        # Leader election: try to acquire lock (non-blocking). The sync commits
+        # several times, so the lock is held on its own connection.
+        async with hold_pg_advisory_xact_lock(
+            get_async_engine(), PLATFORM_SYNC_LOCK_KEY, wait=False
+        ) as acquired:
             if not acquired:
                 logger.info(
                     "Another process is handling platform registry sync, exiting"
                 )
                 return
-
-            try:
+            async with get_async_session_bypass_rls_context_manager() as session:
                 artifact_build = await _sync_as_leader(session, target_version)
-            finally:
-                # Always release lock
-                await pg_advisory_unlock(session, PLATFORM_SYNC_LOCK_KEY)
 
         # This coroutine itself is supervised by the API lifespan. Awaiting the
         # artifact build here keeps it inside that lifecycle while still

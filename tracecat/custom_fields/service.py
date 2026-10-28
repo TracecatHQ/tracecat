@@ -10,7 +10,7 @@ from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
 from tracecat.auth.types import Role
 from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
-from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_lock
+from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseWorkspaceService
@@ -119,16 +119,16 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         lock_key = derive_lock_key_from_parts(
             "tracecat.custom_fields.initialize_workspace_schema",
             self.service_name,
+            self.schema_name,
             self._table,
         )
-        async with pg_advisory_lock(self.session, lock_key):
-            await self.session.execute(
-                CreateSchema(self.schema_name, if_not_exists=True)
-            )
-            await self.session.execute(
-                CreateTable(self._table_definition(), if_not_exists=True)
-            )
-            await self._enable_workspace_rls_for_base_table()
+        # Held until the caller's transaction ends, so a waiter sees committed DDL.
+        await pg_advisory_xact_lock(self.session, lock_key)
+        await self.session.execute(CreateSchema(self.schema_name, if_not_exists=True))
+        await self.session.execute(
+            CreateTable(self._table_definition(), if_not_exists=True)
+        )
+        await self._enable_workspace_rls_for_base_table()
         self._schema_initialized = True
 
     async def _ensure_schema_ready(self) -> None:
