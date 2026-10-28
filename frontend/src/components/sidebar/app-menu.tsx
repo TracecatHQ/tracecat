@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
@@ -123,6 +123,15 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       .toUpperCase()
   }
 
+  useEffect(() => {
+    if (!menuOpen || !showWorkspaceSearch) return
+    // Radix focuses the menu itself on open; move focus to the search after.
+    const frame = requestAnimationFrame(() =>
+      workspaceSearchRef.current?.focus()
+    )
+    return () => cancelAnimationFrame(frame)
+  }, [menuOpen, showWorkspaceSearch])
+
   const handleMenuOpenChange = (open: boolean) => {
     setMenuOpen(open)
     if (!open) setWorkspaceSearch("")
@@ -189,12 +198,6 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             align="start"
             side="right"
             sideOffset={4}
-            onOpenAutoFocus={(e) => {
-              // Radix focuses the menu on open; send focus to the search instead.
-              if (!showWorkspaceSearch) return
-              e.preventDefault()
-              workspaceSearchRef.current?.focus()
-            }}
           >
             <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
               Workspaces

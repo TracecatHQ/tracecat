@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarProvider } from "@/components/ui/sidebar"
@@ -98,9 +98,11 @@ describe("with more than five workspaces", () => {
   it("focuses the search input when the menu opens", async () => {
     await openMenu()
 
-    expect(
-      screen.getByRole("textbox", { name: "Search workspaces" })
-    ).toHaveFocus()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Search workspaces" })
+      ).toHaveFocus()
+    )
   })
 
   it("moves focus to the first workspace on ArrowDown", async () => {
