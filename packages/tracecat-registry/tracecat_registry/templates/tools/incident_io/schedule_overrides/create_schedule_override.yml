@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: Create schedule override
+  description: >-
+    Create a new schedule override. Calls POST /v2/schedule_overrides directly. Requires API key
+    scope: schedule_overrides.create.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/schedule-overrides-v2/create
+  namespace: tools.incident_io
+  name: create_schedule_override
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    end_at:
+      type: str
+      description: End time of the override
+    layer_id:
+      type: str
+      description: The layer this override applies to
+    rotation_id:
+      type: str
+      description: The rotation this override applies to
+    schedule_id:
+      type: str
+      description: The schedule this override applies to
+    start_at:
+      type: str
+      description: Start time of the override
+    user:
+      type: dict[str, Any]
+      description: '`user` object. Fields: email, id, slack_user_id.'
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/schedule_overrides
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          end_at: ${{ inputs.end_at }}
+          layer_id: ${{ inputs.layer_id }}
+          rotation_id: ${{ inputs.rotation_id }}
+          schedule_id: ${{ inputs.schedule_id }}
+          start_at: ${{ inputs.start_at }}
+          user: ${{ inputs.user }}
+  returns: ${{ steps.request.result }}

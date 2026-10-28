@@ -94,6 +94,15 @@ definition:
         'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example
         `2024-12-02~2024-12-08`.
       default: null
+    attributes:
+      # Generic: incident.io documents this filter as a free-form deepObject keyed by ID.
+      type: dict[str, Any] | None
+      description: >-
+        Filter on an alerts attributes. Alert attribute ID should be sent, followed by the
+        operator and values. Accepted operator will depend on the attribute type. Sent as
+        deepObject query parameters, for example `{"01GBSQF3FHF7FWZQNWGHAVQ804": {"one_of":
+        ["01GBSQF3FHF7FWZQNWGHAVQ804", "01ET65M7ZARSFZ6TFDFVQDN9AA"]}}`.
+      default: null
     has_notes_is:
       type: str | None
       description: >-
@@ -129,6 +138,47 @@ definition:
       description: incident.io API base URL.
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            page_size: ${{ inputs.page_size }}
+            after: ${{ inputs.after }}
+            deduplication_key[is]: ${{ inputs.deduplication_key_is }}
+            status[one_of]: ${{ inputs.status_one_of }}
+            status[not_in]: ${{ inputs.status_not_in }}
+            alert_source[one_of]: ${{ inputs.alert_source_one_of }}
+            alert_source[not_in]: ${{ inputs.alert_source_not_in }}
+            alert_group_id[one_of]: ${{ inputs.alert_group_id_one_of }}
+            created_at[gte]: ${{ inputs.created_at_gte }}
+            created_at[lte]: ${{ inputs.created_at_lte }}
+            created_at[date_range]: ${{ inputs.created_at_date_range }}
+            updated_at[gte]: ${{ inputs.updated_at_gte }}
+            updated_at[lte]: ${{ inputs.updated_at_lte }}
+            updated_at[date_range]: ${{ inputs.updated_at_date_range }}
+            has_notes[is]: ${{ inputs.has_notes_is }}
+            tags[one_of]: ${{ inputs.tags_one_of }}
+            tags[all_of]: ${{ inputs.tags_all_of }}
+            tags[not_in]: ${{ inputs.tags_not_in }}
+            include_maintenance_window[is]: ${{ inputs.include_maintenance_window_is }}
+          filters:
+            attributes: ${{ inputs.attributes }}
+        script: |-
+          def main(params, filters):
+              out = dict(params)
+
+              def flatten(prefix, value):
+                  if isinstance(value, dict):
+                      for key, item in value.items():
+                          flatten(f"{prefix}[{key}]", item)
+                  else:
+                      out[prefix] = value
+
+              for name, value in filters.items():
+                  if value:
+                      flatten(name, value)
+              return out
     - ref: request
       action: core.http_request
       args:
@@ -137,24 +187,5 @@ definition:
         headers:
           Accept: application/json
           Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
-        params:
-          page_size: ${{ inputs.page_size }}
-          after: ${{ inputs.after }}
-          deduplication_key[is]: ${{ inputs.deduplication_key_is }}
-          status[one_of]: ${{ inputs.status_one_of }}
-          status[not_in]: ${{ inputs.status_not_in }}
-          alert_source[one_of]: ${{ inputs.alert_source_one_of }}
-          alert_source[not_in]: ${{ inputs.alert_source_not_in }}
-          alert_group_id[one_of]: ${{ inputs.alert_group_id_one_of }}
-          created_at[gte]: ${{ inputs.created_at_gte }}
-          created_at[lte]: ${{ inputs.created_at_lte }}
-          created_at[date_range]: ${{ inputs.created_at_date_range }}
-          updated_at[gte]: ${{ inputs.updated_at_gte }}
-          updated_at[lte]: ${{ inputs.updated_at_lte }}
-          updated_at[date_range]: ${{ inputs.updated_at_date_range }}
-          has_notes[is]: ${{ inputs.has_notes_is }}
-          tags[one_of]: ${{ inputs.tags_one_of }}
-          tags[all_of]: ${{ inputs.tags_all_of }}
-          tags[not_in]: ${{ inputs.tags_not_in }}
-          include_maintenance_window[is]: ${{ inputs.include_maintenance_window_is }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.request.result }}

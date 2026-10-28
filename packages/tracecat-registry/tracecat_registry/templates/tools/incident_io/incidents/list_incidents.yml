@@ -132,6 +132,25 @@ definition:
         Filter on incident type. The accepted operators are 'one_of, or 'not_in'. Value for the
         `not_in` operator.
       default: null
+    incident_role:
+      # Generic: incident.io documents this filter as a free-form deepObject keyed by ID.
+      type: dict[str, Any] | None
+      description: >-
+        Filter on an incident role. Role ID should be sent, along with backlink attribute ID (if
+        needed) followed by the operator and values. The accepted operators are 'one_of',
+        'is_blank'. Sent as deepObject query parameters, for example
+        `{"01GBSQF3FHF7FWZQNWGHAVQ804": {"one_of": ["01GBSQF3FHF7FWZQNWGHAVQ804",
+        "01ET65M7ZARSFZ6TFDFVQDN9AA"]}}`.
+      default: null
+    custom_field:
+      # Generic: incident.io documents this filter as a free-form deepObject keyed by ID.
+      type: dict[str, Any] | None
+      description: >-
+        Filter on an incident custom field. Custom field ID should be sent, followed by the
+        operator and values. Accepted operator will depend on the custom field type. Sent as
+        deepObject query parameters, for example `{"01GBSQF3FHF7FWZQNWGHAVQ804": {"one_of":
+        ["01GBSQF3FHF7FWZQNWGHAVQ804", "01ET65M7ZARSFZ6TFDFVQDN9AA"]}}`.
+      default: null
     mode_one_of:
       type: list[str] | None
       description: >-
@@ -144,6 +163,50 @@ definition:
       description: incident.io API base URL.
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            page_size: ${{ inputs.page_size }}
+            after: ${{ inputs.after }}
+            sort_by: ${{ inputs.sort_by }}
+            filter_mode: ${{ inputs.filter_mode }}
+            status[one_of]: ${{ inputs.status_one_of }}
+            status[not_in]: ${{ inputs.status_not_in }}
+            status_category[one_of]: ${{ inputs.status_category_one_of }}
+            status_category[not_in]: ${{ inputs.status_category_not_in }}
+            created_at[gte]: ${{ inputs.created_at_gte }}
+            created_at[lte]: ${{ inputs.created_at_lte }}
+            created_at[date_range]: ${{ inputs.created_at_date_range }}
+            updated_at[gte]: ${{ inputs.updated_at_gte }}
+            updated_at[lte]: ${{ inputs.updated_at_lte }}
+            updated_at[date_range]: ${{ inputs.updated_at_date_range }}
+            severity[one_of]: ${{ inputs.severity_one_of }}
+            severity[not_in]: ${{ inputs.severity_not_in }}
+            severity[gte]: ${{ inputs.severity_gte }}
+            severity[lte]: ${{ inputs.severity_lte }}
+            incident_type[one_of]: ${{ inputs.incident_type_one_of }}
+            incident_type[not_in]: ${{ inputs.incident_type_not_in }}
+            mode[one_of]: ${{ inputs.mode_one_of }}
+          filters:
+            incident_role: ${{ inputs.incident_role }}
+            custom_field: ${{ inputs.custom_field }}
+        script: |-
+          def main(params, filters):
+              out = dict(params)
+
+              def flatten(prefix, value):
+                  if isinstance(value, dict):
+                      for key, item in value.items():
+                          flatten(f"{prefix}[{key}]", item)
+                  else:
+                      out[prefix] = value
+
+              for name, value in filters.items():
+                  if value:
+                      flatten(name, value)
+              return out
     - ref: request
       action: core.http_request
       args:
@@ -152,26 +215,5 @@ definition:
         headers:
           Accept: application/json
           Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
-        params:
-          page_size: ${{ inputs.page_size }}
-          after: ${{ inputs.after }}
-          sort_by: ${{ inputs.sort_by }}
-          filter_mode: ${{ inputs.filter_mode }}
-          status[one_of]: ${{ inputs.status_one_of }}
-          status[not_in]: ${{ inputs.status_not_in }}
-          status_category[one_of]: ${{ inputs.status_category_one_of }}
-          status_category[not_in]: ${{ inputs.status_category_not_in }}
-          created_at[gte]: ${{ inputs.created_at_gte }}
-          created_at[lte]: ${{ inputs.created_at_lte }}
-          created_at[date_range]: ${{ inputs.created_at_date_range }}
-          updated_at[gte]: ${{ inputs.updated_at_gte }}
-          updated_at[lte]: ${{ inputs.updated_at_lte }}
-          updated_at[date_range]: ${{ inputs.updated_at_date_range }}
-          severity[one_of]: ${{ inputs.severity_one_of }}
-          severity[not_in]: ${{ inputs.severity_not_in }}
-          severity[gte]: ${{ inputs.severity_gte }}
-          severity[lte]: ${{ inputs.severity_lte }}
-          incident_type[one_of]: ${{ inputs.incident_type_one_of }}
-          incident_type[not_in]: ${{ inputs.incident_type_not_in }}
-          mode[one_of]: ${{ inputs.mode_one_of }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.request.result }}
