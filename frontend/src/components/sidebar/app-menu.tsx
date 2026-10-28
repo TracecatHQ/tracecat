@@ -136,7 +136,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
     }
     // Keep Radix typeahead from stealing keystrokes meant for the input.
     e.stopPropagation()
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
       const match = filteredWorkspaces?.[0]
       if (match) {
         e.preventDefault()
