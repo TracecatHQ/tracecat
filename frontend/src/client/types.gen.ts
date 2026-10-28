@@ -14318,6 +14318,13 @@ export type GraphApplyGraphOperationsData = {
 
 export type GraphApplyGraphOperationsResponse = GraphResponse
 
+export type GraphPreviewAutoLayoutData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type GraphPreviewAutoLayoutResponse = GraphResponse
+
 export type WorkflowExecutionsListWorkflowExecutionsData = {
   limit?: number | null
   trigger?: Array<TriggerType> | null
@@ -19710,6 +19717,21 @@ export type $OpenApiTs = {
     }
     patch: {
       req: GraphApplyGraphOperationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GraphResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/graph/auto-layout": {
+    get: {
+      req: GraphPreviewAutoLayoutData
       res: {
         /**
          * Successful Response

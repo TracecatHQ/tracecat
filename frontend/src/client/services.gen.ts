@@ -542,6 +542,8 @@ import type {
   GraphApplyGraphOperationsResponse,
   GraphGetGraphData,
   GraphGetGraphResponse,
+  GraphPreviewAutoLayoutData,
+  GraphPreviewAutoLayoutResponse,
   InboxGetPendingCountData,
   InboxGetPendingCountResponse,
   InboxListItemsData,
@@ -2781,6 +2783,34 @@ export const graphApplyGraphOperations = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Preview Auto Layout
+ * Get the graph with auto-layout positions applied, without saving them.
+ *
+ * Read-only users can tidy their own view of the canvas. Use the
+ * ``auto_layout`` graph operation to persist the layout.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @returns GraphResponse Successful Response
+ * @throws ApiError
+ */
+export const graphPreviewAutoLayout = (
+  data: GraphPreviewAutoLayoutData
+): CancelablePromise<GraphPreviewAutoLayoutResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/graph/auto-layout",
+    path: {
+      workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
+    },
     errors: {
       422: "Validation Error",
     },
