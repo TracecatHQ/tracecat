@@ -1786,7 +1786,11 @@ async def test_loop_context_mints_tunnel_token_per_item(mocker) -> None:
 async def test_loop_context_resolves_unshareable_contexts_in_parallel(
     mocker,
 ) -> None:
-    """After a partial resolution, items resolve concurrently, not one by one."""
+    """After a partial resolution, items resolve concurrently, not one by one.
+
+    Items already queued on the lock when the first resolution comes back
+    partial also leave it and resolve in parallel.
+    """
     get_action_secrets, _ = _patch_loop_resolution(
         mocker, sts_expires_in=timedelta(hours=1), role_arn=False
     )
@@ -1809,10 +1813,10 @@ async def test_loop_context_resolves_unshareable_contexts_in_parallel(
         role=_expression_policy_role("tracecat-executor")
     )
 
-    await loop.prepare(_loop_item_input(0))
-    await asyncio.gather(*(loop.prepare(_loop_item_input(i)) for i in range(1, 4)))
+    await asyncio.gather(*(loop.prepare(_loop_item_input(i)) for i in range(4)))
 
     assert get_action_secrets.await_count == 4
+    # The first item resolves alone under the lock; the queued three in parallel.
     assert max_active == 3
 
 

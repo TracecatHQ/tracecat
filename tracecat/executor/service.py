@@ -993,13 +993,17 @@ class LoopActionContext:
 
     async def prepare(self, input: RunActionInput) -> PreparedContext:
         """Prepare one item's context, resolving the shared part when stale."""
-        if self._unshareable:
-            shared = await self._resolve(input)
-        else:
+        shared = None
+        if not self._unshareable:
             async with self._lock:
-                shared = self._shared
-                if shared is None or datetime.now(UTC) >= shared.refresh_at:
-                    shared = await self._resolve(input)
+                # Items queued here while the holder found the context
+                # unshareable resolve outside the lock instead.
+                if not self._unshareable:
+                    shared = self._shared
+                    if shared is None or datetime.now(UTC) >= shared.refresh_at:
+                        shared = await self._resolve(input)
+        if shared is None:
+            shared = await self._resolve(input)
         return bind_action_context(shared, input, self.role)
 
     async def _resolve(self, input: RunActionInput) -> SharedActionContext:
