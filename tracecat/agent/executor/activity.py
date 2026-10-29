@@ -8,6 +8,7 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
@@ -23,6 +24,7 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config as app_config
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
+from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
 from tracecat.agent.cancellation import (
     TURN_CANCEL_POLL_INTERVAL_SECONDS,
     read_turn_cancel_signal,
@@ -37,7 +39,7 @@ from tracecat.agent.common.exceptions import (
 )
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
-from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.common.stream_types import HarnessType, ToolCallContent
 from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPToolDefinition,
@@ -65,6 +67,12 @@ from tracecat.agent.mcp.stdio_probe_types import (
     sanitize_stdio_probe_error,
 )
 from tracecat.agent.mcp.stdio_runner import StdioMCPServer, get_stdio_mcp_runner
+from tracecat.agent.metrics import (
+    TurnOutcome,
+    TurnTokens,
+    backend_label,
+    record_turn,
+)
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
     ResolvedAgentOtelConfig,
@@ -121,7 +129,7 @@ from tracecat.observability.otel import (
 from tracecat.observability.sentry import capture_activity_failure
 from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.runtime.errors import RuntimeErrorClassification
+from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorKind
 from tracecat.settings.service import SettingsService
 from tracecat.storage import blob
 
@@ -237,6 +245,10 @@ class AgentExecutorInput(BaseModel):
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
+    # When the user sent this turn, or resumed it after approvals, and the
+    # session's surface. Turn metrics only; None on legacy inputs skips them.
+    turn_started_at: datetime | None = None
+    entity_type: AgentSessionEntity | None = None
 
 
 class AgentExecutorResult(BaseModel):
@@ -272,6 +284,8 @@ class AgentExecutorResult(BaseModel):
     # Tool calls the interrupt aborted mid-flight (errored after cancellation
     # or never resolved). None on legacy results that predate this field.
     interrupted_tool_call_ids: list[str] | None = None
+    # Worker-local timing for turn metrics; never sent over Temporal.
+    first_token_at: datetime | None = Field(default=None, exclude=True)
 
 
 def _record_failure(
@@ -306,6 +320,76 @@ def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
         "tracecat.agent.run.id": input.curr_run_id,
     }
     return {key: str(value) for key, value in values.items() if value is not None}
+
+
+_CLAUDE_CODE_BACKEND = backend_label(DEFAULT_AGENT_BACKEND, HarnessType.CLAUDE_CODE)
+_MODEL_ERROR_KINDS = frozenset(
+    {
+        RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED,
+        RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+        RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+        RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
+        RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED,
+    }
+)
+_UNSETTLED_KINDS = frozenset(
+    {
+        RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT,
+        RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT,
+    }
+)
+
+
+def _turn_outcome(result: AgentExecutorResult) -> TurnOutcome:
+    match _agent_runtime_outcome(result):
+        case AgentRuntimeOutcome.SUCCESS:
+            return TurnOutcome.COMPLETED
+        case AgentRuntimeOutcome.APPROVAL:
+            return TurnOutcome.BLOCKED
+        case AgentRuntimeOutcome.CANCELLED:
+            return TurnOutcome.CANCELLED
+        case AgentRuntimeOutcome.FAILURE:
+            kind = result.classification.kind if result.classification else None
+            if kind in _MODEL_ERROR_KINDS:
+                return TurnOutcome.MODEL_ERROR
+            if kind in _UNSETTLED_KINDS:
+                return TurnOutcome.UNSETTLED
+            return TurnOutcome.FAILED
+
+
+def _turn_tokens(usage: dict[str, Any] | None) -> TurnTokens | None:
+    """Read Claude Code's result usage; non-integer counts read as zero."""
+    if usage is None:
+        return None
+
+    def count(key: str) -> int:
+        value = usage.get(key)
+        return value if isinstance(value, int) else 0
+
+    return TurnTokens(
+        input=count("input_tokens"),
+        output=count("output_tokens"),
+        cache_read=count("cache_read_input_tokens"),
+        cache_write=count("cache_creation_input_tokens"),
+    )
+
+
+def _record_turn_metrics(
+    input: AgentExecutorInput, result: AgentExecutorResult
+) -> None:
+    if input.turn_started_at is None:
+        return
+    record_turn(
+        backend=_CLAUDE_CODE_BACKEND,
+        surface=input.entity_type,
+        model_provider=input.config.model_provider,
+        outcome=_turn_outcome(result),
+        sent_at=input.turn_started_at,
+        first_token_at=result.first_token_at,
+        settled_at=datetime.now(UTC),
+        tokens=_turn_tokens(result.result_usage),
+    )
 
 
 def _agent_runtime_outcome(result: AgentExecutorResult) -> AgentRuntimeOutcome:
@@ -439,6 +523,7 @@ class SandboxedAgentExecutor:
             socket_path=socket_path,
             routing_plan=runtime_routing_plan,
             on_error=on_error,
+            backend=_CLAUDE_CODE_BACKEND,
         )
 
     async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:
@@ -713,6 +798,7 @@ class SandboxedAgentExecutor:
         result.interrupted_tool_call_ids = (
             loopback_result.interrupted_tool_call_ids or None
         )
+        result.first_token_at = loopback_result.first_token_at
 
     async def _run_with_broker(
         self,
@@ -1428,12 +1514,14 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
                 )
         except AgentSandboxValidationError as e:
             classification = invalid_agent_configuration(e)
-            return AgentExecutorResult(
+            result = AgentExecutorResult(
                 success=False,
                 error=classification.message,
                 classification=classification,
                 terminal_stream_error_emitted=False,
             )
+            _record_turn_metrics(input, result)
+            return result
 
         timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
         executor = SandboxedAgentExecutor(
@@ -1446,6 +1534,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         attributes={"tracecat.agent.harness": "claude_code"},
     ) as runtime_span:
         result = await executor.run()
+        _record_turn_metrics(input, result)
         outcome = _agent_runtime_outcome(result)
         if runtime_span is not None:
             runtime_span.set_attribute("tracecat.agent.outcome", outcome)

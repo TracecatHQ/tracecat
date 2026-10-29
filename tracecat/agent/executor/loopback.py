@@ -19,6 +19,7 @@ import copy
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Literal, NotRequired, TypedDict, cast
 
@@ -41,6 +42,7 @@ from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_unclassified,
 )
+from tracecat.agent.metrics import FIRST_TOKEN_EVENT_TYPES
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -125,6 +127,8 @@ class LoopbackResult:
     # after cancellation was requested or never produced a result. Empty for
     # non-cancelled turns.
     interrupted_tool_call_ids: list[str] = field(default_factory=list)
+    # When the first model output was forwarded to the stream, for metrics.
+    first_token_at: datetime | None = None
 
 
 def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
@@ -669,6 +673,11 @@ class LoopbackHandler:
         ):
             self._received_assistant_content = True
             self._log_benchmark_phase("loopback_first_assistant_delta")
+        if (
+            self._result.first_token_at is None
+            and event.type in FIRST_TOKEN_EVENT_TYPES
+        ):
+            self._result.first_token_at = datetime.now(UTC)
         await stream_sink.append(event)
         await self._append_artifact_side_effects(event, stream_sink)
 

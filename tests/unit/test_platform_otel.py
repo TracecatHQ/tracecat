@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 from opentelemetry import trace
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -429,3 +430,65 @@ def test_headerless_workflow_run_sampling_ignores_ambient_span(
 
     assert traceparent.endswith("-00")
     assert [span.name for span in exporter.get_finished_spans()] == ["ambient"]
+
+
+def test_platform_metrics_stay_off_without_tracing() -> None:
+    assert platform_otel.initialize_platform_metrics() is None
+
+
+def test_platform_metrics_share_the_tracing_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    initialize_platform_tracing(
+        "tracecat-agent-executor", exporter=InMemorySpanExporter()
+    )
+    try:
+        provider = platform_otel.initialize_platform_metrics(
+            reader=InMemoryMetricReader()
+        )
+        assert provider is not None
+        assert platform_otel.initialize_platform_metrics() is provider
+        attributes = provider._sdk_config.resource.attributes
+        assert attributes["service.name"] == "tracecat-agent-executor"
+        assert attributes["service.instance.id"]
+    finally:
+        platform_otel.shutdown_platform_metrics()
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        (
+            {"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://alloy:4318/v1/traces"},
+            "http://alloy:4318/v1/metrics",
+        ),
+        (
+            {
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318",
+                "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://alloy:4318/v1/traces",
+            },
+            "http://collector:4318/v1/metrics",
+        ),
+        ({"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://alloy:4318/traces"}, None),
+    ],
+)
+def test_platform_metrics_endpoint_follows_traces_endpoint(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str], expected: str | None
+) -> None:
+    for key in (
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    exporter = platform_otel._otlp_metric_exporter()
+
+    if expected is None:
+        assert exporter is None
+    else:
+        assert exporter is not None
+        assert exporter._endpoint == expected
