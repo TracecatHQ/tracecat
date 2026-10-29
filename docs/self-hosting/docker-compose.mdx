@@ -134,8 +134,10 @@ curl -fL -o docker-compose.yml https://github.com/TracecatHQ/tracecat/releases/l
 curl -fL -o Caddyfile https://github.com/TracecatHQ/tracecat/releases/latest/download/Caddyfile
 
 # 5. If you use nsjail, back up and download the latest sandbox overlay
-cp docker-compose.sandbox.yml docker-compose.sandbox.yml.bak
-curl -fL -o docker-compose.sandbox.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.sandbox.yml
+if [ -f docker-compose.sandbox.yml ]; then
+  cp docker-compose.sandbox.yml docker-compose.sandbox.yml.bak
+  curl -fL -o docker-compose.sandbox.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.sandbox.yml
+fi
 
 # 6. Pull the new images and restart Tracecat with the updated configuration
 docker compose pull
