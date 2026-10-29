@@ -296,7 +296,7 @@ def test_registry_stamp_leaves_pre_release_versions_unchanged(
 def test_registry_stamp_fails_when_too_many_commits_share_a_second(
     tmp_path: Path,
 ) -> None:
-    """The two-digit same-second count must fail rather than overflow."""
+    """Reaching 99 same-second ancestors must fail: git log -n 99 caps the count."""
     with pytest.raises(subprocess.CalledProcessError):
         _run_registry_stamp(
             tmp_path, _registry_init("1.0.0", "1.0.0"), [1761696000] * 100
