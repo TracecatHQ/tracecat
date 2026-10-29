@@ -33,6 +33,7 @@ import {
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
 import { ExportErrorMessage } from "@/components/workspace-sync/export-error"
+import { PACKAGE_INCLUDE_FILENAME } from "@/components/workspace-sync/package-picker"
 import {
   formatResourceTotal,
   getWorkspaceSyncPreviewResourceTotal,
@@ -47,6 +48,7 @@ import {
   WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
+import { useWorkspacePackage } from "@/components/workspace-sync/use-workspace-package"
 import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
@@ -104,6 +106,14 @@ export function WorkspaceResourceSyncActions({
     limit: 200,
   })
 
+  // The managed resources source always pushes its whole package, so a push
+  // scoped to one resource type does not apply there. Only checked once the
+  // dialog opens, since reading the package reads the repository.
+  const { isSource, workspacePackageIsLoading } = useWorkspacePackage(
+    workspaceId,
+    { enabled: open && Boolean(gitRepoUrl) }
+  )
+  const showPackageNotice = isSource && Boolean(gitRepoUrl)
   const resourceRefs = useMemo<ResourceRef[]>(
     () => resources.map((resourceType) => ({ resource_type: resourceType })),
     [resources]
@@ -170,6 +180,8 @@ export function WorkspaceResourceSyncActions({
     <ExportErrorMessage error={previewError} workspaceId={workspaceId} />
   ) : undefined
   const exportDisabled =
+    isSource ||
+    workspacePackageIsLoading ||
     !previewOperationId ||
     !previewRequested ||
     previewIsLoading ||
@@ -266,7 +278,7 @@ export function WorkspaceResourceSyncActions({
           </div>
         </DialogHeader>
         <DialogBody>
-          {gitRepoUrl ? (
+          {gitRepoUrl && !showPackageNotice ? (
             <div className="space-y-5">
               {resources.includes("workflow") && <WorkspacePushExplanation />}
               <PushFlow
@@ -334,7 +346,15 @@ export function WorkspaceResourceSyncActions({
               </div>
             </div>
           ) : (
-            <div>
+            <div className="space-y-3">
+              {showPackageNotice && (
+                <p className="text-sm text-muted-foreground">
+                  This workspace is the managed resources source. Every push
+                  exports the whole package listed in{" "}
+                  {`${PACKAGE_INCLUDE_FILENAME},`} so pushing one resource type
+                  is off. Choose the package and push it from the Git sync page.
+                </p>
+              )}
               <Button asChild variant="outline" size="sm" className="gap-1.5">
                 <Link
                   href={`/workspaces/${workspaceId}/git-sync`}

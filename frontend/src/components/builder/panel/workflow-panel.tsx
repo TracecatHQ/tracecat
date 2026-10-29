@@ -27,6 +27,7 @@ import {
 import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { TunnelSelect } from "@/components/tunnels/tunnel-select"
 import {
@@ -243,7 +244,7 @@ function WorkflowVersionsPanel({
 }: {
   workflow: WorkflowRead
 }): React.JSX.Element {
-  const { workspaceId, workflowId } = useWorkflow()
+  const { workspaceId, workflowId, isReadOnly } = useWorkflow()
   const { definitions, definitionsIsLoading, definitionsError } =
     useWorkflowDefinitions(workspaceId, workflowId)
   const { restoreWorkflowDefinition, restoreWorkflowDefinitionIsPending } =
@@ -280,7 +281,7 @@ function WorkflowVersionsPanel({
           definitionsIsLoading={definitionsIsLoading}
           definitionsError={definitionsError}
           currentVersion={workflow.version ?? null}
-          restorePending={restoreWorkflowDefinitionIsPending}
+          restorePending={restoreWorkflowDefinitionIsPending || isReadOnly}
           onRestore={handleRestore}
         />
       </ScrollArea>
@@ -492,7 +493,7 @@ function WorkflowSettingsPanel({
 }: {
   workflow: WorkflowRead
 }): React.JSX.Element {
-  const { updateWorkflow, workspaceId } = useWorkflow()
+  const { updateWorkflow, workspaceId, isReadOnly } = useWorkflow()
   const workflowUpdateFormSchema = useMemo(
     () => createWorkflowUpdateFormSchema(workspaceId),
     [workspaceId]
@@ -558,6 +559,10 @@ function WorkflowSettingsPanel({
   )
 
   const onPanelBlur = useCallback(async () => {
+    // Managed workflows are read-only, so there is nothing to save.
+    if (isReadOnly) {
+      return
+    }
     // Save whenever focus changes, regardless of where it's going
     const values = methods.getValues()
 
@@ -578,7 +583,7 @@ function WorkflowSettingsPanel({
         }
       )
     }
-  }, [methods, onSubmit, workflowUpdateFormSchema])
+  }, [isReadOnly, methods, onSubmit, workflowUpdateFormSchema])
 
   return (
     <div onBlur={onPanelBlur} className="flex h-full flex-col">
@@ -588,7 +593,10 @@ function WorkflowSettingsPanel({
           className="flex flex-1 flex-col overflow-auto"
         >
           {/* All other fields in one flat section */}
-          <div className="flex flex-col gap-6 overflow-y-auto px-4 pb-32 pt-4">
+          <ReadOnlyFieldset
+            readOnly={isReadOnly}
+            className="flex flex-col gap-6 overflow-y-auto px-4 pb-32 pt-4"
+          >
             {/* Name */}
             <FormField
               control={methods.control}
@@ -911,7 +919,7 @@ function WorkflowSettingsPanel({
               </FormLabel>
               <ControlledYamlField fieldName="returns" hideType />
             </FormItem>
-          </div>
+          </ReadOnlyFieldset>
         </form>
       </Form>
     </div>
@@ -923,7 +931,7 @@ function WorkflowReadmePanel({
 }: {
   workflow: WorkflowRead
 }): React.JSX.Element {
-  const { updateWorkflow } = useWorkflow()
+  const { updateWorkflow, isReadOnly } = useWorkflow()
   const [value, setValue] = useState(workflow.description ?? "")
   const [isSaving, setIsSaving] = useState(false)
   const savedValueRef = useRef(workflow.description ?? "")
@@ -938,7 +946,7 @@ function WorkflowReadmePanel({
   }, [workflow.description, workflow.id])
 
   const persistReadme = useCallback(async () => {
-    if (isSaving) {
+    if (isSaving || isReadOnly) {
       return
     }
 
@@ -963,7 +971,7 @@ function WorkflowReadmePanel({
     } finally {
       setIsSaving(false)
     }
-  }, [isSaving, isTooLong, updateWorkflow, value])
+  }, [isReadOnly, isSaving, isTooLong, updateWorkflow, value])
 
   const handleContainerBlur = useCallback(
     (event: React.FocusEvent<HTMLDivElement>) => {
@@ -993,7 +1001,10 @@ function WorkflowReadmePanel({
           Edit workflow description
         </h4>
       </div>
-      <div className="min-h-[300px] flex-1 rounded-md border border-input bg-background [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:p-3">
+      <ReadOnlyFieldset
+        readOnly={isReadOnly}
+        className="min-h-[300px] flex-1 rounded-md border border-input bg-background [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:p-3"
+      >
         <SimpleEditor
           value={value}
           onChange={setValue}
@@ -1003,7 +1014,7 @@ function WorkflowReadmePanel({
           className="h-full"
           style={{ height: "100%" }}
         />
-      </div>
+      </ReadOnlyFieldset>
     </div>
   )
 }

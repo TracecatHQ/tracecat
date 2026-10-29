@@ -28,6 +28,17 @@ const mockReplace = jest.fn()
 const mockUseWorkflowReferences = jest.fn()
 const mockUseListMcpIntegrations = jest.fn()
 
+// No resource is managed by Tracecat in these tests.
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: () => false,
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/components/ai-elements/code-block", () => ({
   CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
   CodeBlockCopyButton: () => null,

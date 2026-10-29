@@ -85,6 +85,7 @@ import {
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import { SkillLibraryProviderIcon } from "@/components/skills/skill-library-provider-icon"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -163,6 +164,7 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkills } from "@/hooks/use-skills"
 import {
@@ -486,6 +488,8 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     presetIsLoading: selectedPresetIsLoading,
     presetError: selectedPresetError,
   } = useAgentPreset(workspaceId, activePresetId)
+  const { isManaged } = useManagedResources(workspaceId)
+  const presetIsManaged = isManaged("agent_preset", selectedPreset?.id)
 
   const enabledModelOptions = useMemo(
     () => buildEnabledModelOptions(models),
@@ -558,6 +562,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         }}
         initialTab={queryTab ?? "configuration"}
         onTabChange={handleTabChange}
+        readOnly={presetIsManaged}
       />
     </div>
   )
@@ -1495,6 +1500,11 @@ type AgentPresetFormProps = {
   layout?: "split" | "stacked"
   initialTab?: AgentPresetSideTab
   onTabChange?: (tab: AgentPresetSideTab) => void
+  /**
+   * The preset is managed by Tracecat: lock everything except the customer's
+   * own skill bindings, which can still be added, removed and saved.
+   */
+  readOnly?: boolean
 }
 
 function AgentPresetForm({
@@ -1515,6 +1525,7 @@ function AgentPresetForm({
   layout = "split",
   initialTab = "configuration",
   onTabChange,
+  readOnly = false,
 }: AgentPresetFormProps) {
   const [leftMode, setLeftMode] = useState<AgentPresetLeftMode>(() =>
     tabToLeftMode(initialTab)
@@ -1842,7 +1853,7 @@ function AgentPresetForm({
   const documentPanel = (
     <AgentPresetDocumentPanel
       form={form}
-      isSaving={isSaving}
+      isSaving={isSaving || readOnly}
       fullWidth={layout === "stacked"}
     />
   )
@@ -1992,6 +2003,7 @@ function AgentPresetForm({
       subagentFields={subagentFields}
       onAddSubagent={handleAddSubagent}
       onRemoveSubagent={removeSubagent}
+      readOnly={readOnly}
     />
   )
 
@@ -2266,6 +2278,7 @@ function AgentPresetRail({
   subagentFields,
   onAddSubagent,
   onRemoveSubagent,
+  readOnly = false,
 }: {
   tab: AgentPresetRailTab
   onTabChange: (tab: AgentPresetRailTab) => void
@@ -2290,6 +2303,8 @@ function AgentPresetRail({
   subagentFields: Array<{ id: string }>
   onAddSubagent: (subagent: SubagentFormValue) => void
   onRemoveSubagent: (index: number) => void
+  /** Lock every tab except Skills on a managed preset. */
+  readOnly?: boolean
 }) {
   const subagents = useWatch({ control: form.control, name: "subagents" })
   const savedSkillIds = preset
@@ -2369,38 +2384,43 @@ function AgentPresetRail({
                     {drillTitle}
                   </span>
                 </div>
-                {activeDrill.kind === "tools" ? (
-                  <AgentPresetRailToolGroup
-                    groupKey={activeDrill.groupKey}
-                    registryActions={registryActions}
-                    mcpIntegrations={mcpIntegrations}
-                    registryLoading={registryLoading}
-                    mcpLoading={mcpLoading}
-                    toolsLoadError={toolsLoadError}
-                    isSaving={isSaving}
-                    maxTools={toolPolicy.maxTools}
-                    skillActions={toolPolicy.skillActions}
-                    onEmptied={back}
-                  />
-                ) : (
-                  <AgentPresetSubagentDetail
-                    key={subagentFields[activeDrill.index]?.id}
-                    form={form}
-                    index={activeDrill.index}
-                    isSaving={isSaving}
-                    parentPreset={preset}
-                    agentPresets={agentPresets}
-                    onRemove={(index) => {
-                      onRemoveSubagent(index)
-                      back()
-                    }}
-                  />
-                )}
+                <ReadOnlyFieldset readOnly={readOnly}>
+                  {activeDrill.kind === "tools" ? (
+                    <AgentPresetRailToolGroup
+                      groupKey={activeDrill.groupKey}
+                      registryActions={registryActions}
+                      mcpIntegrations={mcpIntegrations}
+                      registryLoading={registryLoading}
+                      mcpLoading={mcpLoading}
+                      toolsLoadError={toolsLoadError}
+                      isSaving={isSaving}
+                      maxTools={toolPolicy.maxTools}
+                      skillActions={toolPolicy.skillActions}
+                      onEmptied={back}
+                    />
+                  ) : (
+                    <AgentPresetSubagentDetail
+                      key={subagentFields[activeDrill.index]?.id}
+                      form={form}
+                      index={activeDrill.index}
+                      isSaving={isSaving}
+                      parentPreset={preset}
+                      agentPresets={agentPresets}
+                      onRemove={(index) => {
+                        onRemoveSubagent(index)
+                        back()
+                      }}
+                    />
+                  )}
+                </ReadOnlyFieldset>
               </div>
             ) : (
               <>
                 <TabsContent value="tools" className="mt-0">
-                  <div className="flex flex-col gap-6">
+                  <ReadOnlyFieldset
+                    readOnly={readOnly}
+                    className="flex flex-col gap-6"
+                  >
                     <AgentPresetSettingsRows
                       form={form}
                       isSaving={isSaving}
@@ -2426,7 +2446,7 @@ function AgentPresetRail({
                         onDrillChange({ kind: "tools", groupKey, title })
                       }
                     />
-                  </div>
+                  </ReadOnlyFieldset>
                 </TabsContent>
                 <TabsContent value="skills" className="mt-0">
                   <AgentPresetSkillsPanel
@@ -2440,23 +2460,27 @@ function AgentPresetRail({
                   />
                 </TabsContent>
                 <TabsContent value="subagents" className="mt-0">
-                  <AgentPresetSubagentsPanel
-                    form={form}
-                    isSaving={isSaving}
-                    parentPreset={preset}
-                    agentPresets={agentPresets}
-                    subagentFields={subagentFields}
-                    onAddSubagent={onAddSubagent}
-                    onOpenSubagent={(index) =>
-                      onDrillChange({ kind: "subagent", index })
-                    }
-                  />
+                  <ReadOnlyFieldset readOnly={readOnly}>
+                    <AgentPresetSubagentsPanel
+                      form={form}
+                      isSaving={isSaving}
+                      parentPreset={preset}
+                      agentPresets={agentPresets}
+                      subagentFields={subagentFields}
+                      onAddSubagent={onAddSubagent}
+                      onOpenSubagent={(index) =>
+                        onDrillChange({ kind: "subagent", index })
+                      }
+                    />
+                  </ReadOnlyFieldset>
                 </TabsContent>
                 <TabsContent value="output" className="mt-0">
-                  <AgentPresetStructuredOutputPanel
-                    form={form}
-                    isSaving={isSaving}
-                  />
+                  <ReadOnlyFieldset readOnly={readOnly}>
+                    <AgentPresetStructuredOutputPanel
+                      form={form}
+                      isSaving={isSaving}
+                    />
+                  </ReadOnlyFieldset>
                 </TabsContent>
               </>
             )}

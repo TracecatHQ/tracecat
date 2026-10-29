@@ -27,6 +27,17 @@ import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts
 import { searchPollInterval, tableSearchKey } from "@/hooks/use-table-search"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
+// No resource is managed by Tracecat in these tests.
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: () => false,
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/client", () => ({
   searchGetEmbeddingConfiguration: jest.fn(),
   tablesGetTableSearch: jest.fn(),

@@ -35,11 +35,19 @@ import {
   GitSyncPreviewEmpty,
 } from "@/components/workspace-sync/git-sync-change-list"
 import {
+  PackagePicker,
+  usePackageSelection,
+} from "@/components/workspace-sync/package-picker"
+import {
   getReviewRequestAbbreviation,
   getReviewRequestLabel,
   getWorkspaceSyncPushOutcome,
   type WorkspaceSyncPushMode,
 } from "@/components/workspace-sync/push-target-policy"
+import {
+  useWorkspacePackage,
+  WORKSPACE_SYNC_PACKAGE_QUERY_KEY,
+} from "@/components/workspace-sync/use-workspace-package"
 import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import {
@@ -94,6 +102,25 @@ export function GitSyncPushTab({
   const targetBranch = branch.trim()
   // A new branch does not exist yet, so compare against the base branch.
   const compareRef = isCreatingBranch ? baseBranch : targetBranch || undefined
+  // The managed resources source pushes its package. Its include file is read
+  // from the same ref the push compares against.
+  const {
+    workspacePackage,
+    isSource,
+    workspacePackageIsLoading,
+    workspacePackageError,
+  } = useWorkspacePackage(workspaceId, {
+    ref: compareRef,
+    enabled: Boolean(compareRef),
+  })
+  const sourcePackage = isSource ? workspacePackage : undefined
+  const {
+    selected: packageSelection,
+    toggle: togglePackageResource,
+    isChanged: packageIsChanged,
+    packageInclude,
+  } = usePackageSelection(sourcePackage)
+  const packageIncludeKey = JSON.stringify(packageInclude)
   const outcome = getWorkspaceSyncPushOutcome({
     mode,
     targetBranch,
@@ -114,6 +141,8 @@ export function GitSyncPushTab({
       create_pr: outcome.createPr,
       pr_base_branch: baseBranch,
       include_schedules: false,
+      // `null` keeps the include file already on the branch.
+      ...(isSource ? { package_include: packageInclude } : {}),
     },
     compareRef,
     provider,
@@ -136,6 +165,7 @@ export function GitSyncPushTab({
     !previewOperationId ||
     !previewRequested ||
     previewIsLoading ||
+    workspacePackageIsLoading ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     !baseBranch ||
@@ -157,9 +187,16 @@ export function GitSyncPushTab({
     targetBranch,
     mode,
     message,
+    packageIncludeKey,
   ])
   function handlePreview() {
-    if (!compareRef || targetBranch === "" || message.trim() === "") return
+    if (
+      !compareRef ||
+      workspacePackageIsLoading ||
+      targetBranch === "" ||
+      message.trim() === ""
+    )
+      return
     setPreviewRequested(true)
     refetchPreview()
   }
@@ -180,6 +217,7 @@ export function GitSyncPushTab({
         "workflow-sync-branches",
         "repository_commits",
         "workspace-sync-export-preview",
+        WORKSPACE_SYNC_PACKAGE_QUERY_KEY,
       ]) {
         void queryClient.invalidateQueries({ queryKey: [key, workspaceId] })
       }
@@ -220,6 +258,25 @@ export function GitSyncPushTab({
         <div className="px-4 py-3">
           <WorkspacePushExplanation />
         </div>
+        {workspacePackageError && (
+          <GitSyncNotice tone="error">
+            Could not read the managed resources package:{" "}
+            <ExportErrorMessage
+              announce={false}
+              error={workspacePackageError}
+              workspaceId={workspaceId}
+            />
+          </GitSyncNotice>
+        )}
+        {sourcePackage && (
+          <PackagePicker
+            workspacePackage={sourcePackage}
+            selected={packageSelection}
+            isChanged={packageIsChanged}
+            disabled={exportWorkspaceIsPending}
+            onToggle={togglePackageResource}
+          />
+        )}
         {isBlocked && (
           <GitSyncNotice tone="warning">
             Pushing to {blockedBranch} directly is off. Pick or create another
@@ -256,9 +313,13 @@ export function GitSyncPushTab({
           />
         ) : (
           <GitSyncPreviewEmpty
-            description={`Preview to skim what this push includes, compared with ${compareRef ?? "the branch"}.`}
+            description={
+              sourcePackage
+                ? `Preview to see what the package adds and removes, compared with ${compareRef ?? "the branch"}.`
+                : `Preview to skim what this push includes, compared with ${compareRef ?? "the branch"}.`
+            }
             isLoading={previewIsLoading}
-            disabled={!compareRef}
+            disabled={!compareRef || workspacePackageIsLoading}
             onPreview={() => void handlePreview()}
           />
         )}
@@ -290,7 +351,7 @@ export function GitSyncPushTab({
           <GitSyncPreviewButton
             hasPreview
             isLoading={previewIsLoading}
-            disabled={!compareRef}
+            disabled={!compareRef || workspacePackageIsLoading}
             onPreview={() => void handlePreview()}
           />
         )}

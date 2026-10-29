@@ -7,6 +7,17 @@ import type { CaseFieldReadMinimal } from "@/client"
 import { CustomFieldsTable } from "@/components/cases/custom-fields-table"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
+// No resource is managed by Tracecat in these tests.
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: () => false,
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))

@@ -32,6 +32,7 @@ import { ApiError } from "@/client"
 import { DeleteWorkflowConfirmDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
@@ -108,9 +109,11 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 function EditableWorkflowTitle({
   title,
   onRename,
+  readOnly = false,
 }: {
   title: string
   onRename: (title: string) => Promise<void>
+  readOnly?: boolean
 }) {
   const [isEditing, setIsEditing] = React.useState(false)
   const [value, setValue] = React.useState(title)
@@ -169,6 +172,17 @@ function EditableWorkflowTitle({
       isSavingRef.current = false
     }
     setIsEditing(false)
+  }
+
+  if (readOnly) {
+    return (
+      <span
+        title={title}
+        className="truncate text-left text-sm text-muted-foreground"
+      >
+        {title}
+      </span>
+    )
   }
 
   if (isEditing) {
@@ -235,6 +249,7 @@ export function BuilderNav() {
     updateWorkflow,
     validationErrors,
     setValidationErrors,
+    isReadOnly,
   } = useWorkflow()
 
   const workspaceId = useWorkspaceId()
@@ -280,6 +295,7 @@ export function BuilderNav() {
             <span className="flex min-w-0 items-center gap-2">
               <EditableWorkflowTitle
                 title={workflowTitle}
+                readOnly={isReadOnly}
                 onRename={async (title) => {
                   await updateWorkflow({ title })
                 }}
@@ -292,6 +308,12 @@ export function BuilderNav() {
                   {workflow.alias}
                 </Badge>
               )}
+              <ManagedResourceStatus
+                resourceType="workflow"
+                id={workflow.id}
+                name={workflow.alias ?? workflow.title}
+                showDetach
+              />
             </span>
           }
         />
@@ -315,6 +337,7 @@ export function BuilderNav() {
           validationErrors={validationErrors}
           onSave={handleCommit}
           onPublish={publishWorkflow}
+          readOnly={isReadOnly}
         />
 
         {/* Workflow options */}
@@ -322,6 +345,7 @@ export function BuilderNav() {
           workspaceId={workspaceId}
           workflowId={workflow.id}
           workflowTitle={workflow.title}
+          readOnly={isReadOnly}
         />
       </div>
     </div>
@@ -731,6 +755,7 @@ function WorkflowSaveActions({
   validationErrors,
   onSave,
   onPublish,
+  readOnly = false,
 }: {
   workflow: { version?: number | null; git_sync_branch?: string | null }
   workspaceId: string
@@ -739,6 +764,8 @@ function WorkflowSaveActions({
   validationErrors: ValidationResult[] | null
   onSave: () => Promise<void>
   onPublish: (params: WorkflowDslPublish) => Promise<unknown>
+  /** Managed workflows cannot be published or pushed. */
+  readOnly?: boolean
 }) {
   const { hasEntitlement } = useEntitlements()
   const isGitSyncEnabled = hasEntitlement("git_sync")
@@ -874,6 +901,7 @@ function WorkflowSaveActions({
           <Button
             variant="outline"
             onClick={onSave}
+            disabled={readOnly}
             className={cn(
               "h-full border-none px-3 py-0 text-xs text-muted-foreground",
               isGitSyncEnabled ? "rounded-r-none" : "rounded-lg",
@@ -896,6 +924,7 @@ function WorkflowSaveActions({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
+                disabled={readOnly}
                 className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground"
               >
                 <ChevronDownIcon className="size-3" />
@@ -1085,10 +1114,13 @@ function BuilderNavOptions({
   workspaceId,
   workflowId,
   workflowTitle,
+  readOnly = false,
 }: {
   workspaceId: string
   workflowId: string
   workflowTitle: string
+  /** Managed workflows cannot be deleted. */
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const { appSettings } = useOrgAppSettings()
@@ -1141,8 +1173,11 @@ function BuilderNavOptions({
             Copy workflow ID
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <AlertDialogTrigger asChild>
-            <DropdownMenuItem className="text-destructive focus:text-destructive">
+          <AlertDialogTrigger asChild disabled={readOnly}>
+            <DropdownMenuItem
+              disabled={readOnly}
+              className="text-destructive focus:text-destructive"
+            >
               <Trash2Icon className="mr-2 size-3.5" />
               Delete workflow
             </DropdownMenuItem>

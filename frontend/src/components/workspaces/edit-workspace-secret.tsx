@@ -47,6 +47,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useWorkspaceSecrets, type WorkspaceSecretListItem } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -197,8 +198,12 @@ export function EditCredentialsDialog({
   const [internalOpen, setInternalOpen] = React.useState(false)
   const isDialogOpen = controlledOpen ?? internalOpen
   const isSshKey = selectedSecret?.type === "ssh_key"
-  const hasFixedKeys =
+  // A managed secret only accepts new values for its existing keys.
+  const { isManaged } = useManagedResources(workspaceId)
+  const valuesOnly = isManaged("secret_metadata", selectedSecret?.id)
+  const typeHasFixedKeys =
     selectedSecret?.type === "mtls" || selectedSecret?.type === "ca_cert"
+  const hasFixedKeys = typeHasFixedKeys || valuesOnly
   const isOktaCredentialForm = isOktaCredential(selectedSecret)
 
   const methods = useForm<EditSecretForm>({
@@ -654,7 +659,12 @@ export function EditCredentialsDialog({
         <DialogHeader>
           <DialogTitle>Edit secret</DialogTitle>
           <DialogDescription className="flex flex-col">
-            {isSshKey ? (
+            {valuesOnly ? (
+              <span>
+                Managed by Tracecat. Only values can be changed. Leave a field
+                blank to keep its existing value.
+              </span>
+            ) : isSshKey ? (
               <span>
                 SSH keys are write-once. Delete and recreate the secret to
                 rotate the key.
@@ -664,7 +674,7 @@ export function EditCredentialsDialog({
                 Choose the Okta auth method to update. Blank configured fields
                 keep their existing values.
               </span>
-            ) : hasFixedKeys ? (
+            ) : typeHasFixedKeys ? (
               <span>
                 Key names are fixed for this secret type. Leave a field blank to
                 keep its existing value.
@@ -706,6 +716,7 @@ export function EditCredentialsDialog({
                       <Input
                         className="text-sm"
                         placeholder={selectedSecret?.name || "Name"}
+                        disabled={valuesOnly}
                         {...register("name")}
                       />
                     </FormControl>
@@ -729,6 +740,7 @@ export function EditCredentialsDialog({
                         placeholder={
                           selectedSecret?.description || "Description"
                         }
+                        disabled={valuesOnly}
                         {...register("description")}
                       />
                     </FormControl>
@@ -753,6 +765,7 @@ export function EditCredentialsDialog({
                         placeholder={
                           selectedSecret?.environment || "Environment"
                         }
+                        disabled={valuesOnly}
                         {...register("environment")}
                       />
                     </FormControl>
@@ -788,6 +801,7 @@ export function EditCredentialsDialog({
                             ])
                           }}
                           value={field.value}
+                          disabled={valuesOnly}
                         >
                           <FormControl>
                             <SelectTrigger className="text-sm">
@@ -1174,7 +1188,7 @@ export function EditCredentialsDialog({
                               <FormItem>
                                 <div className="flex flex-col space-y-2">
                                   <FormControl>
-                                    {hasFixedKeys ? (
+                                    {typeHasFixedKeys ? (
                                       <Textarea
                                         id={`value-${index}`}
                                         className="h-32 text-sm"
