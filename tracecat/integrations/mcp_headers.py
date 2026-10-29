@@ -5,7 +5,7 @@ from typing import cast
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_secret_masks
-from tracecat.exceptions import TracecatCredentialsError
+from tracecat.exceptions import TracecatCredentialsError, TracecatExpressionError
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.integrations.mcp_validation import MCPConfigurationError
 from tracecat.secrets.common import MaskedSecretError, call_with_masked_errors
@@ -31,6 +31,10 @@ async def resolve_mcp_header_values(
         )
     except MaskedSecretError as exc:
         error = MCPConfigurationError(str(exc))
+    except TracecatExpressionError:
+        # Parse errors quote the expression source, which may embed literal
+        # credentials, and fail before secret masking begins.
+        error = MCPConfigurationError("MCP header values contain an invalid expression")
     raise error
 
 

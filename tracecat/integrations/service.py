@@ -4100,20 +4100,21 @@ class IntegrationService(BaseWorkspaceService):
         except MCPConfigurationError as e:
             error = MCPConnectionVerificationError(
                 "MCP integration is not configured correctly",
-                masks.redact(sanitize_urls_in_text(str(e))),
+                sanitize_urls_in_text(masks.redact(str(e))),
             )
         except TimeoutError as e:
             error = MCPConnectionVerificationError(
                 "Connection to the MCP server timed out",
-                masks.redact(sanitize_urls_in_text(str(e))) or "Timed out",
+                sanitize_urls_in_text(masks.redact(str(e))) or "Timed out",
             )
         except Exception as e:
             # Transport errors can echo the full request URL, including
             # userinfo or query-string secrets — sanitize before this text
-            # reaches logs or API error responses.
+            # reaches logs or API error responses. Mask first: sanitizing can
+            # rewrite a URL-shaped header value so the exact mask misses it.
             error = MCPConnectionVerificationError(
                 "Failed to connect to the MCP server",
-                masks.redact(sanitize_urls_in_text(str(e))),
+                sanitize_urls_in_text(masks.redact(str(e))),
             )
         finally:
             ctx_secret_masks.reset(mask_token)

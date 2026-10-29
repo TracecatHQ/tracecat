@@ -309,3 +309,48 @@ async def test_api_probe_masks_transport_errors_and_drops_exception_chains(
     assert exc_info.value.__cause__ is None
     assert exc_info.value.__context__ is None
     assert ctx_secret_masks.get() is original_masks
+
+
+async def test_api_probe_masks_url_shaped_secrets_before_sanitizing_urls(
+    header_service: IntegrationService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Masking runs on the raw error, so URL sanitizing can't break the match."""
+    url_secret = "https://example.com/synthetic-path-token?scope=demo"
+    async with SecretsService.with_session(role=header_service.role) as service:
+        await service.create_secret(
+            SecretCreate.from_strings("mcp_url", [f"VALUE={url_secret}"])
+        )
+    integration = await header_service.create_mcp_integration(
+        params=MCPHttpIntegrationCreate(
+            name="URL secret MCP",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.CUSTOM,
+            custom_credentials=SecretStr(
+                orjson.dumps({"X-Target": "${{ SECRETS.mcp_url.VALUE }}"}).decode()
+            ),
+        )
+    )
+    discover = AsyncMock(side_effect=ValueError(f"Illegal header value {url_secret}"))
+    monkeypatch.setattr(user_client, "list_remote_mcp_tools", discover)
+
+    with pytest.raises(MCPConnectionVerificationError) as exc_info:
+        await header_service._probe_mcp_http_server(integration)
+
+    assert "synthetic-path-token" not in (exc_info.value.error or "")
+
+
+async def test_unparseable_expressions_do_not_echo_their_source(
+    header_service: IntegrationService,
+) -> None:
+    """Parse errors quote the source, which may embed literal credentials."""
+    expression = '${{ FN.to_base64("user:synthetic-password") + @ }}'
+    with pytest.raises(MCPConfigurationError, match="invalid expression") as exc_info:
+        await resolve_mcp_header_values(
+            {"Authorization": expression}, role=header_service.role
+        )
+
+    assert exc_info.value.__context__ is None
+    assert "synthetic-password" not in "".join(
+        traceback.format_exception(exc_info.value)
+    )
