@@ -25,7 +25,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from tracecat.agent.gateway import TracecatCallbackHandler
-from tracecat.agent.sandbox.llm_proxy import _http_error_classification
+from tracecat.agent.sandbox.llm_proxy import (
+    _error_object_retry_after,
+    _http_error_classification,
+)
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -117,6 +120,9 @@ async def test_router_unavailability_is_not_provider_throttling_or_auth(
     body = bytes(failure.body)
     assert orjson.loads(body)["error"]["type"] == "tracecat_llm_deployment_unavailable"
     assert b"synthetic-sensitive" not in body
+    if endpoint == "anthropic":
+        # The socket proxy's /v1/messages path drops headers; the body keeps the hint.
+        assert _error_object_retry_after(body) == "5"
     classification = _http_error_classification(503, route_is_direct=False, body=body)
     assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert classification.owner is RuntimeErrorOwner.PLATFORM
@@ -447,3 +453,46 @@ async def test_mid_stream_provider_rate_limit_is_a_typed_sse_error(
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("provider_headers", "expected"),
+    [
+        ({"retry-after": "37"}, "37"),
+        ({"retry-after": "1.2"}, "2"),
+        ({"retry-after-ms": "1500", "retry-after": "60"}, "2"),
+        ({"retry-after": "86400"}, "300"),
+        ({"retry-after": "Wed, 21 Oct 2015 07:28:00 GMT"}, None),
+        ({"retry-after": "0"}, None),
+        ({"retry-after": "nan"}, None),
+        ({}, None),
+    ],
+)
+async def test_provider_rate_limit_carries_numeric_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_headers: dict[str, str],
+    expected: str | None,
+) -> None:
+    response = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://provider.invalid"),
+        headers={**provider_headers, "set-cookie": "synthetic-sensitive-cookie"},
+    )
+    error = RateLimitError(
+        message="synthetic-sensitive-detail",
+        llm_provider="synthetic-provider",
+        model="synthetic-model",
+        response=response,
+    )
+
+    failure = await _anthropic_failure(error, monkeypatch)
+
+    assert failure.status_code == 429
+    body = bytes(failure.body)
+    assert b"synthetic-sensitive" not in body
+    assert "set-cookie" not in failure.headers
+    assert orjson.loads(body)["error"]["type"] == "throttling_error"
+    assert _error_object_retry_after(body) == expected
+    classification = _http_error_classification(429, route_is_direct=False, body=body)
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
