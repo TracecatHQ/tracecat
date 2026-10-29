@@ -65,6 +65,7 @@ from tracecat.db.models import (
     Skill,
     Table,
     Webhook,
+    Workflow,
     Workspace,
     WorkspaceSyncResourceMapping,
     WorkspaceVariable,
@@ -1728,20 +1729,29 @@ class _RowRef:
 
 
 async def _delete_resource(session: AsyncSession, role: Role, row: _RowRef) -> None:
-    """Delete one resource through its own service, so cleanup runs as usual."""
+    """Delete one resource through its own service, so cleanup runs as usual.
+
+    A resource that is already gone counts as deleted. A worker can stop
+    after a service commits the delete but before the managed row goes, and
+    the retry must still be able to clear that row.
+    """
     local_id = row.local_id
     match SyncResourceType(row.resource_type):
         case SyncResourceType.WORKFLOW:
-            await WorkflowsManagementService(session, role=role).delete_workflow(
-                WorkflowUUID.new(local_id)
-            )
+            if await session.scalar(select(Workflow.id).where(Workflow.id == local_id)):
+                await WorkflowsManagementService(session, role=role).delete_workflow(
+                    WorkflowUUID.new(local_id)
+                )
         case SyncResourceType.AGENT_PRESET:
             if preset := await session.scalar(
                 select(AgentPreset).where(AgentPreset.id == local_id)
             ):
                 await AgentPresetService(session, role=role).delete_preset(preset)
         case SyncResourceType.SKILL:
-            await SkillService(session, role=role).archive_skill(local_id)
+            try:
+                await SkillService(session, role=role).archive_skill(local_id)
+            except TracecatNotFoundError:
+                pass
         case SyncResourceType.TABLE:
             if table := await session.scalar(select(Table).where(Table.id == local_id)):
                 await TablesService(session, role=role).delete_table(table)
@@ -1760,9 +1770,12 @@ async def _delete_resource(session: AsyncSession, role: Role, row: _RowRef) -> N
                     session, role=role
                 ).delete_definition(definition)
         case SyncResourceType.CASE_DURATION:
-            await CaseDurationDefinitionService(session, role=role).delete_definition(
-                local_id
-            )
+            try:
+                await CaseDurationDefinitionService(
+                    session, role=role
+                ).delete_definition(local_id)
+            except TracecatNotFoundError:
+                pass
         case SyncResourceType.CASE_FIELD:
             # A case field's local id derives from its schema key, which need
             # not equal the package source id. Delete the key that derives to

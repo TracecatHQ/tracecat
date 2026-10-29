@@ -65,7 +65,10 @@ from tracecat.managed_resources.enums import (
     ManagedRolloutKind,
     ManagedRolloutStatus,
 )
-from tracecat.managed_resources.guard import ManagedResourceLockedError
+from tracecat.managed_resources.guard import (
+    ManagedResourceLockedError,
+    managed_write_bypass,
+)
 from tracecat.managed_resources.rollout import (
     ManagedRolloutEngine,
     _conflicts,
@@ -888,6 +891,41 @@ async def test_a_failed_delete_does_not_stop_the_others(
     assert failures == ["variable default/var_broken"]
     remaining = await engine._managed_rows(customer.id)
     assert [row.source_id for row in remaining] == ["default/var_broken"]
+
+
+@pytest.mark.anyio
+async def test_cleanup_clears_rows_whose_resource_is_already_gone(
+    harness: Harness,
+) -> None:
+    # A worker can stop after a service commits a delete but before the
+    # managed row goes; the retry must still clear the row.
+    customer = await harness.new_target("papa")
+    rows = [
+        ManagedResource(
+            workspace_id=customer.id,
+            resource_type=resource_type.value,
+            local_id=uuid.uuid4(),
+            source_id=f"gone-{resource_type.value}",
+            source_path=f"gone/{resource_type.value}",
+            deployed_tag="v1.0.0",
+            deployed_commit_sha="a" * 40,
+        )
+        for resource_type in (
+            SyncResourceType.WORKFLOW,
+            SyncResourceType.SKILL,
+            SyncResourceType.CASE_DURATION,
+        )
+    ]
+    harness.session.add_all(rows)
+    await harness.session.commit()
+    engine = ManagedRolloutEngine(harness.session)
+
+    # As the rollout calls it: inside the managed-write bypass.
+    with managed_write_bypass():
+        failures = await engine._delete_managed(customer, rows)
+
+    assert failures == []
+    assert await engine._managed_rows(customer.id) == []
 
 
 def test_matches_a_tag_no_longer_uses_are_recognised_from_diagnostics() -> None:
