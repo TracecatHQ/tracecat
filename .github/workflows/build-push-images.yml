@@ -512,19 +512,23 @@ jobs:
         run: |
           set -euo pipefail
           # latest only moves forward, so an older train's patch leaves it alone.
+          latest=ghcr.io/tracecathq/tracecat:latest
           current=''
-          if ! label=$(docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:latest \
-            --format '{{ index (index .Image "linux/amd64").Config.Labels "org.opencontainers.image.version" }}' 2>&1); then
-            # A missing latest is the first promotion; any other error stops.
-            if [[ "$label" != *'not found'* ]]; then
-              echo "$label" >&2
+          # --raw reads only the tag's own manifest, so "not found" here means
+          # the tag is absent (the first promotion), not missing child content.
+          if ! root=$(docker buildx imagetools inspect --raw "$latest" 2>&1); then
+            if [[ "$root" != *"$latest: not found"* ]]; then
+              echo "$root" >&2
               exit 1
             fi
-          elif [[ -z "$label" ]]; then
-            echo 'Could not read the version label on latest.' >&2
-            exit 1
           else
-            current=$label
+            # Any failure reading the label stops the job.
+            current=$(docker buildx imagetools inspect "$latest" \
+              --format '{{ index (index .Image "linux/amd64").Config.Labels "org.opencontainers.image.version" }}')
+            if [[ -z "$current" ]]; then
+              echo 'Could not read the version label on latest.' >&2
+              exit 1
+            fi
           fi
           if [[ -n "$current" && "$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n 1)" != "$VERSION" ]]; then
             echo "latest is $current, newer than $VERSION; leaving it unchanged."

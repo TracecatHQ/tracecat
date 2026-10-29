@@ -212,8 +212,9 @@ def _run_promotion(
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the promote step with a Docker stub.
 
-    `inspect` of latest prints `latest` as its version label; `-` means no
-    latest manifest exists yet and `!` means the registry call fails.
+    `inspect` of latest prints `latest` as its version label. `-` means the
+    latest tag doesn't exist yet, `!` means the registry call fails, and `?`
+    means the tag exists but its child content is missing.
     """
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     step = workflow["jobs"]["promote-latest"]["steps"][-1]
@@ -223,10 +224,16 @@ def _run_promotion(
         "#!/bin/bash\n"
         'if [[ "$3" == inspect ]]; then\n'
         '  case "$LATEST" in\n'
-        '    -) echo "ERROR: $4: not found" >&2; exit 1 ;;\n'
+        '    -) echo "ERROR: ${@: -1}: not found" >&2; exit 1 ;;\n'
         '    !) echo "ERROR: unexpected status 503" >&2; exit 1 ;;\n'
-        '    *) echo "$LATEST" ;;\n'
         "  esac\n"
+        '  if [[ "$4" == --raw ]]; then\n'
+        "    echo '{}'\n"
+        '  elif [[ "$LATEST" == "?" ]]; then\n'
+        '    echo "ERROR: sha256:abc: not found" >&2; exit 1\n'
+        "  else\n"
+        '    echo "$LATEST"\n'
+        "  fi\n"
         "  exit 0\n"
         "fi\n"
         'printf "%s\\n" "$@" >> "$CAPTURE_ARGS"\n'
@@ -305,11 +312,12 @@ def test_promotion_only_moves_latest_forward(
     assert created == (_create_args(version, ALL_IMAGES) if promotes else [])
 
 
-@pytest.mark.parametrize("latest", ["!", ""])
+@pytest.mark.parametrize("latest", ["!", "?", ""])
 def test_promotion_stops_when_latest_version_is_unreadable(
     tmp_path: Path, latest: str
 ) -> None:
-    # A registry error or a missing label must not be read as "no latest".
+    # A registry error, missing child content or a missing label must not be
+    # read as "no latest".
     result, created = _run_promotion(tmp_path, "1.2.4", latest)
     assert result.returncode != 0
     assert created == []
