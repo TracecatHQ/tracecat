@@ -11,6 +11,8 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CaseEventsService, CasesService, CaseTasksService
+from tracecat.db.models import CaseEvent, CaseTask, Workspace
+from tracecat.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -146,3 +148,94 @@ class TestCaseTaskEvents:
         assert events[0].type == CaseEventType.TASK_DELETED
         assert events[0].data["task_id"] == str(task.id)
         assert events[0].data["title"] == "T4"
+
+
+@pytest.fixture
+async def other_workspace(session: AsyncSession, svc_workspace: Workspace) -> Workspace:
+    workspace = Workspace(
+        name="synthetic-other-workspace",
+        organization_id=svc_workspace.organization_id,
+    )
+    session.add(workspace)
+    await session.flush()
+    return workspace
+
+
+@pytest.mark.anyio
+class TestCrossWorkspaceRows:
+    """Rows stamped with another workspace never surface through a case.
+
+    The case feed, task counts and task sort all filter on the caller's
+    workspace, not only the case ID.
+    """
+
+    async def test_events_feed_excludes_other_workspace_rows(
+        self,
+        session: AsyncSession,
+        test_case,
+        events_service: CaseEventsService,
+        other_workspace: Workspace,
+    ) -> None:
+        session.add(
+            CaseEvent(
+                workspace_id=other_workspace.id,
+                case_id=test_case.id,
+                type=CaseEventType.CASE_CREATED,
+                data={},
+            )
+        )
+        await session.flush()
+
+        events = await events_service.list_events(test_case)
+
+        assert [event.type for event in events] == [CaseEventType.CASE_CREATED]
+        assert {event.workspace_id for event in events} == {test_case.workspace_id}
+
+    async def test_task_counts_and_sort_exclude_other_workspace_rows(
+        self,
+        session: AsyncSession,
+        test_case,
+        cases_service: CasesService,
+        tasks_service: CaseTasksService,
+        other_workspace: Workspace,
+    ) -> None:
+        own_tasks_case = test_case
+        await tasks_service.create_task(own_tasks_case.id, CaseTaskCreate(title="own"))
+        foreign_tasks_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Case with only foreign tasks",
+                description="desc",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        session.add_all(
+            CaseTask(
+                workspace_id=other_workspace.id,
+                case_id=foreign_tasks_case.id,
+                title=f"foreign {i}",
+            )
+            for i in range(3)
+        )
+        await session.flush()
+
+        counts = await cases_service.get_task_counts(
+            [own_tasks_case.id, foreign_tasks_case.id]
+        )
+        page = await cases_service.search_cases(
+            CursorPaginationParams(limit=10),
+            order_by="tasks",
+            sort="desc",
+            include_count=False,
+        )
+
+        assert counts == {
+            own_tasks_case.id: {"completed": 0, "total": 1},
+            foreign_tasks_case.id: {"completed": 0, "total": 0},
+        }
+        assert [case.id for case in page.items] == [
+            own_tasks_case.id,
+            foreign_tasks_case.id,
+        ]
+        assert [case.num_tasks_total for case in page.items] == [1, 0]

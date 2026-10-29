@@ -1114,6 +1114,19 @@ async def test_locked_action_results_skips_unusable_locks(
 
 
 @pytest.mark.anyio
+async def test_locked_action_results_scopes_actions_to_workspace() -> None:
+    role = _role()
+    service = _service(role)
+    service.session = _locked_session([])
+
+    await service.locked_action_results(WorkflowUUID.new_uuid4(), _run_dsl())
+
+    stmt = service.session.execute.await_args.args[0]
+    assert "action.workspace_id = :workspace_id_1" in str(stmt)
+    assert stmt.compile().params["workspace_id_1"] == role.workspace_id
+
+
+@pytest.mark.anyio
 async def test_list_lock_statuses_flags_only_missing_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

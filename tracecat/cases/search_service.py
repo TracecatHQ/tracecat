@@ -452,7 +452,10 @@ class CaseSearchService(BaseWorkspaceService):
         elif sort_column == "tasks":
             task_count_expr = func.coalesce(
                 select(func.count())
-                .where(CaseTask.case_id == Case.id)
+                .where(
+                    CaseTask.workspace_id == self.workspace_id,
+                    CaseTask.case_id == Case.id,
+                )
                 .correlate(Case)
                 .scalar_subquery(),
                 0,
@@ -745,7 +748,10 @@ class CaseSearchService(BaseWorkspaceService):
                     sa.case((CaseTask.status == CaseTaskStatus.COMPLETED, 1), else_=0)
                 ).label("completed"),
             )
-            .where(CaseTask.case_id.in_(case_ids))
+            .where(
+                CaseTask.workspace_id == self.workspace_id,
+                CaseTask.case_id.in_(case_ids),
+            )
             .group_by(CaseTask.case_id)
         )
 
