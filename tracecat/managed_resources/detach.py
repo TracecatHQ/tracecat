@@ -45,6 +45,7 @@ from tracecat.workspace_sync.adapters import RESOURCE_ADAPTERS_BY_TYPE
 from tracecat.workspace_sync.adapters.base import path_segment
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
+    AgentPresetResourceSpec,
     SkillResourceSpec,
     WorkflowResourceSpec,
     WorkspaceRemoteSnapshot,
@@ -242,6 +243,10 @@ def _renamed(
         update["name"] = new_name
     if isinstance(spec, SkillResourceSpec):
         update |= _renamed_skill_files(spec, new_name)
+    if isinstance(spec, AgentPresetResourceSpec):
+        # Importing a copy flagged as the workspace default would make the
+        # copy the default; the managed preset stays the default.
+        update["is_workspace_default"] = False
     return spec.model_copy(update=update)
 
 

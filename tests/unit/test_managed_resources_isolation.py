@@ -19,7 +19,13 @@ from tests.support.managed_resources import (
 )
 from tests.unit.test_workspace_sync_acceptance_contract import _workflow_spec, _yaml
 from tracecat.auth.types import Role
-from tracecat.db.models import ManagedDetachedCopy, Skill, Workflow
+from tracecat.db.models import (
+    AgentPreset,
+    ManagedDetachedCopy,
+    Skill,
+    Workflow,
+    Workspace,
+)
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.managed_resources.detach import ManagedDetachService
@@ -190,6 +196,41 @@ async def test_detach_copies_a_skill_under_its_new_name(
     assert skill is not None
     assert skill.slug == "qa-enrichment-copy"
     assert copy.original_local_id == skill_id
+
+
+@pytest.mark.anyio
+async def test_detaching_the_default_agent_keeps_it_the_default(
+    session: AsyncSession,
+    svc_role: Role,
+    target: tuple[WorkspaceSyncService, FakeVcsServer],
+) -> None:
+    preset_id = await local_id_of(
+        session, AgentPreset, svc_role, slug="qa-triage-parent"
+    )
+    await mark_managed(
+        session,
+        svc_role,
+        SyncResourceType.AGENT_PRESET,
+        preset_id,
+        source_id="qa-triage-parent",
+    )
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == svc_role.workspace_id)
+    )
+    assert workspace is not None
+    workspace.default_agent_preset_id = preset_id
+    await session.flush()
+    admin = svc_role.model_copy(update={"user_id": None})
+
+    copy = await ManagedDetachService(session, role=admin).detach(
+        resource_type=SyncResourceType.AGENT_PRESET,
+        local_id=preset_id,
+        new_name="qa-triage-copy",
+    )
+
+    await session.refresh(workspace)
+    assert copy.local_id != preset_id
+    assert workspace.default_agent_preset_id == preset_id
 
 
 @pytest.mark.anyio
