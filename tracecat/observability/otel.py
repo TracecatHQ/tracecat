@@ -294,6 +294,13 @@ def initialize_platform_metrics(
                 metric_readers=[reader],
             )
             metrics.set_meter_provider(provider)
+            if metrics.get_meter_provider() is not provider:
+                # The global provider can be set once; another owner got there first.
+                provider.shutdown()
+                logger.warning(
+                    "A MeterProvider is already installed; platform metrics are off"
+                )
+                return None
         except Exception:
             logger.exception(
                 "Platform metrics initialization failed; continuing without metrics"

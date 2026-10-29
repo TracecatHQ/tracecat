@@ -7,6 +7,8 @@ import shutil
 import tempfile
 import uuid
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -376,20 +378,45 @@ def _turn_tokens(usage: dict[str, Any] | None) -> TurnTokens | None:
 
 
 def _record_turn_metrics(
-    input: AgentExecutorInput, result: AgentExecutorResult
+    input: AgentExecutorInput,
+    outcome: TurnOutcome,
+    result: AgentExecutorResult | None = None,
 ) -> None:
+    """Record one turn's metrics; a metrics failure never fails the turn."""
     if input.turn_started_at is None:
         return
-    record_turn(
-        backend=_CLAUDE_CODE_BACKEND,
-        surface=input.entity_type,
-        model_provider=input.config.model_provider,
-        outcome=_turn_outcome(result),
-        sent_at=input.turn_started_at,
-        first_token_at=result.first_token_at,
-        settled_at=datetime.now(UTC),
-        tokens=_turn_tokens(result.result_usage),
-    )
+    try:
+        record_turn(
+            backend=_CLAUDE_CODE_BACKEND,
+            surface=input.entity_type,
+            model_provider=input.config.model_provider,
+            outcome=outcome,
+            sent_at=input.turn_started_at,
+            first_token_at=result.first_token_at if result else None,
+            settled_at=datetime.now(UTC),
+            tokens=_turn_tokens(result.result_usage) if result else None,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to record agent turn metrics", error_type=type(e).__name__
+        )
+
+
+@contextmanager
+def _turn_metrics_on_raise(input: AgentExecutorInput) -> Iterator[None]:
+    """Record turns that end by raising instead of returning a result."""
+    try:
+        yield
+    except asyncio.CancelledError:
+        details = activity.cancellation_details()
+        timed_out = details is not None and details.timed_out
+        _record_turn_metrics(
+            input, TurnOutcome.UNSETTLED if timed_out else TurnOutcome.CANCELLED
+        )
+        raise
+    except Exception:
+        _record_turn_metrics(input, TurnOutcome.FAILED)
+        raise
 
 
 def _agent_runtime_outcome(result: AgentExecutorResult) -> AgentRuntimeOutcome:
@@ -798,7 +825,6 @@ class SandboxedAgentExecutor:
         result.interrupted_tool_call_ids = (
             loopback_result.interrupted_tool_call_ids or None
         )
-        result.first_token_at = loopback_result.first_token_at
 
     async def _run_with_broker(
         self,
@@ -1030,6 +1056,9 @@ class SandboxedAgentExecutor:
             result.cancelled = True
             result.cancelled_reason = reason
         finally:
+            # Error and deadline exits skip the loopback result, but output may
+            # already have streamed.
+            result.first_token_at = handler.build_result().first_token_at
             for task in (cancel_signal_task, fatal_error_task, broker_task):
                 await _cancel_task_with_timeout(task, task_name="agent_executor_task")
 
@@ -1495,7 +1524,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         f"{input.session_id}"
     )
 
-    with platform_span("tracecat.agent.prepare"):
+    with _turn_metrics_on_raise(input), platform_span("tracecat.agent.prepare"):
         input = await _hydrate_sdk_session_history(input)
 
         # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
@@ -1520,7 +1549,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
                 classification=classification,
                 terminal_stream_error_emitted=False,
             )
-            _record_turn_metrics(input, result)
+            _record_turn_metrics(input, _turn_outcome(result), result)
             return result
 
         timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
@@ -1529,12 +1558,15 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
             timeout_seconds=timeout_seconds,
         )
 
-    with platform_span(
-        "tracecat.agent.runtime",
-        attributes={"tracecat.agent.harness": "claude_code"},
-    ) as runtime_span:
+    with (
+        _turn_metrics_on_raise(input),
+        platform_span(
+            "tracecat.agent.runtime",
+            attributes={"tracecat.agent.harness": "claude_code"},
+        ) as runtime_span,
+    ):
         result = await executor.run()
-        _record_turn_metrics(input, result)
+        _record_turn_metrics(input, _turn_outcome(result), result)
         outcome = _agent_runtime_outcome(result)
         if runtime_span is not None:
             runtime_span.set_attribute("tracecat.agent.outcome", outcome)

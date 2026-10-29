@@ -12,6 +12,7 @@ import shutil
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -73,6 +74,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.mcp import user_client
+from tracecat.agent.metrics import TurnOutcome
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
 from tracecat.agent.otel_delivery import OtelDeliveryPool
 from tracecat.agent.preset.service import AgentPresetService
@@ -1853,6 +1855,47 @@ class TestRunAgentActivity:
         assert runtime_span.attributes["tracecat.agent.outcome"] == expected_outcome
         assert runtime_span.status.status_code is expected_status
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("error", "timed_out", "expected"),
+        [
+            (asyncio.CancelledError(), False, TurnOutcome.CANCELLED),
+            (asyncio.CancelledError(), True, TurnOutcome.UNSETTLED),
+            (RuntimeError("synthetic"), False, TurnOutcome.FAILED),
+        ],
+    )
+    async def test_turn_metrics_count_turns_that_raise(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        error: BaseException,
+        timed_out: bool,
+        expected: TurnOutcome,
+    ) -> None:
+        """A turn cancelled or failed before any result still counts once."""
+        outcomes: list[TurnOutcome] = []
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity._hydrate_sdk_session_history",
+                AsyncMock(side_effect=error),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.record_turn",
+                side_effect=lambda **kwargs: outcomes.append(kwargs["outcome"]),
+            ),
+        ):
+            mock_activity.cancellation_details.return_value = SimpleNamespace(
+                timed_out=timed_out
+            )
+            with pytest.raises(type(error)):
+                await run_agent_activity(
+                    mock_executor_input.model_copy(
+                        update={"turn_started_at": datetime.now(UTC)}
+                    )
+                )
+
+        assert outcomes == [expected]
+
 
 def _loopback_handler(executor: SandboxedAgentExecutor) -> LoopbackHandler:
     return LoopbackHandler(
@@ -1984,8 +2027,11 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
         concurrent: bool = False,
         cancel_fails: bool = False,
+        first_token_at: datetime | None = None,
     ) -> AgentExecutorResult:
         handler = _loopback_handler(executor)
+        # Model output the runtime streamed before the turn failed.
+        handler._result.first_token_at = first_token_at
         monkeypatch.setattr(
             handler,
             "emit_terminal_error",
@@ -2186,11 +2232,13 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
     ) -> None:
         executor = SandboxedAgentExecutor(input=executor_input, timeout_seconds=0)
+        first_token_at = datetime.now(UTC)
 
         result = await self._run_broker_leaf(
             executor=executor,
             monkeypatch=monkeypatch,
             tmp_path=tmp_path,
+            first_token_at=first_token_at,
         )
 
         assert result.classification is not None
@@ -2198,6 +2246,8 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert result.terminal_stream_error_emitted is True
+        # Output streamed before the deadline still counts toward first-token time.
+        assert result.first_token_at == first_token_at
 
     @pytest.mark.anyio
     async def test_concurrent_turn_is_platform_unavailable(

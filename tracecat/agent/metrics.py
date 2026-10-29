@@ -33,6 +33,49 @@ FIRST_TOKEN_EVENT_TYPES: Final = frozenset(
 
 type LLMRoute = Literal["managed", "direct"]
 
+# The SDK's default buckets stop at 10 s; agent turns routinely run for minutes.
+_FIRST_TOKEN_BUCKETS_MS: Final = (
+    50,
+    100,
+    250,
+    500,
+    750,
+    1_000,
+    1_500,
+    2_000,
+    3_000,
+    5_000,
+    7_500,
+    10_000,
+    15_000,
+    20_000,
+    30_000,
+    60_000,
+    120_000,
+)
+_DURATION_BUCKETS_MS: Final = (
+    500,
+    1_000,
+    2_000,
+    3_000,
+    5_000,
+    7_500,
+    10_000,
+    15_000,
+    20_000,
+    30_000,
+    45_000,
+    60_000,
+    90_000,
+    120_000,
+    180_000,
+    300_000,
+    600_000,
+    1_200_000,
+    1_800_000,
+    3_600_000,
+)
+
 
 class TurnOutcome(StrEnum):
     """How a turn, or a turn segment ending at an approval pause, settled."""
@@ -80,16 +123,19 @@ class _Instruments:
                     "Time from the LLM proxy receiving a streamed request to "
                     "its first upstream chunk."
                 ),
+                explicit_bucket_boundaries_advisory=_FIRST_TOKEN_BUCKETS_MS,
             ),
             turn_first_token_ms=meter.create_histogram(
                 "agent.turn.first_token_ms",
                 unit="ms",
                 description="Time from sending a turn to its first model output.",
+                explicit_bucket_boundaries_advisory=_FIRST_TOKEN_BUCKETS_MS,
             ),
             turn_duration_ms=meter.create_histogram(
                 "agent.turn.duration_ms",
                 unit="ms",
                 description="Time from sending a turn to its outcome.",
+                explicit_bucket_boundaries_advisory=_DURATION_BUCKETS_MS,
             ),
             turn_outcomes=meter.create_counter(
                 "agent.turn.outcomes",
