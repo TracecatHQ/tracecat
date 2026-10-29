@@ -141,8 +141,9 @@ completion. Inspect all three multi-platform manifests (`tracecat`,
 `tracecat-ui` and `tracecat-tunnel-gateway`) and their version/revision
 labels. For a prerelease or an older train's hotfix, compare all three
 `latest` digests before and after the build; for the highest stable release,
-verify `X.Y` and `latest` point to the new image manifests. For an older
-train's hotfix, verify its `X.Y` moved and `latest` did not.
+verify `X.Y` and `latest` point to the new image manifests. For a stable
+hotfix on an older train, verify its `X.Y` moved and `latest` did not; a
+prerelease moves neither.
 
 If image publication fails, stop before creating the GitHub release. Report the
 existing branch/tag and failed run; never move the tag or automatically cut a
