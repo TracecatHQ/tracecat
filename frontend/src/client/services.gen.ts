@@ -22,6 +22,7 @@ import type {
   AdminAgentListPlatformCatalogResponse,
   AdminCheckIpAllowlistData,
   AdminCheckIpAllowlistResponse,
+  AdminClearSourceResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
@@ -52,6 +53,7 @@ import type {
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
   AdminGetSecuritySettingsResponse,
+  AdminGetSourceResponse,
   AdminGetTierData,
   AdminGetTierResponse,
   AdminGetUserData,
@@ -67,6 +69,8 @@ import type {
   AdminListOrgRepositoryVersionsResponse,
   AdminListOrgTiersData,
   AdminListOrgTiersResponse,
+  AdminListSourceTagsData,
+  AdminListSourceTagsResponse,
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
@@ -99,6 +103,8 @@ import type {
   AdminResetUserMfaResponse,
   AdminRevokeOrganizationInvitationData,
   AdminRevokeOrganizationInvitationResponse,
+  AdminSetSourceData,
+  AdminSetSourceResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminTestAuditWebhookData,
@@ -8932,6 +8938,80 @@ export const watchtowerEnableWatchtowerAgent = (
     url: "/watchtower/monitor/agents/{agent_id}/enable",
     path: {
       agent_id: data.agentId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Source
+ * Get the workspace managed resources are published from.
+ * @returns ManagedSourceSettingRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetSource = (): CancelablePromise<AdminGetSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/source",
+  })
+}
+
+/**
+ * Set Source
+ * Set the managed resources source and pin its Git binding.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ManagedSourceRead Successful Response
+ * @throws ApiError
+ */
+export const adminSetSource = (
+  data: AdminSetSourceData
+): CancelablePromise<AdminSetSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/admin/managed-resources/source",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Clear Source
+ * Remove the managed resources source setting.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminClearSource =
+  (): CancelablePromise<AdminClearSourceResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/admin/managed-resources/source",
+    })
+  }
+
+/**
+ * List Source Tags
+ * List tags in the managed resources source repository, newest first.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_GitTagInfo_ Successful Response
+ * @throws ApiError
+ */
+export const adminListSourceTags = (
+  data: AdminListSourceTagsData = {}
+): CancelablePromise<AdminListSourceTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/source/tags",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
     },
     errors: {
       422: "Validation Error",

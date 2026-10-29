@@ -13,6 +13,13 @@ class GitLabListCommitsParams(TypedDict):
     ref_name: str
 
 
+class GitLabListTagsParams(TypedDict):
+    """Query params for listing repository tags."""
+
+    order_by: Literal["name", "updated", "version"]
+    sort: Literal["asc", "desc"]
+
+
 class GitLabTreeParams(TypedDict):
     """Query params for listing a repository tree."""
 
@@ -89,6 +96,18 @@ class GitLabTreeEntry(BaseModel):
     id: str = Field(min_length=1)
     path: str = Field(min_length=1)
     type: str | None = None
+
+
+class GitLabTag(BaseModel):
+    """A GitLab repository tag."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = Field(min_length=1)
+    commit: GitLabCommit | None = None
+    """The tagged commit; absent when the tag points at a tree or blob."""
+    created_at: str | None = None
+    """Tag creation date; GitLab sets it only for annotated tags."""
 
 
 class GitLabBranch(BaseModel):
