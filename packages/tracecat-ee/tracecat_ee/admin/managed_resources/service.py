@@ -364,6 +364,12 @@ class AdminManagedResourcesService(BasePlatformService):
                 UUID.
         """
         target = await self._target(target_id)
+        # Serialize replacements of the same target's matches until commit.
+        await self.session.execute(
+            select(ManagedTarget.id)
+            .where(ManagedTarget.id == target.id)
+            .with_for_update()
+        )
         for item in params.matches:
             if item.reference_kind in _UUID_KEYED_KINDS:
                 try:
@@ -477,6 +483,14 @@ class AdminManagedResourcesService(BasePlatformService):
 
         A new preview supersedes the target's earlier unapplied ones.
         """
+        # Lock every target up front, in id order, so two batch previews over
+        # the same targets cannot deadlock on each other's row locks.
+        await self.session.execute(
+            select(ManagedTarget.id)
+            .where(ManagedTarget.id.in_(params.target_ids))
+            .order_by(ManagedTarget.id)
+            .with_for_update()
+        )
         rollouts: list[ManagedRollout] = []
         for target_id in params.target_ids:
             target = await self._target(target_id)

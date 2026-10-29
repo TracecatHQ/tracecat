@@ -35,6 +35,7 @@ const BASE_KEY = ["admin", "managed-package"] as const
 const PAGE_LIMIT = 200
 const MAX_PAGES = 50
 const POLL_INTERVAL_MS = 2000
+const ERROR_POLL_INTERVAL_MS = 10_000
 // Callers on this page render or toast failures themselves.
 const SUPPRESS_TOAST = { suppressErrorToast: true }
 
@@ -311,16 +312,23 @@ export function useResumableRollouts() {
     queryKey: managedPackageKeys.resumableRollouts,
     meta: SUPPRESS_TOAST,
     queryFn: async () => {
-      // Newest first, so the first rollout seen for a target is its latest.
-      const page = await adminListRollouts({ limit: PAGE_LIMIT })
-      const newestByTarget = new Map<string, ManagedRolloutRead>()
-      for (const rollout of page.items) {
-        if (rollout.target_id && !newestByTarget.has(rollout.target_id)) {
-          newestByTarget.set(rollout.target_id, rollout)
-        }
-      }
-      return [...newestByTarget.values()].filter(
-        (rollout) =>
+      // Ask each target for its newest rollout. Rollout history only grows,
+      // so reading it whole would miss targets past the first pages.
+      const targets = await fetchAllPages((cursor) =>
+        adminListTargets({ limit: PAGE_LIMIT, cursor })
+      )
+      const newest = await Promise.all(
+        targets.map(async (target) => {
+          const page = await adminListRollouts({
+            targetId: target.id,
+            limit: 1,
+          })
+          return page.items[0]
+        })
+      )
+      return newest.filter(
+        (rollout): rollout is ManagedRolloutRead =>
+          rollout !== undefined &&
           rollout.kind === "apply" &&
           RESUMABLE_ROLLOUT_STATUSES.has(rollout.status)
       )
@@ -366,9 +374,10 @@ export function useTrackedRollouts(rolloutIds: string[]) {
     enabled: rolloutIds.length > 0,
     meta: SUPPRESS_TOAST,
     refetchInterval: (q) => {
-      // Stop on a failed read; callers show the error and can refetch.
+      // Keep polling, more slowly, through a failed read: it is usually a
+      // transient network or server error, and the rollout keeps running.
       if (q.state.status === "error") {
-        return false
+        return ERROR_POLL_INTERVAL_MS
       }
       const data = q.state.data
       if (!data) {

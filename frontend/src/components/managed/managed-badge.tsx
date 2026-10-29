@@ -34,12 +34,12 @@ export function ManagedBadge({
     ? null
     : deployedAt.toLocaleString()
   // The tooltip is pointer-only, so its details also go in the accessible
-  // name for keyboard and screen reader users.
+  // name for keyboard and screen reader users. The name leaves out "detach",
+  // since many places that show the badge have no detach control.
   const ariaLabel = [
     "Managed by Tracecat",
     `deployed from tag ${managed.deployed_tag}`,
     relative ? `last rollout ${relative}` : null,
-    "detach to edit",
   ]
     .filter(Boolean)
     .join(", ")

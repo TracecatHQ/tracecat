@@ -450,6 +450,9 @@ class FormsService(BaseWorkspaceService):
             FormError: ``form_changed`` for a stale ``base_config_version``, or
                 the reason the config or status cannot be saved.
         """
+        # Before the row lock: rollouts take the ownership lock first and then
+        # lock form rows, so the opposite order could deadlock.
+        await self._ensure_config_editable(form.workflow_id, params)
         if params.base_config_version is not None:
             # Locked, so two saves from the same config cannot both pass.
             await self.session.refresh(form, with_for_update=True)
@@ -458,7 +461,6 @@ class FormsService(BaseWorkspaceService):
                     FormErrorCode.FORM_CHANGED,
                     "This form changed since you opened it",
                 )
-        await self._ensure_config_editable(form.workflow_id, params)
         status = params.status or FormStatus(form.status)
         if params.config is not None or params.status is FormStatus.ONLINE:
             inputs = await self._require_inputs(form.workflow_id)

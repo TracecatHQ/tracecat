@@ -118,6 +118,7 @@ class ManagedReleaseCreate(BaseModel):
     tag: str = Field(min_length=1, max_length=255)
     commit_sha: str | None = Field(
         default=None,
+        min_length=1,
         max_length=64,
         description=(
             "The commit the caller reviewed. When set, the release is refused "

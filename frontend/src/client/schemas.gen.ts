@@ -24444,6 +24444,7 @@ export const $ManagedReleaseCreate = {
         {
           type: "string",
           maxLength: 64,
+          minLength: 1,
         },
         {
           type: "null",

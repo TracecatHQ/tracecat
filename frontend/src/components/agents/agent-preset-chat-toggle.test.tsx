@@ -37,7 +37,8 @@ jest.mock("@/components/auth/scope-guard", () => ({
 let mockPresetManaged = false
 jest.mock("@/hooks/use-managed-resources", () => ({
   useManagedResources: () => ({
-    isManaged: () => mockPresetManaged,
+    isManaged: (resourceType: string, id?: string | null) =>
+      mockPresetManaged && resourceType === "agent_preset" && id === "preset-1",
   }),
 }))
 
