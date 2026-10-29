@@ -1,7 +1,7 @@
 """add managed resource side tables
 
 Revision ID: 21042b4645f1
-Revises: 002febfa86c3
+Revises: e4fd31674ae9
 Create Date: 2026-10-28 12:00:00.000000
 
 """
@@ -18,7 +18,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "21042b4645f1"
-down_revision: str | None = "002febfa86c3"
+down_revision: str | None = "e4fd31674ae9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

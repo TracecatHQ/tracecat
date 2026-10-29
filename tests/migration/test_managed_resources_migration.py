@@ -19,7 +19,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.db.models import Base
 
 MIGRATION_REVISION = "21042b4645f1"
-PREVIOUS_REVISION = "002febfa86c3"
+PREVIOUS_REVISION = "e4fd31674ae9"
 TABLES = ("managed_resource", "managed_target", "managed_reference_match")
 # Operation names alembic_postgresql_enum puts first in its diff tuples.
 _POSTGRESQL_ENUM_DIFFS = frozenset({"create_enum", "drop_enum", "change_enum_variants"})
