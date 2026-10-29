@@ -103,6 +103,9 @@ Before mutation, show:
 - Version-bump, branch-push, tag-push, and release-publication commands.
 - Stable image tags update `latest`; prereleases leave `latest` unchanged.
   This policy permits an older train's stable hotfix to become `latest`.
+- Whether the GitHub release is marked latest: only when the tag is the
+  highest stable version, because the Compose docs download
+  `releases/latest/download/<file>`.
 
 Wait for explicit confirmation unless the user already approved this exact
 release plan. Approval to merge or fix a PR is not release authorization.
@@ -222,8 +225,12 @@ temporary notes file. Publish the existing tag using `--verify-tag`, so a typo
 cannot create a tag on the default branch:
 
 ```sh
-# Stable release:
-gh release create '<tag>' --verify-tag --latest \
+# Stable release: mark it latest only when it is the highest stable tag, so an
+# older train's patch never takes over the docs' releases/latest download links.
+git fetch --tags origin
+HIGHEST_STABLE=$(git tag -l | rg '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+if [ "$HIGHEST_STABLE" = '<tag>' ]; then LATEST_FLAG=--latest; else LATEST_FLAG=--latest=false; fi
+gh release create '<tag>' --verify-tag "$LATEST_FLAG" \
   --title 'Tracecat <tag>' --notes-file "$BODY_FILE"
 
 # Prerelease:

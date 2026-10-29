@@ -20,8 +20,8 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     version.
 
     ```
-    curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/env-migration.sh
-    curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/.env.example
+    curl -fL -o env-migration.sh https://github.com/TracecatHQ/tracecat/releases/latest/download/env-migration.sh
+    curl -fL -o .env.example https://github.com/TracecatHQ/tracecat/releases/latest/download/.env.example
     ```
 
   </Step>
@@ -46,7 +46,7 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     ```
     # Back up your existing docker-compose.yml first; the download below overwrites it
     cp docker-compose.yml docker-compose.yml.bak
-    curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/docker-compose.yml
+    curl -fL -o docker-compose.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.yml
     ```
   </Step>
   <Step title="Update Caddyfile">
@@ -55,11 +55,18 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     ```
     # Back up your existing Caddyfile first; the download below overwrites it
     cp Caddyfile Caddyfile.bak
-    curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/Caddyfile
+    curl -fL -o Caddyfile https://github.com/TracecatHQ/tracecat/releases/latest/download/Caddyfile
     ```
   </Step>
   <Step title="Restart Tracecat">
-    Run `docker compose up` using the new Docker Compose and `.env` files.
+    Pull the latest images, then restart Tracecat with the new Docker Compose and `.env` files.
+
+    ```
+    docker compose pull
+    docker compose up -d
+    ```
+
+    If you pinned `TRACECAT__IMAGE_TAG` in `.env`, set it to the new version and download the files above from `https://github.com/TracecatHQ/tracecat/releases/download/<version>/<file>` instead.
   </Step>
 </Steps>
 
