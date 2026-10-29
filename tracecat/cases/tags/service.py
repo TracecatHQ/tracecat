@@ -11,8 +11,10 @@ from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseTag, CaseTagLink, CaseTrigger
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class CaseTagsService(BaseWorkspaceService):
@@ -194,6 +196,12 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def update_tag(self, tag: CaseTag, params: TagUpdate) -> CaseTag:
         """Update an existing case tag."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_TAG,
+            local_id=tag.id,
+        )
         original_ref = tag.ref
         if params.name and params.name != tag.name:
             new_ref = slugify(params.name)
@@ -256,6 +264,12 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def delete_tag(self, tag: CaseTag) -> None:
         """Delete a case tag definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_TAG,
+            local_id=tag.id,
+        )
         await self.session.delete(tag)
         await self.session.commit()
 

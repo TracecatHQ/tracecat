@@ -112,6 +112,11 @@ from tracecat.integrations.mcp_validation import (
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.presets import (
+    ensure_preset_update_allowed,
+    with_customer_skill_bindings,
+)
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -123,6 +128,7 @@ from tracecat.secrets.common import call_with_masked_errors
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.enums import SyncResourceType
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -746,7 +752,22 @@ class AgentPresetService(BaseWorkspaceService):
     async def update_preset(
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
-        """Update an existing preset."""
+        """Update an existing preset.
+
+        On a managed preset only ``skills`` may change, and only by adding or
+        removing the customer's own skills.
+        """
+        await ensure_preset_update_allowed(
+            self.session,
+            workspace_id=self.workspace_id,
+            preset_id=preset.id,
+            fields_set=set(params.model_fields_set),
+            requested_skill_ids=(
+                [binding.skill_id for binding in params.skills or []]
+                if "skills" in params.model_fields_set
+                else None
+            ),
+        )
         try:
             return await self._update_preset(preset, params)
         except IntegrityError as exc:
@@ -957,6 +978,12 @@ class AgentPresetService(BaseWorkspaceService):
         preset: AgentPreset,
     ) -> None:
         """Delete a preset and permanently unlink it from heads and history."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.AGENT_PRESET,
+            local_id=preset.id,
+        )
         # Saves lock parents and children in UUID order. Take the same order
         # before changing parent JSONB, including parents in the recycle bin.
         await self.session.execute(
@@ -2477,6 +2504,12 @@ class AgentPresetService(BaseWorkspaceService):
         self, preset: AgentPreset, version: AgentPresetVersion
     ) -> AgentPreset:
         """Restore a historical version as the current preset head."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.AGENT_PRESET,
+            local_id=preset.id,
+        )
         if version.preset_id != preset.id:
             raise TracecatValidationError(
                 "Preset version does not belong to the selected preset"
@@ -2760,6 +2793,8 @@ class AgentPresetService(BaseWorkspaceService):
         binding projection and returns that version.
         """
 
+        # A managed rollout keeps the customer's own skills on the preset.
+        binding_specs = with_customer_skill_bindings(preset.id, binding_specs)
         await self._replace_head_skill_bindings(
             preset.id,
             binding_specs=binding_specs,

@@ -16250,6 +16250,69 @@ export const $DeferredToolUse = {
   title: "DeferredToolUse",
 } as const
 
+export const $DetachedCopy = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    original_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Original Local Id",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "local_id", "name", "original_local_id"],
+  title: "DetachedCopy",
+  description: "The copy a detach created.",
+} as const
+
+export const $DetachedCopyRead = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    original_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Original Local Id",
+    },
+    original_name: {
+      type: "string",
+      title: "Original Name",
+    },
+    detached_at: {
+      type: "string",
+      format: "date-time",
+      title: "Detached At",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "local_id",
+    "original_local_id",
+    "original_name",
+    "detached_at",
+  ],
+  title: "DetachedCopyRead",
+  description: "A customer-owned copy made by detaching a managed resource.",
+} as const
+
 export const $DocumentState = {
   type: "string",
   enum: ["pending", "building", "ready", "empty", "failed", "deleted"],
@@ -24244,6 +24307,73 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $ManagedResourceDetach = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    new_name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "New Name",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "local_id", "new_name"],
+  title: "ManagedResourceDetach",
+  description:
+    "Detach a managed resource into an editable copy named ``new_name``.",
+} as const
+
+export const $ManagedResourceRead = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    deployed_tag: {
+      type: "string",
+      title: "Deployed Tag",
+      description: "Package tag the resource came from.",
+    },
+    deployed_commit_sha: {
+      type: "string",
+      title: "Deployed Commit Sha",
+    },
+    deployed_at: {
+      type: "string",
+      format: "date-time",
+      title: "Deployed At",
+      description: "When the last rollout wrote it.",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "local_id",
+    "source_id",
+    "deployed_tag",
+    "deployed_commit_sha",
+    "deployed_at",
+  ],
+  title: "ManagedResourceRead",
+  description: 'One managed resource, for the "Managed by Tracecat" badge.',
+} as const
+
 export const $ManagedSourceRead = {
   properties: {
     workspace_id: {
@@ -26193,6 +26323,45 @@ export const $PackageResourceStatus = {
   enum: ["explicit", "implied", "excluded"],
 } as const
 
+export const $Page_DetachedCopyRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/DetachedCopyRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[DetachedCopyRead]",
+} as const
+
 export const $Page_ExternalGroupMappingRead_ = {
   properties: {
     items: {
@@ -26308,6 +26477,45 @@ export const $Page_GitTagInfo_ = {
   type: "object",
   required: ["items"],
   title: "Page[GitTagInfo]",
+} as const
+
+export const $Page_ManagedResourceRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedResourceRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedResourceRead]",
 } as const
 
 export const $Page_SecretStoreRead_ = {
@@ -27807,6 +28015,13 @@ export const $PullResult = {
       },
       type: "array",
       title: "Library Skill Installs",
+    },
+    skipped_managed: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Skipped Managed",
     },
     catalog_mapping_requirements: {
       anyOf: [

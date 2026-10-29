@@ -587,6 +587,12 @@ import type {
   ListCustomProvidersResponse,
   ListEnabledModelsData,
   ListEnabledModelsResponse,
+  ManagedResourcesDetachManagedResourceData,
+  ManagedResourcesDetachManagedResourceResponse,
+  ManagedResourcesListDetachedCopiesData,
+  ManagedResourcesListDetachedCopiesResponse,
+  ManagedResourcesListManagedResourcesData,
+  ManagedResourcesListManagedResourcesResponse,
   McpIntegrationsConnectMcpIntegrationData,
   McpIntegrationsConnectMcpIntegrationResponse,
   McpIntegrationsConnectPlatformMcpCatalogData,
@@ -3756,6 +3762,92 @@ export const workflowsPullWorkflows = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/workflows/sync/pull",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Managed Resources
+ * List the workspace's managed resources, optionally of one type.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.resourceType
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ManagedResourceRead_ Successful Response
+ * @throws ApiError
+ */
+export const managedResourcesListManagedResources = (
+  data: ManagedResourcesListManagedResourcesData
+): CancelablePromise<ManagedResourcesListManagedResourcesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/managed-resources",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      resource_type: data.resourceType,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Detached Copies
+ * List copies made by detaching managed resources, for "detached from X".
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_DetachedCopyRead_ Successful Response
+ * @throws ApiError
+ */
+export const managedResourcesListDetachedCopies = (
+  data: ManagedResourcesListDetachedCopiesData
+): CancelablePromise<ManagedResourcesListDetachedCopiesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/managed-resources/detached",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Detach Managed Resource
+ * Copy a managed resource into an editable, customer-owned resource.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns DetachedCopy Successful Response
+ * @throws ApiError
+ */
+export const managedResourcesDetachManagedResource = (
+  data: ManagedResourcesDetachManagedResourceData
+): CancelablePromise<ManagedResourcesDetachManagedResourceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/managed-resources/detach",
     path: {
       workspace_id: data.workspaceId,
     },

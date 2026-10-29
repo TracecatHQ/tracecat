@@ -65,9 +65,11 @@ from tracecat.forms.storage import delete_file_blobs, lock_forms_for_deletion
 from tracecat.forms.types import ResolveResult
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.service import BaseOrgService, BaseWorkspaceService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspaces.service import WorkspaceService
 
 # The fastapi-users base types these columns as plain values, so queries go
@@ -473,6 +475,15 @@ class FormsService(BaseWorkspaceService):
 
         Audited as the update or the create it turns into.
         """
+        # Customers may switch a managed workflow's form on and off; its
+        # config comes from the package.
+        if params.model_fields_set - {"status"}:
+            await ensure_unmanaged(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.WORKFLOW,
+                local_id=workflow_id,
+            )
         if (form := await self.get_form_by_workflow_id(workflow_id)) is not None:
             return await self.update_form(form, params)
         return await self.create_form(

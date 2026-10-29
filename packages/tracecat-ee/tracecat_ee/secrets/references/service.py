@@ -18,6 +18,7 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.managed_resources.values import ensure_values_only_update
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.enums import (
     AwsSecretResolutionErrorCode,
@@ -34,6 +35,7 @@ from tracecat.secrets.service import (
     build_external_secret_reference,
     is_external_reference,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
 
 
@@ -182,6 +184,16 @@ class SecretReferencesService(SecretsService):
         self, secret: Secret, params: AwsSecretReferenceUpdate
     ) -> None:
         """Update the reference or mapping of an AWS-backed workspace secret."""
+        # On a managed secret the FDE matches the store; the customer only
+        # points it at their own ARN or secret name.
+        await ensure_values_only_update(
+            self.session,
+            workspace_id=self.role.workspace_id,
+            resource_type=SyncResourceType.SECRET_METADATA,
+            local_id=secret.id,
+            fields_set=params.model_fields_set,
+            allowed_fields={"remote_reference"},
+        )
         if not is_external_reference(secret):
             raise ValueError("Secret is not backed by AWS Secrets Manager.")
         set_fields = params.model_dump(exclude_unset=True)

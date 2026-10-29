@@ -28,6 +28,8 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.values import ensure_values_only_update
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
@@ -51,6 +53,7 @@ from tracecat.secrets.schemas import (
 )
 from tracecat.secrets.types import ExternalSecretReference
 from tracecat.service import BaseOrgService
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 def is_external_reference(secret: BaseSecret) -> TypeGuard[Secret]:
@@ -376,8 +379,22 @@ class SecretsService(BaseOrgService):
     @require_scope("secret:update")
     @audit_log(resource_type="secret", action="update")
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> Secret:
-        """Update a workspace secret."""
+        """Update a workspace secret.
 
+        A managed secret only accepts new values for its existing keys.
+        """
+        await ensure_values_only_update(
+            self.session,
+            workspace_id=self.role.workspace_id,
+            resource_type=SyncResourceType.SECRET_METADATA,
+            local_id=secret.id,
+            fields_set=params.model_fields_set,
+            allowed_fields={"keys"},
+            current_keys=lambda: self.secret_key_names(secret),
+            requested_keys=(
+                [kv.key for kv in params.keys] if params.keys is not None else None
+            ),
+        )
         await self._update_secret(secret=secret, params=params)
         return secret
 
@@ -386,6 +403,12 @@ class SecretsService(BaseOrgService):
     async def delete_secret(self, secret: Secret) -> None:
         """Delete a workspace secret."""
 
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.role.workspace_id,
+            resource_type=SyncResourceType.SECRET_METADATA,
+            local_id=secret.id,
+        )
         await self._delete_secret(secret)
 
     async def search_secrets(self, params: SecretSearch) -> Sequence[Secret]:

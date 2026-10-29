@@ -364,6 +364,8 @@ class PullResult:
     """Optional displayable resources included in a pull preview."""
 
     library_skill_installs: list[str] = field(default_factory=list)
+    skipped_managed: list[str] = field(default_factory=list)
+    """Repository paths skipped because they would change a managed resource."""
     """Library slugs to install in a preview, or newly installed by a successful pull."""
 
     catalog_mapping_requirements: list[CatalogMappingRequirement] | None = None

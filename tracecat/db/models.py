@@ -91,7 +91,12 @@ from tracecat.identifiers import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.managed_resources.enums import ManagedReferenceKind, ManagedTargetStatus
+from tracecat.managed_resources.enums import (
+    ManagedReferenceKind,
+    ManagedRolloutKind,
+    ManagedRolloutStatus,
+    ManagedTargetStatus,
+)
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.tiers.types import EntitlementsDict
 from tracecat.workspaces.schemas import WorkspaceSettings
@@ -139,6 +144,22 @@ SCIM_CONNECTION_STATUS_ENUM = Enum(
 MANAGED_TARGET_STATUS_ENUM = Enum(
     ManagedTargetStatus,
     name="managedtargetstatus",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+MANAGED_ROLLOUT_KIND_ENUM = Enum(
+    ManagedRolloutKind,
+    name="managedrolloutkind",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+MANAGED_ROLLOUT_STATUS_ENUM = Enum(
+    ManagedRolloutStatus,
+    name="managedrolloutstatus",
     native_enum=False,
     length=32,
     values_callable=lambda enum: [member.value for member in enum],
@@ -688,6 +709,12 @@ class ManagedResource(WorkspaceModel):
     deployed_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
+    rollout_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("managed_rollout.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="The rollout that last wrote this resource.",
+    )
 
 
 class ManagedTarget(WorkspaceModel):
@@ -746,6 +773,102 @@ class ManagedReferenceMatch(WorkspaceModel):
     # No FK because the referenced table depends on reference_kind. NULL leaves
     # the reference unlinked.
     resolved_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+
+
+class ManagedRollout(WorkspaceModel):
+    """One preview-then-apply of a tag, or an unassign, for one target.
+
+    The preview is stored so apply can check it still describes the target:
+    ``state_fingerprint`` hashes the target's managed rows and conflicting
+    names at preview time.
+    """
+
+    __tablename__ = "managed_rollout"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    target_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("managed_target.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[ManagedRolloutKind] = mapped_column(
+        MANAGED_ROLLOUT_KIND_ENUM, nullable=False
+    )
+    status: Mapped[ManagedRolloutStatus] = mapped_column(
+        MANAGED_ROLLOUT_STATUS_ENUM,
+        default=ManagedRolloutStatus.PREVIEWING,
+        nullable=False,
+    )
+    tag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    preview: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    state_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class ManagedPresetSkillBinding(WorkspaceModel):
+    """A skill binding on a managed preset that the package owns.
+
+    Bindings on a managed preset without a row here were added by the
+    customer. Rollouts replace only the package's bindings.
+    """
+
+    __tablename__ = "managed_preset_skill_binding"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "preset_id",
+            "skill_id",
+            name="uq_managed_preset_skill_binding",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("agent_preset.id", ondelete="CASCADE"), nullable=False
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("skill.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+class ManagedDetachedCopy(WorkspaceModel):
+    """A customer-owned copy made by detaching a managed resource.
+
+    It records where the copy came from so the UI can say "detached from X".
+    The copy itself is an ordinary resource and is never managed.
+    """
+
+    __tablename__ = "managed_detached_copy"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "resource_type",
+            "local_id",
+            name="uq_managed_detached_copy_local",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    original_local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    original_source_id: Mapped[str] = mapped_column(String, nullable=False)
+    original_name: Mapped[str] = mapped_column(String, nullable=False)
+    detached_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class User(SQLAlchemyBaseUserTableUUID, Base):

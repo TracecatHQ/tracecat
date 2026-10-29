@@ -170,6 +170,11 @@ from tracecat.integrations.router import (
 from tracecat.invitations.consumer import start_invitation_email_consumer
 from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import (
+    LOCKED_MESSAGE,
+    ManagedResourceLockedError,
+)
+from tracecat.managed_resources.router import router as managed_resources_router
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.mcp.personal_access_tokens.router import (
     router as mcp_personal_access_tokens_router,
@@ -437,6 +442,9 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DBAPIError, _database)
     app.add_exception_handler(TracecatAuthorizationError, _authorization)
     app.add_exception_handler(ScopeDeniedError, _scope_denied)
+    app.add_exception_handler(
+        ManagedResourceLockedError, managed_resource_locked_exception_handler
+    )
     app.add_exception_handler(HTTPException, _http_async)
     app.add_exception_handler(RequestValidationError, _validation)
     for exc_type in scim_statuses:
@@ -525,6 +533,37 @@ def authorization_exception_handler(request: Request, exc: Exception) -> Respons
     return ORJSONResponse(
         status_code=status.HTTP_403_FORBIDDEN,
         content={"detail": "Forbidden"},
+    )
+
+
+def managed_resource_locked_exception_handler(
+    request: Request, exc: Exception
+) -> Response:
+    """Answer 403 when a caller tries to change a managed resource.
+
+    The body tells the user why and what to do instead. It carries only the
+    resource type, never names or ids, matching the fixed-body rule for
+    authorization errors.
+    """
+    resource_type = (
+        exc.resource_type.value if isinstance(exc, ManagedResourceLockedError) else None
+    )
+    logger.info(
+        "Refused change to managed resource",
+        path=request.url.path,
+        role=ctx_role.get(),
+        resource_type=resource_type,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "detail": LOCKED_MESSAGE,
+            "error": {
+                "code": "managed_resource_locked",
+                "message": LOCKED_MESSAGE,
+                "resource_type": resource_type,
+            },
+        },
     )
 
 
@@ -660,6 +699,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workflow_actions_router)
     _include_workspace_scoped_router(app, workflow_tags_router)
     _include_workspace_scoped_router(app, workflow_store_router)
+    _include_workspace_scoped_router(app, managed_resources_router)
     _include_workspace_scoped_router(app, sync_operations_router)
     # EE references register first so POST /secrets/aws wins over /secrets/{secret_id}.
     _include_workspace_scoped_router(app, external_secrets_router)

@@ -24,6 +24,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import AgentFolder, AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -32,6 +33,7 @@ from tracecat.pagination import (
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tags.schemas import TagRead
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class AgentFolderErrorCode(StrEnum):
@@ -308,6 +310,12 @@ class AgentFolderService(BaseWorkspaceService):
         self, preset_id: uuid.UUID, folder: AgentFolder | None = None
     ) -> AgentPreset:
         """Move an agent preset to a different folder."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.AGENT_PRESET,
+            local_id=preset_id,
+        )
         statement = select(AgentPreset).where(
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.id == preset_id,

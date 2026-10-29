@@ -70,7 +70,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
         for ref, field_def in sorted(schema.items()):
             if not isinstance(field_def, dict):
                 continue
-            local_id = _case_field_local_id(definition.id, ref)
+            local_id = case_field_local_id(definition.id, ref)
             source_id = assigner.assign(local_id, ref)
             specs[source_id] = CaseFieldResourceSpec(
                 id=source_id,
@@ -190,7 +190,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
                 imported.append(
                     self.imported_resource(
                         source_id,
-                        _case_field_local_id(definition.id, spec.name),
+                        case_field_local_id(definition.id, spec.name),
                     )
                 )
         return imported
@@ -212,7 +212,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
             )
             if mapped_local_id is not None:
                 for field_id in sorted(current_schema):
-                    if _case_field_local_id(definition.id, field_id) == mapped_local_id:
+                    if case_field_local_id(definition.id, field_id) == mapped_local_id:
                         return field_id
         if source_id in current_schema:
             return source_id
@@ -346,7 +346,7 @@ def _case_field_options(
     return None
 
 
-def _case_field_local_id(definition_id: uuid.UUID, source_id: str) -> uuid.UUID:
+def case_field_local_id(definition_id: uuid.UUID, source_id: str) -> uuid.UUID:
     """Derive a stable per-field ``local_id`` from the schema definition and source id.
 
     Case fields share one :class:`CaseFields` row, so a UUIDv5 of the definition

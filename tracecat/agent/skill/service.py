@@ -98,6 +98,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -105,6 +106,7 @@ from tracecat.pagination import (
 )
 from tracecat.storage import blob
 from tracecat.tags.schemas import TagRead
+from tracecat.workspace_sync.enums import SyncResourceType
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
@@ -1993,8 +1995,20 @@ class SkillService(SkillBindingService):
     async def _get_skill_for_update(
         self, skill_id: uuid.UUID, *, include_archived: bool = False
     ) -> Skill | None:
-        """Return and lock a skill row for mutation."""
+        """Return and lock a skill row for mutation.
 
+        Every skill write loads its row here, so this is where a managed
+        skill's content, files, versions and deletion are locked.
+
+        Raises:
+            ManagedResourceLockedError: The skill is managed.
+        """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.SKILL,
+            local_id=skill_id,
+        )
         predicates = [
             Skill.workspace_id == self.workspace_id,
             Skill.id == skill_id,

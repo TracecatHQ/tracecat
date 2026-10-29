@@ -23,6 +23,7 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
 from tracecat.workflow.management.folders.schemas import (
@@ -35,6 +36,7 @@ from tracecat.workflow.management.schemas import (
     WorkflowTriggerSummary,
 )
 from tracecat.workflow.management.types import build_workflow_trigger_summary
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class WorkflowFolderErrorCode(StrEnum):
@@ -256,6 +258,12 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             The updated workflow
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
         # Update the workflow
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,

@@ -4802,6 +4802,27 @@ export type DeferredToolUse = {
 }
 
 /**
+ * The copy a detach created.
+ */
+export type DetachedCopy = {
+  resource_type: SyncResourceType
+  local_id: string
+  name: string
+  original_local_id: string
+}
+
+/**
+ * A customer-owned copy made by detaching a managed resource.
+ */
+export type DetachedCopyRead = {
+  resource_type: SyncResourceType
+  local_id: string
+  original_local_id: string
+  original_name: string
+  detached_at: string
+}
+
+/**
  * Lifecycle states of a row document within an index generation.
  */
 export type DocumentState =
@@ -7428,6 +7449,33 @@ export type status6 =
   | "superseded"
 
 /**
+ * Detach a managed resource into an editable copy named ``new_name``.
+ */
+export type ManagedResourceDetach = {
+  resource_type: SyncResourceType
+  local_id: string
+  new_name: string
+}
+
+/**
+ * One managed resource, for the "Managed by Tracecat" badge.
+ */
+export type ManagedResourceRead = {
+  resource_type: SyncResourceType
+  local_id: string
+  source_id: string
+  /**
+   * Package tag the resource came from.
+   */
+  deployed_tag: string
+  deployed_commit_sha: string
+  /**
+   * When the last rollout wrote it.
+   */
+  deployed_at: string
+}
+
+/**
  * The workspace managed resources are published from, and its Git binding.
  */
 export type ManagedSourceRead = {
@@ -7963,6 +8011,18 @@ export type OutputType =
 
 export type PackageResourceStatus = "explicit" | "implied" | "excluded"
 
+export type Page_DetachedCopyRead_ = {
+  items: Array<DetachedCopyRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 export type Page_ExternalGroupMappingRead_ = {
   items: Array<ExternalGroupMappingRead>
   /**
@@ -7989,6 +8049,18 @@ export type Page_ExternalGroupRead_ = {
 
 export type Page_GitTagInfo_ = {
   items: Array<GitTagInfo>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedResourceRead_ = {
+  items: Array<ManagedResourceRead>
   /**
    * Next-page cursor
    */
@@ -8471,6 +8543,7 @@ export type PullResult = {
   files?: Array<string> | null
   resources?: Array<SyncPreviewResource> | null
   library_skill_installs?: Array<string>
+  skipped_managed?: Array<string>
   catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
   mcp_integration_mapping_requirements?: Array<McpIntegrationMappingRequirement> | null
   secret_store_mapping_requirements?: Array<SecretStoreMappingRequirement> | null
@@ -14765,6 +14838,31 @@ export type WorkflowsPullWorkflowsData = {
 
 export type WorkflowsPullWorkflowsResponse = PullResult
 
+export type ManagedResourcesListManagedResourcesData = {
+  cursor?: string | null
+  limit?: number
+  resourceType?: SyncResourceType | null
+  workspaceId: string
+}
+
+export type ManagedResourcesListManagedResourcesResponse =
+  Page_ManagedResourceRead_
+
+export type ManagedResourcesListDetachedCopiesData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type ManagedResourcesListDetachedCopiesResponse = Page_DetachedCopyRead_
+
+export type ManagedResourcesDetachManagedResourceData = {
+  requestBody: ManagedResourceDetach
+  workspaceId: string
+}
+
+export type ManagedResourcesDetachManagedResourceResponse = DetachedCopy
+
 export type WorkflowsCreateSyncOperationData = {
   requestBody: SyncOperationCreate_Input
   workspaceId: string
@@ -20386,6 +20484,51 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/managed-resources": {
+    get: {
+      req: ManagedResourcesListManagedResourcesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedResourceRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/managed-resources/detached": {
+    get: {
+      req: ManagedResourcesListDetachedCopiesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_DetachedCopyRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/managed-resources/detach": {
+    post: {
+      req: ManagedResourcesDetachManagedResourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: DetachedCopy
         /**
          * Validation Error
          */

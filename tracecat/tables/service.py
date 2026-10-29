@@ -46,6 +46,7 @@ from tracecat.exceptions import (
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -107,6 +108,7 @@ from tracecat.tables.schemas import (
     TableUpdate,
 )
 from tracecat.tables.search.service import TableSearchService
+from tracecat.workspace_sync.enums import SyncResourceType
 
 _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
@@ -616,6 +618,19 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Table '{table_name}' not found")
         return table
 
+    async def _ensure_schema_unmanaged(self, table_id: UUID) -> None:
+        """Refuse a schema change to a managed table; rows stay writable.
+
+        Raises:
+            ManagedResourceLockedError: The table is managed.
+        """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.TABLE,
+            local_id=table_id,
+        )
+
     @audit_log(resource_type="table", action="create")
     async def create_table(self, params: TableCreate) -> Table:
         """Create a new lookup table.
@@ -725,6 +740,7 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table", action="update")
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         """Update a lookup table."""
+        await self._ensure_schema_unmanaged(table.id)
         await self.search.for_table(table.id)
         table = await self.search.table(table.id)
         # We need to update the table name in the physical table
@@ -759,6 +775,7 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table", action="delete")
     async def delete_table(self, table: Table) -> None:
         """Delete a lookup table."""
+        await self._ensure_schema_unmanaged(table.id)
         collection = await self.search.for_table(table.id)
         table = await self.search.table(table.id)
         if collection is not None:
@@ -813,6 +830,7 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
+        await self._ensure_schema_unmanaged(table.id)
         column, column_def_str = self._prepare_column(table, params)
         await self.search.for_table(table.id)
         self.session.add(column)
@@ -904,6 +922,7 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If the column type is invalid
             ProgrammingError: If the database operation fails
         """
+        await self._ensure_schema_unmanaged(column.table_id)
         collection = await self.search.for_table(column.table_id)
         table = await self.search.table(column.table_id)
         await self.session.refresh(column)
@@ -1033,6 +1052,7 @@ class BaseTablesService(BaseWorkspaceService):
     async def create_unique_index(self, table: Table, column_name: str) -> None:
         """Create a unique index on specified columns."""
 
+        await self._ensure_schema_unmanaged(table.id)
         # Check if another index already exists
         index = await self.get_index(table)
         if len(index) > 0:
@@ -1078,6 +1098,7 @@ class BaseTablesService(BaseWorkspaceService):
     async def drop_unique_index(self, table: Table, column_name: str) -> None:
         """Drop the unique index on the specified column."""
 
+        await self._ensure_schema_unmanaged(table.id)
         await self.search.for_table(table.id)
         schema_name = self._get_schema_name()
 
@@ -1109,6 +1130,7 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table_column", action="delete")
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
+        await self._ensure_schema_unmanaged(column.table_id)
         collection = await self.search.for_table(column.table_id)
         table = await self.search.table(column.table_id)
         await self.search.column_changed(collection, column, removed=True)

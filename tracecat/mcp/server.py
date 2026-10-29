@@ -200,6 +200,11 @@ from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import (
+    LOCKED_MESSAGE,
+    ManagedResourceLockedError,
+    ensure_unmanaged,
+)
 from tracecat.mcp.action_discovery import list_action_entry_page
 from tracecat.mcp.auth import (
     create_mcp_auth,
@@ -348,6 +353,7 @@ from tracecat.workflow.schedules.schemas import (
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.tags.service import WorkflowTagsService
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspaces.schemas import (
     WorkspaceSettingsRead,
     WorkspaceSettingsUpdate,
@@ -2220,6 +2226,22 @@ def _resolve_workflow_yaml_update_layout(
             for action in workflow.actions or []
         ],
     )
+
+
+async def _ensure_workflow_unmanaged(
+    workspace_id: uuid.UUID, workflow_id: WorkflowUUID
+) -> None:
+    """Refuse an MCP edit of a managed workflow with a readable tool error."""
+    async with get_async_session_context_manager() as session:
+        try:
+            await ensure_unmanaged(
+                session,
+                workspace_id=workspace_id,
+                resource_type=SyncResourceType.WORKFLOW,
+                local_id=workflow_id,
+            )
+        except ManagedResourceLockedError as exc:
+            raise ToolError(LOCKED_MESSAGE) from exc
 
 
 @audit_log(
@@ -4354,6 +4376,7 @@ async def edit_workflow(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        await _ensure_workflow_unmanaged(workspace_id, WorkflowUUID.new(workflow_id))
         wf_id = WorkflowUUID.new(workflow_id)
         request = parse_workflow_edit_request(
             base_revision=base_revision,
@@ -4488,6 +4511,7 @@ async def update_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
+        await _ensure_workflow_unmanaged(workspace_id, WorkflowUUID.new(workflow_id))
         update_kwargs: dict[str, Any] = {}
         if title is not None:
             update_kwargs["title"] = title

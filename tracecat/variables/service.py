@@ -12,12 +12,15 @@ from tracecat.contexts import ctx_role, ctx_run
 from tracecat.db.models import WorkspaceVariable
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import VariableID
+from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.values import ensure_values_only_update
 from tracecat.service import BaseWorkspaceService
 from tracecat.variables.schemas import (
     VariableCreate,
     VariableSearch,
     VariableUpdate,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class VariablesService(BaseWorkspaceService):
@@ -169,6 +172,16 @@ class VariablesService(BaseWorkspaceService):
     async def update_variable(
         self, variable: WorkspaceVariable, params: VariableUpdate
     ) -> WorkspaceVariable:
+        await ensure_values_only_update(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.VARIABLE,
+            local_id=variable.id,
+            fields_set=params.model_fields_set,
+            allowed_fields={"values"},
+            current_keys=lambda: (variable.values or {}).keys(),
+            requested_keys=params.values.keys() if params.values is not None else None,
+        )
         update_fields = params.model_dump(exclude_unset=True)
         if values := update_fields.pop("values", None):
             variable.values = dict(values)
@@ -182,5 +195,11 @@ class VariablesService(BaseWorkspaceService):
     @require_scope("variable:delete")
     @audit_log(resource_type="workspace_variable", action="delete")
     async def delete_variable(self, variable: WorkspaceVariable) -> None:
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.VARIABLE,
+            local_id=variable.id,
+        )
         await self.session.delete(variable)
         await self.session.commit()

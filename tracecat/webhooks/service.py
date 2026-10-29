@@ -18,7 +18,10 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
 )
 from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.webhooks.schemas import WebhookCreate, WebhookUpdate
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 async def _webhook_update_audit_details(
@@ -119,6 +122,15 @@ async def update_webhook(
     """Update webhook configuration shared by all control-plane callers."""
     if role.workspace_id is None:
         raise TracecatAuthorizationError("Webhook update requires a workspace")
+    # Customers may toggle a managed workflow's webhook on and off; its other
+    # settings come from the package.
+    if params.model_fields_set - {"status"}:
+        await ensure_unmanaged(
+            session,
+            workspace_id=role.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
     webhook = await get_webhook(
         session,
         workspace_id=role.workspace_id,
