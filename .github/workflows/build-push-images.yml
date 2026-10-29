@@ -135,6 +135,10 @@ jobs:
           set -euo pipefail
           init=packages/tracecat-registry/tracecat_registry/__init__.py
           base=$(sed -nE 's/^__pep440_version__ = "([^"]+)"$/\1/p' "$init")
+          if [[ -z "$base" ]]; then
+            echo "Could not read __pep440_version__ from $init." >&2
+            exit 1
+          fi
           # A stamped pre-release would sort above its own later hotfixes
           # (1.2.0a1.post<N> > 1.2.0a1.post1), so only stamp X.Y.Z.
           if ! [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then

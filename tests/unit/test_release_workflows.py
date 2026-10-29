@@ -289,6 +289,18 @@ def test_registry_stamp_leaves_pre_release_versions_unchanged(
     assert _run_registry_stamp(tmp_path, original, [1761696000]) == original
 
 
+def test_registry_stamp_fails_when_the_version_line_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    """An unreadable version must fail the build, not skip the stamp."""
+    original = _registry_init("1.0.0", "1.0.0").replace(
+        '__pep440_version__ = "1.0.0"', '__pep440_version__ = "1.0.0"  # note'
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _run_registry_stamp(tmp_path, original, [1761696000])
+
+
 def test_only_serialized_promotion_can_publish_latest() -> None:
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     promotion = workflow["jobs"]["promote-latest"]
