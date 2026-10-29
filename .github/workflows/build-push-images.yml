@@ -511,6 +511,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # latest only moves forward, so an older train's patch leaves it alone.
+          current=$(docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:latest \
+            --format '{{ index (index .Image "linux/amd64").Config.Labels "org.opencontainers.image.version" }}')
+          if [[ -z "$current" ]]; then
+            echo 'Could not read the version label on latest.' >&2
+            exit 1
+          fi
+          if [[ "$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n 1)" != "$VERSION" ]]; then
+            echo "latest is $current, newer than $VERSION; leaving it unchanged."
+            exit 0
+          fi
           for image in tracecat tracecat-ui tracecat-tunnel-gateway; do
             docker buildx imagetools create \
               --tag "ghcr.io/tracecathq/$image:latest" \
