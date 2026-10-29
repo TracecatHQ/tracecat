@@ -69,6 +69,7 @@ from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.managed_resources.rollout import (
     ManagedRolloutEngine,
     _conflicts,
+    _unused_match_keys,
     target_role,
 )
 from tracecat.managed_resources.source import ManagedSource, require_managed_source
@@ -77,6 +78,7 @@ from tracecat.managed_resources.source_setting import (
     ManagedSourceSetting,
 )
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.sync import PullDiagnostic
 from tracecat.tables.schemas import TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -836,6 +838,30 @@ async def test_a_failed_delete_does_not_stop_the_others(
     assert failures == ["variable default/var_broken"]
     remaining = await engine._managed_rows(customer.id)
     assert [row.source_id for row in remaining] == ["default/var_broken"]
+
+
+def test_matches_a_tag_no_longer_uses_are_recognised_from_diagnostics() -> None:
+    # A later tag can drop the last model, MCP integration or store a saved
+    # match points at; the preview retries without those matches.
+    def diagnostic(**details: str) -> PullDiagnostic:
+        return PullDiagnostic(
+            workflow_path="",
+            workflow_title=None,
+            error_type="validation",
+            message="unused",
+            details=details,
+        )
+
+    catalog_id = str(uuid.uuid4())
+    unused = _unused_match_keys(
+        [
+            diagnostic(code="catalog_mapping_source_not_found", catalog_id=catalog_id),
+            diagnostic(code="secret_store_mapping_source_not_found", store="old"),
+            diagnostic(code="something_else", store="ignored"),
+        ]
+    )
+
+    assert unused == {"catalog": {catalog_id}, "mcp": set(), "stores": {"old"}}
 
 
 def test_a_customer_case_field_named_like_the_source_id_is_a_conflict() -> None:

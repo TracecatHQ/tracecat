@@ -193,8 +193,11 @@ async def resolve_package(
         create_missing_mappings: Whether unmapped resources get persistent
             Git source ids. Pushes pass ``True`` so paths stay stable.
     """
+    # Candidates only: a draft that cannot export yet must not block a
+    # package that does not select it. The selected closure is projected
+    # below with full validation.
     full = await service.project_workspace(
-        create_missing_mappings=create_missing_mappings
+        create_missing_mappings=create_missing_mappings, skip_unpublished=True
     )
     explicit = matched_resources(include, paths_by_resource(full))
     warnings = tuple(

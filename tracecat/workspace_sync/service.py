@@ -937,7 +937,13 @@ class WorkspaceSyncService(SyncMappingService):
             )
             dsl = dsl_by_id.get(workflow.id)
             if dsl is None:
-                dsl = await self._get_workflow_dsl(workflow)
+                try:
+                    dsl = await self._get_workflow_dsl(workflow)
+                except WorkflowExportValidationError:
+                    # An empty draft has no definition to export.
+                    if skip_unpublished:
+                        continue
+                    raise
                 dsl_by_id[workflow.id] = dsl
             source_id = await self._source_id_for_workflow(
                 workflow=workflow,

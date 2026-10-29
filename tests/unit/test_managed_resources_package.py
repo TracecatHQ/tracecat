@@ -46,10 +46,13 @@ from tracecat.managed_resources.source_setting import (
 )
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sync import PullOptions, PushStatus
+from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.schemas import WorkflowCreate
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.package import (
     package_registry_requirements,
     packaged_action_names,
+    read_package,
 )
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -192,6 +195,27 @@ async def test_package_export_writes_only_the_include_closure(
     assert ("skill", "qa-enrichment-skill") in implied
     assert ("agent_preset", "qa-evidence-child") in implied
     assert package.registry == []
+
+
+@pytest.mark.anyio
+async def test_an_empty_draft_workflow_does_not_block_the_package(
+    session: AsyncSession, svc_role: Role, source: SourceHarness
+) -> None:
+    # A draft with no actions cannot export, but the package does not select
+    # it, so discovery must skip it rather than fail the push and the picker.
+    await WorkflowsManagementService(session, role=svc_role).create_workflow(
+        WorkflowCreate(title="Unfinished draft")
+    )
+
+    files = await _push(source, ["workflows/qa-orphan/**"])
+    package = await read_package(
+        source.service,
+        include_text=files[PACKAGE_INCLUDE_FILENAME],
+        ref=BRANCH,
+    )
+
+    assert _resource_files(files) == {"workflows/qa-orphan/definition.yml"}
+    assert all(r.name != "Unfinished draft" for r in package.resources)
 
 
 @pytest.mark.anyio

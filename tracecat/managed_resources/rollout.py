@@ -111,7 +111,7 @@ from tracecat.registry.versions.schemas import (
 )
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.secrets.service import SecretsService
-from tracecat.sync import PullResult
+from tracecat.sync import PullDiagnostic, PullResult
 from tracecat.tables.service import TablesService
 from tracecat.variables.service import VariablesService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -132,6 +132,7 @@ from tracecat.workspace_sync.schemas import (
 )
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import VcsTransportFactory
+from tracecat.workspace_sync.types import PreparedPullPreview
 
 REGISTRY_RESOURCE_TYPE = REGISTRY_REPOSITORY_RESOURCE_TYPE
 """``managed_resource.resource_type`` for a registry repository a package installed.
@@ -360,13 +361,7 @@ class ManagedRolloutEngine:
             if trial_install:
                 with managed_write_bypass():
                     await self._install_registry(workspace, source, registry, None)
-            prepared = await sync.prepare_pull_preview(
-                snapshot,
-                sync_schedules=False,
-                requested_catalog_mappings=matches.catalog,
-                requested_mcp_integration_mappings=matches.mcp,
-                requested_secret_store_mappings=matches.stores,
-            )
+            prepared = await self._prepare_preview(sync, snapshot, matches)
         finally:
             if savepoint is not None:
                 await savepoint.rollback()
@@ -433,6 +428,45 @@ class ManagedRolloutEngine:
             registry=[],
             fingerprint=_fingerprint("", managed, identities, None),
             commit_sha="",
+        )
+
+    async def _prepare_preview(
+        self,
+        sync: WorkspaceSyncService,
+        snapshot: WorkspaceRemoteSnapshot,
+        matches: _Matches,
+    ) -> PreparedPullPreview:
+        """Prepare the import with the saved matches the tag still uses.
+
+        Saved matches outlive the tag that needed them, so a later version
+        can drop the last model, MCP integration or store one points at. The
+        correlators reject a match for a key the snapshot no longer has, so
+        drop those and prepare again; the saved rows stay for reuse.
+        """
+        prepared = await sync.prepare_pull_preview(
+            snapshot,
+            sync_schedules=False,
+            requested_catalog_mappings=matches.catalog,
+            requested_mcp_integration_mappings=matches.mcp,
+            requested_secret_store_mappings=matches.stores,
+        )
+        unused = _unused_match_keys(prepared.preview.diagnostics)
+        if not any(unused.values()):
+            return prepared
+        return await sync.prepare_pull_preview(
+            snapshot,
+            sync_schedules=False,
+            requested_catalog_mappings={
+                k: v
+                for k, v in matches.catalog.items()
+                if str(k) not in unused["catalog"]
+            },
+            requested_mcp_integration_mappings={
+                k: v for k, v in matches.mcp.items() if str(k) not in unused["mcp"]
+            },
+            requested_secret_store_mappings={
+                k: v for k, v in matches.stores.items() if k not in unused["stores"]
+            },
         )
 
     def _require_unchanged(self, rollout: ManagedRollout, plan: _Plan) -> None:
@@ -1543,6 +1577,28 @@ def _package_registry(files: Mapping[str, str]) -> list[PackageRegistryRequireme
         return []
     package = workspace_manifest_from_json(content).package
     return list(package.registry) if package else []
+
+
+_UNUSED_MATCH_CODES = {
+    "catalog_mapping_source_not_found": ("catalog", "catalog_id"),
+    "mcp_integration_mapping_source_not_found": ("mcp", "mcp_integration_id"),
+    "secret_store_mapping_source_not_found": ("stores", "store"),
+}
+"""Correlator codes for a requested match the snapshot does not use, mapped
+to the match kind and the details key naming the source key."""
+
+
+def _unused_match_keys(
+    diagnostics: Sequence[PullDiagnostic],
+) -> dict[str, set[str]]:
+    unused: dict[str, set[str]] = {"catalog": set(), "mcp": set(), "stores": set()}
+    for diagnostic in diagnostics:
+        details = diagnostic.details or {}
+        if (code := details.get("code")) in _UNUSED_MATCH_CODES:
+            kind, key = _UNUSED_MATCH_CODES[code]
+            if (value := details.get(key)) is not None:
+                unused[kind].add(str(value))
+    return unused
 
 
 def _uuid_or_none(value: str) -> uuid.UUID | None:
