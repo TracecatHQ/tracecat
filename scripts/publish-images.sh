@@ -51,7 +51,11 @@ Options:
   --registry REGISTRY       Registry host. Default: ghcr.io.
   --namespace NAMESPACE     Image namespace. Default: tracecathq.
   --builder NAME            Docker buildx builder to use.
-  --latest                  Always add the latest tag.
+  --latest                  Add the latest tag (needs a bare X.Y.Z first tag).
+                            Unlike the workflow, this script does not check that
+                            latest or X.Y only move forward: for an older train,
+                            pass --no-latest, and --no-semver-aliases unless it
+                            is that train's newest patch.
   --no-latest               Do not add the latest tag.
   --no-sha-tag              Do not add the sha-<commit> tag.
   --no-semver-aliases       Do not add stable semver aliases like 1.2.
@@ -122,23 +126,14 @@ add_tag() {
   fi
 }
 
-is_release_tag() {
-  local tag="${1#v}"
-  [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)*$ ]]
-}
-
-is_nightly_tag() {
-  [[ "$1" == nightly-* ]]
+# Same grammar as the publish workflow's stable tags and its label check.
+is_bare_stable_tag() {
+  [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 }
 
 add_semver_aliases() {
-  local tag="${1#v}"
-  local major minor
-  if [[ "$SEMVER_ALIASES" == auto && "$tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-    major="${BASH_REMATCH[1]}"
-    minor="${BASH_REMATCH[2]}"
-    add_tag "$tag"
-    add_tag "$major.$minor"
+  if [[ "$SEMVER_ALIASES" == auto ]] && is_bare_stable_tag "$1"; then
+    add_tag "${1%.*}"
   fi
 }
 
@@ -280,7 +275,7 @@ resolve_tags() {
     never)
       ;;
     auto)
-      if is_release_tag "$primary_tag" && ! is_nightly_tag "$primary_tag"; then
+      if is_bare_stable_tag "$primary_tag"; then
         add_tag latest
       fi
       ;;
@@ -288,6 +283,15 @@ resolve_tags() {
       abort "Internal error: invalid LATEST_MODE=$LATEST_MODE"
       ;;
   esac
+
+  # Floating tags carry the first tag's version label, which the publish
+  # workflow's only-forward check can order only when it is X.Y.Z.
+  for tag in "${TAGS[@]}"; do
+    if [[ "$tag" == latest || "$tag" =~ ^[0-9]+\.[0-9]+$ ]] &&
+      ! is_bare_stable_tag "$primary_tag"; then
+      abort "$tag needs a bare stable first tag (X.Y.Z), not $primary_tag."
+    fi
+  done
 }
 
 image_ref_for_key() {

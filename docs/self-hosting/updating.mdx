@@ -78,7 +78,7 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     docker compose up -d
     ```
 
-    With nsjail, run both commands as `TRACECAT__EXECUTOR_BACKEND=nsjail docker compose -f docker-compose.yml -f docker-compose.sandbox.yml …`, the same as the start command. Without the inline variable, Compose reads `TRACECAT__EXECUTOR_BACKEND=direct` from `.env`, which overrides the overlay's `nsjail` default, so the executor runs the `direct` backend inside the privileged overlay.
+    With nsjail, run both commands as `TRACECAT__EXECUTOR_BACKEND=nsjail docker compose -f docker-compose.yml -f docker-compose.sandbox.yml …`, the same as the start command. The overlay pins both executors to `nsjail` itself, so it never runs the `direct` backend in its privileged containers.
     To update to a specific version, download the files above from `https://github.com/TracecatHQ/tracecat/releases/download/<version>/<file>` instead, where the env template is `env.example`.
   </Step>
 </Steps>
