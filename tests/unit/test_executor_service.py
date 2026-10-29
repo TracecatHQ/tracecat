@@ -1635,6 +1635,8 @@ async def test_loop_context_shares_credentials_until_sts_expiry_margin(
         assert context.mask_values is not None
         assert {session_token, _LOOP_ROLE_ARN} <= context.mask_values
         assert {session_token, _LOOP_ROLE_ARN} <= masks.values
+        assert session_token not in repr(loop)
+        assert _LOOP_ROLE_ARN not in repr(loop)
     assert len(session_tokens) == expected_resolutions
 
 

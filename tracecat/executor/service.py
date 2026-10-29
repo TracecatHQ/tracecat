@@ -735,15 +735,16 @@ class SharedActionContext:
     credentials) and the tunnel route. None of these read the loop variables.
     `refresh_at` is the earlier of the max age and 5 minutes before any OAuth
     token or STS session in it expires, or now when an OAuth lookup failed.
+    Fields holding plaintext credentials are left out of `repr`.
     """
 
     action_impl: ActionImplementation
     argument_plan: ActionArgumentPlan
     provenance: ProvenanceMap | None
-    secrets: dict[str, Any]
+    secrets: dict[str, Any] = field(repr=False)
     variables: dict[str, dict[str, str]]
-    secret_projection: SecretEnvProjection
-    mask_values: set[str] | None
+    secret_projection: SecretEnvProjection = field(repr=False)
+    mask_values: set[str] | None = field(repr=False)
     tunnel_route: TunnelRoute | None
     refresh_at: datetime
     """When a loop must stop reusing this context and resolve a fresh one."""
@@ -822,6 +823,10 @@ async def resolve_shared_action_context(
         mask_values = None
     else:
         mask_values = early_mask_values | set(secret_projection.mask_values)
+
+    if masks := ctx_secret_masks.get():
+        for value in secret_projection.mask_values:
+            masks.observe(value)
 
     tunnel_route = None
     if tunnel_name := effective_tunnel(input):
@@ -967,7 +972,7 @@ class LoopActionContext:
     """
 
     role: Role
-    _shared: SharedActionContext | None = None
+    _shared: SharedActionContext | None = field(default=None, repr=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def prepare(self, input: RunActionInput) -> PreparedContext:
