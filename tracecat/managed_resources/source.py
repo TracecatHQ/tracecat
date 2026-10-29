@@ -9,10 +9,9 @@ credentials on behalf of a platform superuser.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,15 +25,16 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.managed_resources.source_setting import (
+    MANAGED_RESOURCES_SOURCE_KEY,
+    ManagedSourceSetting,
+)
 from tracecat.registry.repositories.schemas import GitTagInfo
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.service import (
     WorkspaceSyncService,
     parse_workspace_git_url,
 )
-
-MANAGED_RESOURCES_SOURCE_KEY = "managed_resources_source"
-"""Platform setting key holding a :class:`ManagedSourceSetting` JSON object."""
 
 SOURCE_REPOSITORY_SCOPES: frozenset[str] = frozenset({"workspace_sync:sync"})
 """The only scope granted when reading the source repository.
@@ -64,28 +64,13 @@ class ManagedSource:
     git_repo_url: str
 
 
-class ManagedSourceSetting(BaseModel):
-    """The stored source: the workspace and the Git binding pinned with it.
-
-    Pinning the binding means someone with ``workspace:update`` in the source
-    organization cannot repoint the managed repository without a platform
-    admin; any change to the live binding makes the source invalid instead.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    workspace_id: uuid.UUID
-    git_provider: VcsProvider
-    git_repo_url: str = Field(min_length=1)
-
-    @classmethod
-    def pin(cls, source: ManagedSource) -> ManagedSourceSetting:
-        """Snapshot a validated source for storage."""
-        return cls(
-            workspace_id=source.workspace_id,
-            git_provider=source.git_provider,
-            git_repo_url=source.git_repo_url,
-        )
+def pin_source(source: ManagedSource) -> ManagedSourceSetting:
+    """Snapshot a validated source for storage."""
+    return ManagedSourceSetting(
+        workspace_id=source.workspace_id,
+        git_provider=source.git_provider,
+        git_repo_url=source.git_repo_url,
+    )
 
 
 class _GitBinding(BaseModel):
@@ -165,7 +150,7 @@ async def get_managed_source(session: AsyncSession) -> ManagedSource | None:
         raise ManagedSourceUnavailableError(
             f"The managed resources source workspace is no longer valid: {e}"
         ) from e
-    if ManagedSourceSetting.pin(source) != pinned:
+    if pin_source(source) != pinned:
         raise ManagedSourceUnavailableError(
             "The managed resources source workspace's Git binding changed after "
             "it was set. A platform admin must set the source again."

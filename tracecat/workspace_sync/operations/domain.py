@@ -21,6 +21,7 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.managed_resources.include import PACKAGE_INCLUDE_FILENAME
 from tracecat.secrets.enums import SecretSource
 from tracecat.sync import PullResult, PushStatus
 from tracecat.tiers.enums import Entitlement
@@ -37,6 +38,7 @@ from tracecat.workspace_sync.operations.types import (
     SyncPreviewSummary,
     lock_key,
 )
+from tracecat.workspace_sync.package import include_reader
 from tracecat.workspace_sync.schemas import (
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
@@ -183,18 +185,25 @@ class DurableSyncService(WorkspaceSyncService):
         inputs: SyncOperationCreate,
         *,
         projection: WorkspaceProjection | None = None,
+        package_include: str | None = None,
     ) -> str:
-        if projection is None:
-            resource_ids = (
-                await self._local_ids_from_resource_refs(inputs.push.resources)
-                if inputs.push
-                else None
+        """Hash the local state a reviewed operation depends on.
+
+        ``package_include`` is the include file a package-mode push was
+        prepared with, so the recomputed projection selects the same package.
+        """
+        if projection is None and inputs.push:
+            push = await self.project_push(
+                resources=inputs.push.resources,
+                include_schedules=inputs.push.include_schedules,
+                package_include=inputs.push.package_include,
+                remote_include=include_reader(package_include),
+                create_missing_mappings=False,
             )
+            projection = push.projection
+        elif projection is None:
             projection = await self.project_workspace(
-                resource_ids=resource_ids,
-                include_schedules=inputs.push.include_schedules
-                if inputs.push
-                else bool(inputs.pull and inputs.pull.sync_schedules),
+                include_schedules=bool(inputs.pull and inputs.pull.sync_schedules),
                 create_missing_mappings=False,
             )
         mapping_identities = sorted(
@@ -347,18 +356,17 @@ class DurableSyncService(WorkspaceSyncService):
         remote = fetched.remote
         if params := inputs.push:
             self._validate_export_params(params)
-            resource_ids = await self._local_ids_from_resource_refs(params.resources)
-            projection = await self.project_export_preview(
-                resource_ids=resource_ids,
+            push = await self.project_push(
+                resources=params.resources,
                 include_schedules=params.include_schedules,
+                package_include=params.package_include,
+                remote_include=include_reader(
+                    remote.files.get(PACKAGE_INCLUDE_FILENAME)
+                ),
+                create_missing_mappings=False,
             )
-            roots = list(
-                await self._export_delete_roots(
-                    projection,
-                    full_workspace_export=resource_ids is None,
-                    resource_ids=resource_ids,
-                )
-            )
+            projection = push.projection
+            roots = list(push.delete_roots)
             preview = WorkspaceSyncExportPreview(
                 resource_counts=projection.spec.resource_count_map(),
                 files=sorted(projection.files),
@@ -378,6 +386,7 @@ class DurableSyncService(WorkspaceSyncService):
                 compare_sha=remote.commit_sha,
                 target_exists=fetched.target_exists,
                 delete_roots=roots,
+                package_include=push.package_include,
             )
         params = inputs.pull
         if params is None:
@@ -516,7 +525,9 @@ class DurableSyncService(WorkspaceSyncService):
                 # verified operation-marked commit already contains the reviewed
                 # bytes; recovery only needs to finish its PR and receipt.
                 if (
-                    await self.local_fingerprint(inputs)
+                    await self.local_fingerprint(
+                        inputs, package_include=prepared.package_include
+                    )
                     != prepared.workspace_fingerprint
                 ):
                     raise StaleSyncPreviewError("Workspace changed; preview again")

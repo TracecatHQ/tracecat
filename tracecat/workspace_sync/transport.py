@@ -41,6 +41,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.git.plumbing import GitPlumbing, GitRefConflictError, validate_path
 from tracecat.git.types import GitUrl
+from tracecat.managed_resources.include import PACKAGE_INCLUDE_FILENAME
 from tracecat.registry.repositories.schemas import (
     GitBranchInfo,
     GitCommitInfo,
@@ -599,11 +600,16 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
                 except Exception:
                     pass
 
+        # The package include file is the only other root-level file read; it
+        # only exists in a managed resources source repository.
         resource_paths = [
             path
             for path in sorted(paths)
             if path != MANIFEST_FILENAME
-            and any(path.startswith(f"{root}/") for root in resource_roots)
+            and (
+                path == PACKAGE_INCLUDE_FILENAME
+                or any(path.startswith(f"{root}/") for root in resource_roots)
+            )
         ]
         for path, content in await asyncio.gather(
             *(fetch_path(path) for path in resource_paths)

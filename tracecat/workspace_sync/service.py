@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections import Counter, deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
 from typing import Any, Self, cast
@@ -41,6 +41,11 @@ from tracecat.exceptions import (
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.include import (
+    PACKAGE_INCLUDE_FILENAME,
+    render_package_include,
+)
+from tracecat.managed_resources.source_setting import managed_source_workspace_id
 from tracecat.registry.repositories.schemas import (
     GitBranchInfo,
     GitCommitInfo,
@@ -90,6 +95,11 @@ from tracecat.workspace_sync.importer import (
     ImportedResource,
     WorkspaceResourceImportService,
 )
+from tracecat.workspace_sync.package import (
+    include_reader,
+    package_push_projection,
+    read_package,
+)
 from tracecat.workspace_sync.projector import (
     ProjectedResource,
     WorkspaceResourceProjection,
@@ -111,6 +121,7 @@ from tracecat.workspace_sync.schemas import (
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceManifestResources,
+    WorkspacePackageRead,
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
     WorkspaceSpec,
@@ -131,6 +142,7 @@ from tracecat.workspace_sync.transport import (
 from tracecat.workspace_sync.types import (
     PreparedPullPreview,
     PreparedSnapshot,
+    PushProjection,
     SyncMappingTarget,
     SyncWorkflowImportError,
 )
@@ -233,28 +245,28 @@ class WorkspaceSyncService(SyncMappingService):
         self._require_workspace_sync_scope()
         self._validate_export_params(params)
         url = await self._workspace_git_url()
-        resource_ids = await self._local_ids_from_resource_refs(params.resources)
-        projection = await self.project_workspace(
-            resource_ids=resource_ids,
+        transport = self._transport_for_provider()
+        push = await self.project_push(
+            resources=params.resources,
             include_schedules=params.include_schedules,
+            package_include=params.package_include,
+            remote_include=lambda: self._remote_package_include(
+                transport,
+                url=url,
+                branch=params.branch,
+                base_branch=params.pr_base_branch,
+            ),
             create_missing_mappings=True,
-            validate_export=True,
         )
+        projection = push.projection
+        delete_missing_paths_under = push.delete_roots
         self.logger.info(
             "Projected workspace sync export",
             operation="export",
-            full_workspace_export=resource_ids is None,
+            package_export=push.package_include is not None,
             projected_file_count=len(projection.files),
             projected_resource_counts=projection.spec.resource_count_map(),
         )
-        self._require_projected_export_scopes(projection.spec)
-        self._validate_projected_workspace_dependencies(projection.spec)
-        delete_missing_paths_under = await self._export_delete_roots(
-            projection,
-            full_workspace_export=resource_ids is None,
-            resource_ids=resource_ids,
-        )
-        transport = self._transport_for_provider()
         commit = await transport.write_files(
             url=url,
             files=projection.files,
@@ -288,6 +300,153 @@ class WorkspaceSyncService(SyncMappingService):
         self._validate_projected_workspace_dependencies(projection.spec)
         return projection
 
+    async def is_package_source(self) -> bool:
+        """Return whether this workspace is the managed resources source."""
+        return await managed_source_workspace_id(self.session) == self.workspace_id
+
+    async def project_push(
+        self,
+        *,
+        resources: list[ResourceRef] | None,
+        include_schedules: bool,
+        package_include: list[str] | None,
+        remote_include: Callable[[], Awaitable[str | None]],
+        create_missing_mappings: bool,
+    ) -> PushProjection:
+        """Project what a push writes and which stale paths it may delete.
+
+        Ordinary workspaces export ``resources`` (or everything). The managed
+        resources source workspace always exports in package mode: the
+        include file selects the resources, and every other resource file is
+        deleted. ``package_include`` replaces the include file;
+        ``remote_include`` reads the one already in the repository and is
+        only awaited when ``package_include`` is ``None``.
+
+        Raises:
+            TracecatValidationError: ``package_include`` was sent for a
+                workspace that is not the package source, or the include
+                file is invalid.
+        """
+        if not await self.is_package_source():
+            if package_include is not None:
+                raise TracecatValidationError(
+                    "Package include patterns are only accepted for the managed "
+                    "resources source workspace"
+                )
+            resource_ids = await self._local_ids_from_resource_refs(resources)
+            projection = await self.project_workspace(
+                resource_ids=resource_ids,
+                include_schedules=include_schedules,
+                create_missing_mappings=create_missing_mappings,
+                validate_export=True,
+            )
+            self._require_projected_export_scopes(projection.spec)
+            self._validate_projected_workspace_dependencies(projection.spec)
+            delete_roots = await self._export_delete_roots(
+                projection,
+                full_workspace_export=resource_ids is None,
+                resource_ids=resource_ids,
+            )
+            return PushProjection(projection=projection, delete_roots=delete_roots)
+
+        include_text = (
+            render_package_include(package_include)
+            if package_include is not None
+            else (await remote_include() or "")
+        )
+        package = await package_push_projection(
+            self,
+            include_text=include_text,
+            create_missing_mappings=create_missing_mappings,
+        )
+        self._require_projected_export_scopes(package.projection.spec)
+        self._validate_projected_workspace_dependencies(package.projection.spec)
+        self._enforce_required_scopes(
+            sorted(
+                _export_read_scopes_for_projection(
+                    package.projection, package.delete_roots
+                )
+            )
+        )
+        return PushProjection(
+            projection=package.projection,
+            delete_roots=package.delete_roots,
+            package_include=package.include_text,
+        )
+
+    async def read_package(self, *, ref: str | None) -> WorkspacePackageRead:
+        """Return the package selection and every resource's package status.
+
+        Reads the include file at ``ref``, or at the repository's default
+        branch. A workspace that is not the package source gets
+        ``is_source=False`` and nothing else.
+        """
+        self._require_workspace_sync_scope()
+        if not await self.is_package_source():
+            return WorkspacePackageRead(is_source=False)
+        url = await self._workspace_git_url()
+        transport = self._transport_for_provider()
+        ref = ref or url.ref or await self._default_branch(transport, url=url)
+        include_text: str | None = None
+        if ref and await transport.branch_exists(url=url, branch=ref):
+            tree = await transport.read_files(url=url, ref=ref, ref_kind="branch")
+            include_text = tree.files.get(PACKAGE_INCLUDE_FILENAME)
+        return await read_package(self, include_text=include_text or "", ref=ref)
+
+    async def _default_branch(
+        self, transport: VcsSyncTransport, *, url: GitUrl
+    ) -> str | None:
+        branches = await transport.list_branches(url=url, limit=10000)
+        return next((branch.name for branch in branches if branch.is_default), None)
+
+    async def _remote_package_include(
+        self,
+        transport: VcsSyncTransport,
+        *,
+        url: GitUrl,
+        branch: str,
+        base_branch: str | None,
+    ) -> str | None:
+        """Read the include file from ``branch``, or its base if it is new."""
+        ref: str | None = branch
+        if not await transport.branch_exists(url=url, branch=branch):
+            ref = (
+                base_branch or url.ref or await self._default_branch(transport, url=url)
+            )
+            if not ref:
+                return None
+        tree = await transport.read_files(url=url, ref=ref, ref_kind="branch")
+        return tree.files.get(PACKAGE_INCLUDE_FILENAME)
+
+    async def empty_projection(self) -> WorkspaceProjection:
+        """Return a projection with no resources, only the manifest."""
+        manifest = WorkspaceManifest()
+        spec = WorkspaceSpec()
+        return WorkspaceProjection(
+            manifest=manifest,
+            spec=spec,
+            files=self._files_from_spec(manifest=manifest, spec=spec),
+        )
+
+    def files_from_spec(
+        self, *, manifest: WorkspaceManifest, spec: WorkspaceSpec
+    ) -> dict[str, str]:
+        """Serialize a manifest and spec into repository files."""
+        return self._files_from_spec(manifest=manifest, spec=spec)
+
+    async def entitled_resource_roots(
+        self, resources: WorkspaceManifestResources
+    ) -> tuple[str, ...]:
+        """Return the resource roots of every type this organization may sync."""
+        roots = resources.model_dump()
+        result: list[str] = []
+        for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+            if not await self._adapter_entitled(adapter):
+                continue
+            if cleaned := roots[adapter.spec_attr].strip("/"):
+                result.append(cleaned)
+        return tuple(result)
+
     async def preview_export_workspace(
         self,
         params: WorkspaceSyncExportPreviewRequest,
@@ -300,32 +459,34 @@ class WorkspaceSyncService(SyncMappingService):
         resources pulled in transitively by the dependency closure.
         """
         self._require_workspace_sync_scope()
-        resource_ids = await self._local_ids_from_resource_refs(params.resources)
-        projection = await self.project_export_preview(
-            resource_ids=resource_ids,
-            include_schedules=params.include_schedules,
-        )
-        self.logger.info(
-            "Projected workspace sync export",
-            operation="preview",
-            full_workspace_export=resource_ids is None,
-            projected_file_count=len(projection.files),
-            projected_resource_counts=projection.spec.resource_count_map(),
-        )
-        resource_diffs: list[PullResourceDiff] = []
+        remote_tree: VcsTreeSnapshot | None = None
         if params.compare_ref:
             url = await self._workspace_git_url()
             transport = self._transport_for_provider()
             remote_tree = await transport.read_files(url=url, ref=params.compare_ref)
-            delete_missing_paths_under = await self._export_delete_roots(
-                projection,
-                full_workspace_export=resource_ids is None,
-                resource_ids=resource_ids,
-            )
+        push = await self.project_push(
+            resources=params.resources,
+            include_schedules=params.include_schedules,
+            package_include=params.package_include,
+            remote_include=include_reader(
+                remote_tree.files.get(PACKAGE_INCLUDE_FILENAME) if remote_tree else None
+            ),
+            create_missing_mappings=False,
+        )
+        projection = push.projection
+        self.logger.info(
+            "Projected workspace sync export",
+            operation="preview",
+            package_export=push.package_include is not None,
+            projected_file_count=len(projection.files),
+            projected_resource_counts=projection.spec.resource_count_map(),
+        )
+        resource_diffs: list[PullResourceDiff] = []
+        if remote_tree is not None:
             resource_diffs = self._resource_diffs_for_export(
                 projection,
                 remote_tree,
-                delete_missing_paths_under=delete_missing_paths_under,
+                delete_missing_paths_under=push.delete_roots,
             )
         return WorkspaceSyncExportPreview(
             resource_counts=projection.spec.resource_count_map(),

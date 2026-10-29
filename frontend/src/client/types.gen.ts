@@ -7961,6 +7961,8 @@ export type OutputType =
       [key: string]: unknown
     }
 
+export type PackageResourceStatus = "explicit" | "implied" | "excluded"
+
 export type Page_ExternalGroupMappingRead_ = {
   items: Array<ExternalGroupMappingRead>
   /**
@@ -13533,6 +13535,70 @@ export type WorkspaceMembershipRead = {
   workspace_id: string
 }
 
+/**
+ * The managed resources package selection of the source workspace.
+ */
+export type WorkspacePackageRead = {
+  /**
+   * Whether this workspace is the managed resources source.
+   */
+  is_source: boolean
+  /**
+   * Branch the include file was read from.
+   */
+  ref?: string | null
+  /**
+   * Include file patterns in file order.
+   */
+  patterns?: Array<string>
+  /**
+   * Every syncable resource with its package status.
+   */
+  resources?: Array<WorkspacePackageResource>
+  /**
+   * Include file problems worth fixing.
+   */
+  warnings?: Array<string>
+}
+
+/**
+ * One source workspace resource as the package picker shows it.
+ */
+export type WorkspacePackageResource = {
+  /**
+   * Kind of resource.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Stable Git source id.
+   */
+  source_id: string
+  /**
+   * Workspace-local resource id.
+   */
+  local_id: string
+  /**
+   * Human-readable resource name.
+   */
+  name: string
+  /**
+   * Primary repository path of the resource.
+   */
+  path: string
+  /**
+   * Include pattern that selects the resource.
+   */
+  pattern: string
+  /**
+   * ``explicit`` when a pattern selects it, ``implied`` when only a dependency, ``excluded`` otherwise.
+   */
+  status: PackageResourceStatus
+  /**
+   * Names of the explicit resources that need an implied one.
+   */
+  implied_by?: Array<string>
+}
+
 export type WorkspaceRead = {
   id: string
   name: string
@@ -13660,6 +13726,10 @@ export type WorkspaceSyncExportPreviewRequest = {
    * Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.
    */
   compare_ref?: string | null
+  /**
+   * Include file patterns to preview for a managed resources package export. ``None`` uses the include file at ``compare_ref``.
+   */
+  package_include?: Array<string> | null
 }
 
 /**
@@ -13690,6 +13760,10 @@ export type WorkspaceSyncExportRequest_Input = {
    * Whether to include workflow schedules in the export.
    */
   include_schedules?: boolean
+  /**
+   * Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.
+   */
+  package_include?: Array<string> | null
 }
 
 /**
@@ -13720,6 +13794,10 @@ export type WorkspaceSyncExportRequest_Output = {
    * Whether to include workflow schedules in the export.
    */
   include_schedules?: boolean
+  /**
+   * Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.
+   */
+  package_include?: Array<string> | null
 }
 
 /**
@@ -14664,6 +14742,13 @@ export type WorkflowsExportWorkspaceSyncData = {
 }
 
 export type WorkflowsExportWorkspaceSyncResponse = WorkspaceSyncExportResult
+
+export type WorkflowsGetWorkspaceSyncPackageData = {
+  ref?: string | null
+  workspaceId: string
+}
+
+export type WorkflowsGetWorkspaceSyncPackageResponse = WorkspacePackageRead
 
 export type WorkflowsPreviewExportWorkspaceSyncData = {
   requestBody: WorkspaceSyncExportPreviewRequest
@@ -20252,6 +20337,21 @@ export type $OpenApiTs = {
          * Bad Request
          */
         400: WorkspaceSyncExportError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/package": {
+    get: {
+      req: WorkflowsGetWorkspaceSyncPackageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspacePackageRead
         /**
          * Validation Error
          */

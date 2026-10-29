@@ -15,6 +15,7 @@ from tracecat.managed_resources.source import (
     get_managed_source,
     list_source_tags,
     load_managed_source,
+    pin_source,
 )
 from tracecat.pagination import Page, PageParams
 from tracecat.registry.repositories.schemas import GitTagInfo
@@ -59,7 +60,7 @@ class AdminManagedResourcesService(BasePlatformService):
             TracecatValidationError: The workspace has no Git sync binding.
         """
         source = await load_managed_source(self.session, params.workspace_id)
-        value = ManagedSourceSetting.pin(source).model_dump_json().encode()
+        value = pin_source(source).model_dump_json().encode()
         # Not AdminSettingsService._upsert_setting: that is a select-then-write
         # and handles encryption. This value is not sensitive, so it is stored
         # unencrypted with one atomic Postgres upsert instead.

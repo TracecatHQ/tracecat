@@ -26188,6 +26188,11 @@ export const $OutputType = {
   ],
 } as const
 
+export const $PackageResourceStatus = {
+  type: "string",
+  enum: ["explicit", "implied", "excluded"],
+} as const
+
 export const $Page_ExternalGroupMappingRead_ = {
   properties: {
     items: {
@@ -45120,6 +45125,116 @@ export const $WorkspaceMembershipRead = {
   title: "WorkspaceMembershipRead",
 } as const
 
+export const $WorkspacePackageRead = {
+  properties: {
+    is_source: {
+      type: "boolean",
+      title: "Is Source",
+      description: "Whether this workspace is the managed resources source.",
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+      description: "Branch the include file was read from.",
+    },
+    patterns: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Patterns",
+      description: "Include file patterns in file order.",
+    },
+    resources: {
+      items: {
+        $ref: "#/components/schemas/WorkspacePackageResource",
+      },
+      type: "array",
+      title: "Resources",
+      description: "Every syncable resource with its package status.",
+    },
+    warnings: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Warnings",
+      description: "Include file problems worth fixing.",
+    },
+  },
+  type: "object",
+  required: ["is_source"],
+  title: "WorkspacePackageRead",
+  description:
+    "The managed resources package selection of the source workspace.",
+} as const
+
+export const $WorkspacePackageResource = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Kind of resource.",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+      description: "Stable Git source id.",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+      description: "Workspace-local resource id.",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Human-readable resource name.",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+      description: "Primary repository path of the resource.",
+    },
+    pattern: {
+      type: "string",
+      title: "Pattern",
+      description: "Include pattern that selects the resource.",
+    },
+    status: {
+      $ref: "#/components/schemas/PackageResourceStatus",
+      description: `\`\`explicit\`\` when a pattern selects it, \`\`implied\`\` when only a dependency, \`\`excluded\`\` otherwise.`,
+    },
+    implied_by: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Implied By",
+      description: "Names of the explicit resources that need an implied one.",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "source_id",
+    "local_id",
+    "name",
+    "path",
+    "pattern",
+    "status",
+  ],
+  title: "WorkspacePackageResource",
+  description: "One source workspace resource as the package picker shows it.",
+} as const
+
 export const $WorkspaceRead = {
   properties: {
     id: {
@@ -45550,6 +45665,22 @@ export const $WorkspaceSyncExportPreviewRequest = {
       description:
         "Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.",
     },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to preview for a managed resources package export. ``None`` uses the include file at ``compare_ref``.",
+    },
   },
   type: "object",
   title: "WorkspaceSyncExportPreviewRequest",
@@ -45608,6 +45739,22 @@ export const $WorkspaceSyncExportRequest_Input = {
       title: "Include Schedules",
       description: "Whether to include workflow schedules in the export.",
       default: false,
+    },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.",
     },
   },
   type: "object",
@@ -45668,6 +45815,22 @@ export const $WorkspaceSyncExportRequest_Output = {
       title: "Include Schedules",
       description: "Whether to include workflow schedules in the export.",
       default: false,
+    },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.",
     },
   },
   type: "object",

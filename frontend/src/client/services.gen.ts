@@ -1164,6 +1164,8 @@ import type {
   WorkflowsGetWorkflowDraftData,
   WorkflowsGetWorkflowDraftResponse,
   WorkflowsGetWorkflowResponse,
+  WorkflowsGetWorkspaceSyncPackageData,
+  WorkflowsGetWorkspaceSyncPackageResponse,
   WorkflowsListSyncDiffsData,
   WorkflowsListSyncDiffsResponse,
   WorkflowsListSyncOperationsData,
@@ -3676,6 +3678,33 @@ export const workflowsExportWorkspaceSync = (
     mediaType: "application/json",
     errors: {
       400: "Bad Request",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Sync Package
+ * Read the managed resources package selection of the source workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.ref
+ * @returns WorkspacePackageRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsGetWorkspaceSyncPackage = (
+  data: WorkflowsGetWorkspaceSyncPackageData
+): CancelablePromise<WorkflowsGetWorkspaceSyncPackageResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/package",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      ref: data.ref,
+    },
+    errors: {
       422: "Validation Error",
     },
   })
