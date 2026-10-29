@@ -79,7 +79,10 @@ from tracecat.integrations.enums import (
     MCPAuthType,
     OAuthGrantType,
 )
-from tracecat.integrations.mcp_headers import resolve_mcp_header_values
+from tracecat.integrations.mcp_headers import (
+    require_header_expression_scope,
+    resolve_mcp_header_values,
+)
 from tracecat.integrations.mcp_tunnel import (
     create_mcp_oauth_http_client,
     mcp_oauth_client_transport,
@@ -3306,6 +3309,7 @@ class IntegrationService(BaseWorkspaceService):
             ):
                 custom_credentials = params.custom_credentials.get_secret_value()
                 if custom_credentials:
+                    require_header_expression_scope(custom_credentials, role=self.role)
                     encrypted_custom_credentials = self._encrypt_token(
                         custom_credentials
                     )
@@ -4247,6 +4251,8 @@ class IntegrationService(BaseWorkspaceService):
             # (the user cleared the credentials editor) — mirror the update
             # path, which maps "" to no headers rather than back-filling.
             raw_credentials = params.custom_credentials.get_secret_value()
+            if raw_credentials:
+                require_header_expression_scope(raw_credentials, role=self.role)
             encrypted_headers = (
                 self._encrypt_token(raw_credentials) if raw_credentials else None
             )

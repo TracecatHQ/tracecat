@@ -18,6 +18,7 @@ from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role, ctx_secret_masks
 from tracecat.db.models import MCPIntegration, Secret
+from tracecat.exceptions import ScopeDeniedError
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.mcp_headers import resolve_mcp_header_values
 from tracecat.integrations.mcp_validation import MCPConfigurationError
@@ -29,6 +30,7 @@ from tracecat.integrations.service import (
     IntegrationService,
     MCPConnectionVerificationError,
 )
+from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.variables.schemas import VariableCreate
@@ -37,6 +39,7 @@ from tracecat.variables.service import VariablesService
 pytestmark = pytest.mark.anyio
 
 CANARY = "synthetic-mcp-header-secret"
+LITERAL_CANARY = "user:synthetic-password"
 HEADERS = {
     "Authorization": "Bearer ${{ SECRETS.mcp_api.API_KEY }}",
     "X-Literal": "literal-value",
@@ -191,6 +194,8 @@ async def test_foreign_workspace_secret_cannot_satisfy_reference(
         "${{ SECRETS.mcp_api.MISSING }}",
         "${{ FN.int(SECRETS.mcp_api.API_KEY) }}",
         "${{ FN.int(FN.to_base64(SECRETS.mcp_api.API_KEY)) }}",
+        f'${{{{ FN.int("{LITERAL_CANARY}") }}}}',
+        f'${{{{ FN.int(FN.to_base64("{LITERAL_CANARY}")) }}}}',
     ],
 )
 async def test_expression_failures_have_masked_chainless_errors(
@@ -204,8 +209,9 @@ async def test_expression_failures_have_masked_chainless_errors(
     assert exc_info.value.__cause__ is None
     assert exc_info.value.__context__ is None
     message = "".join(traceback.format_exception(exc_info.value))
-    assert CANARY not in message
-    assert base64.b64encode(CANARY.encode()).decode() not in message
+    for value in (CANARY, LITERAL_CANARY):
+        assert value not in message
+        assert base64.b64encode(value.encode()).decode() not in message
 
 
 @pytest.mark.parametrize("expression", ["${{ 1 }}", "${{ SECRETS.mcp_api }}"])
@@ -344,13 +350,73 @@ async def test_unparseable_expressions_do_not_echo_their_source(
     header_service: IntegrationService,
 ) -> None:
     """Parse errors quote the source, which may embed literal credentials."""
-    expression = '${{ FN.to_base64("user:synthetic-password") + @ }}'
-    with pytest.raises(MCPConfigurationError, match="invalid expression") as exc_info:
-        await resolve_mcp_header_values(
-            {"Authorization": expression}, role=header_service.role
-        )
+    logs: list[str] = []
+    sink = logger.add(logs.append, level="TRACE", format="{message} {extra}")
+    expression = f'${{{{ FN.to_base64("{LITERAL_CANARY}") + @ }}}}'
+    try:
+        with pytest.raises(
+            MCPConfigurationError, match="invalid expression"
+        ) as exc_info:
+            await resolve_mcp_header_values(
+                {"Authorization": expression}, role=header_service.role
+            )
+    finally:
+        logger.remove(sink)
 
     assert exc_info.value.__context__ is None
-    assert "synthetic-password" not in "".join(
-        traceback.format_exception(exc_info.value)
+    assert LITERAL_CANARY not in "".join(traceback.format_exception(exc_info.value))
+    assert any("Failed to parse expression" in line for line in logs)
+    assert not any(LITERAL_CANARY in line for line in logs)
+
+
+@pytest.fixture
+def create_only_service(session: AsyncSession, svc_role: Role) -> IntegrationService:
+    role = svc_role.model_copy(
+        update={"scopes": frozenset({"integration:create", "integration:read"})}
     )
+    return IntegrationService(session, role=role)
+
+
+async def test_create_only_callers_cannot_store_header_expressions(
+    create_only_service: IntegrationService,
+) -> None:
+    """A secret reference plus a caller-chosen URL needs integration:update."""
+    with pytest.raises(ScopeDeniedError):
+        await create_only_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Templated MCP",
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr(orjson.dumps(HEADERS).decode()),
+            )
+        )
+
+    literal = await create_only_service.create_mcp_integration(
+        params=MCPHttpIntegrationCreate(
+            name="Literal MCP",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.CUSTOM,
+            custom_credentials=SecretStr(
+                orjson.dumps({"Authorization": "Bearer literal-token"}).decode()
+            ),
+        )
+    )
+    assert literal.encrypted_headers is not None
+
+
+async def test_create_only_callers_cannot_test_header_expressions(
+    create_only_service: IntegrationService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    discover = AsyncMock(return_value=[])
+    monkeypatch.setattr(user_client, "list_remote_mcp_tools", discover)
+
+    with pytest.raises(ScopeDeniedError):
+        await create_only_service.test_mcp_connection(
+            params=MCPHttpIntegrationTestConnectionRequest(
+                server_uri="https://attacker.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr(orjson.dumps(HEADERS).decode()),
+            )
+        )
+    discover.assert_not_awaited()

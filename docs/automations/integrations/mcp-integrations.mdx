@@ -54,7 +54,7 @@ For a custom remote MCP server, first create a custom OAuth provider in [OAuth](
 }
 ```
 
-Header values support `${{ SECRETS.* }}` and `${{ VARS.* }}` from your workspace's `default` environment. Tracecat resolves them when testing the connection or calling a tool. Header names and literal values stay unchanged.
+Header values support `${{ SECRETS.* }}` and `${{ VARS.* }}` from your workspace's `default` environment. Tracecat resolves them when testing the connection or calling a tool. Header names and literal values stay unchanged. To save or test headers that contain expressions, you need the `integration:update` permission.
 
 ## Stdio MCP
 

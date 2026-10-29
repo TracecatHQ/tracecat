@@ -2,12 +2,16 @@
 
 from typing import cast
 
+import orjson
+
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.auth.types import Role
+from tracecat.authz.controls import check_scopes
 from tracecat.contexts import ctx_secret_masks
 from tracecat.exceptions import TracecatCredentialsError, TracecatExpressionError
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.integrations.mcp_validation import MCPConfigurationError
+from tracecat.parse import traverse_expressions
 from tracecat.secrets.common import MaskedSecretError, call_with_masked_errors
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.masking import SecretMaskCollector
@@ -29,13 +33,33 @@ async def resolve_mcp_header_values(
         error = MCPConfigurationError(
             "Could not resolve MCP header secrets in the default environment"
         )
-    except MaskedSecretError as exc:
-        error = MCPConfigurationError(str(exc))
+    # Expression diagnostics quote the source, and header values may embed
+    # literal credentials that secret masking doesn't know about.
+    except MaskedSecretError:
+        error = MCPConfigurationError("MCP header values could not be evaluated")
     except TracecatExpressionError:
-        # Parse errors quote the expression source, which may embed literal
-        # credentials, and fail before secret masking begins.
         error = MCPConfigurationError("MCP header values contain an invalid expression")
     raise error
+
+
+def require_header_expression_scope(raw_headers: str, *, role: Role) -> None:
+    """Require ``integration:update`` to store or test header expressions.
+
+    Expressions make the server send workspace secrets to the integration's
+    URL. Like reusing stored credentials, that is update-scoped, so a
+    create-only caller can't pair a secret reference with a URL it controls.
+
+    Raises:
+        ScopeDeniedError: If the headers contain expressions and the role lacks
+            ``integration:update``.
+    """
+    try:
+        parsed = orjson.loads(raw_headers)
+    except orjson.JSONDecodeError:
+        # Malformed headers are rejected when they are decrypted for use.
+        return
+    if isinstance(parsed, dict) and any(traverse_expressions(list(parsed.values()))):
+        check_scopes(role, "integration:update")
 
 
 async def _resolve_mcp_header_values(
