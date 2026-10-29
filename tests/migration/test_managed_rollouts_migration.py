@@ -18,7 +18,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.db.models import Base
 
 MIGRATION_REVISION = "4a17af960e05"
-PREVIOUS_REVISION = "21042b4645f1"
+PREVIOUS_REVISION = "8c04c3aa6e35"
 NEW_TABLES = (
     "managed_rollout",
     "managed_preset_skill_binding",

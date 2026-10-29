@@ -1,7 +1,7 @@
 """add managed rollout, preset skill binding and detached copy tables
 
 Revision ID: 4a17af960e05
-Revises: 21042b4645f1
+Revises: 8c04c3aa6e35
 Create Date: 2026-10-29 13:30:00.000000
 
 """
@@ -21,7 +21,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "4a17af960e05"
-down_revision: str | None = "21042b4645f1"
+down_revision: str | None = "8c04c3aa6e35"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
