@@ -12,7 +12,7 @@ from tracecat.agent.mcp.metadata import (
     sanitize_message_tool_inputs,
     strip_proxy_tool_metadata,
 )
-from tracecat.agent.types import ClaudeSDKMessageTA
+from tracecat.agent.types import get_claude_sdk_message_ta
 
 
 def test_strip_proxy_tool_metadata_removes_internal_key() -> None:
@@ -92,7 +92,7 @@ def test_sanitize_message_tool_inputs_coerces_null_thinking_signature() -> None:
 
     assert sanitized["content"][0]["signature"] == ""
     assert message["content"][0]["signature"] is None
-    validated = ClaudeSDKMessageTA.validate_python(sanitized)
+    validated = get_claude_sdk_message_ta().validate_python(sanitized)
     assert isinstance(validated, AssistantMessage)
     assert isinstance(validated.content[0], ThinkingBlock)
 
@@ -116,13 +116,13 @@ def test_sanitize_message_tool_inputs_drops_redacted_thinking_blocks() -> None:
     }
 
     with pytest.raises(ValidationError):
-        ClaudeSDKMessageTA.validate_python(message)
+        get_claude_sdk_message_ta().validate_python(message)
 
     sanitized = sanitize_message_tool_inputs(message)
 
     assert [block["type"] for block in sanitized["content"]] == ["thinking", "text"]
     assert message["content"][0]["type"] == "redacted_thinking"
-    validated = ClaudeSDKMessageTA.validate_python(sanitized)
+    validated = get_claude_sdk_message_ta().validate_python(sanitized)
     assert isinstance(validated, AssistantMessage)
     assert isinstance(validated.content[0], ThinkingBlock)
     assert isinstance(validated.content[1], TextBlock)
@@ -137,7 +137,7 @@ def test_sanitize_message_tool_inputs_keeps_message_with_only_redacted_thinking(
         "content": [{"type": "redacted_thinking", "data": "opaque"}],
     }
 
-    validated = ClaudeSDKMessageTA.validate_python(
+    validated = get_claude_sdk_message_ta().validate_python(
         sanitize_message_tool_inputs(message)
     )
 
@@ -171,7 +171,9 @@ def test_sanitize_message_tool_inputs_drops_and_logs_unknown_block_types() -> No
     ]
     mock_logger.warning.assert_called_once()
     assert mock_logger.warning.call_args.kwargs["block_types"] == ["future_block"]
-    assert isinstance(ClaudeSDKMessageTA.validate_python(sanitized), AssistantMessage)
+    assert isinstance(
+        get_claude_sdk_message_ta().validate_python(sanitized), AssistantMessage
+    )
 
 
 def test_sanitize_message_tool_inputs_keeps_supported_user_blocks() -> None:

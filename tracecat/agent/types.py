@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import functools
 import uuid
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import pydantic
-from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter, model_validator
 
 from tracecat.agent.common.stream_types import ToolCallContent
@@ -24,6 +24,9 @@ from tracecat.config import (
     TRACECAT__AGENT_MAX_RETRIES,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
 )
+
+if TYPE_CHECKING:
+    from claude_agent_sdk.types import Message as ClaudeSDKMessage
 
 CustomToolList = list[Any]
 
@@ -73,7 +76,17 @@ class StreamKey(str):
         )
 
 
-ClaudeSDKMessageTA: TypeAdapter[ClaudeSDKMessage] = TypeAdapter(ClaudeSDKMessage)
+@functools.cache
+def get_claude_sdk_message_ta() -> TypeAdapter[ClaudeSDKMessage]:
+    """Build the Claude SDK message adapter on first use.
+
+    Importing the SDK pulls in the MCP server stack, which processes that never
+    validate SDK messages (workflow and executor workers) should not load.
+    """
+    from claude_agent_sdk.types import Message
+
+    return TypeAdapter(Message)
+
 
 type OutputType = (
     Literal[
