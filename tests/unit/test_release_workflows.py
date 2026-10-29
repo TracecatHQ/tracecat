@@ -118,10 +118,22 @@ def test_branch_and_scheduled_builds_do_not_promote_latest(
     assert output == {"tag": "", "latest": "false", "release": "false"}
 
 
-def test_non_release_api_builds_stamp_the_commit_time_on_the_registry_version(
-    tmp_path: Path,
-) -> None:
-    """Release builds keep the file; others get the same .post<commit time>."""
+REGISTRY_INIT = ROOT / "packages/tracecat-registry/tracecat_registry/__init__.py"
+
+
+def _registry_init(version: str, pep440_version: str) -> str:
+    """Return the real registry __init__.py with the given version lines."""
+    lines = REGISTRY_INIT.read_text().splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if line.startswith("__version__ = "):
+            lines[index] = f'__version__ = "{version}"\n'
+        elif line.startswith("__pep440_version__ = "):
+            lines[index] = f'__pep440_version__ = "{pep440_version}"\n'
+    return "".join(lines)
+
+
+def _run_registry_stamp(tmp_path: Path, init_text: str, commit_times: list[int]) -> str:
+    """Commit once per commit time, run the stamp step, and return the file."""
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     step = next(
         step
@@ -130,27 +142,26 @@ def test_non_release_api_builds_stamp_the_commit_time_on_the_registry_version(
     )
     assert step["if"] == "needs.validate.outputs.release == 'false'"
 
-    init = tmp_path / "packages/tracecat-registry/tracecat_registry/__init__.py"
+    init = tmp_path / REGISTRY_INIT.relative_to(ROOT)
     init.parent.mkdir(parents=True)
-    original = (
-        ROOT / "packages/tracecat-registry/tracecat_registry/__init__.py"
-    ).read_text()
-    init.write_text(original)
-    commit_time = "1761696000"
+    init.write_text(init_text)
     git_env = {
         **os.environ,
         "GIT_AUTHOR_NAME": "test",
         "GIT_AUTHOR_EMAIL": "test@example.com",
         "GIT_COMMITTER_NAME": "test",
         "GIT_COMMITTER_EMAIL": "test@example.com",
-        "GIT_COMMITTER_DATE": f"@{commit_time} +0000",
     }
-    for args in (
-        ["init", "-q"],
-        ["add", "."],
-        ["-c", "commit.gpgsign=false", "commit", "-q", "-m", "base"],
-    ):
-        subprocess.run(["git", *args], cwd=tmp_path, env=git_env, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, env=git_env, check=True)
+    for commit_time in commit_times:
+        subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty"]
+            + ["-m", str(commit_time)],
+            cwd=tmp_path,
+            env={**git_env, "GIT_COMMITTER_DATE": f"@{commit_time} +0000"},
+            check=True,
+        )
 
     subprocess.run(
         ["bash", "-euo", "pipefail", "-c", step["run"]],
@@ -159,25 +170,42 @@ def test_non_release_api_builds_stamp_the_commit_time_on_the_registry_version(
         text=True,
         check=True,
     )
+    return init.read_text()
 
-    stamped = init.read_text()
-    for name in ("__version__", "__pep440_version__"):
-        base = next(
-            line.split('"')[1]
-            for line in original.splitlines()
-            if line.startswith(f"{name} = ")
-        )
-        assert f'{name} = "{base}.post{commit_time}"' in stamped.splitlines()
-    unstamped = [
-        line
-        for line in stamped.splitlines()
-        if not line.startswith(("__version__ = ", "__pep440_version__ = "))
-    ]
-    assert unstamped == [
-        line
-        for line in original.splitlines()
-        if not line.startswith(("__version__ = ", "__pep440_version__ = "))
-    ]
+
+@pytest.mark.parametrize(
+    ("commit_times", "post"),
+    [
+        ([1761696000], "176169600000"),
+        ([1761695999, 1761696000], "176169600000"),
+        # A merged PR stack lands several commits in the same second.
+        ([1761696000, 1761696000], "176169600001"),
+        ([1761696000, 1761696000, 1761696000], "176169600002"),
+        ([1761696000, 1761695999, 1761696000], "176169600000"),
+    ],
+)
+def test_non_release_api_builds_stamp_a_per_commit_registry_version(
+    tmp_path: Path, commit_times: list[int], post: str
+) -> None:
+    """Every commit gets its own .post<commit time><same-second ancestors>."""
+    original = _registry_init("1.0.0", "1.0.0")
+
+    stamped = _run_registry_stamp(tmp_path, original, commit_times)
+
+    assert stamped == _registry_init(f"1.0.0.post{post}", f"1.0.0.post{post}")
+
+
+@pytest.mark.parametrize(
+    ("version", "pep440_version"),
+    [("1.3.0-alpha.5", "1.3.0a5"), ("1.2.0-alpha.1.2", "1.2.0a1.post2")],
+)
+def test_registry_stamp_leaves_pre_release_versions_unchanged(
+    tmp_path: Path, version: str, pep440_version: str
+) -> None:
+    """A stamped pre-release would sort above that train's later hotfixes."""
+    original = _registry_init(version, pep440_version)
+
+    assert _run_registry_stamp(tmp_path, original, [1761696000]) == original
 
 
 def test_only_serialized_promotion_can_publish_latest() -> None:

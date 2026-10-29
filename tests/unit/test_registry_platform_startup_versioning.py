@@ -60,14 +60,16 @@ def test_is_downgrade_orders_alpha_hotfix_tags(older: str, newer: str) -> None:
 @pytest.mark.parametrize(
     ("older", "newer"),
     [
-        ("1.0.0", "1.0.0.post1761696000"),
-        ("1.0.0.post1761696000", "1.0.0.post1761782400"),
-        ("1.0.0.post1761782400", "1.2.4"),
-        ("1.0.0.post1761782400", "1.3.0-alpha.5"),
+        ("1.0.0", "1.0.0.post176169600000"),
+        ("1.0.0.post176169600000", "1.0.0.post176169600001"),
+        ("1.0.0.post176169600099", "1.0.0.post176169600100"),
+        ("1.0.0.post176169600001", "1.0.0.post176178240000"),
+        ("1.0.0.post176178240000", "1.2.4"),
+        ("1.0.0.post176178240000", "1.3.0-alpha.5"),
     ],
 )
 def test_is_downgrade_orders_commit_stamped_versions(older: str, newer: str) -> None:
-    """Non-release images stamp .post<commit time>, which must upgrade in order."""
+    """Non-release images stamp .post<commit time><NN>, which must upgrade in order."""
     older_version = PlatformRegistryVersion(version=older)
     newer_version = PlatformRegistryVersion(version=newer)
 
