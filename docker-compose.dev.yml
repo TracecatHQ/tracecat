@@ -503,6 +503,10 @@ services:
       TRACECAT__DB_AUTH_POOL_SIZE: ${TRACECAT__DB_AUTH_POOL_SIZE:-5}
       TRACECAT__DB_AUTH_MAX_OVERFLOW: ${TRACECAT__DB_AUTH_MAX_OVERFLOW:-5}
       TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT:-4000}
+      # One proxy worker is enough locally; each worker holds ~300 MiB.
+      TRACECAT__LITELLM_NUM_WORKERS: ${TRACECAT__LITELLM_NUM_WORKERS:-1}
+      # Use LiteLLM's bundled model cost map instead of fetching it at startup.
+      LITELLM_LOCAL_MODEL_COST_MAP: ${LITELLM_LOCAL_MODEL_COST_MAP:-true}
       TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
       TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS: ${TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS:-}
       PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
