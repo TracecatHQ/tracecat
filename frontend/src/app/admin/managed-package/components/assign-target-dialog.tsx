@@ -63,8 +63,11 @@ function AssignTargetForm({
   )
   const { organizations, isLoading: organizationsLoading } =
     useAdminOrganizations()
-  const { candidates, isLoading: candidatesLoading } =
-    useTargetCandidates(organizationId)
+  const {
+    candidates,
+    isLoading: candidatesLoading,
+    error: candidatesError,
+  } = useTargetCandidates(organizationId)
   const assignTarget = useAssignTarget()
 
   const available = candidates.filter(
@@ -92,6 +95,8 @@ function AssignTargetForm({
     workspacePlaceholder = "Select an organization first"
   } else if (candidatesLoading) {
     workspacePlaceholder = "Loading workspaces..."
+  } else if (candidatesError) {
+    workspacePlaceholder = "Could not load workspaces"
   } else if (available.length === 0) {
     workspacePlaceholder = "No available workspaces"
   }

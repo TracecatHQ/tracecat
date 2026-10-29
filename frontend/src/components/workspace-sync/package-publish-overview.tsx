@@ -72,6 +72,47 @@ const CHANGE_GROUPS = [
   { change: "deleted", label: "Removed from the package" },
 ] as const
 
+/** One changed resource, summarised over every file it changed. */
+interface ResourceChange {
+  key: string
+  resourceType: string
+  label: string
+  change: PullResourceDiff["change_type"]
+}
+
+/**
+ * Collapse per-file diffs into one entry per resource. A resource whose files
+ * were all added is added, all deleted is deleted, and anything else is
+ * updated.
+ *
+ * Example: a workflow with `definition.yml` modified and `layout.yml` added
+ * gives one "modified" entry.
+ */
+function groupDiffsByResource(diffs: PullResourceDiff[]): ResourceChange[] {
+  const byKey = new Map<string, ResourceChange>()
+  for (const diff of diffs) {
+    const key = `${diff.resource_type}:${diff.source_id}`
+    const existing = byKey.get(key)
+    if (!existing) {
+      byKey.set(key, {
+        key,
+        resourceType: diff.resource_type,
+        label: diff.title ?? diff.source_id,
+        change: diff.change_type,
+      })
+      continue
+    }
+    // Deletions carry no title, so keep the first title seen.
+    if (diff.title && existing.label === diff.source_id) {
+      existing.label = diff.title
+    }
+    if (existing.change !== diff.change_type) {
+      existing.change = "modified"
+    }
+  }
+  return [...byKey.values()]
+}
+
 /**
  * Lists, by name, what publishing adds to, updates in, and removes from the
  * package, compared with the branch.
@@ -83,9 +124,10 @@ export function PackagePublishSummary({
   diffs: PullResourceDiff[]
   compareRef: string | undefined
 }) {
+  const changes = groupDiffsByResource(diffs)
   const groups = CHANGE_GROUPS.map((group) => ({
     ...group,
-    items: diffs.filter((diff) => diff.change_type === group.change),
+    items: changes.filter((change) => change.change === group.change),
   })).filter((group) => group.items.length > 0)
 
   return (
@@ -104,15 +146,12 @@ export function PackagePublishSummary({
               {group.label} ({group.items.length})
             </p>
             <ul className="flex flex-wrap gap-1.5">
-              {group.items.map((diff) => (
-                <li
-                  key={`${diff.resource_type}:${diff.source_id}`}
-                  className="rounded border px-1.5 py-0.5"
-                >
+              {group.items.map((change) => (
+                <li key={change.key} className="rounded border px-1.5 py-0.5">
                   <span className="text-muted-foreground">
-                    {getWorkspaceSyncResourceLabel(diff.resource_type)}:
+                    {getWorkspaceSyncResourceLabel(change.resourceType)}:
                   </span>{" "}
-                  {diff.title ?? diff.source_id}
+                  {change.label}
                 </li>
               ))}
             </ul>

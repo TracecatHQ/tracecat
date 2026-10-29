@@ -592,6 +592,9 @@ export function AgentPresetArtifactView({
     useListMcpIntegrations(workspaceId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
     useUpdateAgentPreset(workspaceId)
+  // Managed presets are locked here too, not only on the standalone route.
+  const { isManaged } = useManagedResources(workspaceId)
+  const presetIsManaged = isManaged("agent_preset", preset.id)
 
   const enabledModelOptions = useMemo(
     () => buildEnabledModelOptions(models),
@@ -625,6 +628,7 @@ export function AgentPresetArtifactView({
       layout="stacked"
       initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
       onTabChange={onTabChange}
+      readOnly={presetIsManaged}
     />
   )
 }

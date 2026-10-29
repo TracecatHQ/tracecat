@@ -544,22 +544,20 @@ function SkillsBreadcrumb({
         <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
-        <BreadcrumbItem>
+        <BreadcrumbItem className="gap-2">
           <BreadcrumbEntityPage
             label={skill?.name}
             skeletonClassName="h-4 w-28"
           />
-        </BreadcrumbItem>
-        {skill && (
-          <BreadcrumbItem>
+          {skill && (
             <ManagedResourceStatus
               resourceType="skill"
               id={skill.id}
               name={skill.slug}
               showDetach
             />
-          </BreadcrumbItem>
-        )}
+          )}
+        </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
   )
@@ -2343,22 +2341,20 @@ function TableBreadcrumb({
         <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
-        <BreadcrumbItem>
+        <BreadcrumbItem className="gap-2">
           <BreadcrumbEntityPage
             label={table?.name}
             skeletonClassName="h-4 w-28"
           />
-        </BreadcrumbItem>
-        {table && (
-          <BreadcrumbItem>
+          {table && (
             <ManagedResourceStatus
               resourceType="table"
               id={table.id}
               name={table.name}
               showDetach
             />
-          </BreadcrumbItem>
-        )}
+          )}
+        </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
   )

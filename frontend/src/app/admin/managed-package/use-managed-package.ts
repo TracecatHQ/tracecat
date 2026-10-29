@@ -26,7 +26,10 @@ import {
   type ManagedWorkspaceRead,
 } from "@/client"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
-import { ACTIVE_ROLLOUT_STATUSES } from "./managed-package-utils"
+import {
+  ACTIVE_ROLLOUT_STATUSES,
+  RESUMABLE_ROLLOUT_STATUSES,
+} from "./managed-package-utils"
 
 const BASE_KEY = ["admin", "managed-package"] as const
 const PAGE_LIMIT = 200
@@ -46,13 +49,17 @@ export const managedPackageKeys = {
     [...BASE_KEY, "candidates", organizationId] as const,
   references: (targetId: string | null) =>
     [...BASE_KEY, "references", targetId] as const,
+  resumableRollouts: [...BASE_KEY, "resumable-rollouts"] as const,
   targetRollouts: (targetId: string | null) =>
     [...BASE_KEY, "target-rollouts", targetId] as const,
   rollouts: (rolloutIds: string[]) =>
     [...BASE_KEY, "rollouts", ...rolloutIds] as const,
 }
 
-/** Walk a cursor-paged endpoint and return every item. */
+/**
+ * Walk a cursor-paged endpoint and return every item. Fails rather than
+ * return a silently truncated list when more than `MAX_PAGES` pages exist.
+ */
 async function fetchAllPages<T>(
   fetchPage: (
     cursor: string | null
@@ -65,10 +72,12 @@ async function fetchAllPages<T>(
     items.push(...result.items)
     cursor = result.next_cursor ?? null
     if (!cursor) {
-      break
+      return items
     }
   }
-  return items
+  throw new Error(
+    `More than ${MAX_PAGES * PAGE_LIMIT} items; the list cannot be shown in full.`
+  )
 }
 
 function useInvalidateManagedPackage() {
@@ -138,12 +147,18 @@ export function useReleaseCandidate({ enabled }: { enabled: boolean }) {
   }
 }
 
-/** Tag the source repository's base branch HEAD as a new release. */
+/**
+ * Tag the source repository's base branch HEAD as a new release. Passing the
+ * reviewed `commitSha` makes the backend refuse if the branch moved since.
+ */
 export function useCutRelease() {
   const invalidate = useInvalidateManagedPackage()
   return useMutation({
     meta: SUPPRESS_TOAST,
-    mutationFn: (tag: string) => adminCutRelease({ requestBody: { tag } }),
+    mutationFn: (params: { tag: string; commitSha: string }) =>
+      adminCutRelease({
+        requestBody: { tag: params.tag, commit_sha: params.commitSha },
+      }),
     onSuccess: invalidate,
   })
 }
@@ -169,6 +184,7 @@ export function useManagedTargets() {
 export function useTargetCandidates(organizationId: string | null) {
   const query = useQuery<ManagedWorkspaceRead[]>({
     queryKey: managedPackageKeys.candidates(organizationId),
+    meta: SUPPRESS_TOAST,
     queryFn: () =>
       fetchAllPages((cursor) =>
         adminListTargetCandidates({
@@ -182,6 +198,7 @@ export function useTargetCandidates(organizationId: string | null) {
   return {
     candidates: query.data ?? [],
     isLoading: query.isLoading && organizationId !== null,
+    error: query.error,
   }
 }
 
@@ -227,10 +244,15 @@ export function useUnassignTarget() {
 export function useReferenceMatches(targetId: string | null) {
   const query = useQuery<ManagedReferenceMatchItem[]>({
     queryKey: managedPackageKeys.references(targetId),
+    meta: SUPPRESS_TOAST,
     queryFn: () => adminListReferenceMatches({ targetId: targetId ?? "" }),
     enabled: targetId !== null,
   })
-  return { matches: query.data ?? [], isLoading: query.isLoading }
+  return {
+    matches: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  }
 }
 
 /** Upsert reference matches for one target. */
@@ -250,21 +272,62 @@ export function useSaveReferenceMatches() {
   })
 }
 
-/** The newest apply rollout for a target that has a finished preview. */
+/**
+ * The newest apply rollout for a target. Polls while its preview is still
+ * running, and never falls back to an older rollout's stale preview.
+ */
 export function useLatestTargetPreview(targetId: string | null) {
   const query = useQuery<ManagedRolloutRead | null>({
     queryKey: managedPackageKeys.targetRollouts(targetId),
     queryFn: async () => {
+      // Newest first.
       const page = await adminListRollouts({ targetId, limit: 20 })
-      return (
-        page.items.find(
-          (rollout) => rollout.kind === "apply" && rollout.preview !== null
-        ) ?? null
-      )
+      return page.items.find((rollout) => rollout.kind === "apply") ?? null
     },
     enabled: targetId !== null,
+    refetchInterval: (q) =>
+      q.state.data && ACTIVE_ROLLOUT_STATUSES.has(q.state.data.status)
+        ? POLL_INTERVAL_MS
+        : false,
   })
-  return { rollout: query.data ?? null, isLoading: query.isLoading }
+  const rollout = query.data ?? null
+  return {
+    rollout,
+    previewRunning:
+      rollout !== null && ACTIVE_ROLLOUT_STATUSES.has(rollout.status),
+    isLoading: query.isLoading,
+    error: query.error,
+  }
+}
+
+/**
+ * Apply rollouts saved from earlier visits that can still be followed or
+ * applied: each target's newest rollout, when it is an apply rollout that is
+ * running, ready, or waiting on references or conflicts. Lets the page pick
+ * up previews after a reload.
+ */
+export function useResumableRollouts() {
+  const query = useQuery<ManagedRolloutRead[]>({
+    queryKey: managedPackageKeys.resumableRollouts,
+    meta: SUPPRESS_TOAST,
+    queryFn: async () => {
+      // Newest first, so the first rollout seen for a target is its latest.
+      const page = await adminListRollouts({ limit: PAGE_LIMIT })
+      const newestByTarget = new Map<string, ManagedRolloutRead>()
+      for (const rollout of page.items) {
+        if (rollout.target_id && !newestByTarget.has(rollout.target_id)) {
+          newestByTarget.set(rollout.target_id, rollout)
+        }
+      }
+      return [...newestByTarget.values()].filter(
+        (rollout) =>
+          rollout.kind === "apply" &&
+          RESUMABLE_ROLLOUT_STATUSES.has(rollout.status)
+      )
+    },
+    retry: false,
+  })
+  return { rollouts: query.data }
 }
 
 /** Start one preview per target for a tag (null means each target's pin). */
@@ -301,7 +364,12 @@ export function useTrackedRollouts(rolloutIds: string[]) {
         rolloutIds.map((rolloutId) => adminGetRollout({ rolloutId }))
       ),
     enabled: rolloutIds.length > 0,
+    meta: SUPPRESS_TOAST,
     refetchInterval: (q) => {
+      // Stop on a failed read; callers show the error and can refetch.
+      if (q.state.status === "error") {
+        return false
+      }
       const data = q.state.data
       if (!data) {
         return POLL_INTERVAL_MS
@@ -330,6 +398,7 @@ export function useTrackedRollouts(rolloutIds: string[]) {
   return {
     rollouts,
     isActive,
+    error: query.error,
     refetch: query.refetch,
   }
 }

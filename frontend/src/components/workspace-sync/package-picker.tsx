@@ -211,10 +211,33 @@ export function PackagePicker({
   const warnings = workspacePackage.warnings ?? []
   const ref = workspacePackage.ref ?? "the default branch"
 
+  // Names of the explicit resources still in the package after edits.
+  const rootNames = new Set(
+    resources
+      .filter(
+        (resource) =>
+          selected.has(getPackageResourceKey(resource)) ||
+          isSelectedByOtherPattern(resource, patterns)
+      )
+      .map((resource) => resource.name)
+  )
+
+  /**
+   * An implied resource stays only while a resource that uses it is still
+   * in the package, so unchecking its last user drops it here too.
+   */
+  function isImplied(resource: WorkspacePackageResource): boolean {
+    if (resource.status !== "implied") {
+      return false
+    }
+    const users = resource.implied_by ?? []
+    return users.length === 0 || users.some((name) => rootNames.has(name))
+  }
+
   function isInPackage(resource: WorkspacePackageResource): boolean {
     return (
       selected.has(getPackageResourceKey(resource)) ||
-      resource.status === "implied" ||
+      isImplied(resource) ||
       isSelectedByOtherPattern(resource, patterns)
     )
   }
@@ -301,7 +324,11 @@ export function PackagePicker({
                         key={getPackageResourceKey(resource)}
                         resource={resource}
                         checked={isInPackage(resource)}
-                        lockedReason={getLockedReason(resource, patterns)}
+                        lockedReason={getLockedReason(
+                          resource,
+                          patterns,
+                          isImplied(resource)
+                        )}
                         disabled={disabled}
                         onToggle={onToggle}
                       />
@@ -323,9 +350,10 @@ export function PackagePicker({
  */
 function getLockedReason(
   resource: WorkspacePackageResource,
-  patterns: Set<string>
+  patterns: Set<string>,
+  implied: boolean
 ): string | undefined {
-  if (resource.status === "implied") {
+  if (implied) {
     const users = resource.implied_by ?? []
     if (users.length === 0) {
       return "Included because another resource uses it"

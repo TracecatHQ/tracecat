@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
+import { getApiErrorDetail } from "@/lib/errors"
 import {
   APPLICABLE_ROLLOUT_STATUSES,
   resourceTypeLabel,
@@ -57,7 +58,7 @@ export function UnassignTargetDialog({
 }
 
 function UnassignContent({ rolloutId }: { rolloutId: string }) {
-  const { rollouts, refetch } = useTrackedRollouts([rolloutId])
+  const { rollouts, error, refetch } = useTrackedRollouts([rolloutId])
   const applyRollouts = useApplyRollouts()
   const rollout = rollouts[0]
 
@@ -76,9 +77,18 @@ function UnassignContent({ rolloutId }: { rolloutId: string }) {
   return (
     <>
       <DialogBody>
-        {rollout ? (
-          <UnassignPreview rollout={rollout} />
-        ) : (
+        {rollout && <UnassignPreview rollout={rollout} />}
+        {!rollout && error && (
+          <div className="space-y-2 text-sm">
+            <p className="text-destructive">
+              {getApiErrorDetail(error) ?? "Could not load the preview."}
+            </p>
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {!rollout && !error && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-3" />
             Loading preview...

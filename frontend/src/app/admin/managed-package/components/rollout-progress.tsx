@@ -73,7 +73,14 @@ export function RolloutProgress({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={onDismiss}>
+          {/* Dismissing stops polling, so wait until every rollout settles
+              and the targets table gets the final state. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onDismiss}
+            disabled={isActive}
+          >
             Dismiss
           </Button>
           <Button

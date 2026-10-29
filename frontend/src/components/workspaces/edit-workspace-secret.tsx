@@ -199,7 +199,8 @@ export function EditCredentialsDialog({
   const isDialogOpen = controlledOpen ?? internalOpen
   const isSshKey = selectedSecret?.type === "ssh_key"
   // A managed secret only accepts new values for its existing keys.
-  const { isManaged } = useManagedResources(workspaceId)
+  const { isManaged, isLoading: managedLoading } =
+    useManagedResources(workspaceId)
   const valuesOnly = isManaged("secret_metadata", selectedSecret?.id)
   const typeHasFixedKeys =
     selectedSecret?.type === "mtls" || selectedSecret?.type === "ca_cert"
@@ -296,6 +297,12 @@ export function EditCredentialsDialog({
           selectedSecret.keys.includes(key)
       ),
     [selectedSecret]
+  )
+
+  // A managed secret cannot gain keys, so fields for absent keys are locked.
+  const oktaKeyLocked = useCallback(
+    (key: string) => valuesOnly && !canPreserveOktaKey(key),
+    [canPreserveOktaKey, valuesOnly]
   )
 
   const addOktaKey = useCallback(
@@ -840,6 +847,7 @@ export function EditCredentialsDialog({
                                 : "https://dev-123456.okta.com"
                             }
                             {...field}
+                            disabled={oktaKeyLocked("OKTA_BASE_URL")}
                           />
                         </FormControl>
                         <FormDescription className="text-sm">
@@ -868,6 +876,7 @@ export function EditCredentialsDialog({
                               }
                               type="password"
                               {...field}
+                              disabled={oktaKeyLocked("OKTA_API_TOKEN")}
                             />
                           </FormControl>
                           <FormMessage />
@@ -897,6 +906,7 @@ export function EditCredentialsDialog({
                                 }
                                 type="password"
                                 {...field}
+                                disabled={oktaKeyLocked("OKTA_ACCESS_TOKEN")}
                               />
                             </FormControl>
                             <FormMessage />
@@ -922,6 +932,7 @@ export function EditCredentialsDialog({
                                 }
                                 type="password"
                                 {...field}
+                                disabled={oktaKeyLocked("OKTA_SERVICE_TOKEN")}
                               />
                             </FormControl>
                             <FormMessage />
@@ -952,6 +963,7 @@ export function EditCredentialsDialog({
                                       : "Okta OAuth client ID"
                                   }
                                   {...field}
+                                  disabled={oktaKeyLocked("OKTA_CLIENT_ID")}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -974,6 +986,7 @@ export function EditCredentialsDialog({
                                       : "okta.users.read okta.groups.read"
                                   }
                                   {...field}
+                                  disabled={oktaKeyLocked("OKTA_SCOPES")}
                                 />
                               </FormControl>
                               <FormDescription className="text-sm">
@@ -1001,6 +1014,7 @@ export function EditCredentialsDialog({
                                     : "Optional JWK key ID"
                                 }
                                 {...field}
+                                disabled={oktaKeyLocked("OKTA_KID")}
                               />
                             </FormControl>
                             <FormMessage />
@@ -1026,6 +1040,7 @@ export function EditCredentialsDialog({
                               <FormControl>
                                 <Switch
                                   checked={field.value}
+                                  disabled={oktaKeyLocked("OKTA_DPOP_ENABLED")}
                                   onCheckedChange={(checked) => {
                                     field.onChange(checked)
                                     if (!checked) {
@@ -1059,6 +1074,9 @@ export function EditCredentialsDialog({
                                             : "86400"
                                         }
                                         {...intervalField}
+                                        disabled={oktaKeyLocked(
+                                          "OKTA_DPOP_KEY_ROTATION_INTERVAL"
+                                        )}
                                       />
                                     </FormControl>
                                     <FormDescription className="text-sm">
@@ -1115,6 +1133,7 @@ export function EditCredentialsDialog({
                                     methods.clearErrors("okta_private_key")
                                     field.onChange(event)
                                   }}
+                                  disabled={oktaKeyLocked("OKTA_PRIVATE_KEY")}
                                 />
                               </FormControl>
                             </div>
@@ -1128,6 +1147,7 @@ export function EditCredentialsDialog({
                                 variant="outline"
                                 size="sm"
                                 onClick={handleOktaPrivateKeyFileChoose}
+                                disabled={oktaKeyLocked("OKTA_PRIVATE_KEY")}
                               >
                                 <UploadCloudIcon className="mr-2 size-4" />
                                 {oktaPrivateKeyFileName
@@ -1245,7 +1265,8 @@ export function EditCredentialsDialog({
               )}
             </DialogBody>
             <DialogFooter>
-              <Button size="sm" type="submit">
+              {/* Wait for the managed lookup so locked fields are known. */}
+              <Button size="sm" type="submit" disabled={managedLoading}>
                 <SaveIcon className="mr-2 size-4" />
                 Save
               </Button>

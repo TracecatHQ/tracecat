@@ -7,11 +7,29 @@ import type {
   ManagedTargetRead,
 } from "@/client"
 
+/** Whether a step's data is still loading, failed, or ready to show. */
+export type ReleaseStepDataState = "loading" | "error" | "ready"
+
 /** Props for {@link ReleaseSteps}. */
 export interface ReleaseStepsProps {
   candidate: ManagedReleaseCandidateRead | undefined
+  candidateState: ReleaseStepDataState
   tags: GitTagInfo[]
+  tagsState: ReleaseStepDataState
   targets: ManagedTargetRead[]
+  targetsState: ReleaseStepDataState
+}
+
+/** Text for a step whose data is not ready, or null when it is. */
+function pendingDetail(state: ReleaseStepDataState): string | null {
+  switch (state) {
+    case "loading":
+      return "Loading..."
+    case "error":
+      return "Could not load."
+    case "ready":
+      return null
+  }
 }
 
 /**
@@ -19,7 +37,14 @@ export interface ReleaseStepsProps {
  * each one stands: what is published but not released, the latest release,
  * and how many targets run it.
  */
-export function ReleaseSteps({ candidate, tags, targets }: ReleaseStepsProps) {
+export function ReleaseSteps({
+  candidate,
+  candidateState,
+  tags,
+  tagsState,
+  targets,
+  targetsState,
+}: ReleaseStepsProps) {
   const latest = tags[0]?.name
   const onLatest = latest
     ? targets.filter((target) => target.last_applied_tag === latest).length
@@ -33,20 +58,21 @@ export function ReleaseSteps({ candidate, tags, targets }: ReleaseStepsProps) {
         ? `${candidate.branch} @ ${sha} is released as ${existingTags.join(", ")}.`
         : `${candidate.branch} @ ${sha} has unreleased changes.`
   }
+  const release = latest
+    ? `Latest release is ${latest}.`
+    : "No release yet. Cut one below."
+  const deploy = latest
+    ? `${onLatest} of ${targets.length} targets run ${latest}.`
+    : `${targets.length} targets assigned.`
+  // Deploy needs both the tags and the targets.
+  const deployState = tagsState === "ready" ? targetsState : tagsState
   const steps = [
-    { title: "1. Publish", detail: published },
     {
-      title: "2. Release",
-      detail: latest
-        ? `Latest release is ${latest}.`
-        : "No release yet. Cut one below.",
+      title: "1. Publish",
+      detail: pendingDetail(candidateState) ?? published,
     },
-    {
-      title: "3. Deploy",
-      detail: latest
-        ? `${onLatest} of ${targets.length} targets run ${latest}.`
-        : `${targets.length} targets assigned.`,
-    },
+    { title: "2. Release", detail: pendingDetail(tagsState) ?? release },
+    { title: "3. Deploy", detail: pendingDetail(deployState) ?? deploy },
   ]
 
   return (

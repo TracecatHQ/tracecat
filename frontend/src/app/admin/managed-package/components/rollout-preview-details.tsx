@@ -128,7 +128,7 @@ export function DeleteWarningList({
           facts.push(`${warning.cases_using} cases affected`)
         }
         if (warning.has_customer_values) {
-          facts.push("has customer-set secret values")
+          facts.push("has customer-set values")
         }
         const referencedBy = warning.referenced_by ?? []
         return (

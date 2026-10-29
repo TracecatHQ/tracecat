@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { getApiErrorDetail } from "@/lib/errors"
 import {
   referenceKindLabel,
   toastApiError,
@@ -76,10 +77,17 @@ function ReferenceMatchContent({
   target: ManagedTargetRead
   onPreviewAgain: (tag: string | null) => void
 }) {
-  const { rollout, isLoading: previewLoading } = useLatestTargetPreview(
-    target.id
-  )
-  const { matches, isLoading: matchesLoading } = useReferenceMatches(target.id)
+  const {
+    rollout,
+    previewRunning,
+    isLoading: previewLoading,
+    error: previewError,
+  } = useLatestTargetPreview(target.id)
+  const {
+    matches,
+    isLoading: matchesLoading,
+    error: matchesError,
+  } = useReferenceMatches(target.id)
 
   const header = (
     <DialogHeader>
@@ -91,12 +99,25 @@ function ReferenceMatchContent({
     </DialogHeader>
   )
 
+  // Only render the form from the newest preview and the saved matches: an
+  // empty form after a failed read would clear saved matches on save.
+  let status: string | null = null
   if (previewLoading || matchesLoading) {
+    status = "Loading..."
+  } else if (previewError || matchesError) {
+    status =
+      getApiErrorDetail(previewError ?? matchesError) ??
+      "Could not load references. Close and reopen to try again."
+  } else if (previewRunning) {
+    status =
+      "The latest preview is still running. References show when it finishes."
+  }
+  if (status !== null) {
     return (
       <>
         {header}
         <DialogBody>
-          <div className="text-sm text-muted-foreground">Loading...</div>
+          <div className="text-sm text-muted-foreground">{status}</div>
         </DialogBody>
       </>
     )
@@ -243,6 +264,7 @@ function ReferenceMatchForm({
                   {row.sourceKey}
                 </div>
                 <Input
+                  aria-label={`${referenceKindLabel(row.kind)} ${row.label}`}
                   value={values[row.key] ?? ""}
                   onChange={(event) => {
                     const value = event.target.value

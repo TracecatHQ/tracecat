@@ -1,7 +1,7 @@
 "use client"
 
 import { MoreHorizontalIcon, PlusIcon } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type {
   GitTagInfo,
   ManagedRolloutRead,
@@ -31,6 +31,7 @@ import { toastApiError } from "../managed-package-utils"
 import {
   useApplyRollouts,
   usePreviewRollouts,
+  useResumableRollouts,
   useTrackedRollouts,
   useUnassignTarget,
 } from "../use-managed-package"
@@ -75,6 +76,24 @@ export function TargetsSection({
   // Snapshots of the rollouts started here; live data comes from polling.
   const [tracked, setTracked] = useState<ManagedRolloutRead[]>([])
   const [detailRolloutId, setDetailRolloutId] = useState<string | null>(null)
+
+  // Pick up rollouts started on an earlier visit, once, without replacing
+  // any started here since.
+  const { rollouts: resumable } = useResumableRollouts()
+  const [resumed, setResumed] = useState(false)
+  useEffect(() => {
+    if (resumed || !resumable) {
+      return
+    }
+    setResumed(true)
+    setTracked((current) => [
+      ...resumable.filter(
+        (rollout) =>
+          !current.some((started) => started.target_id === rollout.target_id)
+      ),
+      ...current,
+    ])
+  }, [resumable, resumed])
 
   const previewRollouts = usePreviewRollouts()
   const applyRollouts = useApplyRollouts()

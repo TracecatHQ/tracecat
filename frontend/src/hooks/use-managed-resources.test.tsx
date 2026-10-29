@@ -94,6 +94,49 @@ describe("useManagedResources", () => {
     )
   })
 
+  it("loads every page of detached copies", async () => {
+    listManaged.mockResolvedValue({ items: [], next_cursor: null })
+    listDetached.mockReset()
+    listDetached
+      .mockResolvedValueOnce({
+        items: [
+          {
+            resource_type: "workflow",
+            local_id: "wf-copy",
+            original_local_id: "wf-1",
+            original_name: "triage",
+            detached_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+        next_cursor: "page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            resource_type: "table",
+            local_id: "table-copy",
+            original_local_id: "table-1",
+            original_name: "assets",
+            detached_at: "2026-01-03T00:00:00Z",
+          },
+        ],
+        next_cursor: null,
+      })
+
+    const { result } = setup()
+
+    await waitFor(() => expect(result.current.detachedCopies).toHaveLength(2))
+    expect(listDetached).toHaveBeenNthCalledWith(2, {
+      workspaceId: "workspace-1",
+      limit: 200,
+      cursor: "page-2",
+    })
+    expect(result.current.getDetachedCopy("workflow", "wf-copy")).toBeDefined()
+    expect(
+      result.current.getDetachedCopy("table", "table-copy")?.original_name
+    ).toBe("assets")
+  })
+
   it("treats everything as editable when the list fails", async () => {
     listManaged.mockRejectedValueOnce(new Error("boom"))
 

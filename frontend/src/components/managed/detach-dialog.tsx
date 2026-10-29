@@ -29,13 +29,21 @@ const UNDERSCORE_NAME_TYPES: ReadonlySet<SyncResourceType> = new Set([
   "case_field",
 ])
 
-/** Suggest a name for the copy, e.g. `triage` -> `triage-copy`. */
+/** Longest name the detach endpoint accepts. */
+const MAX_COPY_NAME_LENGTH = 100
+
+/**
+ * Suggest a name for the copy, e.g. `triage` -> `triage-copy`. Long names are
+ * truncated so the suggestion fits the API's length limit.
+ */
 export function suggestCopyName(
   resourceType: SyncResourceType,
   currentName: string
 ): string {
   const separator = UNDERSCORE_NAME_TYPES.has(resourceType) ? "_" : "-"
-  return `${currentName}${separator}copy`
+  const suffix = `${separator}copy`
+  const base = currentName.slice(0, MAX_COPY_NAME_LENGTH - suffix.length)
+  return `${base}${suffix}`
 }
 
 /** The page that shows a detached copy, for types with their own page. */

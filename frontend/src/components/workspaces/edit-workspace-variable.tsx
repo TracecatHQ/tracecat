@@ -67,7 +67,8 @@ export function EditVariableDialog({
     listEnabled: false,
   })
   // A managed variable only accepts new values for its existing keys.
-  const { isManaged } = useManagedResources(workspaceId)
+  const { isManaged, isLoading: managedLoading } =
+    useManagedResources(workspaceId)
   const valuesOnly = isManaged("variable", selectedVariable?.id)
 
   const methods = useForm<UpdateVariableFormData>({
@@ -317,7 +318,8 @@ export function EditVariableDialog({
             </DialogBody>
             <DialogFooter>
               <DialogClose asChild>
-                <Button size="sm" type="submit">
+                {/* Wait for the managed lookup so locked fields are known. */}
+                <Button size="sm" type="submit" disabled={managedLoading}>
                   <SaveIcon className="mr-2 size-4" />
                   Save
                 </Button>

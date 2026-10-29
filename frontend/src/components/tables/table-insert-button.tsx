@@ -26,9 +26,10 @@ type DialogType = "row" | "column" | "csv" | null
 export function TableInsertButton() {
   const [activeDialog, setActiveDialog] = useState<DialogType>(null)
   const params = useParams<{ tableId?: string }>()
-  // A managed table keeps row inserts but not new columns.
-  const { isManaged } = useManagedResources()
-  const schemaLocked = isManaged("table", params?.tableId)
+  // A managed table keeps row inserts but not new columns. Stay locked until
+  // the managed lookup settles so a managed table never offers the action.
+  const { isManaged, isLoading: managedLoading } = useManagedResources()
+  const schemaLocked = managedLoading || isManaged("table", params?.tableId)
 
   return (
     <>
@@ -86,7 +87,7 @@ export function TableInsertButton() {
       />
 
       <TableInsertColumnDialog
-        open={activeDialog === "column"}
+        open={activeDialog === "column" && !schemaLocked}
         onOpenChange={() => setActiveDialog(null)}
       />
 

@@ -19,6 +19,20 @@ export const UUID_PATTERN =
 export const ACTIVE_ROLLOUT_STATUSES: ReadonlySet<ManagedRolloutStatus> =
   new Set(["previewing", "applying"])
 
+/**
+ * Rollout statuses still worth showing after a reload: running, appliable,
+ * or waiting on the administrator.
+ */
+export const RESUMABLE_ROLLOUT_STATUSES: ReadonlySet<ManagedRolloutStatus> =
+  new Set([
+    "previewing",
+    "applying",
+    "ready",
+    "no_changes",
+    "needs_references",
+    "blocked",
+  ])
+
 /** Rollout statuses the apply endpoint will act on. */
 export const APPLICABLE_ROLLOUT_STATUSES: ReadonlySet<ManagedRolloutStatus> =
   new Set(["ready", "no_changes"])

@@ -20,7 +20,10 @@ export function useWorkspacePackage(
   workspaceId: string,
   { ref, enabled = true }: { ref?: string; enabled?: boolean }
 ) {
-  const { data, isLoading, error } = useQuery<WorkspacePackageRead, ApiError>({
+  const { data, isLoading, isFetching, error } = useQuery<
+    WorkspacePackageRead,
+    ApiError
+  >({
     queryKey: [WORKSPACE_SYNC_PACKAGE_QUERY_KEY, workspaceId, ref ?? null],
     queryFn: () =>
       workflowsGetWorkspaceSyncPackage({ workspaceId, ref: ref ?? null }),
@@ -33,6 +36,8 @@ export function useWorkspacePackage(
     // Tests and callers may stub `useQuery`, so check the shape, not truthiness.
     isSource: data?.is_source === true,
     workspacePackageIsLoading: isLoading,
+    /** True during background refetches too, e.g. after a pull or push. */
+    workspacePackageIsFetching: isFetching,
     workspacePackageError: error,
   }
 }

@@ -33,6 +33,16 @@ export function ManagedBadge({
   const absolute = Number.isNaN(deployedAt.getTime())
     ? null
     : deployedAt.toLocaleString()
+  // The tooltip is pointer-only, so its details also go in the accessible
+  // name for keyboard and screen reader users.
+  const ariaLabel = [
+    "Managed by Tracecat",
+    `deployed from tag ${managed.deployed_tag}`,
+    relative ? `last rollout ${relative}` : null,
+    "detach to edit",
+  ]
+    .filter(Boolean)
+    .join(", ")
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -40,7 +50,7 @@ export function ManagedBadge({
         <TooltipTrigger asChild>
           <span
             role="note"
-            aria-label="Managed by Tracecat"
+            aria-label={ariaLabel}
             className={cn(
               "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium text-muted-foreground",
               compact && "border-transparent px-0.5",

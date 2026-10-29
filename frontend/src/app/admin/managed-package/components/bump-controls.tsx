@@ -30,7 +30,9 @@ export function BumpControls({
   onClearSelection,
 }: BumpControlsProps) {
   const [tag, setTag] = useState<string | null>(tags[0]?.name ?? null)
-  const chosenTag = tag ?? tags[0]?.name ?? null
+  // Fall back to the latest tag when the picked one is no longer listed.
+  const tagExists = tags.some((option) => option.name === tag)
+  const chosenTag = tagExists ? tag : (tags[0]?.name ?? null)
   const chosenAge = tagAge(tags, chosenTag)
 
   const rollbackCount = selectedTargets.filter((target) => {

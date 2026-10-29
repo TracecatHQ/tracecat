@@ -300,6 +300,7 @@ export function EditorPanel({
                 {selectedFile.path === SKILL_MD_PATH ? (
                   <SkillFrontmatterEditor
                     value={splitFrontmatter.frontmatter}
+                    readOnly={readOnly}
                     onChange={(nextFrontmatter) =>
                       onEditorChange(
                         composeMarkdownFrontmatter(
@@ -312,6 +313,7 @@ export function EditorPanel({
                 ) : (
                   <CodeEditor
                     value={splitFrontmatter.frontmatter}
+                    readOnly={readOnly}
                     onChange={(nextFrontmatter) =>
                       onEditorChange(
                         composeMarkdownFrontmatter(
@@ -335,6 +337,7 @@ export function EditorPanel({
                 </div>
                 <SimpleEditor
                   value={splitFrontmatter.body}
+                  editable={!readOnly}
                   onChange={(nextBody) =>
                     onEditorChange(
                       composeMarkdownFrontmatter(
@@ -343,7 +346,7 @@ export function EditorPanel({
                       )
                     )
                   }
-                  onSave={() => void onSaveWorkingCopy()}
+                  onSave={readOnly ? undefined : () => void onSaveWorkingCopy()}
                   onFocus={() => {
                     markdownEditorActivatedRef.current = true
                   }}
@@ -355,8 +358,9 @@ export function EditorPanel({
             <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
               <SimpleEditor
                 value={currentTextValue}
+                editable={!readOnly}
                 onChange={onEditorChange}
-                onSave={() => void onSaveWorkingCopy()}
+                onSave={readOnly ? undefined : () => void onSaveWorkingCopy()}
                 onFocus={() => {
                   markdownEditorActivatedRef.current = true
                 }}
@@ -366,6 +370,7 @@ export function EditorPanel({
           ) : (
             <CodeEditor
               value={currentTextValue}
+              readOnly={readOnly}
               onChange={onEditorChange}
               language={getLanguageForPath(selectedFile.path)}
               className="flex-1"
@@ -382,7 +387,14 @@ export function EditorPanel({
                   it, delete it, or download the current blob.
                 </p>
                 {draftFile?.kind === "download" && draftFile.download_url ? (
-                  <Button asChild size="sm" variant="outline">
+                  // Downloading does not edit, so it stays usable on a
+                  // managed skill's locked fieldset.
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="pointer-events-auto"
+                  >
                     <a
                       href={draftFile.download_url}
                       target="_blank"
@@ -456,15 +468,19 @@ export function EditorPanel({
                 nodes={fileTree}
                 selectedPath={selectedPath}
                 onSelectPath={onSelectPath}
-                pendingCreate={pendingCreate}
+                // Managed skills get no tree mutations: create, move or
+                // folder rename.
+                pendingCreate={!readOnly && pendingCreate}
                 pendingCreateError={pendingCreateError}
-                onSubmitCreate={onSubmitCreate}
+                onSubmitCreate={readOnly ? undefined : onSubmitCreate}
                 onCancelCreate={onCancelCreate}
                 onChangeCreatePath={onChangeCreatePath}
-                moveSource={moveSource}
+                moveSource={readOnly ? null : moveSource}
                 onCancelMove={onCancelMove}
-                onCommitMove={onCommitMove}
-                onBeginRenameFolder={(path) => onBeginRename(path, true)}
+                onCommitMove={readOnly ? undefined : onCommitMove}
+                onBeginRenameFolder={
+                  readOnly ? undefined : (path) => onBeginRename(path, true)
+                }
               />
             </div>
           </ScrollArea>

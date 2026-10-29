@@ -1039,7 +1039,8 @@ export const WorkflowCanvas = React.forwardRef<
         nodesDraggable={!isReadOnly}
         nodesConnectable={!isReadOnly}
         edgesReconnectable={!isReadOnly}
-        onMoveEnd={onMoveEnd}
+        // Managed workflows cannot write the graph, viewport included.
+        onMoveEnd={isReadOnly ? undefined : onMoveEnd}
         onPaneClick={onPaneClick}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}

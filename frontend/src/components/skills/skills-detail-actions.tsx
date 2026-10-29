@@ -148,7 +148,7 @@ function SkillsDetailActionsContent() {
   }, [selectedVersionDetail, selectedVersionPath, versionToRestore])
 
   const handleConfirmRestore = async () => {
-    if (!versionToRestore) {
+    if (!versionToRestore || readOnly) {
       return
     }
     try {
@@ -423,7 +423,7 @@ function SkillsDetailActionsContent() {
                 event.preventDefault()
                 void handleConfirmRestore()
               }}
-              disabled={restoreSkillVersionPending}
+              disabled={restoreSkillVersionPending || readOnly}
             >
               {restoreSkillVersionPending ? (
                 <>

@@ -111,7 +111,7 @@ export function GitSyncPushTab({
   const {
     workspacePackage,
     isSource,
-    workspacePackageIsLoading,
+    workspacePackageIsFetching,
     workspacePackageError,
   } = useWorkspacePackage(workspaceId, {
     ref: compareRef,
@@ -169,7 +169,8 @@ export function GitSyncPushTab({
     !previewOperationId ||
     !previewRequested ||
     previewIsLoading ||
-    workspacePackageIsLoading ||
+    // Wait for background package refetches so the push uses fresh data.
+    workspacePackageIsFetching ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     !baseBranch ||
@@ -196,7 +197,7 @@ export function GitSyncPushTab({
   function handlePreview() {
     if (
       !compareRef ||
-      workspacePackageIsLoading ||
+      workspacePackageIsFetching ||
       targetBranch === "" ||
       message.trim() === ""
     )
@@ -338,7 +339,7 @@ export function GitSyncPushTab({
                 : `Preview to skim what this push includes, compared with ${compareRef ?? "the branch"}.`
             }
             isLoading={previewIsLoading}
-            disabled={!compareRef || workspacePackageIsLoading}
+            disabled={!compareRef || workspacePackageIsFetching}
             onPreview={() => void handlePreview()}
           />
         )}
@@ -370,7 +371,7 @@ export function GitSyncPushTab({
           <GitSyncPreviewButton
             hasPreview
             isLoading={previewIsLoading}
-            disabled={!compareRef || workspacePackageIsLoading}
+            disabled={!compareRef || workspacePackageIsFetching}
             onPreview={() => void handlePreview()}
           />
         )}

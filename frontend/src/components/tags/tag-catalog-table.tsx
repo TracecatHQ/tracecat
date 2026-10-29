@@ -111,7 +111,10 @@ export function TagCatalogTable({
   resourceLabel,
   managedResourceType,
 }: TagCatalogTableProps) {
-  const { isManaged } = useManagedResources()
+  // Only catalogs whose tags can be managed (case tags) need the lookup.
+  const { isManaged } = useManagedResources(undefined, {
+    enabled: managedResourceType !== undefined,
+  })
   function isLocked(tagId: string): boolean {
     return (
       managedResourceType !== undefined && isManaged(managedResourceType, tagId)

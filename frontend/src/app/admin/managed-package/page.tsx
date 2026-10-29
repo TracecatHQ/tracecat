@@ -1,6 +1,9 @@
 "use client"
 
-import { ReleaseSteps } from "./components/release-steps"
+import {
+  type ReleaseStepDataState,
+  ReleaseSteps,
+} from "./components/release-steps"
 import { SourceSection } from "./components/source-section"
 import { TargetsSection } from "./components/targets-section"
 import { VersionsSection } from "./components/versions-section"
@@ -11,13 +14,26 @@ import {
   useReleaseCandidate,
 } from "./use-managed-package"
 
+function dataState(query: {
+  isLoading: boolean
+  error: unknown
+}): ReleaseStepDataState {
+  if (query.isLoading) {
+    return "loading"
+  }
+  if (query.error) {
+    return "error"
+  }
+  return "ready"
+}
+
 /** Platform admin page for publishing and rolling out the managed package. */
 export default function AdminManagedPackagePage() {
   const { source } = useManagedSource()
   const hasSource = source !== null
   const tagsQuery = useManagedTags({ enabled: hasSource })
   const targetsQuery = useManagedTargets()
-  const { candidate } = useReleaseCandidate({ enabled: hasSource })
+  const candidateQuery = useReleaseCandidate({ enabled: hasSource })
 
   return (
     <div className="size-full overflow-auto">
@@ -37,9 +53,12 @@ export default function AdminManagedPackagePage() {
 
         {hasSource && (
           <ReleaseSteps
-            candidate={candidate}
+            candidate={candidateQuery.candidate}
+            candidateState={dataState(candidateQuery)}
             tags={tagsQuery.tags}
+            tagsState={dataState(tagsQuery)}
             targets={targetsQuery.targets}
+            targetsState={dataState(targetsQuery)}
           />
         )}
 

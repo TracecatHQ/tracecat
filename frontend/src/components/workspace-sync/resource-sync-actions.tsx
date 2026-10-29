@@ -109,10 +109,10 @@ export function WorkspaceResourceSyncActions({
   // The managed resources source always pushes its whole package, so a push
   // scoped to one resource type does not apply there. Only checked once the
   // dialog opens, since reading the package reads the repository.
-  const { isSource, workspacePackageIsLoading } = useWorkspacePackage(
-    workspaceId,
-    { enabled: open && Boolean(gitRepoUrl) }
-  )
+  const { isSource, workspacePackageIsLoading, workspacePackageError } =
+    useWorkspacePackage(workspaceId, {
+      enabled: open && Boolean(gitRepoUrl),
+    })
   const showPackageNotice = isSource && Boolean(gitRepoUrl)
   const resourceRefs = useMemo<ResourceRef[]>(
     () => resources.map((resourceType) => ({ resource_type: resourceType })),
@@ -182,6 +182,8 @@ export function WorkspaceResourceSyncActions({
   const exportDisabled =
     isSource ||
     workspacePackageIsLoading ||
+    // Unknown source status: a source workspace would push its whole package.
+    Boolean(workspacePackageError) ||
     !previewOperationId ||
     !previewRequested ||
     previewIsLoading ||
@@ -343,6 +345,13 @@ export function WorkspaceResourceSyncActions({
                   warning={pushWarning}
                   blocked={pushOutcome.isPullRequestBlocked}
                 />
+                {workspacePackageError && (
+                  <p className="text-xs text-destructive">
+                    Could not check whether this workspace is the managed
+                    resources source, so pushing is off. Close and reopen this
+                    dialog to try again.
+                  </p>
+                )}
               </div>
             </div>
           ) : (

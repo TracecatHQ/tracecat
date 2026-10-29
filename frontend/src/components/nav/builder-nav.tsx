@@ -862,6 +862,7 @@ function WorkflowSaveActions({
     provider,
   })
   const publishDisabled =
+    readOnly ||
     isPublishing ||
     branchesLoading ||
     (!hasBranches && !isCreatingBranch) ||
@@ -869,6 +870,10 @@ function WorkflowSaveActions({
     pushOutcome.isPullRequestBlocked
 
   const handlePublish = async (data: TPublishForm) => {
+    // The menu can be open when the workflow turns out to be managed.
+    if (readOnly) {
+      return
+    }
     setIsPublishing(true)
     try {
       await onPublish({
@@ -920,7 +925,10 @@ function WorkflowSaveActions({
 
         {/* Dropdown Button - Only show if git-sync is enabled */}
         {isGitSyncEnabled && (
-          <DropdownMenu open={publishOpen} onOpenChange={setPublishOpen}>
+          <DropdownMenu
+            open={publishOpen && !readOnly}
+            onOpenChange={setPublishOpen}
+          >
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"

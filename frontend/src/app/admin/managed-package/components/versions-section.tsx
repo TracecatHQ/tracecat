@@ -195,9 +195,17 @@ function CutReleaseForm({
       setFormError("Use the form vX.Y.Z, for example v1.4.0.")
       return
     }
+    // A release needs a published package to deploy.
+    if (!candidate?.package) {
+      return
+    }
     setFormError(null)
     try {
-      const created = await cutRelease.mutateAsync(value)
+      // Bind the tag to the commit shown above, not whatever HEAD is now.
+      const created = await cutRelease.mutateAsync({
+        tag: value,
+        commitSha: candidate.commit_sha,
+      })
       toast({
         title: "Release cut",
         description: `Tagged ${created.name} at ${created.commit_sha.substring(0, 7)}.`,
@@ -253,7 +261,9 @@ function CutReleaseForm({
           size="sm"
           type="submit"
           form={CUT_RELEASE_FORM_ID}
-          disabled={cutRelease.isPending || tag.trim() === "" || !candidate}
+          disabled={
+            cutRelease.isPending || tag.trim() === "" || !candidate?.package
+          }
         >
           {cutRelease.isPending ? "Tagging..." : "Cut release"}
         </Button>

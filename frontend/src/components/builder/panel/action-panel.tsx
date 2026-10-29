@@ -1182,6 +1182,10 @@ function ActionPanelContent({
                                           <DropdownMenuCheckboxItem
                                             key={fieldName}
                                             checked={isVisible}
+                                            // The menu portals outside the
+                                            // locked fieldset, so lock its
+                                            // items too.
+                                            disabled={isReadOnly}
                                             onCheckedChange={(checked) => {
                                               if (checked) {
                                                 // Show the field

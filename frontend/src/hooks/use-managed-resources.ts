@@ -34,8 +34,12 @@ export const managedResourceKeys = {
  */
 const RESOURCE_LIST_KEYS: Record<SyncResourceType, string[][]> = {
   workflow: [["workflows"], ["directory-items"]],
-  agent_preset: [["agent-presets"]],
-  skill: [["skills"]],
+  agent_preset: [
+    ["agent-presets"],
+    ["agent-presets-detailed"],
+    ["agent-directory-items"],
+  ],
+  skill: [["skills"], ["skill-directory-items"]],
   table: [["tables"]],
   case_tag: [["case-tags"]],
   case_field: [["case-fields"]],
@@ -93,15 +97,18 @@ export interface ManagedResourcesState {
  * backend still refuses changes to managed resources.
  *
  * @param workspaceIdOverride Workspace to read; defaults to the route's.
+ * @param options.enabled Set false to skip the lookups; nothing is managed.
  * @example
  * const { isManaged } = useManagedResources()
  * const readOnly = isManaged("workflow", workflowId)
  */
 export function useManagedResources(
-  workspaceIdOverride?: string
+  workspaceIdOverride?: string,
+  { enabled = true }: { enabled?: boolean } = {}
 ): ManagedResourcesState {
   const routeWorkspaceId = useOptionalWorkspaceId()
   const workspaceId = workspaceIdOverride ?? routeWorkspaceId
+  const queriesEnabled = enabled && Boolean(workspaceId)
 
   const managedQuery = useQuery<ManagedResourceRead[], TracecatApiError>({
     queryKey: managedResourceKeys.list(workspaceId ?? ""),
@@ -122,7 +129,7 @@ export function useManagedResources(
       } while (cursor)
       return items
     },
-    enabled: Boolean(workspaceId),
+    enabled: queriesEnabled,
     staleTime: MANAGED_STALE_TIME_MS,
     retry: false,
     meta: { suppressErrorToast: true },
@@ -147,7 +154,7 @@ export function useManagedResources(
       } while (cursor)
       return items
     },
-    enabled: Boolean(workspaceId),
+    enabled: queriesEnabled,
     staleTime: MANAGED_STALE_TIME_MS,
     retry: false,
     meta: { suppressErrorToast: true },

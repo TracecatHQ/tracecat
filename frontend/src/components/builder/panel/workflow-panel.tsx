@@ -1007,6 +1007,7 @@ function WorkflowReadmePanel({
       >
         <SimpleEditor
           value={value}
+          editable={!isReadOnly}
           onChange={setValue}
           onSave={() => void persistReadme()}
           placeholder="Type some markdown here to start writing your README."
