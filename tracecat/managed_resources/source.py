@@ -243,7 +243,13 @@ def source_sync_service(
         provider=source.git_provider,
         transport_factory=transport_factory,
     )
-    return service, parse_workspace_git_url(source.git_provider, source.git_repo_url)
+    try:
+        url = parse_workspace_git_url(source.git_provider, source.git_repo_url)
+    except TracecatSettingsError as e:
+        raise ManagedSourceUnavailableError(
+            f"The managed resources source repository URL is invalid: {e}"
+        ) from e
+    return service, url
 
 
 async def require_managed_source(session: AsyncSession) -> ManagedSource:
@@ -304,6 +310,7 @@ async def cut_source_release(
     source: ManagedSource,
     tag: str,
     *,
+    expected_commit_sha: str | None = None,
     transport_factory: VcsTransportFactory | None = None,
 ) -> GitTagInfo:
     """Tag the HEAD of the source repository's base branch as ``tag``.
@@ -311,8 +318,14 @@ async def cut_source_release(
     The base branch is the one the source binding names, or the
     repository's default branch.
 
+    Args:
+        expected_commit_sha: The commit the caller reviewed. If the branch
+            moved past it, nothing is tagged, so a push that lands while an
+            admin reads the candidate cannot slip into the release.
+
     Raises:
-        TracecatValidationError: ``tag`` is not ``vX.Y.Z`` or already exists.
+        TracecatValidationError: ``tag`` is not ``vX.Y.Z`` or already exists,
+            or the branch is no longer at ``expected_commit_sha``.
         VcsProviderError: The provider refused the request.
     """
     if not RELEASE_TAG_PATTERN.fullmatch(tag):
@@ -325,7 +338,12 @@ async def cut_source_release(
         session, source, transport_factory=transport_factory
     )
     transport = service.transport()
-    _branch, head = await _base_branch_head(transport, url)
+    branch, head = await _base_branch_head(transport, url)
+    if expected_commit_sha is not None and head.sha != expected_commit_sha:
+        raise TracecatValidationError(
+            f"{branch} moved to {head.sha[:7]} since you reviewed "
+            f"{expected_commit_sha[:7]}. Review the new commit and try again."
+        )
     await transport.create_tag(url=url, tag=tag, sha=head.sha)
     logger.info(
         "Cut managed resources release",
@@ -400,8 +418,12 @@ async def source_release_candidate(
     if manifest := tree.files.get(MANIFEST_FILENAME):
         try:
             package = workspace_manifest_from_json(manifest).package
-        except ValueError:
-            package = None
+        except ValueError as e:
+            # A rollout could not read this commit either, so say so now
+            # rather than show it as a commit with no package.
+            raise TracecatValidationError(
+                f"{MANIFEST_FILENAME} at {head.sha[:7]} is malformed: {e}"
+            ) from e
     return ReleaseCandidate(
         branch=branch, commit=head, existing_tags=existing, package=package
     )

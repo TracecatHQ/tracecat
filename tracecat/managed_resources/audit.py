@@ -43,8 +43,10 @@ async def audit_managed_event(
         target_organization_id: Also deliver to this organization's sink,
             with "Tracecat" as the actor.
     """
-    try:
-        if actor is not None:
+    # Each sink is delivered on its own, so a platform sink failure does not
+    # cost the customer their copy, or the other way round.
+    if actor is not None:
+        try:
             await AuditService(session, role=actor, audit_sink="platform").create_event(
                 resource_type=resource_type,
                 action=action,
@@ -52,14 +54,17 @@ async def audit_managed_event(
                 status=status,
                 data=data,
             )
-        if target_organization_id is not None:
-            customer_role = Role(
-                type="service",
-                service_id="tracecat-service",
-                organization_id=target_organization_id,
-                workspace_id=target_workspace_id,
-                user_id=TRACECAT_ACTOR_ID,
-            )
+        except Exception as e:
+            _log_failure(e, "platform", resource_type, action)
+    if target_organization_id is not None:
+        customer_role = Role(
+            type="service",
+            service_id="tracecat-service",
+            organization_id=target_organization_id,
+            workspace_id=target_workspace_id,
+            user_id=TRACECAT_ACTOR_ID,
+        )
+        try:
             await AuditService(
                 session, role=customer_role, audit_sink="organization"
             ).create_event(
@@ -72,9 +77,19 @@ async def audit_managed_event(
                 include_ip_address=False,
                 include_user_agent=False,
             )
-    except Exception as e:
-        logger.opt(exception=e).warning(
-            "Could not deliver managed resources audit event",
-            resource_type=resource_type,
-            action=action,
-        )
+        except Exception as e:
+            _log_failure(e, "organization", resource_type, action)
+
+
+def _log_failure(
+    error: Exception,
+    sink: str,
+    resource_type: AuditResourceType,
+    action: AuditAction,
+) -> None:
+    logger.opt(exception=error).warning(
+        "Could not deliver managed resources audit event",
+        sink=sink,
+        resource_type=resource_type,
+        action=action,
+    )

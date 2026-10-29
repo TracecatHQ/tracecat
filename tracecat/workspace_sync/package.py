@@ -22,7 +22,12 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select, tuple_
 
-from tracecat.db.models import RegistryAction, RegistryRepository, RegistryVersion
+from tracecat.db.models import (
+    RegistryAction,
+    RegistryIndex,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.managed_resources.include import (
     PACKAGE_INCLUDE_FILENAME,
@@ -32,6 +37,7 @@ from tracecat.managed_resources.include import (
     parse_package_include,
     unmatched_patterns,
 )
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
@@ -321,29 +327,74 @@ async def package_registry_requirements(
     pairs = [tuple(name.rsplit(".", 1)) for name in qualified if "." in name]
     if not pairs:
         return []
-    rows = (
-        await service.session.execute(
-            select(
-                RegistryAction.namespace,
-                RegistryAction.name,
-                RegistryRepository.origin,
-                RegistryVersion.version,
-                RegistryVersion.commit_sha,
-            )
-            .join(
-                RegistryRepository,
-                RegistryRepository.id == RegistryAction.repository_id,
-            )
-            .outerjoin(
-                RegistryVersion,
-                RegistryVersion.id == RegistryRepository.current_version_id,
-            )
-            .where(
-                RegistryAction.organization_id == organization_id,
-                tuple_(RegistryAction.namespace, RegistryAction.name).in_(pairs),
+    # Repositories synced through the registry API record their actions in
+    # the current version's index, not as RegistryAction rows.
+    indexed = (
+        (
+            await service.session.execute(
+                select(
+                    RegistryIndex.namespace,
+                    RegistryIndex.name,
+                    RegistryRepository.origin,
+                    RegistryVersion.version,
+                    RegistryVersion.commit_sha,
+                )
+                .join(
+                    RegistryVersion,
+                    RegistryVersion.id == RegistryIndex.registry_version_id,
+                )
+                .join(
+                    RegistryRepository,
+                    RegistryRepository.current_version_id == RegistryVersion.id,
+                )
+                .where(
+                    RegistryRepository.organization_id == organization_id,
+                    RegistryRepository.origin != DEFAULT_REGISTRY_ORIGIN,
+                    tuple_(RegistryIndex.namespace, RegistryIndex.name).in_(pairs),
+                )
             )
         )
-    ).tuples()
+        .tuples()
+        .all()
+    )
+    found = {(namespace, name) for namespace, name, *_ in indexed}
+    # Older repositories only have RegistryAction rows. They also show a
+    # custom action whose repository has no current version. Anything in
+    # neither place is a platform action, which every organization has; the
+    # source's export validation already rejected unknown actions.
+    legacy: list[tuple[str, str, str, str | None, str | None]] = []
+    if remaining := [pair for pair in pairs if pair not in found]:
+        legacy = list(
+            (
+                await service.session.execute(
+                    select(
+                        RegistryAction.namespace,
+                        RegistryAction.name,
+                        RegistryRepository.origin,
+                        RegistryVersion.version,
+                        RegistryVersion.commit_sha,
+                    )
+                    .join(
+                        RegistryRepository,
+                        RegistryRepository.id == RegistryAction.repository_id,
+                    )
+                    .outerjoin(
+                        RegistryVersion,
+                        RegistryVersion.id == RegistryRepository.current_version_id,
+                    )
+                    .where(
+                        RegistryAction.organization_id == organization_id,
+                        RegistryRepository.origin != DEFAULT_REGISTRY_ORIGIN,
+                        tuple_(RegistryAction.namespace, RegistryAction.name).in_(
+                            remaining
+                        ),
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+    rows = [*indexed, *legacy]
     by_origin: dict[str, PackageRegistryRequirement] = {}
     untraceable: list[str] = []
     for namespace, name, origin, version, commit_sha in rows:
@@ -379,6 +430,9 @@ async def read_package(
     """
     include = parse_package_include(include_text)
     resolution = await resolve_package(service, include, create_missing_mappings=False)
+    # The picker lists every resource by name, so hold the caller to the read
+    # scopes an export of the same resources needs.
+    service._require_projected_export_scopes(resolution.full.spec)
     needed_by = await implied_by(service, resolution)
     names = _resource_names(resolution.full)
     resources: list[WorkspacePackageResource] = []

@@ -140,6 +140,10 @@ def _domain_error(error: Exception) -> HTTPException:
             code = status.HTTP_409_CONFLICT
         case VcsProviderError():
             code = _provider_error_status(error)
+        case TracecatSettingsError():
+            # A source setting that is stored but unusable, such as a pinned
+            # repository URL that no longer parses.
+            code = status.HTTP_400_BAD_REQUEST
         case _:
             code = status.HTTP_422_UNPROCESSABLE_CONTENT
     return HTTPException(status_code=code, detail=str(error))
@@ -149,6 +153,7 @@ _DOMAIN_ERRORS = (
     ManagedSourceUnavailableError,
     TracecatNotFoundError,
     TracecatConflictError,
+    TracecatSettingsError,
     TracecatValidationError,
     VcsProviderError,
 )
@@ -188,9 +193,13 @@ async def list_target_candidates(
     cursor: _Cursor = None,
 ) -> Page[ManagedWorkspaceRead]:
     """List workspaces in every organization, marking targets and the source."""
-    return await AdminManagedResourcesService(session, role).list_workspaces(
-        PageParams(limit=limit, cursor=cursor), organization_id=organization_id
-    )
+    # A malformed or stale cursor raises PaginationError, a validation error.
+    try:
+        return await AdminManagedResourcesService(session, role).list_workspaces(
+            PageParams(limit=limit, cursor=cursor), organization_id=organization_id
+        )
+    except _DOMAIN_ERRORS as e:
+        raise _domain_error(e) from e
 
 
 @router.get("/targets", response_model=Page[ManagedTargetRead])
@@ -201,9 +210,13 @@ async def list_targets(
     cursor: _Cursor = None,
 ) -> Page[ManagedTargetRead]:
     """List target workspaces with their pinned tag and last rollout."""
-    return await AdminManagedResourcesService(session, role).list_targets(
-        PageParams(limit=limit, cursor=cursor)
-    )
+    # A malformed or stale cursor raises PaginationError, a validation error.
+    try:
+        return await AdminManagedResourcesService(session, role).list_targets(
+            PageParams(limit=limit, cursor=cursor)
+        )
+    except _DOMAIN_ERRORS as e:
+        raise _domain_error(e) from e
 
 
 @router.post("/targets", response_model=ManagedTargetRead, status_code=201)
@@ -324,9 +337,13 @@ async def list_rollouts(
     cursor: _Cursor = None,
 ) -> Page[ManagedRolloutRead]:
     """List rollout records, newest first."""
-    return await AdminManagedResourcesService(session, role).list_rollouts(
-        PageParams(limit=limit, cursor=cursor), target_id=target_id
-    )
+    # A malformed or stale cursor raises PaginationError, a validation error.
+    try:
+        return await AdminManagedResourcesService(session, role).list_rollouts(
+            PageParams(limit=limit, cursor=cursor), target_id=target_id
+        )
+    except _DOMAIN_ERRORS as e:
+        raise _domain_error(e) from e
 
 
 @router.get("/rollouts/{rollout_id}", response_model=ManagedRolloutRead)

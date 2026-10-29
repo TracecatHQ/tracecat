@@ -50,6 +50,7 @@ from tracecat.db.models import (
     Case,
     CaseDropdownDefinition,
     CaseDropdownValue,
+    CaseFields,
     CaseTag,
     CaseTagLink,
     Form,
@@ -80,6 +81,7 @@ from tracecat.managed_resources.enums import (
 )
 from tracecat.managed_resources.guard import (
     REGISTRY_REPOSITORY_RESOURCE_TYPE,
+    hold_ownership_lock,
     managed_write_bypass,
 )
 from tracecat.managed_resources.identities import (
@@ -118,7 +120,7 @@ from tracecat.workspace_sync.adapters import (
     workspace_spec_from_maps,
 )
 from tracecat.workspace_sync.adapters.base import MANAGED_MAPPING_NAMESPACE
-from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     PackageRegistryRequirement,
@@ -304,7 +306,7 @@ class ManagedRolloutEngine:
             tag.commit_sha,
             transport_factory=self._transport_factory,
         )
-        sync = self._sync(workspace, source)
+        sync = self._sync(workspace, source.git_provider)
         await self._sync_managed_mappings(workspace.id)
         snapshot, diagnostics = await sync.parse_files(
             tree.files, commit_sha=tree.commit_sha, tree_sha=tree.tree_sha
@@ -321,15 +323,32 @@ class ManagedRolloutEngine:
         )
         identities = await workspace_identities(self.session, workspace.id)
 
+        workspace_id = workspace.id
         preview.conflicts = _conflicts(snapshot, identities, managed)
-        matches = await self._requested_matches(workspace.id)
-        prepared = await sync.prepare_pull_preview(
-            snapshot,
-            sync_schedules=False,
-            requested_catalog_mappings=matches.catalog,
-            requested_mcp_integration_mappings=matches.mcp,
-            requested_secret_store_mappings=matches.stores,
-        )
+        registry = _package_registry(tree.files)
+        preview.registry = await self._registry_plan(workspace, source, registry)
+        matches = await self._requested_matches(workspace_id)
+        # Workflow validation resolves actions against the target org's
+        # registry. Install the package's registry versions in a savepoint for
+        # the preview and roll it back; apply installs them for real.
+        trial_install = any(
+            p.action == "install" for p in preview.registry
+        ) and not any(p.action == "blocked" for p in preview.registry)
+        savepoint = await self.session.begin_nested() if trial_install else None
+        try:
+            if trial_install:
+                with managed_write_bypass():
+                    await self._install_registry(workspace, source, registry, None)
+            prepared = await sync.prepare_pull_preview(
+                snapshot,
+                sync_schedules=False,
+                requested_catalog_mappings=matches.catalog,
+                requested_mcp_integration_mappings=matches.mcp,
+                requested_secret_store_mappings=matches.stores,
+            )
+        finally:
+            if savepoint is not None:
+                await savepoint.rollback()
         result = prepared.preview
         preview.references = _references(result)
         preview.changes = [
@@ -337,12 +356,10 @@ class ManagedRolloutEngine:
             *_deleted_changes(snapshot, managed, current),
         ]
         preview.delete_warnings = await self._delete_warnings(
-            workspace.id, current, managed, preview.changes
+            workspace_id, current, managed, preview.changes
         )
-        registry = _package_registry(tree.files)
-        preview.registry = await self._registry_plan(workspace, source, registry)
         preview.dropped_customer_skills = await self._dropped_customer_skills(
-            workspace.id, snapshot, managed
+            workspace_id, snapshot, managed
         )
         if not result.success and not preview.references and not preview.conflicts:
             preview.diagnostics = [d.message for d in result.diagnostics]
@@ -364,14 +381,16 @@ class ManagedRolloutEngine:
             status=status,
             snapshot=prepared.snapshot,
             registry=registry,
-            fingerprint=_fingerprint(tree.commit_sha, managed, identities),
+            fingerprint=_fingerprint(tree.commit_sha, managed, identities, matches),
             commit_sha=tree.commit_sha,
         )
 
     async def _plan_unassign(self, rollout: ManagedRollout) -> _Plan:
         workspace = await self._workspace(rollout.workspace_id)
-        source = await require_managed_source(self.session)
-        sync = self._sync(workspace, source)
+        # Unassign reads nothing from the source repository, so it works even
+        # after the source is unset. The provider only names a transport this
+        # sync service never opens.
+        sync = self._sync(workspace, VcsProvider.GITHUB)
         await self._sync_managed_mappings(workspace.id)
         managed = await self._managed_rows(workspace.id)
         current = await sync.project_workspace(
@@ -391,7 +410,7 @@ class ManagedRolloutEngine:
             status=ManagedRolloutStatus.READY,
             snapshot=empty,
             registry=[],
-            fingerprint=_fingerprint("", managed, identities),
+            fingerprint=_fingerprint("", managed, identities, None),
             commit_sha="",
         )
 
@@ -403,11 +422,15 @@ class ManagedRolloutEngine:
     async def _apply_plan(self, rollout: ManagedRollout, plan: _Plan) -> None:
         workspace = await self._workspace(rollout.workspace_id)
         source = await require_managed_source(self.session)
-        sync = self._sync(workspace, source)
+        sync = self._sync(workspace, source.git_provider)
         managed = await self._managed_rows(workspace.id)
         incoming_keys = _snapshot_keys(plan.snapshot)
         with managed_write_bypass():
-            await self._install_registry(workspace, source, plan.registry)
+            # Customer writes check ownership under this lock, shared. Holding
+            # it exclusively means no customer write lands between the import
+            # and the managed rows that lock what it imported.
+            await hold_ownership_lock(self.session, workspace.id, shared=False)
+            await self._install_registry(workspace, source, plan.registry, rollout)
             customer_bindings = await self._customer_skill_bindings(
                 workspace.id, managed
             )
@@ -425,9 +448,11 @@ class ManagedRolloutEngine:
             target.last_applied_tag = rollout.tag
             target.last_rollout_at = datetime.now(UTC)
             await self.session.commit()
+            # Re-read: recording can move a source id to a new local id, and
+            # the old row for it is gone rather than removed from the package.
             removed = [
                 row
-                for row in managed
+                for row in await self._managed_rows(workspace.id)
                 if row.resource_type != REGISTRY_RESOURCE_TYPE
                 and (row.resource_type, row.source_id) not in incoming_keys
             ]
@@ -466,8 +491,10 @@ class ManagedRolloutEngine:
                 error="Could not delete: " + ", ".join(failures),
             )
             return
-        # Detached copies and customer resources are untouched. The org-level
-        # registry repository stays installed; other workspaces may use it.
+        # Detached copies and customer resources are untouched. A registry
+        # repository the package installed is removed once no other workspace
+        # in the org is assigned it.
+        await self._release_registry(workspace, managed)
         for model in (
             ManagedResource,
             ManagedReferenceMatch,
@@ -521,6 +548,18 @@ class ManagedRolloutEngine:
             for mapping in mappings
             if (mapping.resource_type, mapping.source_id) in incoming_keys
         ]
+        # A source id can move to a new local id, for example a renamed case
+        # field. Drop its old row first so the upsert does not hit the
+        # (type, source id) unique constraint.
+        for row in rows:
+            await self.session.execute(
+                delete(ManagedResource).where(
+                    ManagedResource.workspace_id == workspace_id,
+                    ManagedResource.resource_type == row["resource_type"],
+                    ManagedResource.source_id == row["source_id"],
+                    ManagedResource.local_id != row["local_id"],
+                )
+            )
         for offset in range(0, len(rows), 500):
             stmt = insert(ManagedResource).values(rows[offset : offset + 500])
             await self.session.execute(
@@ -571,9 +610,12 @@ class ManagedRolloutEngine:
             .tuples()
             .all()
         )
+        # Rewrite only the tag's presets. A preset leaving the package keeps
+        # its rows until its delete succeeds.
         await self.session.execute(
             delete(ManagedPresetSkillBinding).where(
-                ManagedPresetSkillBinding.workspace_id == workspace_id
+                ManagedPresetSkillBinding.workspace_id == workspace_id,
+                ManagedPresetSkillBinding.preset_id.in_(list(preset_ids.values())),
             )
         )
         for preset in snapshot.spec.agent_presets.values():
@@ -723,6 +765,7 @@ class ManagedRolloutEngine:
         workspace: Workspace,
         source: ManagedSource,
         requirements: Sequence[PackageRegistryRequirement],
+        rollout: ManagedRollout | None,
     ) -> None:
         """Make each required registry version current in the target org.
 
@@ -784,15 +827,61 @@ class ManagedRolloutEngine:
                 local_id=repo.id,
                 source_id=requirement.origin,
                 source_path=requirement.version,
-                deployed_tag="",
+                deployed_tag=rollout.tag if rollout and rollout.tag else "",
                 deployed_commit_sha=requirement.commit_sha or "",
+                rollout_id=rollout.id if rollout else None,
             )
             await self.session.execute(
                 stmt.on_conflict_do_update(
                     constraint="uq_managed_resource_local",
-                    set_={"source_path": stmt.excluded.source_path},
+                    set_={
+                        "source_id": stmt.excluded.source_id,
+                        "source_path": stmt.excluded.source_path,
+                        "deployed_tag": stmt.excluded.deployed_tag,
+                        "deployed_commit_sha": stmt.excluded.deployed_commit_sha,
+                        "deployed_at": func.now(),
+                        "rollout_id": stmt.excluded.rollout_id,
+                    },
                 )
             )
+
+    async def _release_registry(
+        self, workspace: Workspace, managed: Sequence[ManagedResource]
+    ) -> None:
+        """Uninstall registry repositories only this workspace was assigned."""
+        repo_ids = [
+            row.local_id
+            for row in managed
+            if row.resource_type == REGISTRY_RESOURCE_TYPE
+        ]
+        if not repo_ids:
+            return
+        still_used = set(
+            await self.session.scalars(
+                select(ManagedResource.local_id).where(
+                    ManagedResource.resource_type == REGISTRY_RESOURCE_TYPE,
+                    ManagedResource.local_id.in_(repo_ids),
+                    ManagedResource.workspace_id != workspace.id,
+                )
+            )
+        )
+        for repo_id in repo_ids:
+            if repo_id in still_used:
+                continue
+            repo = await self.session.scalar(
+                select(RegistryRepository).where(
+                    RegistryRepository.id == repo_id,
+                    RegistryRepository.organization_id == workspace.organization_id,
+                )
+            )
+            if repo is None:
+                continue
+            # The repository and its current version point at each other.
+            # Clear the pointer first, as RegistryReposService.delete_repository
+            # does.
+            repo.current_version_id = None
+            await self.session.flush()
+            await self.session.delete(repo)
 
     # -- customer state ---------------------------------------------------
     async def _customer_skill_bindings(
@@ -1020,12 +1109,12 @@ class ManagedRolloutEngine:
 
     # -- helpers ----------------------------------------------------------
     def _sync(
-        self, workspace: Workspace, source: ManagedSource
+        self, workspace: Workspace, provider: VcsProvider
     ) -> WorkspaceSyncService:
         return WorkspaceSyncService(
             self.session,
             target_role(workspace),
-            provider=source.git_provider,
+            provider=provider,
             mapping_namespace=MANAGED_MAPPING_NAMESPACE,
         )
 
@@ -1072,9 +1161,11 @@ class ManagedRolloutEngine:
         ):
             match saved.reference_kind:
                 case ManagedReferenceKind.MODEL if saved.resolved_id:
-                    catalog[uuid.UUID(saved.source_key)] = saved.resolved_id
+                    if (key := _uuid_or_none(saved.source_key)) is not None:
+                        catalog[key] = saved.resolved_id
                 case ManagedReferenceKind.MCP_INTEGRATION if saved.resolved_id:
-                    mcp[uuid.UUID(saved.source_key)] = saved.resolved_id
+                    if (key := _uuid_or_none(saved.source_key)) is not None:
+                        mcp[key] = saved.resolved_id
                 case ManagedReferenceKind.SECRET_STORE:
                     stores[saved.source_key] = saved.resolved_id
                 case _:
@@ -1332,16 +1423,34 @@ def _package_registry(files: Mapping[str, str]) -> list[PackageRegistryRequireme
     return list(package.registry) if package else []
 
 
+def _uuid_or_none(value: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        return None
+
+
 def _fingerprint(
     commit_sha: str,
     managed: Sequence[ManagedResource],
     identities: Mapping[IdentityKey, uuid.UUID],
+    matches: _Matches | None,
 ) -> str:
-    """Hash what apply must find unchanged: the tag commit and the target state."""
+    """Hash what apply must find unchanged: the tag commit, the target state
+    and the saved reference matches the preview resolved with."""
     return hashlib.sha256(
         orjson.dumps(
             {
                 "commit": commit_sha,
+                "matches": None
+                if matches is None
+                else {
+                    "catalog": sorted(
+                        (str(k), str(v)) for k, v in matches.catalog.items()
+                    ),
+                    "mcp": sorted((str(k), str(v)) for k, v in matches.mcp.items()),
+                    "stores": sorted((k, str(v)) for k, v in matches.stores.items()),
+                },
                 "managed": sorted(
                     (row.resource_type, str(row.local_id), row.source_id)
                     for row in managed
@@ -1395,7 +1504,23 @@ async def _delete_resource(
                 local_id
             )
         case SyncResourceType.CASE_FIELD:
-            await CaseFieldsService(session, role=role).delete_field(row.source_id)
+            # A case field's local id derives from its schema key, which need
+            # not equal the package source id. Delete the key that derives to
+            # this row's local id.
+            fields = await session.scalar(
+                select(CaseFields).where(CaseFields.workspace_id == row.workspace_id)
+            )
+            if fields is not None and (
+                key := next(
+                    (
+                        name
+                        for name in (fields.schema or {})
+                        if uuid.uuid5(fields.id, name) == local_id
+                    ),
+                    None,
+                )
+            ):
+                await CaseFieldsService(session, role=role).delete_field(key)
         case SyncResourceType.VARIABLE:
             if variable := await session.scalar(
                 select(WorkspaceVariable).where(WorkspaceVariable.id == local_id)

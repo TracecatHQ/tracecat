@@ -24427,6 +24427,20 @@ export const $ManagedReleaseCreate = {
       minLength: 1,
       title: "Tag",
     },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+      description:
+        "The commit the caller reviewed. When set, the release is refused if the base branch has moved past it.",
+    },
   },
   type: "object",
   required: ["tag"],
@@ -24544,6 +24558,7 @@ export const $ManagedRolloutPreviewRequest = {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
         },
         {
           type: "null",

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
@@ -29,8 +30,10 @@ from tracecat.auth.types import Role
 from tracecat.db.models import (
     PlatformSetting,
     RegistryAction,
+    RegistryIndex,
     RegistryRepository,
     RegistryVersion,
+    Workspace,
 )
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
@@ -127,7 +130,16 @@ async def source(session: AsyncSession, svc_role: Role) -> AsyncIterator[SourceH
         yield SourceHarness(service=service, fake_vcs=fake_vcs)
 
 
+ROOT_SKILL_FILES = {
+    "skills/qa-enrichment-skill/skill.yml",
+    "skills/qa-enrichment-skill/files/SKILL.md",
+    "skills/qa-enrichment-skill/files/enrich.py",
+}
+
+
 def _resource_files(files: dict[str, str]) -> set[str]:
+    # Skill and subagent files are asserted on their own: they come in through
+    # the preset, and their exact paths are the skill adapter's concern.
     return {
         path
         for path in files
@@ -156,6 +168,9 @@ async def test_package_export_writes_only_the_include_closure(
     files = await _push(source, ["workflows/qa-root/**"])
 
     assert _resource_files(files) == ROOT_CLOSURE
+    # The triage preset uses a skill and a subagent preset; both ship too.
+    assert {path for path in files if path.startswith("skills/")} == ROOT_SKILL_FILES
+    assert "agent_presets/qa-evidence-child/preset.yml" in files
     assert "workflows/qa-orphan/definition.yml" not in files
     assert "workflows/qa-root/**" in files[PACKAGE_INCLUDE_FILENAME]
     # Schedules never ship with a package.
@@ -170,6 +185,8 @@ async def test_package_export_writes_only_the_include_closure(
     assert ("workflow", "qa-child") in implied
     assert ("agent_preset", "qa-triage-parent") in implied
     assert ("table", "qa_indicators") in implied
+    assert ("skill", "qa-enrichment-skill") in implied
+    assert ("agent_preset", "qa-evidence-child") in implied
     assert package.registry == []
 
 
@@ -393,6 +410,72 @@ async def test_custom_action_without_registry_version_fails_the_export(
             _spec_using("acme.enrich_ip"),
             organization_id=source.service.organization_id,
         )
+
+
+@pytest.mark.anyio
+async def test_registry_requirements_read_the_current_version_index(
+    session: AsyncSession, svc_role: Role, source: SourceHarness
+) -> None:
+    # Repositories synced through the registry API have index rows for the
+    # current version and no RegistryAction rows.
+    assert svc_role.organization_id is not None
+    repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin=f"git+ssh://git@github.com/acme/indexed-{uuid.uuid4().hex[:8]}.git",
+    )
+    session.add(repo)
+    await session.flush()
+    version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=repo.id,
+        version="2.0.0",
+        commit_sha="d" * 40,
+        manifest={"actions": {}},
+        tarball_uri="s3://registry/indexed-2.0.0.tar.gz",
+    )
+    session.add(version)
+    await session.flush()
+    repo.current_version_id = version.id
+    session.add(
+        RegistryIndex(
+            organization_id=svc_role.organization_id,
+            registry_version_id=version.id,
+            namespace="acme",
+            name="lookup_hash",
+            action_type="udf",
+            description="Look up a hash",
+            options={"include_in_schema": True},
+        )
+    )
+    await session.flush()
+
+    requirements = await package_registry_requirements(
+        source.service,
+        _spec_using("acme.lookup_hash"),
+        organization_id=source.service.organization_id,
+    )
+
+    assert [(r.origin, r.version, r.actions) for r in requirements] == [
+        (repo.origin, "2.0.0", ["acme.lookup_hash"])
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_changed_source_binding_fails_closed(
+    session: AsyncSession, svc_role: Role, source: SourceHarness
+) -> None:
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == svc_role.workspace_id)
+    )
+    assert workspace is not None
+    workspace.settings = {
+        **(workspace.settings or {}),
+        "git_repo_url": "git+ssh://git@github.com/elsewhere/repo.git",
+    }
+    await session.flush()
+
+    with pytest.raises(TracecatValidationError, match="Git binding changed"):
+        await source.service.is_package_source()
 
 
 def test_package_manifest_is_omitted_from_ordinary_manifests() -> None:

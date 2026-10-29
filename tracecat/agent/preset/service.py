@@ -112,7 +112,11 @@ from tracecat.integrations.mcp_validation import (
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import (
+    bypass_active,
+    ensure_unmanaged,
+    is_managed,
+)
 from tracecat.managed_resources.presets import (
     ensure_preset_update_allowed,
     with_customer_skill_bindings,
@@ -134,6 +138,10 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tracecat.auth.types import Role
+
+
+_MANAGED_DERIVED_FIELDS = ("enable_internet_access", "tool_tunnels")
+"""Preset fields derived from its skills that a managed preset must keep."""
 
 
 class AgentPresetService(BaseWorkspaceService):
@@ -768,8 +776,18 @@ class AgentPresetService(BaseWorkspaceService):
                 else None
             ),
         )
+        managed = (
+            self.workspace_id is not None
+            and not bypass_active()
+            and await is_managed(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.AGENT_PRESET,
+                local_id=preset.id,
+            )
+        )
         try:
-            return await self._update_preset(preset, params)
+            return await self._update_preset(preset, params, managed=managed)
         except IntegrityError as exc:
             await self.session.rollback()
             if not is_unique_violation(exc, "uq_agent_preset_workspace_slug_active"):
@@ -779,7 +797,7 @@ class AgentPresetService(BaseWorkspaceService):
             ) from exc
 
     async def _update_preset(
-        self, preset: AgentPreset, params: AgentPresetUpdate
+        self, preset: AgentPreset, params: AgentPresetUpdate, *, managed: bool = False
     ) -> AgentPreset:
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
@@ -890,6 +908,16 @@ class AgentPresetService(BaseWorkspaceService):
         )[preset.id]
         if policy.requires_internet_access:
             set_fields["enable_internet_access"] = True
+        if managed and any(
+            field in set_fields and set_fields[field] != getattr(preset, field)
+            for field in _MANAGED_DERIVED_FIELDS
+        ):
+            # A customer skill can force these on, but they belong to the
+            # package; a later rollout would silently undo them.
+            raise TracecatValidationError(
+                "These skills would change the managed preset's internet access "
+                "or tool tunnels. Detach the preset to use them."
+            )
 
         # Update remaining fields
         for field, value in set_fields.items():

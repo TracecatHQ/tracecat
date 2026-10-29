@@ -7,6 +7,7 @@ import uuid
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
@@ -25,8 +26,13 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.logger import logger
 from tracecat.managed_resources.audit import audit_managed_event
-from tracecat.managed_resources.enums import ManagedRolloutKind, ManagedRolloutStatus
+from tracecat.managed_resources.enums import (
+    ManagedReferenceKind,
+    ManagedRolloutKind,
+    ManagedRolloutStatus,
+)
 from tracecat.managed_resources.schemas import ManagedRolloutRead, RolloutPreview
 from tracecat.managed_resources.source import (
     MANAGED_RESOURCES_SOURCE_KEY,
@@ -42,7 +48,11 @@ from tracecat.managed_resources.source import (
     source_release_candidate,
 )
 from tracecat.managed_resources.source_setting import managed_source_workspace_id
-from tracecat.managed_resources.workflows import RolloutRunner, TemporalRolloutRunner
+from tracecat.managed_resources.workflows import (
+    RolloutPhase,
+    RolloutRunner,
+    TemporalRolloutRunner,
+)
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.registry.repositories.schemas import GitTagInfo
 from tracecat.service import BasePlatformService
@@ -261,7 +271,13 @@ class AdminManagedResourcesService(BasePlatformService):
             assigned_by=self.role.user_id,
         )
         self.session.add(target)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as e:
+            # Two concurrent assigns of the same workspace both passed the
+            # check above; the unique constraint caught the second.
+            await self.session.rollback()
+            raise TracecatConflictError("The workspace is already a target") from e
         await self._audit(
             "managed_target",
             "create",
@@ -341,8 +357,42 @@ class AdminManagedResourcesService(BasePlatformService):
     async def save_references(
         self, target_id: uuid.UUID, params: ManagedReferenceMatchesUpdate
     ) -> list[ManagedReferenceMatchItem]:
-        """Upsert matches; later version bumps reuse them."""
+        """Replace the target's matches; later version bumps reuse them.
+
+        Raises:
+            TracecatValidationError: A model or MCP integration key is not a
+                UUID.
+        """
         target = await self._target(target_id)
+        for item in params.matches:
+            if item.reference_kind in _UUID_KEYED_KINDS:
+                try:
+                    uuid.UUID(item.source_key)
+                except ValueError as e:
+                    raise TracecatValidationError(
+                        f"{item.reference_kind.value} key must be a UUID"
+                    ) from e
+        # Replace, not merge: a match the admin removed must stop applying.
+        wanted = {(item.reference_kind, item.source_key) for item in params.matches}
+        existing = (
+            await self.session.execute(
+                select(
+                    ManagedReferenceMatch.id,
+                    ManagedReferenceMatch.reference_kind,
+                    ManagedReferenceMatch.source_key,
+                ).where(ManagedReferenceMatch.workspace_id == target.workspace_id)
+            )
+        ).tuples()
+        if omitted := [
+            match_id
+            for match_id, kind, source_key in existing
+            if (kind, source_key) not in wanted
+        ]:
+            await self.session.execute(
+                delete(ManagedReferenceMatch).where(
+                    ManagedReferenceMatch.id.in_(omitted)
+                )
+            )
         for item in params.matches:
             stmt = pg_insert(ManagedReferenceMatch).values(
                 workspace_id=target.workspace_id,
@@ -386,6 +436,7 @@ class AdminManagedResourcesService(BasePlatformService):
             self.session,
             source,
             params.tag,
+            expected_commit_sha=params.commit_sha,
             transport_factory=self._transport_factory,
         )
         await audit_managed_event(
@@ -438,7 +489,8 @@ class AdminManagedResourcesService(BasePlatformService):
             )
         await self.session.commit()
         for rollout in rollouts:
-            await self._runner.start(rollout.id, "preview")
+            if not await self._start(rollout, "preview"):
+                continue
             await audit_managed_event(
                 self.session,
                 actor=self.role,
@@ -454,7 +506,7 @@ class AdminManagedResourcesService(BasePlatformService):
         target = await self._target(target_id)
         rollout = await self._new_rollout(target, ManagedRolloutKind.UNASSIGN, tag=None)
         await self.session.commit()
-        await self._runner.start(rollout.id, "preview")
+        await self._start(rollout, "preview")
         return await self.get_rollout(rollout.id)
 
     async def apply_rollouts(
@@ -465,13 +517,17 @@ class AdminManagedResourcesService(BasePlatformService):
         Applying a tag also moves the target's pin to it.
         """
         started: list[ManagedRollout] = []
+        found: list[uuid.UUID] = []
         for rollout_id in params.rollout_ids:
             rollout = await self.session.scalar(
                 select(ManagedRollout)
                 .where(ManagedRollout.id == rollout_id)
                 .with_for_update()
             )
-            if rollout is None or rollout.status not in (
+            if rollout is None:
+                continue
+            found.append(rollout_id)
+            if rollout.status not in (
                 ManagedRolloutStatus.READY,
                 ManagedRolloutStatus.NO_CHANGES,
             ):
@@ -486,8 +542,8 @@ class AdminManagedResourcesService(BasePlatformService):
             started.append(rollout)
         await self.session.commit()
         for rollout in started:
-            await self._runner.start(rollout.id, "apply")
-        return [await self.get_rollout(rollout_id) for rollout_id in params.rollout_ids]
+            await self._start(rollout, "apply")
+        return [await self.get_rollout(rollout_id) for rollout_id in found]
 
     async def get_rollout(self, rollout_id: uuid.UUID) -> ManagedRolloutRead:
         """Get one rollout record.
@@ -530,6 +586,13 @@ class AdminManagedResourcesService(BasePlatformService):
         *,
         tag: str | None,
     ) -> ManagedRollout:
+        # Serialize rollouts per target, so two concurrent previews cannot
+        # both survive the supersede below.
+        await self.session.execute(
+            select(ManagedTarget.id)
+            .where(ManagedTarget.id == target.id)
+            .with_for_update()
+        )
         await self.session.execute(
             update(ManagedRollout)
             .where(
@@ -549,6 +612,27 @@ class AdminManagedResourcesService(BasePlatformService):
         self.session.add(rollout)
         await self.session.flush()
         return rollout
+
+    async def _start(self, rollout: ManagedRollout, phase: RolloutPhase) -> bool:
+        """Start a phase; record a rollout that could not start as failed."""
+        try:
+            await self._runner.start(rollout.id, phase)
+        except Exception as e:
+            logger.opt(exception=e).warning(
+                "Could not start managed rollout", rollout_id=str(rollout.id)
+            )
+            await self.session.execute(
+                update(ManagedRollout)
+                .where(ManagedRollout.id == rollout.id)
+                .values(
+                    status=ManagedRolloutStatus.FAILED,
+                    error=f"Could not start the {phase}. Try again.",
+                    updated_at=func.now(),
+                )
+            )
+            await self.session.commit()
+            return False
+        return True
 
     async def _target(self, target_id: uuid.UUID) -> ManagedTarget:
         target = await self.session.scalar(
@@ -592,6 +676,11 @@ class AdminManagedResourcesService(BasePlatformService):
             target_workspace_id=workspace.id if workspace else None,
         )
 
+
+_UUID_KEYED_KINDS = frozenset(
+    {ManagedReferenceKind.MODEL, ManagedReferenceKind.MCP_INTEGRATION}
+)
+"""Reference kinds whose source key is the source-side resource id."""
 
 _SUPERSEDABLE = (
     ManagedRolloutStatus.PREVIEWING,

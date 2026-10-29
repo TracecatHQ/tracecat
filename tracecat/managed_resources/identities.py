@@ -63,12 +63,19 @@ def _queries(workspace_id: uuid.UUID) -> list[tuple[SyncResourceType, Select[Any
         (
             SyncResourceType.AGENT_PRESET,
             select(AgentPreset.id, AgentPreset.slug).where(
-                AgentPreset.workspace_id == workspace_id
+                AgentPreset.workspace_id == workspace_id,
+                AgentPreset.deleted_at.is_(None),
             ),
         ),
         (
             SyncResourceType.SKILL,
-            select(Skill.id, Skill.slug).where(Skill.workspace_id == workspace_id),
+            # Matches the live-slug unique index: archived and deleted skills
+            # free their slug, so they cannot clash with an import.
+            select(Skill.id, Skill.slug).where(
+                Skill.workspace_id == workspace_id,
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            ),
         ),
         (
             SyncResourceType.TABLE,

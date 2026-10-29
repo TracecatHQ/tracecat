@@ -302,7 +302,11 @@ async def export_workspace_sync(
         ) from e
 
 
-@router.get("/sync/package", response_model=WorkspacePackageRead)
+@router.get(
+    "/sync/package",
+    response_model=WorkspacePackageRead,
+    responses={400: {"model": WorkspaceSyncExportError}},
+)
 @require_scope("workspace_sync:sync")
 async def get_workspace_sync_package(
     role: WorkspaceActorRouteRole,

@@ -24,6 +24,8 @@ NEW_TABLES = (
     "managed_preset_skill_binding",
     "managed_detached_copy",
 )
+# Written only by the rollout engine; tenants may read them.
+READ_ONLY_TABLES = ("managed_rollout", "managed_preset_skill_binding")
 # managed_resource gains rollout_id, so the model comparison includes it too.
 COMPARED_TABLES = (*NEW_TABLES, "managed_resource")
 # Operation names alembic_postgresql_enum puts first in its diff tuples.
@@ -120,6 +122,21 @@ def test_upgrade_matches_the_model_and_downgrade_removes_the_tables(
             assert diffs == []
             for table in NEW_TABLES:
                 assert _rls_enabled(conn, table)
+            # Tenants read their workspace's rows but only the RLS-bypass
+            # session writes: a FOR ALL policy gated on the bypass setting,
+            # plus a FOR SELECT policy scoped to the workspace.
+            for table in READ_ONLY_TABLES:
+                policies = dict(
+                    conn.execute(
+                        text("SELECT cmd, qual FROM pg_policies WHERE tablename = :t"),
+                        {"t": table},
+                    )
+                    .tuples()
+                    .all()
+                )
+                assert set(policies) == {"ALL", "SELECT"}
+                assert "app.rls_bypass" in policies["ALL"]
+                assert "app.current_workspace_id" in policies["SELECT"]
 
         _alembic(db_url, "downgrade", PREVIOUS_REVISION)
         with engine.connect() as conn:

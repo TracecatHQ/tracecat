@@ -15,7 +15,7 @@ from typing import Literal, Protocol
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
@@ -47,14 +47,19 @@ class TemporalRolloutRunner:
 
     async def start(self, rollout_id: uuid.UUID, phase: RolloutPhase) -> None:
         client = await get_temporal_client()
-        await client.start_workflow(
-            ManagedRolloutWorkflow.run,
-            RolloutRef(rollout_id, phase),
-            id=f"managed-rollout/{rollout_id}/{phase}",
-            task_queue=config.TRACECAT__BACKGROUND_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-            rpc_timeout=timedelta(seconds=5),
-        )
+        try:
+            await client.start_workflow(
+                ManagedRolloutWorkflow.run,
+                RolloutRef(rollout_id, phase),
+                id=f"managed-rollout/{rollout_id}/{phase}",
+                task_queue=config.TRACECAT__BACKGROUND_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                rpc_timeout=timedelta(seconds=5),
+            )
+        except WorkflowAlreadyStartedError:
+            # A retried request after a start whose reply was lost: the phase
+            # is already running, which is what the caller asked for.
+            return
 
 
 @activity.defn

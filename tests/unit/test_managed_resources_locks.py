@@ -28,10 +28,22 @@ from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.schemas import SkillCreate
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
+from tracecat.cases.dropdowns.schemas import (
+    CaseDropdownDefinitionUpdate,
+    CaseDropdownOptionCreate,
+)
+from tracecat.cases.dropdowns.service import CaseDropdownDefinitionsService
+from tracecat.cases.durations.schemas import CaseDurationDefinitionUpdate
+from tracecat.cases.durations.service import CaseDurationDefinitionService
+from tracecat.cases.schemas import CaseFieldUpdate
+from tracecat.cases.service import CaseFieldsService
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetSkill,
+    CaseDropdownDefinition,
+    CaseDurationDefinition,
+    CaseFields,
     CaseTag,
     ManagedPresetSkillBinding,
     Secret,
@@ -212,6 +224,14 @@ async def test_managed_preset_accepts_a_customer_skill_but_keeps_package_skills(
             ]
         ),
     )
+    bound = set(
+        await session.scalars(
+            select(AgentPresetSkill.skill_id).where(
+                AgentPresetSkill.preset_id == preset.id
+            )
+        )
+    )
+    assert bound == {*package_skills, customer_skill}
     with pytest.raises(ManagedResourceLockedError):
         await service.update_preset(
             preset,
@@ -274,6 +294,77 @@ async def test_managed_case_tag_cannot_be_renamed(
         await CaseTagsService(session, role=seeded).update_tag(
             tag, TagUpdate(name="renamed")
         )
+
+
+@pytest.mark.anyio
+async def test_managed_case_dropdown_refuses_edits_and_new_options(
+    session: AsyncSession, seeded: Role
+) -> None:
+    dropdown = await session.scalar(
+        select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.workspace_id == seeded.workspace_id
+        )
+    )
+    assert dropdown is not None
+    await mark_managed(session, seeded, SyncResourceType.CASE_DROPDOWN, dropdown.id)
+    service = CaseDropdownDefinitionsService(session, role=seeded)
+
+    with pytest.raises(ManagedResourceLockedError):
+        await service.update_definition(
+            dropdown, CaseDropdownDefinitionUpdate(name="renamed")
+        )
+    with pytest.raises(ManagedResourceLockedError):
+        await service.add_option(
+            dropdown.id, CaseDropdownOptionCreate(label="Extra", ref="extra")
+        )
+    with pytest.raises(ManagedResourceLockedError):
+        await service.delete_definition(dropdown)
+
+
+@pytest.mark.anyio
+async def test_managed_case_duration_refuses_edits_and_delete(
+    session: AsyncSession, seeded: Role
+) -> None:
+    duration = await session.scalar(
+        select(CaseDurationDefinition).where(
+            CaseDurationDefinition.workspace_id == seeded.workspace_id
+        )
+    )
+    assert duration is not None
+    await mark_managed(session, seeded, SyncResourceType.CASE_DURATION, duration.id)
+    service = CaseDurationDefinitionService(session, role=seeded)
+
+    with pytest.raises(ManagedResourceLockedError):
+        await service.update_definition(
+            duration.id, CaseDurationDefinitionUpdate(name="renamed")
+        )
+    with pytest.raises(ManagedResourceLockedError):
+        await service.delete_definition(duration.id)
+
+
+@pytest.mark.anyio
+async def test_managed_case_field_refuses_edits_and_delete(
+    session: AsyncSession, seeded: Role
+) -> None:
+    fields = await session.scalar(
+        select(CaseFields).where(CaseFields.workspace_id == seeded.workspace_id)
+    )
+    assert fields is not None and fields.schema
+    field_id = next(iter(fields.schema))
+    # Case field local ids derive from the field name, as the adapter's do.
+    await mark_managed(
+        session,
+        seeded,
+        SyncResourceType.CASE_FIELD,
+        uuid.uuid5(fields.id, field_id),
+        source_id=field_id,
+    )
+    service = CaseFieldsService(session, role=seeded)
+
+    with pytest.raises(ManagedResourceLockedError):
+        await service.update_field(field_id, CaseFieldUpdate(display_name="Renamed"))
+    with pytest.raises(ManagedResourceLockedError):
+        await service.delete_field(field_id)
 
 
 @pytest.mark.anyio

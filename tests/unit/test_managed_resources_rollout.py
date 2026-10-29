@@ -534,6 +534,24 @@ async def test_cut_release_tags_the_base_branch_head(harness: Harness) -> None:
 
 
 @pytest.mark.anyio
+async def test_cut_release_refuses_a_branch_that_moved_past_the_reviewed_commit(
+    harness: Harness,
+) -> None:
+    reviewed = await harness.admin.release_candidate()
+    await harness.publish("v1.1.0", V2)
+
+    with pytest.raises(TracecatValidationError, match="moved"):
+        await harness.admin.cut_release(
+            ManagedReleaseCreate(tag="v1.2.0", commit_sha=reviewed.commit_sha)
+        )
+    current = await harness.admin.release_candidate()
+    release = await harness.admin.cut_release(
+        ManagedReleaseCreate(tag="v1.2.0", commit_sha=current.commit_sha)
+    )
+    assert release.commit_sha == current.commit_sha
+
+
+@pytest.mark.anyio
 async def test_saved_reference_matches_are_listed_and_replaced(
     harness: Harness,
 ) -> None:
@@ -567,6 +585,27 @@ async def test_saved_reference_matches_are_listed_and_replaced(
     )
 
     assert [(m.source_key, m.resolved_id) for m in saved] == [("source-store", None)]
+
+    # The request replaces the set: an omitted match stops applying.
+    assert (
+        await harness.admin.save_references(
+            target_id, ManagedReferenceMatchesUpdate(matches=[])
+        )
+        == []
+    )
+    with pytest.raises(TracecatValidationError, match="UUID"):
+        await harness.admin.save_references(
+            target_id,
+            ManagedReferenceMatchesUpdate(
+                matches=[
+                    ManagedReferenceMatchItem(
+                        reference_kind=ManagedReferenceKind.MODEL,
+                        source_key="not-a-uuid",
+                        resolved_id=uuid.uuid4(),
+                    )
+                ]
+            ),
+        )
 
 
 async def _source_registry_version(
@@ -609,7 +648,7 @@ async def test_registry_version_is_copied_into_the_target_org(
     managed_source = await _managed_source(harness)
 
     [before] = await engine._registry_plan(customer, managed_source, [requirement])
-    await engine._install_registry(customer, managed_source, [requirement])
+    await engine._install_registry(customer, managed_source, [requirement], None)
     await harness.session.commit()
     [after] = await engine._registry_plan(customer, managed_source, [requirement])
 
@@ -674,6 +713,7 @@ async def test_a_package_installed_registry_repo_is_locked_in_the_target_org(
         customer,
         await _managed_source(harness),
         [PackageRegistryRequirement(origin=origin, version="1.2.0")],
+        None,
     )
     await harness.session.commit()
     repo = await harness.session.scalar(
@@ -714,3 +754,7 @@ async def test_release_candidate_shows_the_head_commit_and_its_package(
 
     assert after.commit_sha != before.commit_sha
     assert after.existing_tags == ["v1.1.0"]
+    assert after.package is not None
+    explicit = {(e.resource_type, e.source_id) for e in after.package.explicit}
+    assert ("workflow", "qa-orphan") in explicit
+    assert ("table", "qa_indicators") not in explicit

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import Depends, Request
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
+from tracecat.authz.controls import has_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.managed_resources.guard import ensure_unmanaged
@@ -29,6 +30,10 @@ async def refuse_managed_workflow_writes(
         ManagedResourceLockedError: The workflow is managed.
     """
     if request.method in _READ_METHODS:
+        return
+    # Leave callers who cannot edit workflows to the route's own scope check,
+    # so they get the usual permission error, not one naming the package.
+    if role.scopes is not None and not has_scope(role.scopes, "workflow:update"):
         return
     await ensure_unmanaged(
         session,

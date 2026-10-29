@@ -101,6 +101,7 @@ class ManagedRolloutPreviewRequest(BaseModel):
     target_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
     tag: str | None = Field(
         default=None,
+        max_length=255,
         description="Tag to preview. ``None`` uses each target's pinned tag.",
     )
 
@@ -115,6 +116,14 @@ class ManagedReleaseCreate(BaseModel):
     """Cut a release tag at the HEAD of the source repository's base branch."""
 
     tag: str = Field(min_length=1, max_length=255)
+    commit_sha: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "The commit the caller reviewed. When set, the release is refused "
+            "if the base branch has moved past it."
+        ),
+    )
 
 
 class ManagedReleaseCandidateRead(BaseModel):

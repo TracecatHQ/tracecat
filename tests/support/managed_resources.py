@@ -25,6 +25,7 @@ from tracecat.db.models import ManagedResource
 from tracecat.git.types import GitUrl
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sync import PullOptions
+from tracecat.workspace_sync.adapters import RESOURCE_ADAPTERS_BY_TYPE
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.service import WorkspaceSyncService
 
@@ -86,12 +87,14 @@ async def mark_managed(
 ) -> ManagedResource:
     """Record a resource as managed, as a rollout of ``tag`` would."""
     assert role.workspace_id is not None
+    source_id = source_id or str(local_id)
     row = ManagedResource(
         workspace_id=role.workspace_id,
         resource_type=resource_type.value,
         local_id=local_id,
-        source_id=source_id or str(local_id),
-        source_path=f"{resource_type.value}/{source_id or local_id}",
+        source_id=source_id,
+        # The path a rollout records: the adapter's repository path.
+        source_path=RESOURCE_ADAPTERS_BY_TYPE[resource_type].source_path(source_id),
         deployed_tag=tag,
         deployed_commit_sha="a" * 40,
     )

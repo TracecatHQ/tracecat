@@ -262,7 +262,11 @@ def test_cut_release_returns_the_new_tag(
     tag = GitTagInfo(name="v1.1.0", commit_sha="c" * 40, date="2026-10-29T00:00:00Z")
     service.cut_release = AsyncMock(return_value=tag)
 
-    response = superuser_client.post(f"{BASE}/source/releases", json={"tag": "v1.1.0"})
+    response = superuser_client.post(
+        f"{BASE}/source/releases", json={"tag": "v1.1.0", "commit_sha": "c" * 40}
+    )
 
     assert response.status_code == status.HTTP_201_CREATED
-    assert response.json()["commit_sha"] == "c" * 40
+    assert GitTagInfo.model_validate(response.json()) == tag
+    [params] = service.cut_release.await_args.args
+    assert params.commit_sha == "c" * 40

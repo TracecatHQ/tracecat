@@ -16,6 +16,7 @@ which finds a ``managed_resource`` row and raises
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Collection, Iterator
 from contextlib import contextmanager
@@ -72,6 +73,28 @@ def bypass_active() -> bool:
     return _bypass.get()
 
 
+def ownership_lock_key(workspace_id: uuid.UUID) -> int:
+    """Advisory lock key that serializes ownership changes in one workspace."""
+    digest = hashlib.sha256(f"managed-resources:{workspace_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big", signed=True)
+
+
+async def hold_ownership_lock(
+    session: AsyncSession, workspace_id: uuid.UUID, *, shared: bool
+) -> None:
+    """Hold the workspace's ownership lock until the transaction ends.
+
+    Guard checks take it shared, so a check and the write after it finish
+    before a rollout can record new ownership. A rollout takes it exclusive
+    while it imports and records managed rows, so no customer write can pass
+    the check and land after the rollout claims the resource.
+    """
+    function = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
+    await session.execute(
+        text(f"SELECT {function}(:key)"), {"key": ownership_lock_key(workspace_id)}
+    )
+
+
 async def is_managed(
     session: AsyncSession,
     *,
@@ -79,7 +102,12 @@ async def is_managed(
     resource_type: SyncResourceType,
     local_id: uuid.UUID,
 ) -> bool:
-    """Return whether one resource is managed, in one indexed query."""
+    """Return whether one resource is managed, in one indexed query.
+
+    Takes the workspace's ownership lock shared first; see
+    :func:`hold_ownership_lock`.
+    """
+    await hold_ownership_lock(session, workspace_id, shared=True)
     return bool(
         await session.scalar(
             select(
@@ -101,6 +129,7 @@ async def managed_local_ids(
     local_ids: Collection[uuid.UUID] | None = None,
 ) -> set[uuid.UUID]:
     """Return which of ``local_ids`` are managed, or every managed id if ``None``."""
+    await hold_ownership_lock(session, workspace_id, shared=True)
     stmt = select(ManagedResource.local_id).where(
         ManagedResource.workspace_id == workspace_id,
         ManagedResource.resource_type == resource_type.value,

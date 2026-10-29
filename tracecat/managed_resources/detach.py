@@ -46,6 +46,8 @@ from tracecat.workspace_sync.schemas import (
 from tracecat.workspace_sync.service import WorkspaceSyncService
 
 _SLUG_TYPES = frozenset({SyncResourceType.AGENT_PRESET, SyncResourceType.SKILL})
+_MAX_SKILL_NAME = 64
+"""Skill slugs are capped at 64 characters by the skill API."""
 
 
 class DetachedCopy(BaseModel):
@@ -62,7 +64,9 @@ class ManagedDetachService(BaseWorkspaceService):
 
     service_name = "managed_detach"
 
-    @audit_log(resource_type="managed_resource", action="detach")
+    @audit_log(
+        resource_type="managed_resource", action="detach", resource_id_attr="local_id"
+    )
     async def detach(
         self,
         *,
@@ -81,6 +85,10 @@ class ManagedDetachService(BaseWorkspaceService):
         new_name = new_name.strip()
         if not new_name:
             raise TracecatValidationError("A name for the copy is required")
+        if resource_type == SyncResourceType.SKILL and len(new_name) > _MAX_SKILL_NAME:
+            raise TracecatValidationError(
+                f"A skill name can be at most {_MAX_SKILL_NAME} characters"
+            )
         managed = await self.session.scalar(
             select(ManagedResource).where(
                 ManagedResource.workspace_id == self.workspace_id,
@@ -117,7 +125,9 @@ class ManagedDetachService(BaseWorkspaceService):
         original_name = adapter.display_name(original) or source_id
         await self._ensure_name_free(resource_type, original, new_name)
 
-        copy_source_id = path_segment(new_name)
+        # Suffixed so the copy never takes the source id of a resource the
+        # package might ship later under the same name.
+        copy_source_id = f"{path_segment(new_name)}-{uuid.uuid4().hex[:8]}"
         copy = _renamed(resource_type, original, new_name, copy_source_id)
         snapshot = WorkspaceRemoteSnapshot(
             commit_sha="",
@@ -126,6 +136,9 @@ class ManagedDetachService(BaseWorkspaceService):
                 {adapter.spec_attr: {copy_source_id: copy}}
             ),
         )
+        # A copy is a create: hold the caller to the same scopes a real pull
+        # of this resource would need, not just the preview's read scopes.
+        sync.require_import_scopes(snapshot.spec)
         prepared = await sync.prepare_pull_preview(snapshot, sync_schedules=False)
         if not prepared.preview.success:
             raise TracecatValidationError(

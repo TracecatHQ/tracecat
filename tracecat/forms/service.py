@@ -458,6 +458,7 @@ class FormsService(BaseWorkspaceService):
                     FormErrorCode.FORM_CHANGED,
                     "This form changed since you opened it",
                 )
+        await self._ensure_config_editable(form.workflow_id, params)
         status = params.status or FormStatus(form.status)
         if params.config is not None or params.status is FormStatus.ONLINE:
             inputs = await self._require_inputs(form.workflow_id)
@@ -475,15 +476,7 @@ class FormsService(BaseWorkspaceService):
 
         Audited as the update or the create it turns into.
         """
-        # Customers may switch a managed workflow's form on and off; its
-        # config comes from the package.
-        if params.model_fields_set - {"status"}:
-            await ensure_unmanaged(
-                self.session,
-                workspace_id=self.workspace_id,
-                resource_type=SyncResourceType.WORKFLOW,
-                local_id=workflow_id,
-            )
+        await self._ensure_config_editable(workflow_id, params)
         if (form := await self.get_form_by_workflow_id(workflow_id)) is not None:
             return await self.update_form(form, params)
         return await self.create_form(
@@ -500,12 +493,36 @@ class FormsService(BaseWorkspaceService):
 
         The file blobs are deleted after the commit, best effort.
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=form.workflow_id,
+        )
         keys = await lock_forms_for_deletion(
             self.session, self.workspace_id, Form.id == form.id
         )
         await self.session.delete(form)
         await self.session.commit()
         await delete_file_blobs(keys)
+
+    async def _ensure_config_editable(
+        self, workflow_id: uuid.UUID, params: FormUpdate
+    ) -> None:
+        """Refuse a config change on a managed workflow's form.
+
+        Customers may switch a managed workflow's form on and off; its config
+        comes from the package. Checked on the config itself, not on the
+        fields sent, since a client may send ``config: null`` with a status.
+        """
+        if params.config is None:
+            return
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_id,
+        )
 
     async def sync_form(
         self, workflow_id: uuid.UUID, form_config: FormConfig | None, status: FormStatus

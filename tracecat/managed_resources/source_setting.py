@@ -14,7 +14,8 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.models import PlatformSetting
+from tracecat.db.models import PlatformSetting, Workspace
+from tracecat.exceptions import TracecatValidationError
 from tracecat.workspace_sync.enums import VcsProvider
 
 MANAGED_RESOURCES_SOURCE_KEY = "managed_resources_source"
@@ -53,3 +54,51 @@ async def managed_source_workspace_id(session: AsyncSession) -> uuid.UUID | None
         return ManagedSourceSetting.model_validate_json(raw).workspace_id
     except PydanticValidationError:
         return None
+
+
+async def is_managed_source(session: AsyncSession, workspace_id: uuid.UUID) -> bool:
+    """Return whether ``workspace_id`` is the managed resources source.
+
+    Raises:
+        TracecatValidationError: It is the source, but its live Git binding no
+            longer matches the one pinned with it. Fails closed, so neither
+            package nor ordinary sync runs against an unapproved repository.
+    """
+    raw = await session.scalar(
+        select(PlatformSetting.value).where(
+            PlatformSetting.key == MANAGED_RESOURCES_SOURCE_KEY
+        )
+    )
+    if raw is None:
+        return False
+    try:
+        pinned = ManagedSourceSetting.model_validate_json(raw)
+    except PydanticValidationError:
+        return False
+    if pinned.workspace_id != workspace_id:
+        return False
+    settings = await session.scalar(
+        select(Workspace.settings).where(Workspace.id == workspace_id)
+    )
+    try:
+        live = _LiveBinding.model_validate(settings or {})
+    except PydanticValidationError:
+        live = _LiveBinding()
+    if (live.git_provider, live.git_repo_url) != (
+        pinned.git_provider,
+        pinned.git_repo_url,
+    ):
+        raise TracecatValidationError(
+            "This workspace's Git binding changed after it was set as the managed "
+            "resources source. A platform admin must set the source again."
+        )
+    return True
+
+
+class _LiveBinding(BaseModel):
+    """The Git sync fields of workspace settings; other settings are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    git_provider: VcsProvider | None = None
+    git_repo_url: str | None = None

@@ -3736,6 +3736,7 @@ export const workflowsGetWorkspaceSyncPackage = (
       ref: data.ref,
     },
     errors: {
+      400: "Bad Request",
       422: "Validation Error",
     },
   })

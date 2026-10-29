@@ -7499,6 +7499,10 @@ export type ManagedReleaseCandidateRead = {
  */
 export type ManagedReleaseCreate = {
   tag: string
+  /**
+   * The commit the caller reviewed. When set, the release is refused if the base branch has moved past it.
+   */
+  commit_sha?: string | null
 }
 
 /**
@@ -20885,6 +20889,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkspacePackageRead
+        /**
+         * Bad Request
+         */
+        400: WorkspaceSyncExportError
         /**
          * Validation Error
          */

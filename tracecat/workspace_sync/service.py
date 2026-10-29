@@ -11,7 +11,7 @@ from difflib import unified_diff
 from typing import Any, Self, cast
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.skill.library.catalog import load_library
@@ -46,7 +46,7 @@ from tracecat.managed_resources.include import (
     PACKAGE_INCLUDE_FILENAME,
     render_package_include,
 )
-from tracecat.managed_resources.source_setting import managed_source_workspace_id
+from tracecat.managed_resources.source_setting import is_managed_source
 from tracecat.registry.repositories.schemas import (
     GitBranchInfo,
     GitCommitInfo,
@@ -97,7 +97,6 @@ from tracecat.workspace_sync.importer import (
     WorkspaceResourceImportService,
 )
 from tracecat.workspace_sync.package import (
-    include_reader,
     package_push_projection,
     read_package,
 )
@@ -308,8 +307,15 @@ class WorkspaceSyncService(SyncMappingService):
         return projection
 
     async def is_package_source(self) -> bool:
-        """Return whether this workspace is the managed resources source."""
-        return await managed_source_workspace_id(self.session) == self.workspace_id
+        """Return whether this workspace is the managed resources source.
+
+        Raises:
+            TracecatValidationError: It is the source, but its Git binding
+                changed since a platform admin pinned it.
+        """
+        if self.workspace_id is None:
+            return False
+        return await is_managed_source(self.session, self.workspace_id)
 
     async def project_push(
         self,
@@ -334,6 +340,7 @@ class WorkspaceSyncService(SyncMappingService):
                 workspace that is not the package source, or the include
                 file is invalid.
         """
+        self._require_workspace_sync_scope()
         if not await self.is_package_source():
             if package_include is not None:
                 raise TracecatValidationError(
@@ -397,11 +404,23 @@ class WorkspaceSyncService(SyncMappingService):
         url = await self._workspace_git_url()
         transport = self._transport_for_provider()
         ref = ref or url.ref or await self._default_branch(transport, url=url)
-        include_text: str | None = None
-        if ref and await transport.branch_exists(url=url, branch=ref):
-            tree = await transport.read_files(url=url, ref=ref, ref_kind="branch")
-            include_text = tree.files.get(PACKAGE_INCLUDE_FILENAME)
+        include_text = await self._branch_include(transport, url=url, ref=ref)
         return await read_package(self, include_text=include_text or "", ref=ref)
+
+    async def _default_branch_include(self) -> str | None:
+        """Read the package include file on the binding's or default branch."""
+        url = await self._workspace_git_url()
+        transport = self._transport_for_provider()
+        ref = url.ref or await self._default_branch(transport, url=url)
+        return await self._branch_include(transport, url=url, ref=ref)
+
+    async def _branch_include(
+        self, transport: VcsSyncTransport, *, url: GitUrl, ref: str | None
+    ) -> str | None:
+        if not ref or not await transport.branch_exists(url=url, branch=ref):
+            return None
+        tree = await transport.read_files(url=url, ref=ref, ref_kind="branch")
+        return tree.files.get(PACKAGE_INCLUDE_FILENAME)
 
     async def _default_branch(
         self, transport: VcsSyncTransport, *, url: GitUrl
@@ -414,7 +433,12 @@ class WorkspaceSyncService(SyncMappingService):
         rows = (
             await self.session.execute(
                 select(ManagedResource.resource_type, ManagedResource.local_id).where(
-                    ManagedResource.workspace_id == self.workspace_id
+                    ManagedResource.workspace_id == self.workspace_id,
+                    # Registry repositories a package installed are recorded
+                    # here too, but they are not workspace sync resources.
+                    ManagedResource.resource_type.in_(
+                        [resource_type.value for resource_type in SyncResourceType]
+                    ),
                 )
             )
         ).tuples()
@@ -445,6 +469,19 @@ class WorkspaceSyncService(SyncMappingService):
         }
         if not dropped:
             return projection
+        # Projection created customer mappings for these before they were
+        # dropped. Remove them, so the customer's sync never treats a managed
+        # resource as one it pushed.
+        for resource_type, local_ids in managed.items():
+            await self.session.execute(
+                delete(WorkspaceSyncResourceMapping).where(
+                    WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                    WorkspaceSyncResourceMapping.provider
+                    == self._mapping_provider_value,
+                    WorkspaceSyncResourceMapping.resource_type == resource_type.value,
+                    WorkspaceSyncResourceMapping.local_id.in_(local_ids),
+                )
+            )
         spec = workspace_spec_from_maps(
             {
                 adapter.spec_attr: {
@@ -605,13 +642,19 @@ class WorkspaceSyncService(SyncMappingService):
             url = await self._workspace_git_url()
             transport = self._transport_for_provider()
             remote_tree = await transport.read_files(url=url, ref=params.compare_ref)
+
+        async def remote_include() -> str | None:
+            if remote_tree is not None:
+                return remote_tree.files.get(PACKAGE_INCLUDE_FILENAME)
+            # No branch to compare with: preview the include file the push
+            # would read, the one on the default branch.
+            return await self._default_branch_include()
+
         push = await self.project_push(
             resources=params.resources,
             include_schedules=params.include_schedules,
             package_include=params.package_include,
-            remote_include=include_reader(
-                remote_tree.files.get(PACKAGE_INCLUDE_FILENAME) if remote_tree else None
-            ),
+            remote_include=remote_include,
             create_missing_mappings=False,
         )
         projection = push.projection
@@ -1281,6 +1324,10 @@ class WorkspaceSyncService(SyncMappingService):
         scope implied by the resource types present in ``spec``.
         """
         self._enforce_required_scopes(sorted(_export_read_scopes_for_spec(spec)))
+
+    def require_import_scopes(self, spec: WorkspaceSpec) -> None:
+        """Enforce the scopes a non-dry-run pull of ``spec`` would need."""
+        self._require_pull_scopes(spec, dry_run=False)
 
     def _require_pull_scopes(self, spec: WorkspaceSpec, *, dry_run: bool) -> None:
         """Enforce scopes required by the resources in a parsed pull spec."""

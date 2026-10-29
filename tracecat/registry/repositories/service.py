@@ -83,6 +83,11 @@ class RegistryReposService(BaseOrgService):
     ) -> RegistryRepository:
         """Update a registry repository."""
         await ensure_registry_repository_unmanaged(self.session, repository.id)
+        return await self._apply_update(repository, params)
+
+    async def _apply_update(
+        self, repository: RegistryRepository, params: RegistryRepositoryUpdate
+    ) -> RegistryRepository:
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(repository, key, value)
         self.session.add(repository)
@@ -111,7 +116,6 @@ class RegistryReposService(BaseOrgService):
             RegistryActionValidationError, TracecatCredentialsNotFoundError:
                 surfaced from the underlying sync.
         """
-        await ensure_registry_repository_unmanaged(self.session, repository.id)
         # parse_git_url and RegistryActionsService are imported lazily
         # because tracecat.git.utils and tracecat.registry.repository both
         # import RegistryReposService back, which would cycle if pulled to
@@ -125,6 +129,9 @@ class RegistryReposService(BaseOrgService):
         # the same as "not found" so this check cannot enable probing.
         if repository.organization_id != self.organization_id:
             raise RegistryNotFound("Registry repository not found")
+        # After the org check, so another org's managed repository is still
+        # reported as not found.
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
 
         if repository.origin != DEFAULT_REGISTRY_ORIGIN:
             await check_entitlement(
@@ -201,8 +208,10 @@ class RegistryReposService(BaseOrgService):
             force=force,
         )
 
+        # Guarded above; update_repository would re-read the id of the expired
+        # instance, which is implicit IO on an async session.
         self.session.expire(repository)
-        await self.update_repository(
+        await self._apply_update(
             repository,
             RegistryRepositoryUpdate(
                 last_synced_at=last_synced_at, commit_sha=sync_outcome.commit_sha

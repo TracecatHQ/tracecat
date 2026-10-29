@@ -23,7 +23,7 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_none_managed, ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
 from tracecat.workflow.management.folders.schemas import (
@@ -452,6 +452,21 @@ class WorkflowFolderService(BaseWorkspaceService):
             folder_ids = select(WorkflowFolder.id).where(
                 WorkflowFolder.workspace_id == self.workspace_id,
                 WorkflowFolder.path.startswith(folder.path, autoescape=True),
+            )
+            # Moving or deleting the subtree's workflows edits each one, so
+            # a managed workflow anywhere in it blocks the delete.
+            await ensure_none_managed(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.WORKFLOW,
+                local_ids=list(
+                    await self.session.scalars(
+                        select(Workflow.id).where(
+                            Workflow.workspace_id == self.workspace_id,
+                            Workflow.folder_id.in_(folder_ids),
+                        )
+                    )
+                ),
             )
             if delete_workflows:
                 await self._delete_workflows_in_folders(folder_ids)

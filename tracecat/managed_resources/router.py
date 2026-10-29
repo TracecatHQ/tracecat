@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, Select, select
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole, WorkspaceUserRouteRole
@@ -23,7 +23,7 @@ from tracecat.managed_resources.schemas import (
     ManagedResourceDetach,
     ManagedResourceRead,
 )
-from tracecat.pagination import Page, PageParams, paginate
+from tracecat.pagination import Page, PageParams, PaginationError, paginate
 from tracecat.workspace_sync.enums import SyncResourceType
 
 router = APIRouter(prefix="/managed-resources", tags=["managed-resources"])
@@ -45,15 +45,20 @@ async def list_managed_resources(
 ) -> Page[ManagedResourceRead]:
     """List the workspace's managed resources, optionally of one type."""
     stmt = select(ManagedResource).where(
-        ManagedResource.workspace_id == role.workspace_id
+        ManagedResource.workspace_id == role.workspace_id,
+        # Registry repository ownership rows are org-level bookkeeping, not
+        # workspace resources the UI badges.
+        ManagedResource.resource_type.in_(
+            [resource_type.value for resource_type in SyncResourceType]
+        ),
     )
     if resource_type is not None:
         stmt = stmt.where(ManagedResource.resource_type == resource_type.value)
-    page = await paginate(
+    page = await _paginate(
         session,
         stmt,
-        page=PageParams(limit=limit, cursor=cursor),
-        order_by=(ManagedResource.resource_type.asc(), ManagedResource.local_id.asc()),
+        PageParams(limit=limit, cursor=cursor),
+        (ManagedResource.resource_type.asc(), ManagedResource.local_id.asc()),
     )
     return Page(
         items=[
@@ -61,6 +66,7 @@ async def list_managed_resources(
             for row in page.items
         ],
         next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
     )
 
 
@@ -73,13 +79,13 @@ async def list_detached_copies(
     cursor: _Cursor = None,
 ) -> Page[DetachedCopyRead]:
     """List copies made by detaching managed resources, for "detached from X"."""
-    page = await paginate(
+    page = await _paginate(
         session,
         select(ManagedDetachedCopy).where(
             ManagedDetachedCopy.workspace_id == role.workspace_id
         ),
-        page=PageParams(limit=limit, cursor=cursor),
-        order_by=(ManagedDetachedCopy.created_at.desc(), ManagedDetachedCopy.id.asc()),
+        PageParams(limit=limit, cursor=cursor),
+        (ManagedDetachedCopy.created_at.desc(), ManagedDetachedCopy.id.asc()),
     )
     return Page(
         items=[
@@ -93,6 +99,7 @@ async def list_detached_copies(
             for row in page.items
         ],
         next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
     )
 
 
@@ -118,4 +125,19 @@ async def detach_managed_resource(
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+async def _paginate[T](
+    session: AsyncDBSession,
+    stmt: Select[tuple[T]],
+    page: PageParams,
+    order_by: tuple[ColumnElement[Any], ...],
+) -> Page[T]:
+    """Paginate, answering a malformed or stale cursor with a 400."""
+    try:
+        return await paginate(session, stmt, page=page, order_by=order_by)
+    except PaginationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=e.detail or str(e)
         ) from e

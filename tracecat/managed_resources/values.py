@@ -89,5 +89,7 @@ async def ensure_values_only_update(
         raise ManagedResourceLockedError(resource_type, local_id)
     if requested_keys is None:
         return
-    if set(requested_keys) != set(current_keys() if current_keys else ()):
+    # Compare as sorted lists, not sets: sending a key twice would otherwise
+    # pass and let the update write a duplicate key.
+    if sorted(requested_keys) != sorted(current_keys() if current_keys else ()):
         raise ManagedResourceLockedError(resource_type, local_id)
