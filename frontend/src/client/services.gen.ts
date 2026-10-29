@@ -16951,7 +16951,7 @@ export const scimGetScimConnection =
 
 /**
  * Issue Scim Token
- * Create or rotate the SCIM connection token.
+ * Create or rotate the SCIM connection token. Owners only.
  *
  * The raw token is returned only in this response.
  * @returns ScimConnectionTokenRead Successful Response
@@ -16962,6 +16962,9 @@ export const scimIssueScimToken =
     return __request(OpenAPI, {
       method: "POST",
       url: "/scim/connection",
+      errors: {
+        403: "Only organization owners can issue or rotate the token.",
+      },
     })
   }
 

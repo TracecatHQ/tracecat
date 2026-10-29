@@ -28,6 +28,8 @@ from tests.support.membership import (
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_OWNER_SCOPES
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     ExternalGroup,
     ExternalGroupMapping,
@@ -35,13 +37,17 @@ from tracecat.db.models import (
     ExternalUser,
     Group,
     GroupMember,
+    GroupRoleAssignment,
     Organization,
     OrganizationMembership,
+    RoleScope,
     ScimConnection,
+    Scope,
     User,
     UserRoleAssignment,
     effective_group_members,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -776,6 +782,260 @@ async def test_deleting_requires_scim_management(
 
 
 # =============================================================================
+# Grant ceiling
+# =============================================================================
+
+# Held by owners but not admins, so it marks a group above an admin's ceiling.
+OWNER_ONLY_SCOPE = "org:owner:assign"
+
+
+async def _group_granting(
+    session: AsyncSession, org: Organization, scope_name: str
+) -> Group:
+    """A group whose org-wide role assignment grants one scope."""
+    await seed_system_scopes(session)
+    scope = (
+        await session.execute(select(Scope).where(Scope.name == scope_name))
+    ).scalar_one()
+    group = await _make_group(session, org)
+    role = DBRole(
+        name=f"scim-role-{uuid.uuid4().hex[:8]}",
+        slug=None,
+        description=None,
+        organization_id=org.id,
+    )
+    session.add(role)
+    await session.flush()
+    session.add(RoleScope(role_id=role.id, scope_id=scope.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=org.id,
+            group_id=group.id,
+            workspace_id=None,
+            role_id=role.id,
+        )
+    )
+    await session.flush()
+    return group
+
+
+async def _mapped_groups(session: AsyncSession, org: Organization) -> set[uuid.UUID]:
+    stmt = select(ExternalGroupMapping.group_id).where(
+        ExternalGroupMapping.organization_id == org.id
+    )
+    return set((await session.execute(stmt)).scalars())
+
+
+def test_owner_only_scope_is_above_the_admin_ceiling() -> None:
+    assert OWNER_ONLY_SCOPE in ORG_OWNER_SCOPES
+    assert OWNER_ONLY_SCOPE not in ORG_ADMIN_SCOPES
+
+
+@pytest.mark.anyio
+async def test_mapping_cannot_grant_scopes_the_caller_lacks(
+    session: AsyncSession, org: Organization
+) -> None:
+    """A mapping is a membership grant, so it stays under the caller's ceiling."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    await _pushed_member(session, org, external.id)
+    group = await _group_granting(session, org, OWNER_ONLY_SCOPE)
+    service = SCIMService(session, _role(org, *ORG_ADMIN_SCOPES))
+
+    with pytest.raises(
+        TracecatAuthorizationError, match="Cannot grant scopes not held by the caller"
+    ):
+        await service.create_mapping(external_group_id=external.id, group_id=group.id)
+
+    assert await _mapped_groups(session, org) == set()
+
+
+@pytest.mark.anyio
+async def test_mapping_changes_cannot_grant_scopes_the_caller_lacks(
+    session: AsyncSession, org: Organization
+) -> None:
+    """One addition above the ceiling rejects the whole batch, removals too."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    member = await _pushed_member(session, org, external.id)
+    allowed = await _make_group(session, org)
+    privileged = await _group_granting(session, org, OWNER_ONLY_SCOPE)
+    service = SCIMService(session, _role(org, *ORG_ADMIN_SCOPES))
+    existing = await service.create_mapping(
+        external_group_id=external.id, group_id=allowed.id
+    )
+
+    with pytest.raises(
+        TracecatAuthorizationError, match="Cannot grant scopes not held by the caller"
+    ):
+        await service.apply_mapping_changes(
+            create=[
+                ExternalGroupMappingCreate(
+                    external_group_id=external.id, group_id=privileged.id
+                )
+            ],
+            delete=[existing.id],
+        )
+
+    assert await _mapped_groups(session, org) == {allowed.id}
+    assert await _idp_members(session, allowed.id) == {member.id}
+    assert await _manual_members(session, allowed.id) == set()
+
+
+@pytest.mark.anyio
+async def test_activation_cannot_grant_scopes_the_caller_lacks(
+    session: AsyncSession, org: Organization
+) -> None:
+    """Activation is rejected before it admits anyone or flips the status."""
+    group = await _group_granting(session, org, OWNER_ONLY_SCOPE)
+    await session.execute(
+        update(ScimConnection)
+        .where(ScimConnection.organization_id == org.id)
+        .values(status=ScimConnectionStatus.PENDING)
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"pending-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="test",
+    )
+    session.add(user)
+    await session.flush()
+    external_user_id = await seed_external_user(
+        session, organization_id=org.id, user_id=user.id
+    )
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-activate"
+    )
+    await seed_external_group_members(
+        session, external_group_id=external.id, external_user_ids=[external_user_id]
+    )
+    service = SCIMService(session, _role(org, *ORG_ADMIN_SCOPES))
+
+    with pytest.raises(
+        TracecatAuthorizationError, match="Cannot grant scopes not held by the caller"
+    ):
+        await service.activate(
+            [
+                ExternalGroupMappingCreate(
+                    external_group_id=external.id, group_id=group.id
+                )
+            ]
+        )
+
+    assert not await _is_member(session, user_id=user.id, organization_id=org.id)
+    assert await _mapped_groups(session, org) == set()
+    status = await session.scalar(
+        select(ScimConnection.status).where(ScimConnection.organization_id == org.id)
+    )
+    assert status == ScimConnectionStatus.PENDING
+
+
+@pytest.mark.anyio
+async def test_activation_checks_the_ceiling_before_purging_the_callers_groups(
+    session: AsyncSession, org: Organization
+) -> None:
+    """A mapping that purges the caller's own group cannot fail a later one.
+
+    The caller holds ``org:settings:read`` only through a manual row in ``held``.
+    Mapping ``held`` drops that row, and ``target`` grants the same scope back
+    through the caller's provider group, so the outcome must not depend on
+    which mapping installs first.
+    """
+    caller = await _make_user(session, org)
+    held = await _group_granting(session, org, "org:settings:read")
+    target = await _group_granting(session, org, "org:settings:read")
+    await seed_group_member(session, group_id=held.id, user_id=caller.id)
+    await session.execute(
+        update(ScimConnection)
+        .where(ScimConnection.organization_id == org.id)
+        .values(status=ScimConnectionStatus.PENDING)
+    )
+    without_caller = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-others"
+    )
+    await _pushed_member(session, org, without_caller.id)
+    with_caller = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-caller"
+    )
+    await seed_external_group_members(
+        session,
+        external_group_id=with_caller.id,
+        external_user_ids=[
+            await seed_external_user(session, organization_id=org.id, user_id=caller.id)
+        ],
+    )
+    role = Role(
+        type="user",
+        organization_id=org.id,
+        workspace_id=None,
+        user_id=caller.id,
+        service_id="tracecat-api",
+        scopes=frozenset({"org:scim:manage", "org:settings:read"}),
+    )
+
+    await SCIMService(session, role).activate(
+        [
+            ExternalGroupMappingCreate(
+                external_group_id=without_caller.id, group_id=held.id
+            ),
+            ExternalGroupMappingCreate(
+                external_group_id=with_caller.id, group_id=target.id
+            ),
+        ]
+    )
+
+    assert await _mapped_groups(session, org) == {held.id, target.id}
+    assert caller.id not in await _manual_members(session, held.id)
+    assert await _idp_members(session, target.id) == {caller.id}
+
+
+@pytest.mark.anyio
+async def test_owner_can_map_a_group_the_admin_cannot(
+    session: AsyncSession, org: Organization
+) -> None:
+    """The ceiling follows the caller: an owner holds the group's scopes."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    member = await _pushed_member(session, org, external.id)
+    group = await _group_granting(session, org, OWNER_ONLY_SCOPE)
+    service = SCIMService(session, _role(org, *ORG_OWNER_SCOPES))
+
+    await service.create_mapping(external_group_id=external.id, group_id=group.id)
+
+    assert await _idp_members(session, group.id) == {member.id}
+
+
+@pytest.mark.anyio
+async def test_admin_can_map_a_group_within_their_scopes(
+    session: AsyncSession, org: Organization
+) -> None:
+    """Groups granting only scopes the admin holds still map through every path."""
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-eng"
+    )
+    member = await _pushed_member(session, org, external.id)
+    first = await _group_granting(session, org, "org:read")
+    second = await _group_granting(session, org, "org:read")
+    service = SCIMService(session, _role(org, *ORG_ADMIN_SCOPES))
+
+    await service.create_mapping(external_group_id=external.id, group_id=first.id)
+    await service.apply_mapping_changes(
+        create=[
+            ExternalGroupMappingCreate(
+                external_group_id=external.id, group_id=second.id
+            )
+        ],
+        delete=[],
+    )
+
+    assert await _idp_members(session, first.id) == {member.id}
+    assert await _idp_members(session, second.id) == {member.id}
+
+
+# =============================================================================
 # Activation
 # =============================================================================
 
@@ -1059,13 +1319,14 @@ async def test_disconnect_detaches_the_directory_without_revoking_access(
 
 @pytest.mark.anyio
 async def test_reconnecting_after_disconnect_starts_pending(
-    session: AsyncSession, org: Organization, admin_role: Role, service: SCIMService
+    session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
     """A new token after disconnect needs review and activation again."""
     await _make_group(session, org)
     await service.disconnect()
 
-    issued = await ScimConnectionService(session, admin_role).issue_token()
+    owner = _role(org, "org:scim:manage", "org:scim:token")
+    issued = await ScimConnectionService(session, owner).issue_token()
 
     assert issued.connection.status == ScimConnectionStatus.PENDING
     assert issued.connection.revoked_at is None

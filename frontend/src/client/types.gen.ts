@@ -28357,6 +28357,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ScimConnectionTokenRead
+        /**
+         * Only organization owners can issue or rotate the token.
+         */
+        403: unknown
       }
     }
   }

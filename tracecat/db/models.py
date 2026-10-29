@@ -1385,6 +1385,7 @@ class WorkflowTagLink(Base):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
 
@@ -1825,6 +1826,7 @@ class Webhook(WorkspaceModel):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=True,
+        index=True,
     )
     allowlisted_cidrs: Mapped[list[str]] = mapped_column(
         JSONB,
@@ -2124,6 +2126,7 @@ class Schedule(WorkspaceModel):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=True,
+        index=True,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="schedules")
@@ -2204,6 +2207,7 @@ class Action(WorkspaceModel):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="actions")
@@ -3515,6 +3519,7 @@ class CaseTask(WorkspaceModel):
         UUID,
         ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000), nullable=True)

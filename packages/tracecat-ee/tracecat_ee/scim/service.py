@@ -56,6 +56,7 @@ from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.service import BaseOrgService
+from tracecat_ee.rbac.service import RBACService
 from tracecat_ee.scim.credentials import SCIM_ROLE_SCOPES
 from tracecat_ee.scim.schemas import (
     ExternalGroupMappingCreate,
@@ -428,12 +429,17 @@ class SCIMService(BaseOrgService):
 
         Raises:
             TracecatNotFoundError: Either side is not in this organization.
+            TracecatAuthorizationError: The group grants scopes the caller
+                does not hold.
         """
         await lock_role_changes(self.session, self.organization_id)
         await self._get_external_group(external_group_id)
         await self._lock_group(group_id)
         if not await self._connection_is_active():
             raise TracecatConflictError("Activate SCIM before creating group mappings")
+        await RBACService(self.session, self.role).ensure_group_membership_assignable(
+            {group_id}
+        )
 
         stmt = (
             pg_insert(ExternalGroupMapping)
@@ -519,8 +525,13 @@ class SCIMService(BaseOrgService):
             TracecatNotFoundError: A mapping or either side of one is not in
                 this organization.
             TracecatConflictError: The connection is not active.
+            TracecatAuthorizationError: An added mapping's group grants scopes
+                the caller does not hold.
         """
         await lock_role_changes(self.session, self.organization_id)
+        await RBACService(self.session, self.role).ensure_group_membership_assignable(
+            {mapping.group_id for mapping in create}
+        )
         await self._change_mappings(additions=create, removals=delete)
 
     async def _change_mappings(
@@ -529,7 +540,11 @@ class SCIMService(BaseOrgService):
         additions: Sequence[ExternalGroupMappingCreate],
         removals: Sequence[UUID],
     ) -> None:
-        """Remove then add mappings, auditing each one. Callers hold the org lock."""
+        """Remove then add mappings, auditing each one.
+
+        Callers hold the org lock and have checked the additions against the
+        grant ceiling.
+        """
         removal_ids = set(removals)
         removed: Sequence[tuple[UUID, UUID]] = (
             (
@@ -781,6 +796,8 @@ class SCIMService(BaseOrgService):
             TracecatNotFoundError: No connection exists, or a mapping side is
                 not in this organization.
             TracecatConflictError: The connection is not pending activation.
+            TracecatAuthorizationError: A mapping's group grants scopes the
+                caller does not hold.
         """
         await lock_role_changes(self.session, self.organization_id)
         connection = (
@@ -795,6 +812,12 @@ class SCIMService(BaseOrgService):
         # A stale client must not activate a disconnected or already active directory.
         if connection.status != ScimConnectionStatus.PENDING:
             raise TracecatConflictError("SCIM connection is not pending activation")
+        # Checked once, before anything is admitted or purged: later steps can
+        # drop the caller's own manual membership, which must not fail a
+        # mapping this check already allowed.
+        await RBACService(self.session, self.role).ensure_group_membership_assignable(
+            {mapping.group_id for mapping in proposed}
+        )
 
         # Status first: admission and mapping installation below read it.
         connection.status = ScimConnectionStatus.ACTIVE
@@ -805,11 +828,7 @@ class SCIMService(BaseOrgService):
         # while retaining the administrator as the audit actor.
         provisioning_role = self.role.model_copy(update={"scopes": SCIM_ROLE_SCOPES})
         await SCIMService(self.session, provisioning_role)._admit_pushed_users()
-        for mapping in proposed:
-            await self.create_mapping(
-                external_group_id=mapping.external_group_id,
-                group_id=mapping.group_id,
-            )
+        await self._change_mappings(additions=proposed, removals=[])
         await self.session.commit()
 
     async def _admit_pushed_users(self) -> None:

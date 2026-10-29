@@ -207,12 +207,23 @@ async def validate_workflow_definition(
 ) -> WorkflowDefinition:
     # Reaching here means the webhook is online and connected to an entrypoint
 
+    # validate_incoming_webhook sets the role from the webhook's workspace.
+    role = ctx_role.get()
+    if role is None or role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized webhook request",
+        )
+
     # Match the webhook id with the workflow id and get the latest version
     # of the workflow defitniion.
     async with get_async_session_context_manager() as session:
         result = await session.execute(
             select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == workflow_id)
+            .where(
+                WorkflowDefinition.workspace_id == role.workspace_id,
+                WorkflowDefinition.workflow_id == workflow_id,
+            )
             .order_by(WorkflowDefinition.version.desc())
             .limit(1)
         )

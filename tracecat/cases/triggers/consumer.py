@@ -593,7 +593,9 @@ class CaseTriggerConsumer:
     ) -> bool:
         defn_service = WorkflowDefinitionsService(session, role=role)
         wf_id = WorkflowUUID.new(trigger.workflow_id)
-        defn = await defn_service.get_definition_by_workflow_id(wf_id)
+        defn = await defn_service.get_definition_by_workflow_id(
+            wf_id, load_relationships=False, load_workflow=True
+        )
         if not defn:
             logger.warning(
                 "No workflow definition found for workflow",
@@ -695,7 +697,9 @@ class CaseTriggerConsumer:
     ) -> bool:
         defn_service = WorkflowDefinitionsService(session, role=role)
         wf_id = WorkflowUUID.new(workflow_id)
-        defn = await defn_service.get_definition_by_workflow_id(wf_id)
+        defn = await defn_service.get_definition_by_workflow_id(
+            wf_id, load_relationships=False
+        )
         wf_exec_id = fields.get("wf_exec_id")
         parent_id = self._parse_optional_uuid(fields.get("parent_id"))
         audit_role = self._get_audit_role(
