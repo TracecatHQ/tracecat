@@ -130,7 +130,8 @@ jobs:
           set -euo pipefail
           init=packages/tracecat-registry/tracecat_registry/__init__.py
           suffix=".post$(git log -1 --format=%ct)"
-          sed -i -E "s/^(__(pep440_)?version__ = \"[^\"]+)\"$/\1${suffix}\"/" "$init"
+          sed -E "s/^(__(pep440_)?version__ = \"[^\"]+)\"$/\1${suffix}\"/" "$init" > "$init.stamped"
+          mv "$init.stamped" "$init"
           stamped=$(grep -cF "${suffix}\"" "$init" || true)
           if [[ "$stamped" != 2 ]]; then
             echo "Expected 2 stamped version lines in $init, found $stamped." >&2

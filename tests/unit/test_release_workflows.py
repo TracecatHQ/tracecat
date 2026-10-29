@@ -43,23 +43,23 @@ def run_image_guard(
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
 @pytest.mark.parametrize(
-    ("tag", "latest"),
+    ("tag", "latest", "release"),
     [
-        ("1.2.0", "true"),
-        ("1.2.1", "true"),
-        ("0.0.0", "true"),
-        ("1.3.0-alpha.1", "false"),
-        ("1.3.0-rc.1", "false"),
-        ("1.0.0-beta.1-rc.2.post1", "false"),
-        ("nightly-20260901", "false"),
+        ("1.2.0", "true", "true"),
+        ("1.2.1", "true", "true"),
+        ("0.0.0", "true", "true"),
+        ("1.3.0-alpha.1", "false", "true"),
+        ("1.3.0-rc.1", "false", "true"),
+        ("1.0.0-beta.1-rc.2.post1", "false", "true"),
+        ("nightly-20260901", "false", "false"),
     ],
 )
 def test_only_stable_tags_promote_latest(
-    tmp_path: Path, event: str, tag: str, latest: str
+    tmp_path: Path, event: str, tag: str, latest: str, release: str
 ) -> None:
     result, output = run_image_guard(tmp_path, event=event, ref=tag, tag=tag)
     assert result.returncode == 0, result.stderr
-    assert output == {"tag": tag, "latest": latest}
+    assert output == {"tag": tag, "latest": latest, "release": release}
 
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
@@ -115,7 +115,69 @@ def test_branch_and_scheduled_builds_do_not_promote_latest(
         tmp_path, event=event, ref_type="branch", ref=branch
     )
     assert result.returncode == 0, result.stderr
-    assert output == {"tag": "", "latest": "false"}
+    assert output == {"tag": "", "latest": "false", "release": "false"}
+
+
+def test_non_release_api_builds_stamp_the_commit_time_on_the_registry_version(
+    tmp_path: Path,
+) -> None:
+    """Release builds keep the file; others get the same .post<commit time>."""
+    workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["build-and-push-api"]["steps"]
+        if step.get("name") == "Stamp registry version on non-release builds"
+    )
+    assert step["if"] == "needs.validate.outputs.release == 'false'"
+
+    init = tmp_path / "packages/tracecat-registry/tracecat_registry/__init__.py"
+    init.parent.mkdir(parents=True)
+    original = (
+        ROOT / "packages/tracecat-registry/tracecat_registry/__init__.py"
+    ).read_text()
+    init.write_text(original)
+    commit_time = "1761696000"
+    git_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_COMMITTER_DATE": f"@{commit_time} +0000",
+    }
+    for args in (
+        ["init", "-q"],
+        ["add", "."],
+        ["-c", "commit.gpgsign=false", "commit", "-q", "-m", "base"],
+    ):
+        subprocess.run(["git", *args], cwd=tmp_path, env=git_env, check=True)
+
+    subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    stamped = init.read_text()
+    for name in ("__version__", "__pep440_version__"):
+        base = next(
+            line.split('"')[1]
+            for line in original.splitlines()
+            if line.startswith(f"{name} = ")
+        )
+        assert f'{name} = "{base}.post{commit_time}"' in stamped.splitlines()
+    unstamped = [
+        line
+        for line in stamped.splitlines()
+        if not line.startswith(("__version__ = ", "__pep440_version__ = "))
+    ]
+    assert unstamped == [
+        line
+        for line in original.splitlines()
+        if not line.startswith(("__version__ = ", "__pep440_version__ = "))
+    ]
 
 
 def test_only_serialized_promotion_can_publish_latest() -> None:
