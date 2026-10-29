@@ -101,8 +101,14 @@ Before mutation, show:
 - For a patch, the pinned baseline and evidence that the migration gate passed.
 - Public tag and whether the GitHub release is stable or a prerelease.
 - Version-bump, branch-push, tag-push, and release-publication commands.
-- Stable image tags update `latest`; prereleases leave `latest` unchanged.
-  This policy permits an older train's stable hotfix to become `latest`.
+- Stable image tags update `latest` only when newer than the version `latest`
+  points to, so an older train's hotfix moves only its `X.Y` tag.
+  Prereleases leave `latest` unchanged.
+- Whether the GitHub release is marked latest: only when the tag is higher
+  than every published stable release, because the Compose docs download
+  `releases/latest/download/<file>`.
+- The Compose install files attached at publication, with `docker-compose.yml`
+  pinned to the tag's image.
 
 Wait for explicit confirmation unless the user already approved this exact
 release plan. Approval to merge or fix a PR is not release authorization.
@@ -121,17 +127,18 @@ Review the generated diff and, for a patch, repeat the migration gate against
 the final release tree (including all version-bump edits) before committing or
 pushing. Stage only the changed files individually, and
 create a signed `release: <tag>` commit. Never bypass hooks or signing. Push
-`BRANCH`. For a prerelease, record both current `latest` image digests before
-pushing the tag. Create an annotated `<tag>` on the version-bump commit and push
-it. No merge to `main` is involved. Leave the branch in place.
+`BRANCH`. For a prerelease or an older train's hotfix, record both current
+`latest` image digests before pushing the tag. Create an annotated `<tag>` on
+the version-bump commit and push it. No merge to `main` is involved. Leave the branch in place.
 
 ## Verify the images before publication
 
 Tag push triggers `.github/workflows/build-push-images.yml`. Find the run whose
 tag and `headSha` match the new release commit, then watch it to successful
 completion. Inspect both multi-platform manifests and their version/revision
-labels. For a prerelease, compare both `latest` digests before and after the
-build; for a stable release, verify `latest` points to the new image manifests.
+labels. For a prerelease or an older train's hotfix, compare both `latest`
+digests before and after the build; for the highest stable release, verify
+`latest` points to the new image manifests.
 
 If image publication fails, stop before creating the GitHub release. Report the
 existing branch/tag and failed run; never move the tag or automatically cut a
@@ -148,7 +155,8 @@ cannot protect a direct dispatch or rerun. On a mismatch or lookup failure,
 stop; never bypass the helper or move the tag. A new release containing the
 current publisher requires a separately approved release plan. For a retry,
 verify the run ID, event, and release commit rather than accepting an older
-successful run.
+successful run. Rebuild only the newest patch of a train: a rebuild re-pushes
+the `X.Y` tag, so rebuilding an older patch moves that tag back.
 
 ## Release notes
 
@@ -218,18 +226,56 @@ notes for the same commits.
 ## Publish and report
 
 Write the categorized Markdown and a `PREV_TAG...<tag>` comparison link to a
-temporary notes file. Publish the existing tag using `--verify-tag`, so a typo
-cannot create a tag on the default branch:
+temporary notes file.
+
+Releases are immutable once published, so attach the Docker Compose install
+files in the same `gh release create` call; they cannot be added later. Stage
+them from the tag's tree, not the working tree:
 
 ```sh
-# Stable release:
-gh release create '<tag>' --verify-tag --latest \
+ASSET_DIR=$(mktemp -d)
+for f in docker-compose.sandbox.yml env.sh env-migration.sh Caddyfile; do
+  git show "<tag>:$f" > "$ASSET_DIR/$f"
+done
+# GitHub renames leading-dot assets, so publish the template as env.example.
+git show '<tag>:.env.example' > "$ASSET_DIR/env.example"
+# Pin the release's Compose file to its own image, so it never pairs with
+# another train's `latest` image. Release branches may already carry the tag.
+git show '<tag>:docker-compose.yml' |
+  sed 's/${TRACECAT__IMAGE_TAG:-latest}/${TRACECAT__IMAGE_TAG:-<tag>}/g' \
+  > "$ASSET_DIR/docker-compose.yml"
+rg -oN --no-filename 'TRACECAT__IMAGE_TAG:-[^}]*' "$ASSET_DIR/docker-compose.yml" | sort -u
+find "$ASSET_DIR" -type f -size +0 | wc -l
+```
+
+Stop unless the `rg` line prints exactly `TRACECAT__IMAGE_TAG:-<tag>` and the
+count is `6`. A missing file at the tag leaves an empty asset, which the count
+catches. All six files exist at every release tag since 1.1.0.
+
+Publish the existing tag using `--verify-tag`, so a typo cannot create a tag on
+the default branch. `gh` uploads the files to a draft and then publishes it:
+
+```sh
+# Stable release: mark it latest only when it is higher than every published
+# stable release, so an older train's patch never takes over the docs'
+# releases/latest download links. Unpublished tags and drafts do not count.
+HIGHEST_PUBLISHED=$(gh release list --exclude-drafts --exclude-pre-releases \
+  --limit 1000 --json tagName --jq '.[].tagName' |
+  rg '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+echo "highest published stable: ${HIGHEST_PUBLISHED:?no published stable releases listed; stop}"
+HIGHEST_STABLE=$(printf '%s\n' "$HIGHEST_PUBLISHED" '<tag>' | sort -V | tail -n 1)
+if [ "$HIGHEST_STABLE" = '<tag>' ]; then LATEST_FLAG=--latest; else LATEST_FLAG=--latest=false; fi
+gh release create '<tag>' "$ASSET_DIR"/* --verify-tag "$LATEST_FLAG" \
   --title 'Tracecat <tag>' --notes-file "$BODY_FILE"
 
 # Prerelease:
-gh release create '<tag>' --verify-tag --prerelease --latest=false \
+gh release create '<tag>' "$ASSET_DIR"/* --verify-tag --prerelease --latest=false \
   --title 'Tracecat <tag>' --notes-file "$BODY_FILE"
 ```
+
+If the stable `echo` fails, stop: an empty `HIGHEST_PUBLISHED` means
+`gh release list` failed. After publishing, confirm with `gh release view '<tag>' --json assets`
+that all six assets are attached.
 
 Run only the command for the approved release type. If the range contains no
 changes, state `No changes since <PREV_TAG>.` rather than reusing older notes.

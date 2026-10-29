@@ -20,8 +20,8 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     version.
 
     ```
-    curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/env-migration.sh
-    curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/.env.example
+    curl -fL -o env-migration.sh https://github.com/TracecatHQ/tracecat/releases/latest/download/env-migration.sh
+    curl -fL -o .env.example https://github.com/TracecatHQ/tracecat/releases/latest/download/env.example
     ```
 
   </Step>
@@ -32,6 +32,9 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     ```
     chmod +x env-migration.sh && ./env-migration.sh
     ```
+
+    The script keeps only keys that exist in the new template.
+    If you set `TRACECAT__IMAGE_TAG` in `.env`, add it back after the migration.
 
   </Step>
   <Step title="Update Docker Compose Configuration">
@@ -46,7 +49,7 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     ```
     # Back up your existing docker-compose.yml first; the download below overwrites it
     cp docker-compose.yml docker-compose.yml.bak
-    curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/docker-compose.yml
+    curl -fL -o docker-compose.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.yml
     ```
   </Step>
   <Step title="Update Caddyfile">
@@ -55,11 +58,28 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     ```
     # Back up your existing Caddyfile first; the download below overwrites it
     cp Caddyfile Caddyfile.bak
-    curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/Caddyfile
+    curl -fL -o Caddyfile https://github.com/TracecatHQ/tracecat/releases/latest/download/Caddyfile
+    ```
+  </Step>
+  <Step title="Update the sandbox overlay">
+    If you use nsjail, download the latest `docker-compose.sandbox.yml`.
+
+    ```
+    # Back up your existing overlay first; the download below overwrites it
+    cp docker-compose.sandbox.yml docker-compose.sandbox.yml.bak
+    curl -fL -o docker-compose.sandbox.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.sandbox.yml
     ```
   </Step>
   <Step title="Restart Tracecat">
-    Run `docker compose up` using the new Docker Compose and `.env` files.
+    Pull the new images, then restart Tracecat with the new Docker Compose and `.env` files.
+
+    ```
+    docker compose pull
+    docker compose up -d
+    ```
+
+    With nsjail, run both commands as `TRACECAT__EXECUTOR_BACKEND=nsjail docker compose -f docker-compose.yml -f docker-compose.sandbox.yml …`, the same as the start command. Without the inline variable, Compose reads `TRACECAT__EXECUTOR_BACKEND=direct` from `.env`, which overrides the overlay's `nsjail` default, so the executor runs the `direct` backend inside the privileged overlay.
+    To update to a specific version, download the files above from `https://github.com/TracecatHQ/tracecat/releases/download/<version>/<file>` instead, where the env template is `env.example`.
   </Step>
 </Steps>
 

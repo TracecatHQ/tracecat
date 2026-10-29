@@ -511,6 +511,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # latest only moves forward, so an older train's patch leaves it alone.
+          latest=ghcr.io/tracecathq/tracecat:latest
+          current=''
+          # --raw reads only the tag's own manifest, so "not found" here means
+          # the tag is absent (the first promotion), not missing child content.
+          if ! root=$(docker buildx imagetools inspect --raw "$latest" 2>&1); then
+            if [[ "$root" != *"$latest: not found"* ]]; then
+              echo "$root" >&2
+              exit 1
+            fi
+          else
+            # Any failure reading the label stops the job.
+            current=$(docker buildx imagetools inspect "$latest" \
+              --format '{{ index (index .Image "linux/amd64").Config.Labels "org.opencontainers.image.version" }}')
+            if [[ -z "$current" ]]; then
+              echo 'Could not read the version label on latest.' >&2
+              exit 1
+            fi
+          fi
+          if [[ -n "$current" && "$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n 1)" != "$VERSION" ]]; then
+            echo "latest is $current, newer than $VERSION; leaving it unchanged."
+            exit 0
+          fi
           for image in tracecat tracecat-ui tracecat-tunnel-gateway; do
             docker buildx imagetools create \
               --tag "ghcr.io/tracecathq/$image:latest" \

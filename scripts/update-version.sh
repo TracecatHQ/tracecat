@@ -228,10 +228,10 @@ tracked_candidate_files() {
 }
 
 # Capture Tracecat-specific version contexts, including files that only carry the
-# current version string rather than an image tag or raw GitHub URL.
+# current version string rather than a Terraform image tag.
 append_matching_files < <(
     tracked_candidate_files | xargs -0 rg -l \
-        "\\$\\{TRACECAT__IMAGE_TAG:-${VERSION_SEARCH_PATTERN}\\}|variable \"tracecat_image_tag\"|raw\\.githubusercontent\\.com/TracecatHQ/tracecat/${VERSION_SEARCH_PATTERN}/|TF_VAR_tracecat_image_tag=${VERSION_SEARCH_PATTERN}"
+        "variable \"tracecat_image_tag\"|TF_VAR_tracecat_image_tag=${VERSION_SEARCH_PATTERN}"
 )
 
 append_matching_files < <(
@@ -287,9 +287,7 @@ update_release_tag_file() {
     run_sed_in_place "s/$escaped_current_version/$escaped_new_version/g" "$file" && \
     run_sed_in_place "s#(/blob/)${VERSION_SEARCH_PATTERN}/#\\1${escaped_new_version}/#g" "$file" && \
     run_sed_in_place "s/\`${VERSION_SEARCH_PATTERN}\`/\`${escaped_new_version}\`/g" "$file" && \
-    run_sed_in_place "s/(\\$\\{TRACECAT__IMAGE_TAG:-)${VERSION_SEARCH_PATTERN}(\\})/\\1${escaped_new_version}\\4/g" "$file" && \
     run_sed_in_place '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$escaped_new_version"'"/' "$file" && \
-    run_sed_in_place "s#(raw\\.githubusercontent\\.com/TracecatHQ/tracecat/)${VERSION_SEARCH_PATTERN}/#\\1${escaped_new_version}/#g" "$file" && \
     run_sed_in_place "s/(TF_VAR_tracecat_image_tag=)${VERSION_SEARCH_PATTERN}/\\1${escaped_new_version}/g" "$file" && \
     echo "✓ Updated $file" || echo "✗ Failed to update $file"
 }

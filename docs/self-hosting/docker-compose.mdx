@@ -29,10 +29,10 @@ The `env.sh` script (next step) generates these automatically. If you need to ge
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/env.sh
+curl -fL -o env.sh https://github.com/TracecatHQ/tracecat/releases/latest/download/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/.env.example
+curl -fL -o .env.example https://github.com/TracecatHQ/tracecat/releases/latest/download/env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -50,14 +50,19 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/Caddyfile
+curl -fL -o Caddyfile https://github.com/TracecatHQ/tracecat/releases/latest/download/Caddyfile
 ```
 
 ## Download Docker Compose file
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/docker-compose.yml
+curl -fL -o docker-compose.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.yml
 ```
+
+These links download the files from the latest stable release, and its `docker-compose.yml` runs that release's images.
+To pin a version, download each file from `https://github.com/TracecatHQ/tracecat/releases/download/<version>/<file>`, where the env template is `env.example`.
+For releases that have no attached files, use `https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/<file>`, where it is `.env.example`.
+To override the image tag alone, set `TRACECAT__IMAGE_TAG=<version>` in `.env`.
 
 <Warning>
   Docker Compose defaults to the `direct` executor backend, which does not sandbox ordinary workflow actions.
@@ -74,7 +79,13 @@ Make sure your `docker-compose.yml` and generated `.env` files are in the same d
 docker compose up
 ```
 
-For nsjail, download `docker-compose.sandbox.yml` from the same Tracecat release as your image and place it beside `docker-compose.yml`. Start with both files so the overlay supplies the container permissions and cgroup bootstrap:
+For nsjail, download `docker-compose.sandbox.yml` from the same Tracecat release as your image and place it beside `docker-compose.yml`:
+
+```bash
+curl -fL -o docker-compose.sandbox.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.sandbox.yml
+```
+
+Start with both files so the overlay supplies the container permissions and cgroup bootstrap:
 
 ```bash
 TRACECAT__EXECUTOR_BACKEND=nsjail docker compose \
@@ -110,23 +121,32 @@ Once deployed, access your instance at:
 
 ```bash
 # 1. Download the latest env migration script and env template
-curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/env-migration.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/.env.example
+curl -fL -o env-migration.sh https://github.com/TracecatHQ/tracecat/releases/latest/download/env-migration.sh
+curl -fL -o .env.example https://github.com/TracecatHQ/tracecat/releases/latest/download/env.example
 
 # 2. Make the migration script executable and update your existing .env
 chmod +x env-migration.sh && ./env-migration.sh
 
 # 3. Download the latest Docker Compose file
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/docker-compose.yml
+curl -fL -o docker-compose.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.yml
 
 # 4. Download the latest Caddyfile
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/Caddyfile
+curl -fL -o Caddyfile https://github.com/TracecatHQ/tracecat/releases/latest/download/Caddyfile
 
-# 5. Restart Tracecat with the updated configuration
+# 5. If you use nsjail, back up and download the latest sandbox overlay
+if [ -f docker-compose.sandbox.yml ]; then
+  cp docker-compose.sandbox.yml docker-compose.sandbox.yml.bak
+  curl -fL -o docker-compose.sandbox.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.sandbox.yml
+fi
+
+# 6. Pull the new images and restart Tracecat with the updated configuration
+docker compose pull
 docker compose up -d
 ```
 
-The migration script creates a backup of your existing `.env` before rewriting it.
+With nsjail, run both commands in step 6 as `TRACECAT__EXECUTOR_BACKEND=nsjail docker compose -f docker-compose.yml -f docker-compose.sandbox.yml …`, the same as the start command. Without the inline variable, Compose reads `TRACECAT__EXECUTOR_BACKEND=direct` from `.env`, which overrides the overlay's `nsjail` default, so the executor runs the `direct` backend inside the privileged overlay.
+The migration script offers to back up your existing `.env` before rewriting it; answer `y`.
+It keeps only keys that exist in the new template, so add `TRACECAT__IMAGE_TAG` back to `.env` after step 2 if you set it.
 After the stack starts, verify that your containers are healthy and that you can sign in successfully.
 
 ## Scaling
