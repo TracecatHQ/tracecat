@@ -1319,13 +1319,14 @@ async def test_disconnect_detaches_the_directory_without_revoking_access(
 
 @pytest.mark.anyio
 async def test_reconnecting_after_disconnect_starts_pending(
-    session: AsyncSession, org: Organization, admin_role: Role, service: SCIMService
+    session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
     """A new token after disconnect needs review and activation again."""
     await _make_group(session, org)
     await service.disconnect()
 
-    issued = await ScimConnectionService(session, admin_role).issue_token()
+    owner = _role(org, "org:scim:manage", "org:scim:token")
+    issued = await ScimConnectionService(session, owner).issue_token()
 
     assert issued.connection.status == ScimConnectionStatus.PENDING
     assert issued.connection.revoked_at is None

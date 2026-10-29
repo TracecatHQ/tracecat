@@ -19,11 +19,18 @@ from tracecat.auth.api_keys import (
     generate_managed_api_key,
     make_api_key_preview,
 )
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.authz.service import resolve_granter_scopes
 from tracecat.db.models import ScimConnection
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.service import BaseOrgService
+
+SCIM_TOKEN_SCOPE = "org:scim:token"
+
+
+class ScimTokenOwnerRequiredError(TracecatAuthorizationError):
+    """Raised when someone other than an organization owner issues the token."""
 
 
 class IssuedScimConnection:
@@ -45,7 +52,8 @@ class ScimConnectionService(BaseOrgService):
 
     service_name = "scim_connection"
 
-    # SCIM administrators may delegate provisioning authority to the IdP.
+    # The token can add anyone to any mapped group, so only owners may issue
+    # or rotate it. Admins manage mappings; memberships come from the IdP.
     @require_scope("org:scim:manage")
     @audit_log(
         resource_type="scim_connection",
@@ -57,7 +65,11 @@ class ScimConnectionService(BaseOrgService):
 
         Returns:
             The stored connection and its raw token.
+
+        Raises:
+            ScimTokenOwnerRequiredError: The caller is not an organization owner.
         """
+        await self._ensure_can_issue_token()
         generated = generate_managed_api_key(prefix=SCIM_API_KEY_PREFIX)
         preview = make_api_key_preview(generated.raw, prefix=SCIM_API_KEY_PREFIX)
 
@@ -111,6 +123,20 @@ class ScimConnectionService(BaseOrgService):
         if connection is None:
             raise TracecatNotFoundError("SCIM connection not found")
         return connection
+
+    async def _ensure_can_issue_token(self) -> None:
+        """Reject issuing or rotating the token by anyone but an owner.
+
+        Scopes are read live, so a just-demoted owner cannot issue a token from
+        a cached snapshot.
+        """
+        if self.role.is_platform_superuser:
+            return
+        scopes = await resolve_granter_scopes(self.session, self.role)
+        if not has_scope(scopes, SCIM_TOKEN_SCOPE):
+            raise ScimTokenOwnerRequiredError(
+                "Only organization owners can issue or rotate the SCIM token."
+            )
 
     async def _get(self) -> ScimConnection | None:
         stmt = select(ScimConnection).where(
