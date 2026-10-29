@@ -1814,3 +1814,33 @@ async def test_loop_context_resolves_unshareable_contexts_in_parallel(
 
     assert get_action_secrets.await_count == 4
     assert max_active == 3
+
+
+@pytest.mark.parametrize(
+    ("action_timeout", "expected_resolutions"),
+    [
+        pytest.param(300, 1, id="item-fits-in-session"),
+        # A 1-hour item could outlive a reused 1-hour session.
+        pytest.param(3600, 3, id="item-could-outlive-session"),
+    ],
+)
+@pytest.mark.anyio
+async def test_loop_context_reuses_sts_session_only_if_items_fit(
+    mocker, action_timeout: int, expected_resolutions: int
+) -> None:
+    """A reused STS session must outlast an item run to its timeout."""
+    _, assume_role = _patch_loop_resolution(
+        mocker, sts_expires_in=timedelta(hours=1), role_arn=True
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    for item in range(3):
+        item_input = _loop_item_input(item)
+        task = item_input.task.model_copy(
+            update={"retry_policy": ActionRetryPolicy(timeout=action_timeout)}
+        )
+        await loop.prepare(item_input.model_copy(update={"task": task}))
+
+    assert assume_role.await_count == expected_resolutions
