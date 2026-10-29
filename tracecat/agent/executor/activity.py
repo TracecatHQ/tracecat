@@ -344,20 +344,19 @@ _UNSETTLED_KINDS = frozenset(
 
 
 def _turn_outcome(result: AgentExecutorResult) -> TurnOutcome:
-    match _agent_runtime_outcome(result):
-        case AgentRuntimeOutcome.SUCCESS:
-            return TurnOutcome.COMPLETED
-        case AgentRuntimeOutcome.APPROVAL:
-            return TurnOutcome.BLOCKED
-        case AgentRuntimeOutcome.CANCELLED:
-            return TurnOutcome.CANCELLED
-        case AgentRuntimeOutcome.FAILURE:
-            kind = result.classification.kind if result.classification else None
-            if kind in _MODEL_ERROR_KINDS:
-                return TurnOutcome.MODEL_ERROR
-            if kind in _UNSETTLED_KINDS:
-                return TurnOutcome.UNSETTLED
-            return TurnOutcome.FAILED
+    # Cancellation wins over a pending approval, as it does in the workflow.
+    if result.cancelled:
+        return TurnOutcome.CANCELLED
+    if result.approval_requested:
+        return TurnOutcome.BLOCKED
+    if result.success:
+        return TurnOutcome.COMPLETED
+    kind = result.classification.kind if result.classification else None
+    if kind in _MODEL_ERROR_KINDS:
+        return TurnOutcome.MODEL_ERROR
+    if kind in _UNSETTLED_KINDS:
+        return TurnOutcome.UNSETTLED
+    return TurnOutcome.FAILED
 
 
 def _turn_tokens(usage: dict[str, Any] | None) -> TurnTokens | None:

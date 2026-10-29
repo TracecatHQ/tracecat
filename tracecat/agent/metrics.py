@@ -22,6 +22,10 @@ from tracecat.agent.session.types import AgentSessionEntity
 UNKNOWN_LABEL: Final = "unknown"
 OTHER_PROVIDER_LABEL: Final = "other"
 
+MAX_TURN_TOKENS: Final = 10**12
+"""Token counts above this are dropped: they come from the model provider, and
+one value past int64 would break every later export of the cumulative counter."""
+
 FIRST_TOKEN_EVENT_TYPES: Final = frozenset(
     {
         StreamEventType.TEXT_DELTA,
@@ -222,7 +226,7 @@ def record_turn(
         TokenType.CACHE_WRITE: tokens.cache_write,
     }
     for token_type, count in counts.items():
-        if count > 0:
+        if 0 < count <= MAX_TURN_TOKENS:
             _instruments.turn_tokens.add(
                 count, {**labels, "token.type": token_type.value}
             )

@@ -23,6 +23,7 @@ from tracecat.agent.executor.activity import (
     _turn_tokens,
 )
 from tracecat.agent.metrics import (
+    MAX_TURN_TOKENS,
     TurnOutcome,
     TurnTokens,
     backend_label,
@@ -75,7 +76,9 @@ def test_record_turn_emits_latency_outcome_and_tokens(
         sent_at=SENT_AT,
         first_token_at=SENT_AT + timedelta(milliseconds=800),
         settled_at=SENT_AT + timedelta(seconds=3),
-        tokens=TurnTokens(input=10, output=20, cache_read=300, cache_write=0),
+        tokens=TurnTokens(
+            input=10, output=20, cache_read=300, cache_write=MAX_TURN_TOKENS + 1
+        ),
     )
 
     labels = {"backend": BACKEND, "surface": "case", "provider": "anthropic"}
@@ -101,7 +104,7 @@ def test_record_turn_emits_latency_outcome_and_tokens(
         for point in _points(reader, "agent.turn.tokens")
         if isinstance(point, NumberDataPoint)
     }
-    # Zero counts add no series.
+    # Zero and out-of-range counts add nothing.
     assert tokens == {"input": 10, "output": 20, "cache_read": 300}
 
 
@@ -153,6 +156,10 @@ def test_record_llm_ttft_labels_backend_and_route(
             TurnOutcome.BLOCKED,
         ),
         (AgentExecutorResult(success=False, cancelled=True), TurnOutcome.CANCELLED),
+        (
+            AgentExecutorResult(success=True, approval_requested=True, cancelled=True),
+            TurnOutcome.CANCELLED,
+        ),
         (
             AgentExecutorResult(
                 success=False,
