@@ -420,3 +420,40 @@ async def test_create_only_callers_cannot_test_header_expressions(
             )
         )
     discover.assert_not_awaited()
+
+
+async def test_header_evaluation_does_not_log_literal_credentials(
+    header_service: IntegrationService,
+) -> None:
+    logs: list[str] = []
+    sink = logger.add(logs.append, level="TRACE", format="{message} {extra}")
+    try:
+        resolved = await resolve_mcp_header_values(
+            {"Authorization": f'Basic ${{{{ FN.to_base64("{LITERAL_CANARY}") }}}}'},
+            role=header_service.role,
+        )
+    finally:
+        logger.remove(sink)
+
+    encoded = base64.b64encode(LITERAL_CANARY.encode()).decode()
+    assert resolved == {"Authorization": f"Basic {encoded}"}
+    assert any("STRING_LITERAL" in line for line in logs)
+    assert not any(LITERAL_CANARY in line for line in logs)
+
+
+async def test_malformed_jsonpath_does_not_log_literal_credentials(
+    header_service: IntegrationService,
+) -> None:
+    logs: list[str] = []
+    sink = logger.add(logs.append, level="TRACE", format="{message} {extra}")
+    try:
+        with pytest.raises(MCPConfigurationError):
+            await resolve_mcp_header_values(
+                {"Authorization": f'${{{{ ENV["{LITERAL_CANARY}" @] }}}}'},
+                role=header_service.role,
+            )
+    finally:
+        logger.remove(sink)
+
+    assert logs
+    assert not any(LITERAL_CANARY in line for line in logs)
