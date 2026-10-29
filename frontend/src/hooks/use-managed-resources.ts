@@ -53,16 +53,19 @@ const RESOURCE_LIST_KEYS: Record<SyncResourceType, string[][]> = {
  * Build the lookup key for one resource.
  *
  * Case fields have no row id of their own (their `local_id` is derived from
- * the field name), so they are keyed by field name, which is `source_id`.
+ * the field name), so they are keyed by their current field name, which the
+ * API returns as `case_field_name`. It can differ from `source_id`.
  */
 function lookupKey(resourceType: SyncResourceType, id: string): string {
   return `${resourceType}:${id}`
 }
 
-function managedLookupKey(resource: ManagedResourceRead): string {
+function recordLookupKey(
+  resource: ManagedResourceRead | DetachedCopyRead
+): string {
   const id =
     resource.resource_type === "case_field"
-      ? resource.source_id
+      ? (resource.case_field_name ?? resource.local_id)
       : resource.local_id
   return lookupKey(resource.resource_type, id)
 }
@@ -165,17 +168,11 @@ export function useManagedResources(
 
   const managedByKey = useMemo(
     () =>
-      new Map(managedResources.map((item) => [managedLookupKey(item), item])),
+      new Map(managedResources.map((item) => [recordLookupKey(item), item])),
     [managedResources]
   )
   const detachedByKey = useMemo(
-    () =>
-      new Map(
-        detachedCopies.map((item) => [
-          lookupKey(item.resource_type, item.local_id),
-          item,
-        ])
-      ),
+    () => new Map(detachedCopies.map((item) => [recordLookupKey(item), item])),
     [detachedCopies]
   )
 

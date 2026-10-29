@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -11,7 +12,7 @@ from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole, WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import ManagedDetachedCopy, ManagedResource
+from tracecat.db.models import CaseFields, ManagedDetachedCopy, ManagedResource
 from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
@@ -60,9 +61,12 @@ async def list_managed_resources(
         PageParams(limit=limit, cursor=cursor),
         (ManagedResource.resource_type.asc(), ManagedResource.local_id.asc()),
     )
+    names = await _case_field_names(session, role.workspace_id)
     return Page(
         items=[
-            ManagedResourceRead.model_validate(row, from_attributes=True)
+            ManagedResourceRead.model_validate(row, from_attributes=True).model_copy(
+                update={"case_field_name": names.get(row.local_id)}
+            )
             for row in page.items
         ],
         next_cursor=page.next_cursor,
@@ -87,6 +91,7 @@ async def list_detached_copies(
         PageParams(limit=limit, cursor=cursor),
         (ManagedDetachedCopy.created_at.desc(), ManagedDetachedCopy.id.asc()),
     )
+    names = await _case_field_names(session, role.workspace_id)
     return Page(
         items=[
             DetachedCopyRead(
@@ -95,6 +100,7 @@ async def list_detached_copies(
                 original_local_id=row.original_local_id,
                 original_name=row.original_name,
                 detached_at=row.created_at,
+                case_field_name=names.get(row.local_id),
             )
             for row in page.items
         ],
@@ -141,3 +147,16 @@ async def _paginate[T](
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=e.detail or str(e)
         ) from e
+
+
+async def _case_field_names(
+    session: AsyncDBSession, workspace_id: uuid.UUID | None
+) -> dict[uuid.UUID, str]:
+    """Map each case field's derived local id to its current schema key."""
+    fields = await session.scalar(
+        select(CaseFields).where(CaseFields.workspace_id == workspace_id)
+    )
+    if fields is None:
+        return {}
+    # Same derivation as the case field sync adapter's local ids.
+    return {uuid.uuid5(fields.id, name): name for name in fields.schema or {}}

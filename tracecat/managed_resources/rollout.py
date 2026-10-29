@@ -431,6 +431,7 @@ class ManagedRolloutEngine:
             # and the managed rows that lock what it imported.
             await hold_ownership_lock(self.session, workspace.id, shared=False)
             await self._install_registry(workspace, source, plan.registry, rollout)
+            await self._drop_unneeded_registry(workspace, managed, plan.registry)
             customer_bindings = await self._customer_skill_bindings(
                 workspace.id, managed
             )
@@ -844,6 +845,32 @@ class ManagedRolloutEngine:
                     },
                 )
             )
+
+    async def _drop_unneeded_registry(
+        self,
+        workspace: Workspace,
+        managed: Sequence[ManagedResource],
+        requirements: Sequence[PackageRegistryRequirement],
+    ) -> None:
+        """Stop owning registries the tag no longer needs.
+
+        Each one is uninstalled once no other workspace needs it either.
+        """
+        needed = {requirement.origin for requirement in requirements}
+        obsolete = [
+            row
+            for row in managed
+            if row.resource_type == REGISTRY_RESOURCE_TYPE
+            and row.source_id not in needed
+        ]
+        if not obsolete:
+            return
+        await self.session.execute(
+            delete(ManagedResource).where(
+                ManagedResource.id.in_([row.id for row in obsolete])
+            )
+        )
+        await self._release_registry(workspace, obsolete)
 
     async def _release_registry(
         self, workspace: Workspace, managed: Sequence[ManagedResource]
@@ -1310,17 +1337,27 @@ def _conflicts(
             identity = spec_identity(adapter.resource_type, spec)
             if identity is None:
                 continue
-            existing = identities.get((resource_type, identity))
-            if existing is None or (resource_type, existing) in managed_local:
-                continue
-            conflicts.append(
-                RolloutConflict(
-                    resource_type=adapter.resource_type,
-                    source_id=source_id,
-                    name="/".join(identity),
-                    existing_local_id=existing,
+            candidates = [identity]
+            # The case field importer also adopts an existing field whose
+            # name equals the source id, and renames it out of the way.
+            if (
+                adapter.resource_type == SyncResourceType.CASE_FIELD
+                and (source_id,) != identity
+            ):
+                candidates.append((source_id,))
+            for candidate in candidates:
+                existing = identities.get((resource_type, candidate))
+                if existing is None or (resource_type, existing) in managed_local:
+                    continue
+                conflicts.append(
+                    RolloutConflict(
+                        resource_type=adapter.resource_type,
+                        source_id=source_id,
+                        name="/".join(candidate),
+                        existing_local_id=existing,
+                    )
                 )
-            )
+                break
     return conflicts
 
 

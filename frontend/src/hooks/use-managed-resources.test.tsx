@@ -53,6 +53,14 @@ beforeEach(() => {
         original_name: "triage",
         detached_at: "2026-01-02T00:00:00Z",
       },
+      {
+        resource_type: "case_field",
+        local_id: "field-copy-uuid",
+        original_local_id: "derived-uuid",
+        original_name: "severity_score",
+        detached_at: "2026-01-02T00:00:00Z",
+        case_field_name: "severity_copy",
+      },
     ],
     next_cursor: null,
   })
@@ -66,7 +74,12 @@ describe("useManagedResources", () => {
         next_cursor: "page-2",
       })
       .mockResolvedValueOnce({
-        items: [managed("case_field", "derived-uuid", "severity_score")],
+        items: [
+          {
+            ...managed("case_field", "derived-uuid", "severity_src"),
+            case_field_name: "severity_score",
+          },
+        ],
         next_cursor: null,
       })
 
@@ -81,9 +94,11 @@ describe("useManagedResources", () => {
     expect(result.current.isManaged("workflow", "wf-1")).toBe(true)
     // Same id, other type: not managed.
     expect(result.current.isManaged("table", "wf-1")).toBe(false)
-    // Case fields are keyed by field name, not their derived local id.
+    // Case fields are keyed by their current name, not their derived local
+    // id or their package source id.
     expect(result.current.isManaged("case_field", "severity_score")).toBe(true)
     expect(result.current.isManaged("case_field", "derived-uuid")).toBe(false)
+    expect(result.current.isManaged("case_field", "severity_src")).toBe(false)
     expect(result.current.getManaged("workflow", "wf-1")?.deployed_tag).toBe(
       "v1.0.0"
     )
@@ -92,6 +107,10 @@ describe("useManagedResources", () => {
         result.current.getDetachedCopy("workflow", "wf-copy")?.original_name
       ).toBe("triage")
     )
+    expect(
+      result.current.getDetachedCopy("case_field", "severity_copy")
+        ?.original_name
+    ).toBe("severity_score")
   })
 
   it("loads every page of detached copies", async () => {

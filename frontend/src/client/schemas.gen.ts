@@ -16300,6 +16300,18 @@ export const $DetachedCopyRead = {
       format: "date-time",
       title: "Detached At",
     },
+    case_field_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Field Name",
+      description: "For a case field copy, its current schema key.",
+    },
   },
   type: "object",
   required: [
@@ -24501,6 +24513,19 @@ export const $ManagedResourceRead = {
       format: "date-time",
       title: "Deployed At",
       description: "When the last rollout wrote it.",
+    },
+    case_field_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Field Name",
+      description:
+        "For a case field, its current schema key. Case fields have no row id, and the key can differ from ``source_id``.",
     },
   },
   type: "object",

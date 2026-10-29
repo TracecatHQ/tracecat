@@ -25,6 +25,13 @@ class ManagedResourceRead(BaseModel):
     deployed_tag: str = Field(description="Package tag the resource came from.")
     deployed_commit_sha: str
     deployed_at: datetime = Field(description="When the last rollout wrote it.")
+    case_field_name: str | None = Field(
+        default=None,
+        description=(
+            "For a case field, its current schema key. Case fields have no row "
+            "id, and the key can differ from ``source_id``."
+        ),
+    )
 
 
 class DetachedCopyRead(BaseModel):
@@ -35,6 +42,9 @@ class DetachedCopyRead(BaseModel):
     original_local_id: uuid.UUID
     original_name: str
     detached_at: datetime
+    case_field_name: str | None = Field(
+        default=None, description="For a case field copy, its current schema key."
+    )
 
 
 class ManagedResourceDetach(BaseModel):

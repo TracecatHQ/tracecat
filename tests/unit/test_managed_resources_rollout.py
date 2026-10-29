@@ -64,7 +64,11 @@ from tracecat.managed_resources.enums import (
     ManagedRolloutStatus,
 )
 from tracecat.managed_resources.guard import ManagedResourceLockedError
-from tracecat.managed_resources.rollout import ManagedRolloutEngine, target_role
+from tracecat.managed_resources.rollout import (
+    ManagedRolloutEngine,
+    _conflicts,
+    target_role,
+)
 from tracecat.managed_resources.source import ManagedSource, require_managed_source
 from tracecat.managed_resources.source_setting import (
     MANAGED_RESOURCES_SOURCE_KEY,
@@ -77,7 +81,10 @@ from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
+    CaseFieldResourceSpec,
     PackageRegistryRequirement,
+    WorkspaceRemoteSnapshot,
+    WorkspaceSpec,
     WorkspaceSyncExportRequest,
 )
 from tracecat.workspace_sync.service import WorkspaceSyncService
@@ -732,6 +739,68 @@ async def test_a_package_installed_registry_repo_is_locked_in_the_target_org(
 
     with pytest.raises(ManagedResourceLockedError):
         await RegistryReposService(harness.session, org_role).delete_repository(repo)
+
+
+@pytest.mark.anyio
+async def test_a_registry_the_tag_no_longer_needs_is_released(
+    harness: Harness,
+) -> None:
+    origin = f"git+ssh://git@github.com/acme/registry-{uuid.uuid4().hex[:6]}.git"
+    assert harness.source_role.organization_id is not None
+    await _source_registry_version(
+        harness.session, harness.source_role.organization_id, origin
+    )
+    customer = await harness.new_target("mike")
+    engine = ManagedRolloutEngine(harness.session)
+    await engine._install_registry(
+        customer,
+        await _managed_source(harness),
+        [PackageRegistryRequirement(origin=origin, version="1.2.0")],
+        None,
+    )
+    await harness.session.flush()
+
+    # The next tag ships no custom actions.
+    await engine._drop_unneeded_registry(
+        customer, await engine._managed_rows(customer.id), []
+    )
+    await harness.session.commit()
+
+    assert await engine._managed_rows(customer.id) == []
+    assert (
+        await harness.session.scalar(
+            select(RegistryRepository).where(
+                RegistryRepository.organization_id == customer.organization_id,
+                RegistryRepository.origin == origin,
+            )
+        )
+        is None
+    )
+
+
+def test_a_customer_case_field_named_like_the_source_id_is_a_conflict() -> None:
+    # The importer would adopt the customer's "sev_src" field by source id and
+    # rename it, so it must block like a name clash does.
+    existing = uuid.uuid4()
+    spec = WorkspaceSpec(
+        case_fields={
+            "sev_src": CaseFieldResourceSpec.model_construct(
+                version=1, type="case_field", id="sev_src", name="severity"
+            )
+        }
+    )
+
+    [conflict] = _conflicts(
+        WorkspaceRemoteSnapshot(commit_sha="", files={}, spec=spec),
+        {("case_field", ("sev_src",)): existing},
+        [],
+    )
+
+    assert (conflict.source_id, conflict.name, conflict.existing_local_id) == (
+        "sev_src",
+        "sev_src",
+        existing,
+    )
 
 
 @pytest.mark.anyio

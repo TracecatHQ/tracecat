@@ -4820,6 +4820,10 @@ export type DetachedCopyRead = {
   original_local_id: string
   original_name: string
   detached_at: string
+  /**
+   * For a case field copy, its current schema key.
+   */
+  case_field_name?: string | null
 }
 
 /**
@@ -7530,6 +7534,10 @@ export type ManagedResourceRead = {
    * When the last rollout wrote it.
    */
   deployed_at: string
+  /**
+   * For a case field, its current schema key. Case fields have no row id, and the key can differ from ``source_id``.
+   */
+  case_field_name?: string | null
 }
 
 /**
