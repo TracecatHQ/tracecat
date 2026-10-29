@@ -10,7 +10,8 @@ services:
     cgroup: private
     entrypoint: ["python", "-m", "tracecat.sandbox.bootstrap"]
     environment:
-      TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-nsjail}
+      # Fixed, not ${…:-nsjail}: .env sets direct, which would win here.
+      TRACECAT__EXECUTOR_BACKEND: nsjail
     # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
     # via nested user namespaces (fresh per-userns fork counter).
     # All activities, loop iterations, and executor overhead share this cap.
@@ -35,7 +36,8 @@ services:
     cgroup: private
     entrypoint: ["python", "-m", "tracecat.agent.sandbox.cgroup"]
     environment:
-      TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-nsjail}
+      # Fixed, not ${…:-nsjail}: .env sets direct, which would win here.
+      TRACECAT__EXECUTOR_BACKEND: nsjail
     # Same fork-bomb bound as executor (nested userns bypasses in-jail caps).
     pids_limit: 4096
     # Required for nsjail sandbox execution.
