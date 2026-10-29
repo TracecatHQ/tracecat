@@ -8270,6 +8270,18 @@ export type Page_GitTagInfo_ = {
   prev_cursor?: string | null
 }
 
+export type Page_ManagedReferenceMatchItem_ = {
+  items: Array<ManagedReferenceMatchItem>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 export type Page_ManagedResourceRead_ = {
   items: Array<ManagedResourceRead>
   /**
@@ -16835,10 +16847,12 @@ export type AdminUnassignTargetData = {
 export type AdminUnassignTargetResponse = ManagedRolloutRead
 
 export type AdminListReferenceMatchesData = {
+  cursor?: string | null
+  limit?: number
   targetId: string
 }
 
-export type AdminListReferenceMatchesResponse = Array<ManagedReferenceMatchItem>
+export type AdminListReferenceMatchesResponse = Page_ManagedReferenceMatchItem_
 
 export type AdminSaveReferenceMatchesData = {
   requestBody: ManagedReferenceMatchesUpdate
@@ -24178,7 +24192,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<ManagedReferenceMatchItem>
+        200: Page_ManagedReferenceMatchItem_
         /**
          * Validation Error
          */

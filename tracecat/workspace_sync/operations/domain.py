@@ -582,6 +582,11 @@ class DurableSyncService(WorkspaceSyncService):
             params = inputs.pull
             if snapshot is None or params is None:
                 raise StaleSyncPreviewError("Missing prepared snapshot")
+            # The preview filtered out managed resources in another
+            # transaction. Check again under the ownership lock, held until
+            # this import commits, so a rollout cannot claim one in between.
+            if (await self._skip_managed_incoming(snapshot))[1]:
+                raise StaleSyncPreviewError("Managed resources changed; preview again")
             if (
                 await self.secret_store_fingerprint(snapshot)
                 != prepared.secret_store_fingerprint

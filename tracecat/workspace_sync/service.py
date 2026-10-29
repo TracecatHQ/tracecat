@@ -44,6 +44,7 @@ from tracecat.exceptions import (
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import hold_for_customer_write
 from tracecat.managed_resources.include import (
     PACKAGE_INCLUDE_FILENAME,
     render_package_include,
@@ -524,6 +525,9 @@ class WorkspaceSyncService(SyncMappingService):
         """
         if self.is_managed_rollout:
             return snapshot, []
+        # Held until the caller's transaction ends, so no rollout can claim a
+        # resource between this check and the import that follows it.
+        await hold_for_customer_write(self.session, self.workspace_id)
         managed = await self._managed_ids_by_type()
         if not managed:
             return snapshot, []

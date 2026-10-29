@@ -334,25 +334,34 @@ class AdminManagedResourcesService(BasePlatformService):
 
     # -- reference matches --------------------------------------------------
     async def list_references(
-        self, target_id: uuid.UUID
-    ) -> list[ManagedReferenceMatchItem]:
-        """Return a target's saved model, MCP integration and store matches."""
+        self, target_id: uuid.UUID, page: PageParams
+    ) -> Page[ManagedReferenceMatchItem]:
+        """List a target's saved model, MCP integration and store matches."""
         target = await self._target(target_id)
-        matches = await self.session.scalars(
-            select(ManagedReferenceMatch)
-            .where(ManagedReferenceMatch.workspace_id == target.workspace_id)
-            .order_by(
-                ManagedReferenceMatch.reference_kind, ManagedReferenceMatch.source_key
-            )
+        result = await paginate(
+            self.session,
+            select(ManagedReferenceMatch).where(
+                ManagedReferenceMatch.workspace_id == target.workspace_id
+            ),
+            page=page,
+            order_by=(
+                ManagedReferenceMatch.reference_kind.asc(),
+                ManagedReferenceMatch.source_key.asc(),
+                ManagedReferenceMatch.id.asc(),
+            ),
         )
-        return [
-            ManagedReferenceMatchItem(
-                reference_kind=match.reference_kind,
-                source_key=match.source_key,
-                resolved_id=match.resolved_id,
-            )
-            for match in matches
-        ]
+        return Page(
+            items=[
+                ManagedReferenceMatchItem(
+                    reference_kind=match.reference_kind,
+                    source_key=match.source_key,
+                    resolved_id=match.resolved_id,
+                )
+                for match in result.items
+            ],
+            next_cursor=result.next_cursor,
+            prev_cursor=result.prev_cursor,
+        )
 
     async def save_references(
         self, target_id: uuid.UUID, params: ManagedReferenceMatchesUpdate
@@ -427,7 +436,10 @@ class AdminManagedResourcesService(BasePlatformService):
             data={"match_count": len(params.matches)},
             customer=False,
         )
-        return await self.list_references(target_id)
+        # The saved set is exactly the request's, which is bounded by its schema.
+        return sorted(
+            params.matches, key=lambda item: (item.reference_kind, item.source_key)
+        )
 
     # -- releases -----------------------------------------------------------
     async def cut_release(self, params: ManagedReleaseCreate) -> GitTagInfo:

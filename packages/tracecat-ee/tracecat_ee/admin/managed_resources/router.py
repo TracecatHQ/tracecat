@@ -265,17 +265,19 @@ async def unassign_target(
 
 @router.get(
     "/targets/{target_id}/references",
-    response_model=list[ManagedReferenceMatchItem],
+    response_model=Page[ManagedReferenceMatchItem],
 )
 async def list_reference_matches(
     role: SuperuserRole,
     session: AsyncDBSessionBypass,
     target_id: uuid.UUID,
-) -> list[ManagedReferenceMatchItem]:
+    limit: _Limit = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: _Cursor = None,
+) -> Page[ManagedReferenceMatchItem]:
     """List a target's saved model, MCP integration and secret store matches."""
     try:
         return await AdminManagedResourcesService(session, role).list_references(
-            target_id
+            target_id, PageParams(limit=limit, cursor=cursor)
         )
     except _DOMAIN_ERRORS as e:
         raise _domain_error(e) from e

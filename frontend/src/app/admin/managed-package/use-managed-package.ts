@@ -246,7 +246,14 @@ export function useReferenceMatches(targetId: string | null) {
   const query = useQuery<ManagedReferenceMatchItem[]>({
     queryKey: managedPackageKeys.references(targetId),
     meta: SUPPRESS_TOAST,
-    queryFn: () => adminListReferenceMatches({ targetId: targetId ?? "" }),
+    queryFn: () =>
+      fetchAllPages((cursor) =>
+        adminListReferenceMatches({
+          targetId: targetId ?? "",
+          limit: PAGE_LIMIT,
+          cursor,
+        })
+      ),
     enabled: targetId !== null,
   })
   return {

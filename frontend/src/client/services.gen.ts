@@ -9330,7 +9330,9 @@ export const adminUnassignTarget = (
  * List a target's saved model, MCP integration and secret store matches.
  * @param data The data for the request.
  * @param data.targetId
- * @returns ManagedReferenceMatchItem Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ManagedReferenceMatchItem_ Successful Response
  * @throws ApiError
  */
 export const adminListReferenceMatches = (
@@ -9341,6 +9343,10 @@ export const adminListReferenceMatches = (
     url: "/admin/managed-resources/targets/{target_id}/references",
     path: {
       target_id: data.targetId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
     },
     errors: {
       422: "Validation Error",

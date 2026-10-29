@@ -53,6 +53,8 @@ from tracecat.db.models import (
     WorkspaceSyncResourceMapping,
     WorkspaceVariable,
 )
+from tracecat.forms.schemas import FormCreate
+from tracecat.forms.service import FormsService
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
@@ -596,6 +598,19 @@ def test_customer_skill_bindings_are_kept_and_package_wins_duplicates() -> None:
 
     assert merged == [a, d, c]
     assert with_customer_skill_bindings(preset_id, [a]) == [a]
+
+
+@pytest.mark.anyio
+async def test_a_managed_workflow_cannot_get_a_customer_form(
+    session: AsyncSession, seeded: Role
+) -> None:
+    # The form, or its absence, comes from the package.
+    workflow_id = await _managed_workflow(session, seeded)
+
+    with pytest.raises(ManagedResourceLockedError):
+        await FormsService(session, seeded).create_form(
+            FormCreate(workflow_id=workflow_id)
+        )
 
 
 @pytest.mark.anyio

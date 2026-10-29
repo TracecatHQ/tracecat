@@ -410,6 +410,13 @@ class FormsService(BaseWorkspaceService):
         editor can show them. It cannot go online until they are fixed.
         """
         workflow_id = WorkflowUUID.new(params.workflow_id)
+        # A managed workflow's form, or its absence, comes from the package.
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_id,
+        )
         inputs = await self._require_inputs(workflow_id)
         already_exists = FormError(
             FormErrorCode.ALREADY_EXISTS, "This workflow already has a form"

@@ -39,6 +39,8 @@ from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     WorkspaceManifest,
+    WorkspaceRemoteSnapshot,
+    WorkspaceSpec,
     WorkspaceSyncExportRequest,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
@@ -196,6 +198,28 @@ async def test_customer_pull_skips_a_dropdown_adopted_by_a_managed_ref(
     assert applied.skipped_managed == [path]
     await session.refresh(dropdown)
     assert dropdown.name == name_before
+
+
+@pytest.mark.anyio
+async def test_customer_pull_checks_managed_resources_under_the_ownership_lock(
+    target: tuple[WorkspaceSyncService, FakeVcsServer],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The lock is held from the managed check through the import, so a
+    # rollout cannot claim a resource in between.
+    service, _ = target
+    calls: list[bool] = []
+
+    async def record(session, workspace_id, *, shared: bool) -> None:
+        calls.append(shared)
+
+    monkeypatch.setattr("tracecat.managed_resources.guard.hold_ownership_lock", record)
+
+    await service._skip_managed_incoming(
+        WorkspaceRemoteSnapshot(commit_sha="", files={}, spec=WorkspaceSpec())
+    )
+
+    assert calls == [True]
 
 
 @pytest.mark.anyio

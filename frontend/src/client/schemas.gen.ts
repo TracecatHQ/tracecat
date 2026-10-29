@@ -24366,6 +24366,7 @@ export const $ManagedReferenceMatchesUpdate = {
         $ref: "#/components/schemas/ManagedReferenceMatchItem",
       },
       type: "array",
+      maxItems: 1000,
       title: "Matches",
     },
   },
@@ -27063,6 +27064,45 @@ export const $Page_GitTagInfo_ = {
   type: "object",
   required: ["items"],
   title: "Page[GitTagInfo]",
+} as const
+
+export const $Page_ManagedReferenceMatchItem_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedReferenceMatchItem",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedReferenceMatchItem]",
 } as const
 
 export const $Page_ManagedResourceRead_ = {

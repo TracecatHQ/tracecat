@@ -77,6 +77,7 @@ from tracecat.managed_resources.source_setting import (
     MANAGED_RESOURCES_SOURCE_KEY,
     ManagedSourceSetting,
 )
+from tracecat.pagination import PageParams
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.sync import PullDiagnostic
 from tracecat.tables.schemas import TableRowInsert
@@ -597,6 +598,11 @@ async def test_saved_reference_matches_are_listed_and_replaced(
     )
 
     assert [(m.source_key, m.resolved_id) for m in saved] == [("source-store", None)]
+    listed = await harness.admin.list_references(target_id, PageParams(limit=1))
+    assert [(m.source_key, m.resolved_id) for m in listed.items] == [
+        ("source-store", None)
+    ]
+    assert listed.next_cursor is None
 
     # The request replaces the set: an omitted match stops applying.
     assert (

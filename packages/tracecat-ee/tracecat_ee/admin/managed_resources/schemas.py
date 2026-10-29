@@ -92,7 +92,9 @@ class ManagedReferenceMatchItem(BaseModel):
 class ManagedReferenceMatchesUpdate(BaseModel):
     """Replace a target's saved reference matches."""
 
-    matches: list[ManagedReferenceMatchItem] = Field(default_factory=list)
+    matches: list[ManagedReferenceMatchItem] = Field(
+        default_factory=list, max_length=1000
+    )
 
 
 class ManagedRolloutPreviewRequest(BaseModel):
