@@ -39,6 +39,7 @@ jobs:
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       latest: ${{ steps.release.outputs.latest }}
+      release: ${{ steps.release.outputs.release }}
     steps:
       - name: Validate image tag
         id: release
@@ -52,6 +53,7 @@ jobs:
           set -euo pipefail
           tag=''
           latest=false
+          release=false
           if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
             # Manual rebuilds must use the existing tag as their checkout ref.
             if [[ "$REF_TYPE" != 'tag' || "$INPUT_TAG" != "$REF_NAME" ]]; then
@@ -67,7 +69,10 @@ jobs:
             stable='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
             if [[ "$tag" =~ ^${stable}$ ]]; then
               latest=true
-            elif ! [[ "$tag" =~ ^${stable}-[0-9A-Za-z][0-9A-Za-z.-]*$ || "$tag" =~ ^nightly-[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+              release=true
+            elif [[ "$tag" =~ ^${stable}-[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+              release=true
+            elif ! [[ "$tag" =~ ^nightly-[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
               echo "Unsupported image tag: $tag" >&2
               exit 1
             fi
@@ -76,8 +81,11 @@ jobs:
               exit 1
             fi
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "latest=$latest"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
 
   build-and-push-api:
     timeout-minutes: 30
@@ -108,6 +116,27 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+
+      # The platform registry keys sync rows and S3 artifacts on
+      # tracecat_registry.__version__, and reuses an existing artifact for a
+      # known version. Non-release builds keep the release line's version, so
+      # give each commit its own: .post<commit time> sorts above the base (an
+      # upgrade, not a refused downgrade) and is the same on both platforms
+      # and on any rebuild of the commit.
+      - name: Stamp registry version on non-release builds
+        if: needs.validate.outputs.release == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          init=packages/tracecat-registry/tracecat_registry/__init__.py
+          suffix=".post$(git log -1 --format=%ct)"
+          sed -i -E "s/^(__(pep440_)?version__ = \"[^\"]+)\"$/\1${suffix}\"/" "$init"
+          stamped=$(grep -cF "${suffix}\"" "$init" || true)
+          if [[ "$stamped" != 2 ]]; then
+            echo "Expected 2 stamped version lines in $init, found $stamped." >&2
+            exit 1
+          fi
+          grep -E '^__(pep440_)?version__ = ' "$init"
 
       - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
         run: |
