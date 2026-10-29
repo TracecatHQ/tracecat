@@ -295,10 +295,11 @@ def initialize_platform_metrics(
             )
             metrics.set_meter_provider(provider)
             if metrics.get_meter_provider() is not provider:
-                # The global provider can be set once; another owner got there first.
+                # The global provider can be set once; another owner got there
+                # first, so platform instruments report through its exporter.
                 provider.shutdown()
                 logger.warning(
-                    "A MeterProvider is already installed; platform metrics are off"
+                    "A MeterProvider is already installed; platform metrics use it"
                 )
                 return None
         except Exception:

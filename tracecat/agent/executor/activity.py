@@ -402,17 +402,21 @@ def _record_turn_metrics(
         )
 
 
+def _cancelled_outcome() -> TurnOutcome:
+    """A Temporal activity timeout leaves the turn unsettled, not cancelled."""
+    details = activity.cancellation_details()
+    if details is not None and details.timed_out:
+        return TurnOutcome.UNSETTLED
+    return TurnOutcome.CANCELLED
+
+
 @contextmanager
 def _turn_metrics_on_raise(input: AgentExecutorInput) -> Iterator[None]:
     """Record turns that end by raising instead of returning a result."""
     try:
         yield
     except asyncio.CancelledError:
-        details = activity.cancellation_details()
-        timed_out = details is not None and details.timed_out
-        _record_turn_metrics(
-            input, TurnOutcome.UNSETTLED if timed_out else TurnOutcome.CANCELLED
-        )
+        _record_turn_metrics(input, _cancelled_outcome())
         raise
     except Exception:
         _record_turn_metrics(input, TurnOutcome.FAILED)
@@ -1566,7 +1570,11 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         ) as runtime_span,
     ):
         result = await executor.run()
-        _record_turn_metrics(input, _turn_outcome(result), result)
+        turn_outcome = _turn_outcome(result)
+        if turn_outcome is TurnOutcome.CANCELLED:
+            # The executor turns a Temporal cancellation into a cancelled result.
+            turn_outcome = _cancelled_outcome()
+        _record_turn_metrics(input, turn_outcome, result)
         outcome = _agent_runtime_outcome(result)
         if runtime_span is not None:
             runtime_span.set_attribute("tracecat.agent.outcome", outcome)

@@ -1896,6 +1896,43 @@ class TestRunAgentActivity:
 
         assert outcomes == [expected]
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("timed_out", "expected"),
+        [(False, TurnOutcome.CANCELLED), (True, TurnOutcome.UNSETTLED)],
+    )
+    async def test_turn_metrics_split_returned_cancellations_by_cause(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        timed_out: bool,
+        expected: TurnOutcome,
+    ) -> None:
+        """The executor returns a cancelled result for a Temporal timeout too."""
+        outcomes: list[TurnOutcome] = []
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor"
+            ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity.record_turn",
+                side_effect=lambda **kwargs: outcomes.append(kwargs["outcome"]),
+            ),
+        ):
+            mock_activity.cancellation_details.return_value = SimpleNamespace(
+                timed_out=timed_out
+            )
+            mock_executor_cls.return_value.run = AsyncMock(
+                return_value=AgentExecutorResult(success=True, cancelled=True)
+            )
+            await run_agent_activity(
+                mock_executor_input.model_copy(
+                    update={"turn_started_at": datetime.now(UTC)}
+                )
+            )
+
+        assert outcomes == [expected]
+
 
 def _loopback_handler(executor: SandboxedAgentExecutor) -> LoopbackHandler:
     return LoopbackHandler(
