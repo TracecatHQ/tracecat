@@ -203,7 +203,9 @@ def _stamped_init(repo: Path, ref: str, post: str) -> str:
     sha = subprocess.run(
         ["git", "rev-parse", ref], cwd=repo, capture_output=True, text=True, check=True
     ).stdout.strip()
-    version = f"1.0.0.post{post}{int(sha[:7], 16):09d}"
+    version = f"1.0.0.post{post}{int(sha[:5], 16):07d}"
+    # uv rejects version numbers above an unsigned 64-bit integer.
+    assert int(version.removeprefix("1.0.0.post")) <= 2**64 - 1
     return _registry_init(version, version)
 
 
@@ -217,6 +219,8 @@ def _stamped_init(repo: Path, ref: str, post: str) -> str:
         ([1761696000, 1761696000, 1761696000], "176169600002"),
         # Same-second ancestors count even when they aren't adjacent.
         ([1761696000, 1761695999, 1761696000], "176169600001"),
+        # The largest 10-digit commit time still fits uv's version limit.
+        ([9999999999], "999999999900"),
     ],
 )
 def test_non_release_api_builds_stamp_a_per_commit_registry_version(

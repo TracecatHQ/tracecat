@@ -126,8 +126,9 @@ jobs:
       # the base (an upgrade, not a refused downgrade) and is the same on both
       # platforms and on any rebuild of the commit. NN counts ancestors from
       # the same second, since a merged PR stack lands several commits at
-      # once. The commit id (the SHA's first 7 hex digits in decimal) keeps
-      # same-second commits on different branches apart.
+      # once. The commit id (the SHA's first 5 hex digits in decimal) keeps
+      # same-second commits on different branches apart. uv caps each version
+      # number at 2^64 - 1, so the whole post number stays within 19 digits.
       - name: Stamp registry version on non-release builds
         if: needs.validate.outputs.release == 'false'
         shell: bash
@@ -154,7 +155,7 @@ jobs:
             exit 1
           fi
           commit=$(git rev-parse HEAD)
-          printf -v suffix '.post%s%02d%09d' "$time" "$same_second" "$((16#${commit:0:7}))"
+          printf -v suffix '.post%s%02d%07d' "$time" "$same_second" "$((16#${commit:0:5}))"
           sed -E "s/^(__(pep440_)?version__ = \"[^\"]+)\"$/\1${suffix}\"/" "$init" > "$init.stamped"
           mv "$init.stamped" "$init"
           stamped=$(grep -cF "${suffix}\"" "$init" || true)
