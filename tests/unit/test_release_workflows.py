@@ -134,7 +134,13 @@ def test_only_serialized_promotion_can_publish_latest() -> None:
         "queue": "max",
         "cancel-in-progress": False,
     }
-    for name in ("build-and-push-api", "build-and-push-ui", "merge-api"):
+    for name in (
+        "build-and-push-api",
+        "build-and-push-ui",
+        "merge-api",
+        "build-and-push-tunnel-gateway",
+        "merge-tunnel-gateway",
+    ):
         job = workflow["jobs"][name]
         assert "validate" in job["needs"]
         metadata = next(step for step in job["steps"] if step.get("id") == "meta")
