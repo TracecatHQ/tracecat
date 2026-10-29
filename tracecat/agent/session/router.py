@@ -59,7 +59,7 @@ from tracecat.chat.schemas import (
     ChatRequest,
     ContinueRunRequest,
 )
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSession, ReleaseRequestSession
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
@@ -545,7 +545,7 @@ async def delete_session(
     await svc.delete_session(agent_session)
 
 
-@router.post("/{session_id}/messages")
+@router.post("/{session_id}/messages", dependencies=[ReleaseRequestSession])
 @require_scope("agent:execute")
 async def send_message(
     session_id: uuid.UUID,
@@ -752,7 +752,7 @@ async def send_message(
         ) from e
 
 
-@router.get("/{session_id}/stream")
+@router.get("/{session_id}/stream", dependencies=[ReleaseRequestSession])
 @require_scope("agent:read")
 async def stream_session_events(
     role: WorkspaceActorRouteRole,

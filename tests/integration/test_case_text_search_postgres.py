@@ -64,17 +64,44 @@ class SearchMigration(Protocol):
     def downgrade(self) -> None: ...
 
 
-def load_search_migration() -> SearchMigration:
-    """Load the unmerged revision for disposable migration/transport fixtures."""
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "alembic/versions/e2018a1b2c3d_add_case_text_search_indexes.py"
-    )
-    spec = importlib.util.spec_from_file_location("case_text_search_migration", path)
+class VectorMigration(Protocol):
+    _BACKFILL_BATCH: int
+    _TRIGGER_FUNCTION_SQL: str
+    _TRIGGER_SQL: str
+    _VECTOR_INDEXES: tuple[tuple[str, str], ...]
+
+    def upgrade(self) -> None: ...
+    def downgrade(self) -> None: ...
+
+
+def _load_revision(filename: str, name: str) -> object:
+    path = Path(__file__).resolve().parents[2] / "alembic/versions" / filename
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return cast(SearchMigration, module)
+    return module
+
+
+def load_search_migration() -> SearchMigration:
+    """Load the unmerged revision for disposable migration/transport fixtures."""
+    return cast(
+        SearchMigration,
+        _load_revision(
+            "e2018a1b2c3d_add_case_text_search_indexes.py",
+            "case_text_search_migration",
+        ),
+    )
+
+
+def load_vector_migration() -> VectorMigration:
+    """Load the stored-vector revision that follows the search revision."""
+    return cast(
+        VectorMigration,
+        _load_revision(
+            "5ca140c06ec2_store_case_search_vectors.py", "case_search_vector_migration"
+        ),
+    )
 
 
 def apply_search_migration(
@@ -94,6 +121,32 @@ def apply_search_migration(
                 migration.downgrade()
             else:
                 migration.upgrade()
+
+
+def apply_vector_migration(
+    engine: Engine, *, downgrade: bool = False, backfill_batch: int | None = None
+) -> None:
+    """Apply only the stored-vector revision; it requires the search revision."""
+    migration = load_vector_migration()
+    if backfill_batch is not None:
+        migration._BACKFILL_BATCH = backfill_batch
+    with engine.connect() as conn:
+        context = MigrationContext.configure(conn)
+        with context.begin_transaction(), Operations.context(context):
+            if downgrade:
+                migration.downgrade()
+            else:
+                migration.upgrade()
+
+
+def apply_case_search_migrations(engine: Engine, *, downgrade: bool = False) -> None:
+    """Apply both case search revisions in dependency order."""
+    if downgrade:
+        apply_vector_migration(engine, downgrade=True)
+        apply_search_migration(engine, downgrade=True)
+    else:
+        apply_search_migration(engine)
+        apply_vector_migration(engine)
 
 
 @pytest.fixture
@@ -133,7 +186,7 @@ def search_database() -> Iterator[Engine]:
             )
         with engine.begin() as conn:
             conn.execute(sa.text("CREATE EXTENSION pg_trgm WITH SCHEMA public"))
-        apply_search_migration(engine)
+        apply_case_search_migrations(engine)
         yield engine
     finally:
         engine.dispose()
@@ -444,7 +497,7 @@ def test_filters_precede_pagination_and_integer_score_seeks_are_stable(
 @pytest.mark.parametrize(
     ("query", "index"),
     [
-        ('"powershell"', "ix_case_summary_fts"),
+        ('"powershell"', "ix_case_summary_tsv"),
         ("powershel", "ix_case_summary_trgm"),
         ("literal:PowerShell", "ix_case_summary_trgm"),
     ],
@@ -597,7 +650,7 @@ def test_migration_rebuilds_an_invalid_concurrent_index(
 def test_incompatible_index_collisions_fail_without_adopting_or_dropping_them(
     search_database: Engine, collision: str
 ) -> None:
-    apply_search_migration(search_database, downgrade=True)
+    apply_case_search_migrations(search_database, downgrade=True)
     with search_database.begin() as conn:
         seed_case(conn, 1, "preserved synthetic source")
         if collision == "target":
@@ -641,7 +694,7 @@ def test_incompatible_index_collisions_fail_without_adopting_or_dropping_them(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("kind", ["fts", "text_fallback"])
-async def test_private_same_named_helper_indexes_cannot_spoof_readiness(
+async def test_spoofed_legacy_expression_index_blocks_migration_not_readiness(
     search_database: Engine, kind: str
 ) -> None:
     name = f"ix_case_summary_{kind}"
@@ -687,10 +740,9 @@ async def test_private_same_named_helper_indexes_cannot_spoof_readiness(
     )
     try:
         async with AsyncSession(engine) as session:
-            with pytest.raises(LexicalSearchError) as error:
-                await ensure_case_text_indexes(session)
-            assert error.value.code == LexicalSearchErrorCode.CONFIGURATION_CHANGED
-            assert await session.scalar(sa.select(sa.literal(1))) == 1
+            # Search reads the stored vector columns, so a spoofed legacy
+            # expression index cannot change readiness.
+            await ensure_case_text_indexes(session)
     finally:
         await engine.dispose()
     with pytest.raises(RuntimeError, match="incompatible existing definition"):
@@ -804,13 +856,13 @@ def test_model_maximum_unicode_documents_survive_old_writes_and_migration(
     search_database: Engine,
 ) -> None:
     """Exercise the model's5000-character bound without any new writer code."""
-    apply_search_migration(search_database, downgrade=True)
+    apply_case_search_migrations(search_database, downgrade=True)
     suffix = " café encoded-command 完了"
     source = ("a-b 中文 " * 800)[: 5000 - len(suffix)] + suffix
     assert len(source) == 5000
     with search_database.begin() as conn:
         expected = seed_case(conn, 1, "Résumé & synthetic-alert " + "é" * 220, source)
-    apply_search_migration(search_database)
+    apply_case_search_migrations(search_database)
     with search_database.begin() as conn:
         assert search_ids(conn, '"café encoded-command"') == [expected]
         assert search_ids(conn, "完了") == [expected]
@@ -865,7 +917,7 @@ def test_native_stream_matches_supported_parser_positions(
 def test_guarded_old_writes_migration_and_full_source_recall(
     search_database: Engine,
 ) -> None:
-    apply_search_migration(search_database, downgrade=True)
+    apply_case_search_migrations(search_database, downgrade=True)
     large = (
         " ".join(f"synthetic{number:06d}" for number in range(90000)) + " alpha beta"
     )
@@ -875,7 +927,7 @@ def test_guarded_old_writes_migration_and_full_source_recall(
         huge_id = seed_case(conn, 1, "synthetic large", large)
         overflow_id = seed_case(conn, 2, "synthetic normalized", normalized_overflow)
         repeated_id = seed_case(conn, 3, "synthetic repeated", repeated)
-    apply_search_migration(search_database)
+    apply_case_search_migrations(search_database)
     with search_database.begin() as conn:
         assert (
             conn.scalar(

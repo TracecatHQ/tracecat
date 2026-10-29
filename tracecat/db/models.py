@@ -23,6 +23,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Column,
     Enum,
     FetchedValue,
     Float,
@@ -50,7 +51,7 @@ from sqlalchemy import (
     type_coerce,
     union_all,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
@@ -2789,6 +2790,7 @@ class Case(WorkspaceModel):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
     __tablename__ = "case"
+    __mapper_args__ = {"exclude_properties": ["summary_tsv", "description_tsv"]}
     __table_args__ = (
         UniqueConstraint(
             "workspace_id",
@@ -2828,6 +2830,12 @@ class Case(WorkspaceModel):
     )
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(5000), nullable=False)
+    # Search vectors are maintained by the trg_case_search_vectors trigger and
+    # read only by search SQL. They are table columns, not mapped attributes
+    # (see __mapper_args__), so loading or serializing a Case never fetches them
+    # and ORM writes never name them: the trigger is their only writer.
+    summary_tsv = Column(TSVECTOR, nullable=True)
+    description_tsv = Column(TSVECTOR, nullable=True)
     priority: Mapped[CasePriority] = mapped_column(
         CASE_PRIORITY_ENUM,
         nullable=False,

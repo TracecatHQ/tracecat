@@ -92,11 +92,28 @@ small partial workspace/ID indexes for fallback documents. It does not narrow
 columns, truncate source text, add a chunk table, or require application dual
 writes. Existing and new INSERT/UPDATE/DELETE operations maintain these indexes.
 
+A follow-up migration stores each field's safe vector in `summary_tsv` and
+`description_tsv`. A `BEFORE INSERT OR UPDATE` trigger recomputes a vector only
+when its source text changes, so old and new application writes stay current.
+Search and ranking find candidates through GIN and NULL-fallback indexes on
+these columns and read the stored vectors instead of recomputing the helper for
+every candidate row, which was the dominant cost of broad searches. Excerpts
+read the stored vectors for the already-selected page rows only. The columns
+are table-only: they are not mapped ORM attributes, so loading or serializing a
+case never fetches them.
+
+The original expression indexes remain for the previous application version
+until a later contract migration drops them. Until then, each change to a
+summary or description computes the safe vector three times (old GIN
+expression, old fallback predicate, and trigger) and maintains the four new
+indexes as well as the old ones.
+
 The immutable safe-vector helper returns a NULL sentinel above 8,192 source
-bytes or for conversion-unsafe tokens. Token safety is checked before native
-conversion. Its defensive exception boundary is marked parallel unsafe because
-PostgreSQL exception handling starts a subtransaction. It is not safe to execute
-that boundary in a parallel operation.
+bytes or for conversion-unsafe tokens. A stored NULL keeps that meaning. Token
+safety is checked before native conversion. Its defensive exception boundary is
+marked parallel unsafe because PostgreSQL exception handling starts a
+subtransaction. It is not safe to execute that boundary in a parallel
+operation.
 
 Safe ordinary positive phrase matches use the native vector fast path. A
 negative phrase with all required words present is rechecked against the full
@@ -113,9 +130,17 @@ Fallback predicates retain their partial-index candidates and CASE evaluation
 guards. The complete original source is still used for literal/fuzzy matching.
 Native headline selection uses required words for a field whose phrase match
 has already been proved, so large/position-saturated sources can return useful
-late context. All database work uses a 1,500 ms statement budget within an owned
-transaction/savepoint. A timeout returns the shared `query_timeout` contract and
-rolls back the savepoint; it does not silently return an incomplete result.
+late context. All database work runs within an owned transaction/savepoint,
+and each statement gets its own budget.
+`TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS` sets it (default 30 s). The budget
+lets broad searches finish instead of failing, but it bounds each statement,
+not the request: a search runs its page, match-detail and excerpt queries, and
+the UI requests status counts in parallel. The server does not cancel queries
+when the client aborts a superseded search, so they run until they finish or
+reach the budget. Many concurrent slow searches can therefore exhaust the API's
+connection pool; lower the budget if that happens. A timeout returns the shared
+`query_timeout` contract and rolls back the savepoint; it does not silently
+return an incomplete result.
 
 ## Readiness and operation
 
@@ -172,15 +197,19 @@ The migration does not infer application roles or restore `PUBLIC` execution.
 These invoker functions retain the caller's existing database privileges.
 
 Runtime checks include the actual strict-word function/operator permissions,
-localized helper signatures/bodies, fixed simple configuration, and all six
-index definitions/readiness. Missing prerequisites produce shared typed
-availability errors rather than a silent sequential-search fallback. The
-existing signed paginator fingerprints query values, ordering, and lexical
-mode/columns/configuration generation; incompatible continuations are rejected.
+localized helper signatures/bodies, fixed simple configuration, the two trigram
+index definitions, the stored-vector trigger, its function attributes and body,
+and the four stored-vector index definitions/readiness. Missing prerequisites
+produce shared typed availability errors rather than a silent sequential-search
+fallback. The existing signed paginator fingerprints query values, ordering,
+and lexical mode/columns/configuration generation; incompatible continuations
+are rejected.
 
 Synthetic benchmarks cover four workspaces, selective/broad queries, exact/
 phrase/fuzzy judgments, write cost, and complete-source oversized documents.
-Broad fallback workloads can reach the statement budget. These local warm
-measurements establish correctness and tradeoffs, not a production RDS latency
-promise. BM25 remains a separate prototype if representative relevance judgments
-show a ranking gap.
+`tests/integration/test_case_search_scale_benchmark.py` measures page and
+count latency at 100,000 cases per workspace. Broad typo-matched words remain
+the slowest path because each non-exact row computes trigram similarity against
+its full source text. These local warm measurements establish correctness and
+tradeoffs, not a production RDS latency promise. BM25 remains a separate
+prototype if representative relevance judgments show a ranking gap.
