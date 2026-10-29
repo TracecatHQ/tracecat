@@ -17,11 +17,17 @@ copy never runs next to the original by accident.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
+import yaml
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 
+from tracecat.agent.skill.frontmatter import (
+    normalize_skill_markdown,
+    split_skill_markdown_frontmatter,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.db.models import (
     ManagedDetachedCopy,
@@ -39,6 +45,7 @@ from tracecat.workspace_sync.adapters import RESOURCE_ADAPTERS_BY_TYPE
 from tracecat.workspace_sync.adapters.base import path_segment
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
+    SkillResourceSpec,
     WorkflowResourceSpec,
     WorkspaceRemoteSnapshot,
     WorkspaceSpec,
@@ -233,4 +240,42 @@ def _renamed(
         update |= {"slug": new_name, "name": new_name}
     else:
         update["name"] = new_name
+    if isinstance(spec, SkillResourceSpec):
+        update |= _renamed_skill_files(spec, new_name)
     return spec.model_copy(update=update)
+
+
+def _renamed_skill_files(spec: SkillResourceSpec, new_name: str) -> dict[str, object]:
+    """Rename the skill in its SKILL.md frontmatter and rehash the file.
+
+    The importer requires the spec name to match the frontmatter name.
+    """
+    markdown = spec.file_contents.get("SKILL.md")
+    parts = (
+        split_skill_markdown_frontmatter(normalize_skill_markdown(markdown))
+        if markdown
+        else None
+    )
+    if parts is None:
+        return {}
+    frontmatter_yaml, body = parts
+    frontmatter = yaml.safe_load(frontmatter_yaml) or {}
+    if not isinstance(frontmatter, dict):
+        return {}
+    frontmatter["name"] = new_name
+    renamed = (
+        "---\n"
+        + yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
+        + "---\n"
+        + body
+    )
+    digest = hashlib.sha256(renamed.encode()).hexdigest()
+    return {
+        "file_contents": {**spec.file_contents, "SKILL.md": renamed},
+        "files": [
+            file.model_copy(update={"sha256": digest})
+            if file.path == "SKILL.md"
+            else file
+            for file in spec.files
+        ],
+    }

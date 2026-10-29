@@ -20,8 +20,10 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import yaml
 from sqlalchemy import select, tuple_
 
+from tracecat.agent.skill.frontmatter import parse_skill_markdown
 from tracecat.db.models import (
     RegistryAction,
     RegistryIndex,
@@ -305,7 +307,24 @@ def packaged_action_names(spec: WorkspaceSpec) -> set[str]:
     names.update(
         action for preset in spec.agent_presets.values() for action in preset.actions
     )
+    # Skills declare registry tools in SKILL.md frontmatter; the target org
+    # must have them installed or the skill import is rejected.
+    for skill in spec.skills.values():
+        names.update(_declared_registry_tools(skill.file_contents.get("SKILL.md")))
     return names
+
+
+def _declared_registry_tools(skill_markdown: str | None) -> list[str]:
+    if not skill_markdown:
+        return []
+    try:
+        frontmatter = parse_skill_markdown(skill_markdown)
+    except (ValueError, yaml.YAMLError):
+        # The skill adapter reports a malformed SKILL.md on its own.
+        return []
+    if frontmatter is None:
+        return []
+    return [tool for tool in frontmatter.metadata.tools if not tool.startswith("mcp.")]
 
 
 async def package_registry_requirements(

@@ -19,7 +19,7 @@ from tests.support.managed_resources import (
 )
 from tests.unit.test_workspace_sync_acceptance_contract import _workflow_spec, _yaml
 from tracecat.auth.types import Role
-from tracecat.db.models import ManagedDetachedCopy, Workflow
+from tracecat.db.models import ManagedDetachedCopy, Skill, Workflow
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.managed_resources.detach import ManagedDetachService
@@ -160,6 +160,36 @@ async def test_detach_makes_an_editable_copy_and_leaves_the_original_locked(
     assert record.original_local_id == child
     assert record.original_name == "qa-child-enrichment"
     assert record.original_source_id == "qa-child"
+
+
+@pytest.mark.anyio
+async def test_detach_copies_a_skill_under_its_new_name(
+    session: AsyncSession,
+    svc_role: Role,
+    target: tuple[WorkspaceSyncService, FakeVcsServer],
+) -> None:
+    # The importer requires SKILL.md's frontmatter name to match the spec, so
+    # the copy's SKILL.md must carry the new name.
+    skill_id = await local_id_of(session, Skill, svc_role, slug="qa-enrichment-skill")
+    await mark_managed(
+        session,
+        svc_role,
+        SyncResourceType.SKILL,
+        skill_id,
+        source_id="qa-enrichment-skill",
+    )
+    admin = svc_role.model_copy(update={"user_id": None})
+
+    copy = await ManagedDetachService(session, role=admin).detach(
+        resource_type=SyncResourceType.SKILL,
+        local_id=skill_id,
+        new_name="qa-enrichment-copy",
+    )
+
+    skill = await session.scalar(select(Skill).where(Skill.id == copy.local_id))
+    assert skill is not None
+    assert skill.slug == "qa-enrichment-copy"
+    assert copy.original_local_id == skill_id
 
 
 @pytest.mark.anyio

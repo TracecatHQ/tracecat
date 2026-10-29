@@ -47,9 +47,13 @@ from tracecat.managed_resources.source_setting import (
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.workspace_sync.enums import VcsProvider
-from tracecat.workspace_sync.package import package_registry_requirements
+from tracecat.workspace_sync.package import (
+    package_registry_requirements,
+    packaged_action_names,
+)
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
+    SkillResourceSpec,
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceSpec,
@@ -458,6 +462,25 @@ async def test_registry_requirements_read_the_current_version_index(
     assert [(r.origin, r.version, r.actions) for r in requirements] == [
         (repo.origin, "2.0.0", ["acme.lookup_hash"])
     ]
+
+
+def test_skill_declared_registry_tools_count_as_packaged_actions() -> None:
+    skill = SkillResourceSpec(
+        id="enricher",
+        slug="enricher",
+        name="enricher",
+        file_contents={
+            "SKILL.md": (
+                "---\nname: enricher\nmetadata:\n  tools:\n"
+                "    - acme.lookup_hash\n    - mcp.github\n---\n# Enricher\n"
+            )
+        },
+    )
+
+    names = packaged_action_names(WorkspaceSpec(skills={"enricher": skill}))
+
+    # MCP tools are not registry actions, so only the registry tool counts.
+    assert names == {"acme.lookup_hash"}
 
 
 @pytest.mark.anyio
