@@ -1,7 +1,7 @@
 """Tracecat managed actions and integrations registry."""
 
-__version__ = "1.0.0"
-__pep440_version__ = "1.0.0"
+__version__ = "1.3.0-alpha.5"
+__pep440_version__ = "1.3.0a5"
 
 from typing import TYPE_CHECKING
 
