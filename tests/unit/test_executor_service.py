@@ -13,6 +13,7 @@ from tracecat_registry import (
     RegistrySecretType,
 )
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_secret_masks
 from tracecat.dsl.common import create_default_execution_context
@@ -1547,13 +1548,14 @@ async def _prepare_loop_items(
 )
 @pytest.mark.anyio
 async def test_loop_context_shares_credentials_until_sts_expiry_margin(
-    mocker, sts_expires_in: timedelta, expected_resolutions: int
+    mocker, monkeypatch, sts_expires_in: timedelta, expected_resolutions: int
 ) -> None:
     """Items reuse one STS session unless it would expire within the margin.
 
     Every item still evaluates its own arguments and masks every secret and
     the STS credentials it runs with.
     """
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", False)
     get_action_secrets, assume_role = _patch_loop_resolution(
         mocker, sts_expires_in=sts_expires_in, role_arn=True
     )
