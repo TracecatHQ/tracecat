@@ -29,6 +29,9 @@ class ActionSecrets:
     values: dict[str, Any]
     expires_at: datetime | None = None
     """When the earliest OAuth access token in `values` expires, if any."""
+    partial: bool = False
+    """True when an OAuth token lookup failed and was skipped, so a retry may
+    return tokens that are missing from `values`."""
 
 
 @dataclass(frozen=True, slots=True)

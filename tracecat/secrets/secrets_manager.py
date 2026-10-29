@@ -211,6 +211,7 @@ async def resolve_action_secrets(
     # Get all basic secrets in one call
     secrets: dict[str, Any] = {}
     expires_at: datetime | None = None
+    partial = False
     async with AuthSandbox(
         secrets=all_basic_secrets,
         environment=get_runtime_env(),
@@ -259,6 +260,7 @@ async def resolve_action_secrets(
                             ):
                                 expires_at = integration.expires_at
                     except Exception as e:
+                        partial = True
                         logger.warning(
                             "Could not get oauth secret, skipping",
                             error=e,
@@ -318,8 +320,9 @@ async def resolve_action_secrets(
         except TracecatCredentialsError:
             raise
         except Exception as e:
+            partial = True
             logger.warning("Could not get oauth secrets", error=e)
-    return ActionSecrets(values=secrets, expires_at=expires_at)
+    return ActionSecrets(values=secrets, expires_at=expires_at, partial=partial)
 
 
 def flatten_secrets(secrets: dict[str, Any]) -> dict[str, str]:

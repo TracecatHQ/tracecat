@@ -734,7 +734,7 @@ class SharedActionContext:
     tokens), workspace variables, the secret projection (including STS
     credentials) and the tunnel route. None of these read the loop variables.
     `refresh_at` is the earlier of the max age and 5 minutes before any OAuth
-    token or STS session in it expires.
+    token or STS session in it expires, or now when an OAuth lookup failed.
     """
 
     action_impl: ActionImplementation
@@ -839,10 +839,14 @@ async def resolve_shared_action_context(
             action_ref=task.ref,
         )
 
-    refresh_at = datetime.now(UTC) + _LOOP_CONTEXT_MAX_AGE
+    now = datetime.now(UTC)
+    refresh_at = now + _LOOP_CONTEXT_MAX_AGE
     for expires_at in (resolved_secrets.expires_at, secret_projection.expires_at):
         if expires_at is not None:
             refresh_at = min(refresh_at, expires_at - _CREDENTIAL_EXPIRY_MARGIN)
+    if resolved_secrets.partial:
+        # A skipped OAuth lookup may succeed on retry; don't share the gap.
+        refresh_at = now
 
     return SharedActionContext(
         action_impl=action_impl,

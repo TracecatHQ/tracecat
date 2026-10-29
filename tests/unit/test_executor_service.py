@@ -192,7 +192,7 @@ _OAUTH_EXPIRIES = {
 }
 
 
-def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]) -> None:
+def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]):
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
     mocker.patch(
         "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
@@ -227,6 +227,7 @@ def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]) -> None:
         "tracecat.secrets.secrets_manager.IntegrationService.with_session",
         return_value=service_cm(),
     )
+    return service
 
 
 @pytest.mark.anyio
@@ -272,6 +273,34 @@ async def test_resolve_action_secrets_reports_earliest_oauth_expiry(mocker):
     )
 
     assert resolved.expires_at == _OAUTH_EXPIRIES[OAuthGrantType.CLIENT_CREDENTIALS]
+
+
+@pytest.mark.parametrize(
+    "failing_call",
+    [
+        pytest.param(lambda service: service.get_access_token, id="token"),
+        pytest.param(lambda service: service.list_integrations, id="integrations"),
+    ],
+)
+@pytest.mark.anyio
+async def test_resolve_action_secrets_marks_skipped_oauth_lookup_partial(
+    mocker, failing_call
+):
+    """A swallowed OAuth failure is reported so a loop does not share the gap."""
+    _patch_oauth_secret_env(mocker, [OAuthGrantType.AUTHORIZATION_CODE])
+    complete = await secrets_manager.resolve_action_secrets(
+        secret_exprs=set(), action_secrets=_AZURE_OAUTH_SECRETS
+    )
+
+    service = _patch_oauth_secret_env(mocker, [OAuthGrantType.AUTHORIZATION_CODE])
+    failing_call(service).side_effect = ConnectionError("transient")
+    partial = await secrets_manager.resolve_action_secrets(
+        secret_exprs=set(), action_secrets=_AZURE_OAUTH_SECRETS
+    )
+
+    assert complete.partial is False
+    assert partial.partial is True
+    assert "azure_log_analytics_oauth" not in partial.values
 
 
 @pytest.mark.anyio
@@ -1685,3 +1714,23 @@ async def test_loop_context_fetches_short_lived_oauth_token_per_item(
     await _prepare_loop_items(loop, 3)
 
     assert get_action_secrets.await_count == 3
+
+
+@pytest.mark.anyio
+async def test_loop_context_retries_partial_oauth_resolution(mocker) -> None:
+    """The next item retries a resolution that skipped a failed OAuth lookup."""
+    get_action_secrets, _ = _patch_loop_resolution(
+        mocker, sts_expires_in=timedelta(hours=1), role_arn=False
+    )
+    values = get_action_secrets.return_value.values
+    get_action_secrets.side_effect = [
+        ActionSecrets(values=values, partial=True),
+        ActionSecrets(values=values),
+    ]
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await _prepare_loop_items(loop, 3)
+
+    assert get_action_secrets.await_count == 2
