@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol, TypedDict, runtime_checkable
 
@@ -32,7 +32,7 @@ class SecretEnvProjection:
 class PreprocessedSecrets:
     """A preprocessor's transformed secret view."""
 
-    secrets: dict[str, Any]
+    secrets: dict[str, Any] = field(repr=False)
     expires_at: datetime | None = None
     """When the earliest credential the preprocessor minted expires, if any."""
 

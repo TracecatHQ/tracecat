@@ -171,6 +171,24 @@ class TestProjectSecretEnv:
         assert "temp_token" in projection.mask_values
 
     @pytest.mark.anyio
+    async def test_preprocessed_credentials_report_expiry_and_hide_from_repr(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """Minted STS credentials carry their expiry and stay out of repr."""
+        with patch(_IRSA_PATCH, _mock_assume_role()):
+            preprocessed = await AwsAssumeRoleSecretPreprocessor().preprocess(
+                secrets=_base_aws_secrets(), role=role, run_context=run_context
+            )
+            projection = await project_secret_env(
+                secrets=_base_aws_secrets(), role=role, run_context=run_context
+            )
+
+        assert preprocessed.expires_at == _TEMP_CREDS["Expiration"]
+        assert projection.expires_at == _TEMP_CREDS["Expiration"]
+        assert "temp_secret" not in repr(preprocessed)
+        assert "temp_token" not in repr(preprocessed)
+
+    @pytest.mark.anyio
     @pytest.mark.parametrize(
         ("overrides", "role_session_name", "region_name"),
         [
