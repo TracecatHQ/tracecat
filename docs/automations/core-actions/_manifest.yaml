@@ -545,6 +545,9 @@ pages:
       - id: core.cases.update_task
         examples:
           - cases-update-task
+      - id: core.cases.run_task
+        examples:
+          - cases-run-task
       - id: core.cases.delete_task
         examples:
           - cases-delete-task
