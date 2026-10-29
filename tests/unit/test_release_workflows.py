@@ -198,6 +198,15 @@ def _run_registry_stamp(tmp_path: Path, init_text: str, commit_times: list[int])
     return _run_stamp_step(tmp_path)
 
 
+def _stamped_init(repo: Path, ref: str, post: str) -> str:
+    """Return the expected 1.0.0 stamp: post prefix plus the ref's commit id."""
+    sha = subprocess.run(
+        ["git", "rev-parse", ref], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    version = f"1.0.0.post{post}{int(sha[:7], 16):09d}"
+    return _registry_init(version, version)
+
+
 @pytest.mark.parametrize(
     ("commit_times", "post"),
     [
@@ -213,12 +222,12 @@ def _run_registry_stamp(tmp_path: Path, init_text: str, commit_times: list[int])
 def test_non_release_api_builds_stamp_a_per_commit_registry_version(
     tmp_path: Path, commit_times: list[int], post: str
 ) -> None:
-    """Every commit gets its own .post<commit time><same-second ancestors>."""
+    """Every commit gets .post<commit time><same-second ancestors><commit id>."""
     original = _registry_init("1.0.0", "1.0.0")
 
     stamped = _run_registry_stamp(tmp_path, original, commit_times)
 
-    assert stamped == _registry_init(f"1.0.0.post{post}", f"1.0.0.post{post}")
+    assert stamped == _stamped_init(tmp_path, "HEAD", post)
 
 
 def test_registry_stamp_puts_a_merge_above_its_same_second_merge_parent(
@@ -245,8 +254,26 @@ def test_registry_stamp_puts_a_merge_above_its_same_second_merge_parent(
     _git(tmp_path, "checkout", "-q", "feature")
     branch = _run_stamp_step(tmp_path)
 
-    assert branch == _registry_init("1.0.0.post176169600000", "1.0.0.post176169600000")
-    assert merged == _registry_init("1.0.0.post176169600001", "1.0.0.post176169600001")
+    assert branch == _stamped_init(tmp_path, "feature", "176169600000")
+    assert merged == _stamped_init(tmp_path, "main", "176169600001")
+
+
+def test_registry_stamp_keeps_same_second_sibling_commits_apart(
+    tmp_path: Path,
+) -> None:
+    """Same-second commits on different branches still get different versions."""
+    _init_registry_repo(tmp_path, _registry_init("1.0.0", "1.0.0"))
+    _commit(tmp_path, 1761695999)
+    _git(tmp_path, "checkout", "-q", "-b", "staging")
+    _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "a", commit_time=1761696000)
+    staging = _run_stamp_step(tmp_path)
+    _git(tmp_path, "checkout", "-q", "-b", "preview", "main")
+    _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "b", commit_time=1761696000)
+    preview = _run_stamp_step(tmp_path)
+
+    assert staging == _stamped_init(tmp_path, "staging", "176169600000")
+    assert preview == _stamped_init(tmp_path, "preview", "176169600000")
+    assert staging != preview
 
 
 @pytest.mark.parametrize(

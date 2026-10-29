@@ -122,11 +122,12 @@ jobs:
       # The platform registry keys sync rows and S3 artifacts on
       # tracecat_registry.__version__, and reuses an existing artifact for a
       # known version. Non-release builds keep the release line's version, so
-      # give each commit its own: .post<commit time><NN> sorts above the base
-      # (an upgrade, not a refused downgrade) and is the same on both
+      # give each commit its own: .post<commit time><NN><commit id> sorts above
+      # the base (an upgrade, not a refused downgrade) and is the same on both
       # platforms and on any rebuild of the commit. NN counts ancestors from
       # the same second, since a merged PR stack lands several commits at
-      # once.
+      # once. The commit id (the SHA's first 7 hex digits in decimal) keeps
+      # same-second commits on different branches apart.
       - name: Stamp registry version on non-release builds
         if: needs.validate.outputs.release == 'false'
         shell: bash
@@ -148,7 +149,8 @@ jobs:
             echo "Too many commits share commit time $time." >&2
             exit 1
           fi
-          printf -v suffix '.post%s%02d' "$time" "$same_second"
+          commit=$(git rev-parse HEAD)
+          printf -v suffix '.post%s%02d%09d' "$time" "$same_second" "$((16#${commit:0:7}))"
           sed -E "s/^(__(pep440_)?version__ = \"[^\"]+)\"$/\1${suffix}\"/" "$init" > "$init.stamped"
           mv "$init.stamped" "$init"
           stamped=$(grep -cF "${suffix}\"" "$init" || true)
