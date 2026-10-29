@@ -85,6 +85,7 @@ from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
+    CaseDropdownResourceSpec,
     CaseFieldResourceSpec,
     PackageRegistryRequirement,
     WorkspaceRemoteSnapshot,
@@ -874,15 +875,41 @@ def test_matches_a_tag_no_longer_uses_are_recognised_from_diagnostics() -> None:
         )
 
     catalog_id = str(uuid.uuid4())
+    mcp_id = str(uuid.uuid4())
     unused = _unused_match_keys(
         [
             diagnostic(code="catalog_mapping_source_not_found", catalog_id=catalog_id),
+            diagnostic(
+                code="mcp_integration_mapping_source_not_found",
+                mcp_integration_id=mcp_id,
+            ),
             diagnostic(code="secret_store_mapping_source_not_found", store="old"),
             diagnostic(code="something_else", store="ignored"),
         ]
     )
 
-    assert unused == {"catalog": {catalog_id}, "mcp": set(), "stores": {"old"}}
+    assert unused == {"catalog": {catalog_id}, "mcp": {mcp_id}, "stores": {"old"}}
+
+
+def test_a_customer_dropdown_with_the_incoming_ref_is_a_conflict() -> None:
+    # The importer adopts a dropdown whose ref equals the source id, even
+    # under a different name, so that blocks the rollout too.
+    existing = uuid.uuid4()
+    spec = WorkspaceSpec(
+        case_dropdowns={
+            "severity": CaseDropdownResourceSpec.model_construct(
+                version=1, type="case_dropdown", id="severity", name="Severity"
+            )
+        }
+    )
+
+    [conflict] = _conflicts(
+        WorkspaceRemoteSnapshot(commit_sha="", files={}, spec=spec),
+        {("case_dropdown", ("ref", "severity")): existing},
+        [],
+    )
+
+    assert (conflict.source_id, conflict.existing_local_id) == ("severity", existing)
 
 
 def test_a_customer_case_field_named_like_the_source_id_is_a_conflict() -> None:

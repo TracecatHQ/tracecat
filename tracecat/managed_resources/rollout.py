@@ -1492,6 +1492,10 @@ def _conflicts(
                 and (source_id,) != identity
             ):
                 candidates.append((source_id,))
+            # The dropdown importer adopts a definition whose ref equals the
+            # source id.
+            if adapter.resource_type == SyncResourceType.CASE_DROPDOWN:
+                candidates.append(("ref", source_id))
             for candidate in candidates:
                 existing = identities.get((resource_type, candidate))
                 if existing is None or (resource_type, existing) in managed_local:

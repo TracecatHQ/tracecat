@@ -132,6 +132,18 @@ async def workspace_identities(
             identities[(resource_type.value, tuple(str(name) for name in names))] = (
                 local_id
             )
+    if wanted is None or SyncResourceType.CASE_DROPDOWN in wanted:
+        # The dropdown importer also adopts a definition whose ref equals the
+        # incoming source id, so refs are identities too, keyed apart from
+        # names as ``("ref", ref)``.
+        for local_id, ref in (
+            await session.execute(
+                select(CaseDropdownDefinition.id, CaseDropdownDefinition.ref).where(
+                    CaseDropdownDefinition.workspace_id == workspace_id
+                )
+            )
+        ).tuples():
+            identities[(SyncResourceType.CASE_DROPDOWN.value, ("ref", ref))] = local_id
     if wanted is None or SyncResourceType.CASE_FIELD in wanted:
         fields = await session.scalar(
             select(CaseFields).where(CaseFields.workspace_id == workspace_id)
