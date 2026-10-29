@@ -510,7 +510,7 @@ jobs:
           # latest alone, and rebuilding an older patch leaves its X.Y alone.
           # Called from `if`, so errexit is off inside: every failure exits.
           moves_forward() {
-            local ref="ghcr.io/tracecathq/tracecat:$1" root current
+            local ref="ghcr.io/tracecathq/$1" root current
             # --raw reads only the tag's own manifest, so "not found" here means
             # the tag is absent (its first promotion), not missing child content.
             if ! root=$(docker buildx imagetools inspect --raw "$ref" 2>&1); then
@@ -534,20 +534,20 @@ jobs:
               return 1
             fi
           }
-          tags=()
-          if moves_forward "${VERSION%.*}"; then
-            tags+=("${VERSION%.*}")
-          fi
-          if moves_forward latest; then
-            tags+=(latest)
-          fi
-          if [[ ${#tags[@]} -eq 0 ]]; then
+          # Check every image's own floating tags before writing any of them.
+          refs=()
+          for image in tracecat tracecat-ui tracecat-tunnel-gateway; do
+            for tag in "${VERSION%.*}" latest; do
+              if moves_forward "$image:$tag"; then
+                refs+=("$image:$tag")
+              fi
+            done
+          done
+          if [[ ${#refs[@]} -eq 0 ]]; then
             exit 0
           fi
-          for image in tracecat tracecat-ui tracecat-tunnel-gateway; do
-            for tag in "${tags[@]}"; do
-              docker buildx imagetools create \
-                --tag "ghcr.io/tracecathq/$image:$tag" \
-                "ghcr.io/tracecathq/$image:$VERSION"
-            done
+          for ref in "${refs[@]}"; do
+            docker buildx imagetools create \
+              --tag "ghcr.io/tracecathq/$ref" \
+              "ghcr.io/tracecathq/${ref%%:*}:$VERSION"
           done

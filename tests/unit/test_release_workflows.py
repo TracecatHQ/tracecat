@@ -223,12 +223,14 @@ def _run_promotion(
     *,
     minor: str,
     latest: str,
+    ui_latest: str = "",
     fail_api: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the promote step with a Docker stub.
 
     `inspect` prints `minor` as the version label of the `X.Y` tag and
-    `latest` as that of `latest`. `-` means the tag doesn't exist yet, `!`
+    `latest` as that of `latest` (`ui_latest` overrides it for the UI image).
+    `-` means the tag doesn't exist yet, `!`
     means the registry call fails, and `?` means the tag exists but its
     child content is missing.
     """
@@ -241,6 +243,7 @@ def _run_promotion(
         'if [[ "$3" == inspect ]]; then\n'
         '  for arg in "$@"; do [[ "$arg" == ghcr.io/* ]] && ref=$arg; done\n'
         '  if [[ "$ref" == *:latest ]]; then label=$LATEST; else label=$MINOR; fi\n'
+        '  [[ "$ref" == */tracecat-ui:latest && -n "$UI_LATEST" ]] && label=$UI_LATEST\n'
         '  case "$label" in\n'
         '    -) echo "ERROR: $ref: not found" >&2; exit 1 ;;\n'
         '    !) echo "ERROR: unexpected status 503" >&2; exit 1 ;;\n'
@@ -271,6 +274,7 @@ def _run_promotion(
             "VERSION": version,
             "MINOR": minor,
             "LATEST": latest,
+            "UI_LATEST": ui_latest,
             "FAIL_API": str(fail_api).lower(),
         },
         capture_output=True,
@@ -333,6 +337,20 @@ def test_promotion_only_moves_floating_tags_forward(
     result, created = _run_promotion(tmp_path, version, minor=minor, latest=latest)
     assert result.returncode == 0, result.stderr
     assert created == _create_args(version, ALL_IMAGES, tags)
+
+
+def test_promotion_checks_each_image_on_its_own(tmp_path: Path) -> None:
+    # A newer UI latest (from a break-glass publish) is left alone, while the
+    # other images and every X.Y still move.
+    result, created = _run_promotion(
+        tmp_path, "1.2.5", minor="1.2.4", latest="1.2.4", ui_latest="1.3.0"
+    )
+    assert result.returncode == 0, result.stderr
+    assert created == [
+        *_create_args("1.2.5", ["tracecat"], ["1.2", "latest"]),
+        *_create_args("1.2.5", ["tracecat-ui"], ["1.2"]),
+        *_create_args("1.2.5", ["tracecat-tunnel-gateway"], ["1.2", "latest"]),
+    ]
 
 
 @pytest.mark.parametrize("floating", ["minor", "latest"])

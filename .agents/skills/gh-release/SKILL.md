@@ -101,8 +101,9 @@ Before mutation, show:
 - For a patch, the pinned baseline and evidence that the migration gate passed.
 - Public tag and whether the GitHub release is stable or a prerelease.
 - Version-bump, branch-push, tag-push, and release-publication commands.
-- Stable image tags update `X.Y` and `latest`, each only when newer than the
-  version it points to, so an older train's hotfix moves only its `X.Y` tag.
+- Stable image tags update `X.Y` and `latest` unless the version a tag points
+  to is newer (an equal version is re-published), so an older train's hotfix
+  moves only its `X.Y` tag.
   Prereleases leave `latest` unchanged.
 - Whether the GitHub release is marked latest: only when the tag is higher
   than every published stable release, because the Compose docs download
