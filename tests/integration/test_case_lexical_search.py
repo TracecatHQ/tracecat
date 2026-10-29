@@ -52,7 +52,7 @@ async def lexical_service(aggregate_service: CasesService) -> CasesService:
     for name, expression in migration._INDEXES:
         await session.execute(
             sa.text(
-                f'CREATE INDEX IF NOT EXISTS "{name}" ON public."case" USING gin ({expression})'
+                f'CREATE INDEX IF NOT EXISTS "{name}" ON public."case" USING gin ({expression.format(trgm_schema="public")})'
             )
         )
     for name, predicate in migration._FALLBACK_INDEXES:
@@ -194,7 +194,7 @@ async def test_rows_counts_and_excerpts_only_configure_fuzzy_threshold_when_need
     loads = [
         query
         for query in queries
-        if query.statement == "SELECT public.strict_word_similarity('', '')"
+        if query.statement == "SELECT strict_word_similarity('', '')"
     ]
     settings = [
         query
@@ -471,7 +471,7 @@ async def timeout_service() -> AsyncIterator[CasesService]:
             for name, expression in migration._INDEXES:
                 await session.execute(
                     sa.text(
-                        f'CREATE INDEX IF NOT EXISTS "{name}" ON public."case" USING gin ({expression})'
+                        f'CREATE INDEX IF NOT EXISTS "{name}" ON public."case" USING gin ({expression.format(trgm_schema="public")})'
                     )
                 )
             for name, predicate in migration._FALLBACK_INDEXES:

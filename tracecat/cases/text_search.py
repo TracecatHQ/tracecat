@@ -284,9 +284,7 @@ def _field_clause(
         return exact, exact, rank
     # This is the indexable commutator of ``term <<% lower(coalesce(field,''))``.
     # A scalar strict_word_similarity predicate alone would scan source rows.
-    indexed_candidates = _normalized(field).bool_op("OPERATOR(public.%>>)")(
-        clause.value.lower()
-    )
+    indexed_candidates = _normalized(field).bool_op("%>>")(clause.value.lower())
     fallback_document = vector.is_(None)
     candidates = sa.or_(
         indexed_candidates,
@@ -295,9 +293,7 @@ def _field_clause(
             sa.case(
                 (
                     fallback_document,
-                    _full_normalized(field).bool_op("OPERATOR(public.%>>)")(
-                        clause.value.lower()
-                    ),
+                    _full_normalized(field).bool_op("%>>")(clause.value.lower()),
                 ),
                 else_=sa.false(),
             ),
@@ -312,7 +308,7 @@ def _field_clause(
         sa.select(1)
         .select_from(words)
         .where(
-            sa.func.public.strict_word_similarity(clause.value.lower(), words.c.word)
+            sa.func.strict_word_similarity(clause.value.lower(), words.c.word)
             >= FUZZY_THRESHOLD
         )
         .correlate(Case)
@@ -322,7 +318,7 @@ def _field_clause(
     # Keep the outer operator indexable, while CASE prevents the planner from
     # moving regex/token work ahead of a rejected candidate during rechecks.
     fuzzy = sa.and_(candidates, sa.case((candidates, complete_word), else_=sa.false()))
-    similarity = sa.func.public.strict_word_similarity(
+    similarity = sa.func.strict_word_similarity(
         clause.value.lower(), _full_normalized(field)
     )
     return (
@@ -510,13 +506,13 @@ WITH page_sources AS MATERIALIZED (
     FROM matched m
     CROSS JOIN LATERAL regexp_matches(m.source, '[[:alnum:]]+|[^[:alnum:]]+', 'g')
         WITH ORDINALITY AS t(parts, ordinality)
-    WHERE NOT m.exact AND m.fuzzy AND lower(m.source) OPERATOR(public.%>>) lower(m.value)
+    WHERE NOT m.exact AND m.fuzzy AND lower(m.source) %>> lower(m.value)
 ), fuzzy_context AS (
     SELECT case_id, field, position, 1 AS priority, token_start AS anchor,
         overlay(substring(source FROM greatest(1, token_start - 60) FOR 480)
             PLACING :start_marker FROM least(61, token_start) FOR 0) AS context
     FROM tokens WHERE token ~ '^[[:alnum:]]+$'
-        AND public.strict_word_similarity(lower(value), lower(token)) >= :threshold
+        AND strict_word_similarity(lower(value), lower(token)) >= :threshold
 ), contexts AS (
     SELECT * FROM exact_context UNION ALL SELECT * FROM fuzzy_context
 ), chosen AS (
@@ -636,9 +632,7 @@ async def case_search_execution_context(
                 return
             # Extension GUCs are registered only after this connection loads
             # pg_trgm. A fresh pooled connection cannot SHOW them before that.
-            await session.execute(
-                sa.text("SELECT public.strict_word_similarity('', '')")
-            )
+            await session.execute(sa.text("SELECT strict_word_similarity('', '')"))
             previous_threshold = await session.scalar(
                 sa.text("SHOW pg_trgm.strict_word_similarity_threshold")
             )

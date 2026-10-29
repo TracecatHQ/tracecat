@@ -19,28 +19,29 @@ CASE_TEXT_VECTOR_BODY_HASH = "08c09d8befdb26cbb7f76a0d66e075de"
 async def ensure_case_text_indexes(session: AsyncSession) -> None:
     """Verify extension/index readiness without installing or scanning sources."""
     extension = await session.scalar(
-        sa.text("""
-        SELECT EXISTS (SELECT 1 FROM pg_extension e
-            JOIN pg_namespace n ON n.oid = e.extnamespace
-            WHERE e.extname = 'pg_trgm' AND n.nspname = 'public')
-    """)
+        sa.text("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')")
     )
     if not extension:
         raise LexicalSearchError(LexicalSearchErrorCode.UNAVAILABLE)
+    # Search calls pg_trgm unqualified because its schema varies (public, or
+    # ibm_extension on IBM Cloud). Verify that search_path resolves each name
+    # to the extension's own objects, not a same-named lookalike.
     permitted = await session.scalar(
         sa.text("""
-        WITH extension AS (SELECT oid FROM pg_extension WHERE extname = 'pg_trgm'),
+        WITH extension AS (
+            SELECT oid, extnamespace FROM pg_extension WHERE extname = 'pg_trgm'
+        ),
         required AS (
-            SELECT to_regprocedure('public.strict_word_similarity(text,text)')::oid AS oid
+            SELECT to_regprocedure('strict_word_similarity(text,text)')::oid AS oid
             UNION ALL
-            SELECT o.oprcode FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace
+            SELECT o.oprcode FROM pg_operator o
                 JOIN pg_depend d ON d.classid = 'pg_operator'::regclass AND d.objid = o.oid
                     AND d.deptype = 'e' AND d.refclassid = 'pg_extension'::regclass
                 JOIN extension e ON e.oid = d.refobjid
-            WHERE n.nspname = 'public' AND o.oprname = '%>>'
-                AND o.oprleft = 'text'::regtype AND o.oprright = 'text'::regtype
+            WHERE o.oid = to_regoperator('%>>(text,text)')
         )
-        SELECT has_schema_privilege('public', 'USAGE') AND count(*) = 2
+        SELECT has_schema_privilege((SELECT extnamespace FROM extension), 'USAGE')
+            AND count(*) = 2
             AND coalesce(bool_and(has_function_privilege(r.oid, 'EXECUTE')), false)
         FROM required r JOIN pg_depend d ON d.classid = 'pg_proc'::regclass AND d.objid = r.oid
             AND d.deptype = 'e' AND d.refclassid = 'pg_extension'::regclass
@@ -111,7 +112,10 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
             AND NOT i.indisunique AND i.indpred IS NULL
             AND i.indnkeyatts = 1 AND i.indnatts = 1 AND i.indkey[0] = 0
             AND o.opcname = CASE WHEN c.relname LIKE '%_fts' THEN 'tsvector_ops' ELSE 'gin_trgm_ops' END
-            AND n.nspname = CASE WHEN c.relname LIKE '%_fts' THEN 'pg_catalog' ELSE 'public' END
+            AND n.nspname = CASE WHEN c.relname LIKE '%_fts' THEN 'pg_catalog' ELSE (
+                SELECT en.nspname FROM pg_extension e
+                JOIN pg_namespace en ON en.oid = e.extnamespace WHERE e.extname = 'pg_trgm'
+            ) END
             AND (c.relname NOT LIKE '%_fts' OR EXISTS (
                 SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid
                     AND d.refclassid='pg_proc'::regclass
