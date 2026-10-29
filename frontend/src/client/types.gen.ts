@@ -4497,6 +4497,30 @@ export type CursorPaginatedResponse_SkillVersionReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_TableFolderRead_ = {
+  items: Array<TableFolderRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
   /**
@@ -10870,12 +10894,68 @@ export type TableCreate = {
 }
 
 /**
+ * Table as a directory item.
+ */
+export type TableDirectoryItem = {
+  type: "table"
+  id: string
+  name: string
+  folder_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type TableFolderCreate = {
+  name: string
+  parent_path?: string
+}
+
+export type TableFolderDelete = {
+  recursive?: boolean
+}
+
+export type TableFolderDirectoryItem = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+  type: "folder"
+  num_items: number
+}
+
+export type TableFolderMove = {
+  new_parent_path?: string | null
+}
+
+export type TableFolderRead = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type TableFolderUpdate = {
+  name?: string | null
+}
+
+/**
  * Response model for importing a table from CSV.
  */
 export type TableImportResponse = {
   table: TableRead
   rows_inserted: number
   column_mapping: Array<InferredColumn>
+}
+
+/**
+ * Payload for moving a table into a folder or the workspace root.
+ */
+export type TableMoveToFolder = {
+  folder_path?: string | null
 }
 
 /**
@@ -10893,6 +10973,7 @@ export type TableRead = {
 export type TableReadMinimal = {
   id: string
   name: string
+  folder_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -16970,6 +17051,14 @@ export type TablesDeleteTableData = {
 
 export type TablesDeleteTableResponse = void
 
+export type TablesMoveTableData = {
+  requestBody: TableMoveToFolder
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesMoveTableResponse = void
+
 export type TablesCreateColumnData = {
   requestBody: TableColumnCreate
   tableId: string
@@ -17125,6 +17214,70 @@ export type TablesGetTableSearchProgressData = {
 }
 
 export type TablesGetTableSearchProgressResponse = TableSearchProgressPage
+
+export type TableFoldersGetDirectoryData = {
+  /**
+   * Folder path
+   */
+  path?: string
+  workspaceId: string
+}
+
+export type TableFoldersGetDirectoryResponse = Array<
+  TableDirectoryItem | TableFolderDirectoryItem
+>
+
+export type TableFoldersListFoldersData = {
+  cursor?: string | null
+  limit?: number
+  /**
+   * Parent folder path
+   */
+  parentPath?: string
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type TableFoldersListFoldersResponse =
+  CursorPaginatedResponse_TableFolderRead_
+
+export type TableFoldersCreateFolderData = {
+  requestBody: TableFolderCreate
+  workspaceId: string
+}
+
+export type TableFoldersCreateFolderResponse = TableFolderRead
+
+export type TableFoldersGetFolderData = {
+  folderId: string
+  workspaceId: string
+}
+
+export type TableFoldersGetFolderResponse = TableFolderRead
+
+export type TableFoldersUpdateFolderData = {
+  folderId: string
+  requestBody: TableFolderUpdate
+  workspaceId: string
+}
+
+export type TableFoldersUpdateFolderResponse = TableFolderRead
+
+export type TableFoldersDeleteFolderData = {
+  folderId: string
+  requestBody?: TableFolderDelete | null
+  workspaceId: string
+}
+
+export type TableFoldersDeleteFolderResponse = void
+
+export type TableFoldersMoveFolderData = {
+  folderId: string
+  requestBody: TableFolderMove
+  workspaceId: string
+}
+
+export type TableFoldersMoveFolderResponse = TableFolderRead
 
 export type FormsListFormsData = {
   cursor?: string | null
@@ -24877,6 +25030,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/tables/{table_id}/move": {
+    post: {
+      req: TablesMoveTableData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/tables/{table_id}/columns": {
     post: {
       req: TablesCreateColumnData
@@ -25153,6 +25321,105 @@ export type $OpenApiTs = {
          * Conflict
          */
         409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/table-folders/directory": {
+    get: {
+      req: TableFoldersGetDirectoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<TableDirectoryItem | TableFolderDirectoryItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/table-folders": {
+    get: {
+      req: TableFoldersListFoldersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_TableFolderRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TableFoldersCreateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TableFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/table-folders/{folder_id}": {
+    get: {
+      req: TableFoldersGetFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TableFoldersUpdateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TableFoldersDeleteFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/table-folders/{folder_id}/move": {
+    post: {
+      req: TableFoldersMoveFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableFolderRead
         /**
          * Validation Error
          */

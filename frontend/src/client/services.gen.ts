@@ -948,6 +948,20 @@ import type {
   SkillTagsListSkillTagsResponse,
   SkillTagsUpdateSkillTagData,
   SkillTagsUpdateSkillTagResponse,
+  TableFoldersCreateFolderData,
+  TableFoldersCreateFolderResponse,
+  TableFoldersDeleteFolderData,
+  TableFoldersDeleteFolderResponse,
+  TableFoldersGetDirectoryData,
+  TableFoldersGetDirectoryResponse,
+  TableFoldersGetFolderData,
+  TableFoldersGetFolderResponse,
+  TableFoldersListFoldersData,
+  TableFoldersListFoldersResponse,
+  TableFoldersMoveFolderData,
+  TableFoldersMoveFolderResponse,
+  TableFoldersUpdateFolderData,
+  TableFoldersUpdateFolderResponse,
   TablesBatchDeleteRowsData,
   TablesBatchDeleteRowsResponse,
   TablesBatchInsertRowsData,
@@ -982,6 +996,8 @@ import type {
   TablesListRowsResponse,
   TablesListTablesData,
   TablesListTablesResponse,
+  TablesMoveTableData,
+  TablesMoveTableResponse,
   TablesRetryTableSearchData,
   TablesRetryTableSearchResponse,
   TablesSelectTableSearchColumnData,
@@ -11578,6 +11594,34 @@ export const tablesDeleteTable = (
 }
 
 /**
+ * Move Table
+ * Move a table to a folder or the workspace root.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tablesMoveTable = (
+  data: TablesMoveTableData
+): CancelablePromise<TablesMoveTableResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/tables/{table_id}/move",
+    path: {
+      table_id: data.tableId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Create Column
  * Add a column to a table.
  * @param data The data for the request.
@@ -12074,6 +12118,201 @@ export const tablesGetTableSearchProgress = (
       400: "Bad Request",
       404: "Not Found",
       409: "Conflict",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Directory
+ * Get directory items (tables and folders) in the given path.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.path Folder path
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const tableFoldersGetDirectory = (
+  data: TableFoldersGetDirectoryData
+): CancelablePromise<TableFoldersGetDirectoryResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/table-folders/directory",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      path: data.path,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Folders
+ * List folders under the specified parent path.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.parentPath Parent folder path
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_TableFolderRead_ Successful Response
+ * @throws ApiError
+ */
+export const tableFoldersListFolders = (
+  data: TableFoldersListFoldersData
+): CancelablePromise<TableFoldersListFoldersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/table-folders",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      parent_path: data.parentPath,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Folder
+ * Create a new table folder.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableFolderRead Successful Response
+ * @throws ApiError
+ */
+export const tableFoldersCreateFolder = (
+  data: TableFoldersCreateFolderData
+): CancelablePromise<TableFoldersCreateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/table-folders",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Folder
+ * Get folder details by ID.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @returns TableFolderRead Successful Response
+ * @throws ApiError
+ */
+export const tableFoldersGetFolder = (
+  data: TableFoldersGetFolderData
+): CancelablePromise<TableFoldersGetFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/table-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Folder
+ * Update a folder (rename).
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableFolderRead Successful Response
+ * @throws ApiError
+ */
+export const tableFoldersUpdateFolder = (
+  data: TableFoldersUpdateFolderData
+): CancelablePromise<TableFoldersUpdateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/table-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Folder
+ * Delete a table folder.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tableFoldersDeleteFolder = (
+  data: TableFoldersDeleteFolderData
+): CancelablePromise<TableFoldersDeleteFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/table-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Move Folder
+ * Move a folder to a new parent folder.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableFolderRead Successful Response
+ * @throws ApiError
+ */
+export const tableFoldersMoveFolder = (
+  data: TableFoldersMoveFolderData
+): CancelablePromise<TableFoldersMoveFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/table-folders/{folder_id}/move",
+    path: {
+      folder_id: data.folderId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
       422: "Validation Error",
     },
   })
