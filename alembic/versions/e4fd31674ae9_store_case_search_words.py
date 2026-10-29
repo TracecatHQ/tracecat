@@ -146,20 +146,6 @@ _WORD_INDEXES = (
 _EXPECTED_TABLE_COLUMNS = {"id": "bigint", "workspace_id": "uuid", "word": "text"}
 
 
-def _trgm_schema() -> str | None:
-    """Return pg_trgm's schema as SQL: public, or ibm_extension on IBM Cloud."""
-    return op.get_bind().scalar(
-        sa.text(
-            "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'"
-        )
-    )
-
-
-def _in_trgm_schema(sql: str, trgm_schema: str) -> str:
-    """Point this revision's pg_trgm calls, written for public, at its schema."""
-    return sql.replace("public.show_trgm(", f"{trgm_schema}.show_trgm(")
-
-
 def _column_types(table: str, names: Sequence[str]) -> dict[str, str]:
     rows = (
         op.get_bind()
@@ -208,6 +194,20 @@ def _check_function(signature: str, body: str, attributes: str) -> bool:
             "preserve it and ask an operator to resolve the collision."
         )
     return True
+
+
+def _trgm_schema() -> str | None:
+    """Return pg_trgm's schema as SQL: public, or ibm_extension on IBM Cloud."""
+    return op.get_bind().scalar(
+        sa.text(
+            "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'"
+        )
+    )
+
+
+def _in_trgm_schema(sql: str, trgm_schema: str) -> str:
+    """Point this revision's pg_trgm calls, written for public, at its schema."""
+    return sql.replace("public.show_trgm(", f"{trgm_schema}.show_trgm(")
 
 
 def _check_words_function(trgm_schema: str) -> bool:

@@ -310,6 +310,133 @@ AUDITED_REWRITES: Mapping[str, tuple[tuple[bytes, bytes], ...]] = {
             ),
         ),
     ),
+    # e4fd31674ae9 looks up pg_trgm's schema for show_trgm and gin_trgm_ops so
+    # case search word lists also work in IBM Cloud's ibm_extension schema.
+    "e4fd31674ae9": (
+        (
+            (
+                b"# class that pg_get_indexdef() reports when public is on the search_path.\n"
+            ),
+            (
+                b"# class that pg_get_indexdef() reports when pg_trgm's schema is on the\n"
+                b"# search_path.\n"
+            ),
+        ),
+        (
+            (
+                b"def _check_words_function() -> bool:\n"
+                b"    return _check_function(\n"
+                b'        f"public.{_WORDS_FUNCTION}(text)",\n'
+                b"        _WORDS_BODY,\n"
+            ),
+            (
+                b"def _trgm_schema() -> str | None:\n"
+                b'    """Return pg_trgm\'s schema as SQL: public, or ibm_extension on IBM Cloud."""\n'
+                b"    return op.get_bind().scalar(\n"
+                b"        sa.text(\n"
+                b"            \"SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'\"\n"
+                b"        )\n"
+                b"    )\n"
+                b"\n"
+                b"\n"
+                b"def _in_trgm_schema(sql: str, trgm_schema: str) -> str:\n"
+                b'    """Point this revision\'s pg_trgm calls, written for public, at its schema."""\n'
+                b'    return sql.replace("public.show_trgm(", f"{trgm_schema}.show_trgm(")\n'
+                b"\n"
+                b"\n"
+                b"def _check_words_function(trgm_schema: str) -> bool:\n"
+                b"    return _check_function(\n"
+                b'        f"public.{_WORDS_FUNCTION}(text)",\n'
+                b"        _in_trgm_schema(_WORDS_BODY, trgm_schema),\n"
+            ),
+        ),
+        (
+            (b"def _index_state(name: str, definition: str) -> _IndexState:\n"),
+            (
+                b"def _index_state(name: str, definition: str, trgm_schema: str) -> _IndexState:\n"
+            ),
+        ),
+        (
+            (
+                b"    # The operator class is schema-qualified when public is not on search_path.\n"
+                b'    if row[0].replace(" public.gin_trgm_ops)", " gin_trgm_ops)") != definition:\n'
+            ),
+            (
+                b"    # The operator class is schema-qualified when its schema is not on search_path.\n"
+                b'    qualified = f" {trgm_schema}.gin_trgm_ops)"\n'
+                b'    if row[0].replace(qualified, " gin_trgm_ops)") != definition:\n'
+            ),
+        ),
+        (
+            (
+                b"    if not op.get_bind().scalar(\n"
+                b"        sa.text(\"SELECT to_regprocedure('public.show_trgm(text)') IS NOT NULL\")\n"
+                b"    ):\n"
+                b'        raise RuntimeError("Case search word lists require pg_trgm in schema public.")\n'
+            ),
+            (
+                b"    trgm_schema = _trgm_schema()\n"
+                b"    if trgm_schema is None or not op.get_bind().scalar(\n"
+                b'        sa.text("SELECT to_regprocedure(:show_trgm) IS NOT NULL"),\n'
+                b'        {"show_trgm": f"{trgm_schema}.show_trgm(text)"},\n'
+                b"    ):\n"
+                b'        raise RuntimeError("Case search word lists require pg_trgm.")\n'
+            ),
+        ),
+        (
+            (
+                b"    words_exists = _check_words_function()\n"
+                b"    function_exists = _check_trigger_function()\n"
+                b"    trigger_exists = _check_trigger()\n"
+                b"    states = {\n"
+                b"        name: _index_state(name, definition)\n"
+            ),
+            (
+                b"    words_exists = _check_words_function(trgm_schema)\n"
+                b"    function_exists = _check_trigger_function()\n"
+                b"    trigger_exists = _check_trigger()\n"
+                b"    states = {\n"
+                b"        name: _index_state(name, definition, trgm_schema)\n"
+            ),
+        ),
+        (
+            (
+                b'            ).replace(" gin_trgm_ops)", " public.gin_trgm_ops)")\n'
+                b"        )\n"
+                b"    if not words_exists:\n"
+                b"        op.execute(_WORDS_FUNCTION_SQL)\n"
+            ),
+            (
+                b'            ).replace(" gin_trgm_ops)", f" {trgm_schema}.gin_trgm_ops)")\n'
+                b"        )\n"
+                b"    if not words_exists:\n"
+                b"        op.execute(_in_trgm_schema(_WORDS_FUNCTION_SQL, trgm_schema))\n"
+            ),
+        ),
+        (
+            (b'            if _index_state(name, definition) != "ready":\n'),
+            (
+                b'            if _index_state(name, definition, trgm_schema) != "ready":\n'
+            ),
+        ),
+        (
+            (
+                b"    _check_words_function()\n"
+                b"    _check_trigger_function()\n"
+                b"    _check_trigger()\n"
+                b"    for name, definition in _WORD_INDEXES:\n"
+                b"        _index_state(name, definition)\n"
+            ),
+            (
+                b'    trgm_schema = _trgm_schema() or "public"\n'
+                b"    _check_words_function(trgm_schema)\n"
+                b"    _check_trigger_function()\n"
+                b"    _check_trigger()\n"
+                b"    for name, definition in _WORD_INDEXES:\n"
+                b"        _index_state(name, definition, trgm_schema)\n"
+            ),
+        ),
+    ),
 }
 
 
