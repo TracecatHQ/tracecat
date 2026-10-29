@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import uuid
 from collections.abc import Mapping
@@ -7,6 +8,8 @@ from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
+from tracecat_ee.tunnels import routing as tunnel_routing
+from tracecat_ee.tunnels.routing import TunnelTarget
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
@@ -1736,3 +1739,78 @@ async def test_loop_context_retries_partial_oauth_resolution(mocker) -> None:
     await _prepare_loop_items(loop, 3)
 
     assert get_action_secrets.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_loop_context_mints_tunnel_token_per_item(mocker) -> None:
+    """Items share one tunnel lookup but each gets its own fresh proxy token."""
+    _patch_loop_resolution(mocker, sts_expires_in=timedelta(hours=1), role_arn=False)
+    target = TunnelTarget(
+        tunnel_id=uuid.uuid4(),
+        tunnel_name="loop-tunnel",
+        workspace_id=UUID(int=2),
+        gateway_ip="10.0.0.1",
+        gateway_port=8080,
+        gateway_key="loop-gateway-key",
+    )
+    resolve_target = mocker.patch.object(
+        executor_service,
+        "resolve_tunnel_target",
+        new=mocker.AsyncMock(return_value=target),
+    )
+    minted = mocker.patch.object(
+        tunnel_routing,
+        "mint_tunnel_token",
+        side_effect=lambda **_: f"token-{minted.call_count}",
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    proxy_urls = []
+    for item in range(3):
+        item_input = _loop_item_input(item)
+        item_input = item_input.model_copy(
+            update={"task": item_input.task.model_copy(update={"tunnel": "t"})}
+        )
+        prepared = await loop.prepare(item_input)
+        proxy_urls.append(prepared.resolved_context.tunnel_proxy_url)
+
+    assert resolve_target.await_count == 1
+    assert minted.call_count == 3
+    assert len(set(proxy_urls)) == 3
+    assert "loop-gateway-key" not in repr(loop)
+
+
+@pytest.mark.anyio
+async def test_loop_context_resolves_unshareable_contexts_in_parallel(
+    mocker,
+) -> None:
+    """After a partial resolution, items resolve concurrently, not one by one."""
+    get_action_secrets, _ = _patch_loop_resolution(
+        mocker, sts_expires_in=timedelta(hours=1), role_arn=False
+    )
+    values = get_action_secrets.return_value.values
+    active = 0
+    max_active = 0
+
+    async def resolve(**_: object) -> ActionSecrets:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            await asyncio.sleep(0.01)
+        finally:
+            active -= 1
+        return ActionSecrets(values=values, partial=True)
+
+    get_action_secrets.side_effect = resolve
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await loop.prepare(_loop_item_input(0))
+    await asyncio.gather(*(loop.prepare(_loop_item_input(i)) for i in range(1, 4)))
+
+    assert get_action_secrets.await_count == 4
+    assert max_active == 3

@@ -11,10 +11,11 @@ from aiocache import Cache
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select, union_all
 from tracecat_ee.tunnels.routing import (
-    TunnelRoute,
     TunnelRouteError,
+    TunnelTarget,
     effective_tunnel,
-    resolve_tunnel_route,
+    mint_tunnel_route,
+    resolve_tunnel_target,
 )
 
 from tracecat import config
@@ -732,7 +733,7 @@ class SharedActionContext:
 
     Covers the action implementation, argument plan, secrets (including OAuth
     tokens), workspace variables, the secret projection (including STS
-    credentials) and the tunnel route. None of these read the loop variables.
+    credentials) and the tunnel target. None of these read the loop variables.
     `refresh_at` is the earlier of the max age and 5 minutes before any OAuth
     token or STS session in it expires, or now when an OAuth lookup failed.
     Fields holding plaintext credentials are left out of `repr`.
@@ -745,7 +746,7 @@ class SharedActionContext:
     variables: dict[str, dict[str, str]]
     secret_projection: SecretEnvProjection = field(repr=False)
     mask_values: set[str] | None = field(repr=False)
-    tunnel_route: TunnelRoute | None
+    tunnel_target: TunnelTarget | None
     refresh_at: datetime
     """When a loop must stop reusing this context and resolve a fresh one."""
 
@@ -828,20 +829,14 @@ async def resolve_shared_action_context(
         for value in secret_projection.mask_values:
             masks.observe(value)
 
-    tunnel_route = None
+    tunnel_target = None
     if tunnel_name := effective_tunnel(input):
         if PlatformAction.is_interface(action_name):
             raise TunnelRouteError(f"Action {action_name!r} cannot use a tunnel")
-        tunnel_route = await resolve_tunnel_route(
+        tunnel_target = await resolve_tunnel_target(
             name=tunnel_name,
             workspace_id=role.workspace_id,
             organization_id=role.organization_id,
-            subject=(
-                f"agent_session:{input.agent_session_id}"
-                if input.agent_session_id is not None
-                else str(input.run_context.wf_exec_id)
-            ),
-            action_ref=task.ref,
         )
 
     now = datetime.now(UTC)
@@ -861,7 +856,7 @@ async def resolve_shared_action_context(
         variables=workspace_variables,
         secret_projection=secret_projection,
         mask_values=mask_values,
-        tunnel_route=tunnel_route,
+        tunnel_target=tunnel_target,
         refresh_at=refresh_at,
     )
 
@@ -920,7 +915,18 @@ def bind_action_context(
     # Generate executor token for SDK authentication
     executor_token = _mint_action_executor_token(input, role)
 
-    tunnel_route = shared.tunnel_route
+    # Proxy tokens are short-lived, so each invocation mints its own.
+    tunnel_route = None
+    if shared.tunnel_target is not None:
+        tunnel_route = mint_tunnel_route(
+            shared.tunnel_target,
+            subject=(
+                f"agent_session:{input.agent_session_id}"
+                if input.agent_session_id is not None
+                else str(input.run_context.wf_exec_id)
+            ),
+            action_ref=task.ref,
+        )
     resolved_context = ResolvedContext(
         secrets=shared.secrets,
         variables=shared.variables,
@@ -966,23 +972,40 @@ async def prepare_resolved_context(
 class LoopActionContext:
     """Shares one resolved action context across a for_each loop's items.
 
-    The first item resolves it; later items reuse it until `refresh_at`, then
-    the next item resolves a fresh one. A failed resolution is not cached, so
-    each item that needs the context retries it, as it did before sharing.
+    The first item resolves it under a lock; later items reuse it until
+    `refresh_at`, then the next item resolves a fresh one. When a resolution
+    fails or cannot be reused (it is partial or already near expiry), items
+    resolve in parallel without the lock, as they did before sharing, until a
+    reusable context comes back.
     """
 
     role: Role
     _shared: SharedActionContext | None = field(default=None, repr=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _unshareable: bool = False
 
     async def prepare(self, input: RunActionInput) -> PreparedContext:
         """Prepare one item's context, resolving the shared part when stale."""
-        async with self._lock:
-            shared = self._shared
-            if shared is None or datetime.now(UTC) >= shared.refresh_at:
-                shared = await resolve_shared_action_context(input, self.role)
-                self._shared = shared
+        if self._unshareable:
+            shared = await self._resolve(input)
+        else:
+            async with self._lock:
+                shared = self._shared
+                if shared is None or datetime.now(UTC) >= shared.refresh_at:
+                    shared = await self._resolve(input)
         return bind_action_context(shared, input, self.role)
+
+    async def _resolve(self, input: RunActionInput) -> SharedActionContext:
+        """Resolve a fresh context and cache it if later items can reuse it."""
+        try:
+            shared = await resolve_shared_action_context(input, self.role)
+        except Exception:
+            self._unshareable = True
+            raise
+        self._unshareable = datetime.now(UTC) >= shared.refresh_at
+        if not self._unshareable:
+            self._shared = shared
+        return shared
 
 
 async def invoke_once(

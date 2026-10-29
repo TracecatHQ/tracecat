@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 class ActionSecrets:
     """Secrets resolved for one action invocation."""
 
-    values: dict[str, Any]
+    values: dict[str, Any] = field(repr=False)
     expires_at: datetime | None = None
     """When the earliest OAuth access token in `values` expires, if any."""
     partial: bool = False
