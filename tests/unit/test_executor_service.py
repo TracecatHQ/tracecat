@@ -2,7 +2,7 @@ import base64
 import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -14,6 +14,7 @@ from tracecat_registry import (
 )
 
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_secret_masks
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import (
     ActionRetryPolicy,
@@ -22,6 +23,7 @@ from tracecat.dsl.schemas import (
     RunContext,
 )
 from tracecat.exceptions import ExecutionError, TracecatCredentialsError
+from tracecat.executor import secret_preprocessors
 from tracecat.executor import service as executor_service
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -38,6 +40,7 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import MASK_VALUE
+from tracecat.secrets.masking import SecretMaskCollector
 
 
 def test_flatten_secrets_supports_runtime_scalar_entries() -> None:
@@ -1450,3 +1453,143 @@ async def test_template_expects_validation_leaves_no_plaintext_in_chain(mocker):
     assert err.__cause__ is None
     assert err.__context__ is None
     assert canary not in str(err)
+
+
+_LOOP_ROLE_ARN = "arn:aws:iam::123456789012:role/loop-role"
+
+
+def _patch_loop_resolution(mocker, *, sts_expires_in: timedelta, role_arn: bool):
+    """Stub registry and secret IO; each STS call mints distinct credentials."""
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            return_value=ActionImplementation(
+                type="udf", action_name="core.transform.reshape"
+            )
+        ),
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "collect_action_secrets_from_manifest",
+        new=mocker.AsyncMock(return_value=set()),
+    )
+    aws_secret = {"AWS_REGION": "us-east-1"}
+    if role_arn:
+        aws_secret["AWS_ROLE_ARN"] = _LOOP_ROLE_ARN
+    get_action_secrets = mocker.patch.object(
+        executor_service.secrets_manager,
+        "get_action_secrets",
+        new=mocker.AsyncMock(
+            return_value={
+                "amazon_s3": aws_secret,
+                "TRACECAT_AWS_EXTERNAL_ID": "1" * 32,
+            }
+        ),
+    )
+    mocker.patch.object(
+        executor_service,
+        "get_workspace_variables",
+        new=mocker.AsyncMock(return_value={}),
+    )
+    mocker.patch.object(
+        executor_service, "_mint_action_executor_token", return_value="token"
+    )
+
+    async def assume_role(**_: object) -> dict[str, object]:
+        n = assume_role_mock.await_count
+        return {
+            "AccessKeyId": f"ASIA_LOOP_KEY_{n}",
+            "SecretAccessKey": f"loop-secret-access-key-{n}",
+            "SessionToken": f"loop-session-token-{n}",
+            "Expiration": datetime.now(UTC) + sts_expires_in,
+        }
+
+    assume_role_mock = mocker.patch.object(
+        secret_preprocessors,
+        "_assume_role_via_irsa",
+        new=mocker.AsyncMock(side_effect=assume_role),
+    )
+    return get_action_secrets, assume_role_mock
+
+
+def _loop_item_input(item: int) -> RunActionInput:
+    action_input = _expression_policy_input(
+        "core.transform.reshape", {"value": "${{ var.x }}"}
+    )
+    return action_input.model_copy(
+        update={"exec_context": {**action_input.exec_context, "var": {"x": item}}}
+    )
+
+
+async def _prepare_loop_items(
+    loop: executor_service.LoopActionContext, n: int
+) -> list[tuple[executor_service.PreparedContext, SecretMaskCollector]]:
+    """Prepare each item under its own mask collector, as invoke_once does."""
+    prepared: list[tuple[executor_service.PreparedContext, SecretMaskCollector]] = []
+    for item in range(n):
+        masks = SecretMaskCollector()
+        token = ctx_secret_masks.set(masks)
+        try:
+            prepared.append((await loop.prepare(_loop_item_input(item)), masks))
+        finally:
+            ctx_secret_masks.reset(token)
+    return prepared
+
+
+@pytest.mark.parametrize(
+    ("sts_expires_in", "expected_resolutions"),
+    [
+        pytest.param(timedelta(hours=1), 1, id="sts-valid-for-loop"),
+        # Inside the expiry margin: every item re-assumes the role.
+        pytest.param(timedelta(minutes=4), 3, id="sts-near-expiry"),
+    ],
+)
+@pytest.mark.anyio
+async def test_loop_context_shares_credentials_until_sts_expiry_margin(
+    mocker, sts_expires_in: timedelta, expected_resolutions: int
+) -> None:
+    """Items reuse one STS session unless it would expire within the margin.
+
+    Every item still evaluates its own arguments and masks every secret and
+    the STS credentials it runs with.
+    """
+    get_action_secrets, assume_role = _patch_loop_resolution(
+        mocker, sts_expires_in=sts_expires_in, role_arn=True
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    prepared = await _prepare_loop_items(loop, 3)
+
+    assert get_action_secrets.await_count == expected_resolutions
+    assert assume_role.await_count == expected_resolutions
+    session_tokens = set()
+    for item, (context, masks) in enumerate(prepared):
+        resolved = context.resolved_context
+        assert resolved.evaluated_args == {"value": item}
+        assert resolved.secret_projection is not None
+        session_token = resolved.secret_projection.env["AWS_SESSION_TOKEN"]
+        session_tokens.add(session_token)
+        assert context.mask_values is not None
+        assert {session_token, _LOOP_ROLE_ARN} <= context.mask_values
+        assert {session_token, _LOOP_ROLE_ARN} <= masks.values
+    assert len(session_tokens) == expected_resolutions
+
+
+@pytest.mark.anyio
+async def test_loop_context_re_resolves_after_max_age(mocker, monkeypatch) -> None:
+    """A loop re-fetches secrets once its shared context reaches the max age."""
+    get_action_secrets, assume_role = _patch_loop_resolution(
+        mocker, sts_expires_in=timedelta(hours=1), role_arn=False
+    )
+    monkeypatch.setattr(executor_service, "_LOOP_CONTEXT_MAX_AGE", timedelta(0))
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await _prepare_loop_items(loop, 3)
+
+    assert get_action_secrets.await_count == 3
+    assert assume_role.await_count == 0

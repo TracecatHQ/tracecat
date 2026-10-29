@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
@@ -33,6 +33,7 @@ _TEMP_CREDS = {
     "AccessKeyId": "ASIA_TEMP_KEY",
     "SecretAccessKey": "temp_secret",
     "SessionToken": "temp_token",
+    "Expiration": datetime(2030, 1, 1, tzinfo=UTC),
 }
 
 _IRSA_PATCH = "tracecat.executor.secret_preprocessors._assume_role_via_irsa"

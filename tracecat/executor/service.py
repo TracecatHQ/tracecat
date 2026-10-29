@@ -3,14 +3,15 @@ from __future__ import annotations
 import asyncio
 import itertools
 from collections.abc import Iterator, Mapping, MutableMapping
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from aiocache import Cache
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select, union_all
 from tracecat_ee.tunnels.routing import (
+    TunnelRoute,
     TunnelRouteError,
     effective_tunnel,
     resolve_tunnel_route,
@@ -54,11 +55,13 @@ from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.error_policy import chained_error_classification
 from tracecat.executor.minimal_runner import ActionTimeoutError
 from tracecat.executor.schemas import (
+    ActionImplementation,
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
     ResolvedContext,
 )
 from tracecat.executor.secret_preprocessors import (
+    SecretEnvProjection,
     collect_mask_values,
     project_secret_env,
 )
@@ -714,22 +717,52 @@ class PreparedContext:
     provenance: ProvenanceMap | None = None
 
 
-async def prepare_resolved_context(
+# A for_each loop re-resolves its shared context at least this often. OAuth
+# tokens are refreshed once under 5 minutes remain (OAuthIntegration.needs_refresh),
+# so every item still starts with at least 4 minutes left on its token. This
+# also bounds how long a loop runs on a secret or variable edited mid-loop.
+_LOOP_CONTEXT_MAX_AGE = timedelta(minutes=1)
+# Re-resolve this long before a projected temporary credential (e.g. an STS
+# session) expires, so an item never starts with one about to lapse.
+_CREDENTIAL_EXPIRY_MARGIN = timedelta(minutes=5)
+
+
+@dataclass(frozen=True, slots=True)
+class SharedActionContext:
+    """Action context that is the same for every for_each item.
+
+    Covers the action implementation, argument plan, secrets (including OAuth
+    tokens), workspace variables, the secret projection (including STS
+    credentials) and the tunnel route. None of these read the loop variables.
+    """
+
+    action_impl: ActionImplementation
+    argument_plan: ActionArgumentPlan
+    provenance: ProvenanceMap | None
+    secrets: dict[str, Any]
+    variables: dict[str, dict[str, str]]
+    secret_projection: SecretEnvProjection
+    mask_values: set[str] | None
+    tunnel_route: TunnelRoute | None
+    refresh_at: datetime
+    """When a loop must stop reusing this context and resolve a fresh one."""
+
+
+async def resolve_shared_action_context(
     input: RunActionInput,
     role: Role,
-) -> PreparedContext:
-    """Prepare all context needed for action execution.
+) -> SharedActionContext:
+    """Resolve everything an action needs that does not depend on its arguments.
 
-    This resolves secrets, variables, action implementation, and evaluated args
-    once at the service layer. The resulting ResolvedContext is passed to backends
-    for execution without requiring DB access in the sandbox.
-
-    Returns:
-        PreparedContext containing ResolvedContext and mask_values for post-processing.
+    Fetches secrets, OAuth tokens, workspace variables, the secret projection
+    and the tunnel route. Reads nothing from `input.exec_context`, so a
+    for_each loop can share the result across items.
     """
     # Ensure organization_id is set (workflows are always org-scoped)
     if role.organization_id is None:
         raise ValueError("organization_id is required for action execution")
+    if role.workspace_id is None:
+        raise ValueError("workspace_id is required for action execution")
 
     task = input.task
     action_name = task.action
@@ -759,22 +792,89 @@ async def prepare_resolved_context(
         role=role,
     )
 
-    # Build execution context for SDK calls (uses raw secrets for expression eval)
-    context = input.exec_context.copy()
-    context["SECRETS"] = secrets
-    context["VARS"] = workspace_variables
-
     # Derive masks from the raw secrets before they can reach an exception.
-    # project_secret_env() runs preprocessors that may hit the network, so it
-    # stays below; its projection masks are unioned in once it has run.
     early_mask_values = (
         set()
         if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING
         else collect_mask_values([secrets])
     )
 
+    # Error sanitization in invoke_once() redacts what this collector observed.
     if masks := ctx_secret_masks.get():
         masks.observe(secrets)
+
+    # Preprocessors handle live credentials (e.g. AWS STS), so their errors can
+    # carry secret-derived values. invoke_once() has no mask set until the
+    # prepared context is returned, so fail closed here instead.
+    secret_projection = await await_with_masked_errors(
+        project_secret_env(secrets=secrets, role=role, run_context=input.run_context),
+        masks=early_mask_values,
+    )
+
+    # Build root-level masks from the runtime projection so host-side credential
+    # rewriting is also redacted from final outputs.
+    if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
+        logger.warning(
+            "Secrets masking is disabled. This is unsafe in production workflows."
+        )
+        mask_values = None
+    else:
+        mask_values = early_mask_values | set(secret_projection.mask_values)
+
+    tunnel_route = None
+    if tunnel_name := effective_tunnel(input):
+        if PlatformAction.is_interface(action_name):
+            raise TunnelRouteError(f"Action {action_name!r} cannot use a tunnel")
+        tunnel_route = await resolve_tunnel_route(
+            name=tunnel_name,
+            workspace_id=role.workspace_id,
+            organization_id=role.organization_id,
+            subject=(
+                f"agent_session:{input.agent_session_id}"
+                if input.agent_session_id is not None
+                else str(input.run_context.wf_exec_id)
+            ),
+            action_ref=task.ref,
+        )
+
+    refresh_at = datetime.now(UTC) + _LOOP_CONTEXT_MAX_AGE
+    if (expires_at := secret_projection.expires_at) is not None:
+        refresh_at = min(refresh_at, expires_at - _CREDENTIAL_EXPIRY_MARGIN)
+
+    return SharedActionContext(
+        action_impl=action_impl,
+        argument_plan=argument_plan,
+        provenance=provenance,
+        secrets=secrets,
+        variables=workspace_variables,
+        secret_projection=secret_projection,
+        mask_values=mask_values,
+        tunnel_route=tunnel_route,
+        refresh_at=refresh_at,
+    )
+
+
+def bind_action_context(
+    shared: SharedActionContext,
+    input: RunActionInput,
+    role: Role,
+) -> PreparedContext:
+    """Evaluate one invocation's arguments against a shared action context.
+
+    Registers every secret and projected credential with the invocation's
+    mask collector and mints a fresh executor token.
+    """
+    task = input.task
+
+    # Build execution context for SDK calls (uses raw secrets for expression eval)
+    context = input.exec_context.copy()
+    context["SECRETS"] = shared.secrets
+    context["VARS"] = shared.variables
+
+    if masks := ctx_secret_masks.get():
+        masks.observe(shared.secrets)
+        for value in shared.secret_projection.mask_values:
+            masks.observe(value)
 
     # Extract and set logical_time BEFORE evaluating args
     # This ensures FN.now(), FN.utcnow(), FN.today() use the deterministic time
@@ -799,66 +899,27 @@ async def prepare_resolved_context(
         # Expression errors echo their operand, so the raw secret can be in the
         # message: failures surface as a chainless masked copy.
         evaluated_args = call_with_masked_errors(
-            lambda: argument_plan.evaluate(context), masks=early_mask_values
+            lambda: shared.argument_plan.evaluate(context),
+            masks=shared.mask_values or (),
         )
     finally:
         ctx_logical_time.reset(logical_time_token)
 
-    if role.workspace_id is None:
-        raise ValueError("workspace_id is required for action execution")
-
-    # Preprocessors handle live credentials (e.g. AWS STS), so their errors can
-    # carry secret-derived values. invoke_once() has no mask set until this
-    # function returns, so fail closed here instead.
-    secret_projection = await await_with_masked_errors(
-        project_secret_env(secrets=secrets, role=role, run_context=input.run_context),
-        masks=early_mask_values,
-    )
-
-    # Build root-level masks from the runtime projection so host-side credential
-    # rewriting is also redacted from final outputs.
-    if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
-        logger.warning(
-            "Secrets masking is disabled. This is unsafe in production workflows."
-        )
-        mask_values = None
-    else:
-        mask_values = early_mask_values | set(secret_projection.mask_values)
-
-    if masks := ctx_secret_masks.get():
-        for value in secret_projection.mask_values:
-            masks.observe(value)
-
     # Generate executor token for SDK authentication
     executor_token = _mint_action_executor_token(input, role)
 
-    tunnel_route = None
-    if tunnel_name := effective_tunnel(input):
-        if PlatformAction.is_interface(action_name):
-            raise TunnelRouteError(f"Action {action_name!r} cannot use a tunnel")
-        tunnel_route = await resolve_tunnel_route(
-            name=tunnel_name,
-            workspace_id=role.workspace_id,
-            organization_id=role.organization_id,
-            subject=(
-                f"agent_session:{input.agent_session_id}"
-                if input.agent_session_id is not None
-                else str(input.run_context.wf_exec_id)
-            ),
-            action_ref=task.ref,
-        )
-
+    tunnel_route = shared.tunnel_route
     resolved_context = ResolvedContext(
-        secrets=secrets,
-        variables=workspace_variables,
-        action_impl=action_impl,
+        secrets=shared.secrets,
+        variables=shared.variables,
+        action_impl=shared.action_impl,
         evaluated_args=dict(evaluated_args),
         workspace_id=str(role.workspace_id),
         workflow_id=str(input.run_context.wf_id),
         run_id=str(input.run_context.wf_run_id),
         executor_token=executor_token,
         logical_time=logical_time,
-        secret_projection=secret_projection,
+        secret_projection=shared.secret_projection,
         tunnel_name=tunnel_route.tunnel_name if tunnel_route else None,
         tunnel_proxy_url=tunnel_route.proxy_url if tunnel_route else None,
         tunnel_gateway_ip=tunnel_route.gateway_ip if tunnel_route else None,
@@ -867,9 +928,49 @@ async def prepare_resolved_context(
 
     return PreparedContext(
         resolved_context=resolved_context,
-        mask_values=mask_values,
-        provenance=provenance,
+        mask_values=shared.mask_values,
+        provenance=shared.provenance,
     )
+
+
+async def prepare_resolved_context(
+    input: RunActionInput,
+    role: Role,
+) -> PreparedContext:
+    """Prepare all context needed for action execution.
+
+    This resolves secrets, variables, action implementation, and evaluated args
+    once at the service layer. The resulting ResolvedContext is passed to backends
+    for execution without requiring DB access in the sandbox.
+
+    Returns:
+        PreparedContext containing ResolvedContext and mask_values for post-processing.
+    """
+    shared = await resolve_shared_action_context(input, role)
+    return bind_action_context(shared, input, role)
+
+
+@dataclass(slots=True)
+class LoopActionContext:
+    """Shares one resolved action context across a for_each loop's items.
+
+    The first item resolves it; later items reuse it until `refresh_at`, then
+    the next item resolves a fresh one. A failed resolution is not cached, so
+    each item that needs the context retries it, as it did before sharing.
+    """
+
+    role: Role
+    _shared: SharedActionContext | None = None
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    async def prepare(self, input: RunActionInput) -> PreparedContext:
+        """Prepare one item's context, resolving the shared part when stale."""
+        async with self._lock:
+            shared = self._shared
+            if shared is None or datetime.now(UTC) >= shared.refresh_at:
+                shared = await resolve_shared_action_context(input, self.role)
+                self._shared = shared
+        return bind_action_context(shared, input, self.role)
 
 
 async def invoke_once(
@@ -877,12 +978,16 @@ async def invoke_once(
     input: RunActionInput,
     ctx: DispatchActionContext,
     iteration: int | None = None,
+    loop_context: LoopActionContext | None = None,
 ) -> ExecutionResult:
     """Execute action using the configured backend.
 
     The backend is selected via TRACECAT__EXECUTOR_BACKEND config:
     - 'nsjail' ('ephemeral' alias): Cold nsjail subprocess per action (multitenant, full isolation)
     - 'direct': Direct subprocess execution
+
+    A for_each item passes its loop's `loop_context` to reuse the secrets,
+    variables and credentials resolved for earlier items.
     """
     role = ctx.role
     action_name = input.task.action
@@ -908,7 +1013,10 @@ async def invoke_once(
         # Prepare resolved context (secrets, variables, action impl, evaluated args)
         # This is done once here and passed to all backends
         # For templates, secrets are fetched recursively for all steps
-        prepared = await prepare_resolved_context(input, role)
+        if loop_context is None:
+            prepared = await prepare_resolved_context(input, role)
+        else:
+            prepared = await loop_context.prepare(input)
         resolved_context = prepared.resolved_context
         mask_values = prepared.mask_values
         for value in mask_values or ():
@@ -1047,6 +1155,9 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
     # and a collection of values as a tuple.
     iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
 
+    # Items share secrets, variables and credentials; only argument evaluation,
+    # token minting and masking run per item.
+    loop_context = LoopActionContext(role=role)
     max_concurrency = max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
     # Use a fixed worker pool instead of a semaphore around one task per loop item.
     # A semaphore would cap active invokes, but still schedules every iteration and
@@ -1080,7 +1191,9 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
             # Create a new task with the patched context
             new_input = input.model_copy(update={"exec_context": new_context})
             try:
-                results[i] = await invoke_once(backend, new_input, ctx, iteration=i)
+                results[i] = await invoke_once(
+                    backend, new_input, ctx, iteration=i, loop_context=loop_context
+                )
             except ExecutionError as e:
                 loop_errors[i] = e
 
