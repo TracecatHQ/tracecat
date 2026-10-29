@@ -171,6 +171,7 @@ class CaseTagsService(BaseWorkspaceService):
         return tag
 
     async def _create_tag_if_missing(self, name: str) -> CaseTag:
+        await hold_for_customer_write(self.session, self.workspace_id)
         params = TagCreate(name=name)
         ref = slugify(params.name)
         # Concurrent requests may create the same tag; reuse whichever won.

@@ -7,14 +7,16 @@ but can still do what customers are allowed to do.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_CONFIG
 from tests.support.fake_vcs import FakeVcsServer
 from tests.support.managed_resources import (
     local_id_of,
@@ -50,6 +52,7 @@ from tracecat.db.models import (
     Skill,
     Table,
     Workflow,
+    Workspace,
     WorkspaceSyncResourceMapping,
     WorkspaceVariable,
 )
@@ -59,6 +62,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
     ManagedResourceLockedError,
+    hold_ownership_lock,
     managed_write_bypass,
 )
 from tracecat.managed_resources.presets import (
@@ -569,23 +573,47 @@ async def test_managed_variable_update_checks_keys_against_the_current_row(
 
 
 @pytest.mark.anyio
-async def test_creating_a_resource_takes_the_shared_ownership_lock(
-    session: AsyncSession, seeded: Role, monkeypatch: pytest.MonkeyPatch
+async def test_a_customer_create_waits_for_a_rollout_holding_the_lock(
+    svc_role: Role,
 ) -> None:
     # A rollout adopts an existing resource by name, so a create must not land
-    # between its conflict check and its import.
-    calls: list[bool] = []
+    # between its conflict check and its import. Two real sessions: the
+    # "rollout" holds the ownership lock exclusively, the create must wait.
+    role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+    assert role.workspace_id is not None
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        async with sessions() as seed:
+            seed.add(
+                Workspace(
+                    id=role.workspace_id,
+                    name="ownership-lock-workspace",
+                    organization_id=role.organization_id,
+                )
+            )
+            await seed.commit()
+        async with sessions() as rollout, sessions() as customer:
+            await hold_ownership_lock(rollout, role.workspace_id, shared=False)
 
-    async def record(session, workspace_id, *, shared: bool) -> None:
-        calls.append(shared)
+            async def create_variable() -> WorkspaceVariable:
+                return await VariablesService(customer, role=role).create_variable(
+                    VariableCreate(name="raced_var", values={"k": "v"})
+                )
 
-    monkeypatch.setattr("tracecat.managed_resources.guard.hold_ownership_lock", record)
-
-    await VariablesService(session, role=seeded).create_variable(
-        VariableCreate(name="new_customer_var", values={"k": "v"})
-    )
-
-    assert calls == [True]
+            create = asyncio.create_task(create_variable())
+            await asyncio.sleep(0.5)
+            assert not create.done()
+            await rollout.commit()
+            variable = await asyncio.wait_for(create, timeout=10)
+            assert variable.name == "raced_var"
+    finally:
+        async with sessions() as cleanup:
+            await cleanup.execute(
+                delete(Workspace).where(Workspace.id == role.workspace_id)
+            )
+            await cleanup.commit()
+        await engine.dispose()
 
 
 def test_customer_skill_bindings_are_kept_and_package_wins_duplicates() -> None:

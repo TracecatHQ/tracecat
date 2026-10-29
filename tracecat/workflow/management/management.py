@@ -1739,6 +1739,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         commit: bool = True,
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
+        await hold_for_customer_write(self.session, self.workspace_id)
         self.logger.info("Creating workflow from DSL", dsl=dsl)
 
         # Resolve registry_lock with action bindings from the DSL

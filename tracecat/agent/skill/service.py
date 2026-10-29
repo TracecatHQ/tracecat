@@ -1798,6 +1798,9 @@ class SkillService(SkillBindingService):
         """Create a skill and draft, then atomically run optional preparation."""
 
         for _ in range(SKILL_SLUG_INSERT_ATTEMPTS):
+            # Every create path comes through here. A failed attempt rolls
+            # back and releases the lock, so take it again on each try.
+            await hold_for_customer_write(self.session, self.workspace_id)
             slug = await self._allocate_skill_slug(name)
             skill = Skill(
                 workspace_id=self.workspace_id,
