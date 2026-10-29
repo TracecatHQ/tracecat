@@ -1441,9 +1441,9 @@ class AgentPresetService(BaseWorkspaceService):
         integrations_service = IntegrationService(self.session, role=self.role)
         available = await integrations_service.list_mcp_integrations()
         by_id = {integration.id: integration for integration in available}
-        return self._mcp_integration_refs(mcp_integrations, by_id)
+        return self.mcp_integration_refs(mcp_integrations, by_id)
 
-    def _mcp_integration_refs(
+    def mcp_integration_refs(
         self,
         mcp_integrations: Sequence[str],
         by_id: Mapping[uuid.UUID, MCPIntegration],
@@ -1579,28 +1579,26 @@ class AgentPresetService(BaseWorkspaceService):
 
         return refs
 
-    async def resolve_mcp_integration_tool_policies(
-        self, mcp_integration_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
-        """Resolve stored MCP tool policy by integration id and tool name."""
+    async def load_mcp_integrations(
+        self, mcp_integration_ids: Collection[uuid.UUID]
+    ) -> dict[uuid.UUID, MCPIntegration]:
+        """Load the requested MCP integrations in this workspace in one read.
+
+        Pass the rows to :meth:`mcp_integration_refs`,
+        :meth:`mcp_tool_policies` and
+        :meth:`resolve_loaded_mcp_integration_secrets` instead of re-reading
+        them per use. IDs outside the workspace are absent from the result.
+        """
         if not mcp_integration_ids:
             return {}
-
-        requested_ids = set(mcp_integration_ids)
-        integrations_service = IntegrationService(self.session, role=self.role)
-        available = await integrations_service.list_mcp_integrations()
-
-        return self._mcp_tool_policies(
-            [
-                integration
-                for integration in available
-                if integration.id in requested_ids
-            ]
-        )
+        integrations = await IntegrationService(
+            self.session, role=self.role
+        ).get_mcp_integrations(mcp_integration_ids)
+        return {integration.id: integration for integration in integrations}
 
     @staticmethod
-    def _mcp_tool_policies(
-        integrations: Sequence[MCPIntegration],
+    def mcp_tool_policies(
+        integrations: Collection[MCPIntegration],
     ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
         """Index stored tool policy without loading integration metadata again."""
         policies: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
@@ -1624,7 +1622,7 @@ class AgentPresetService(BaseWorkspaceService):
         if not grants:
             return None
         merged: list[MCPServerConfig] = []
-        resolved = self._mcp_integration_refs(
+        resolved = self.mcp_integration_refs(
             [str(grant.mcp_integration_id) for grant in grants], integrations
         )
         resolved_by_id = {
@@ -1632,7 +1630,7 @@ class AgentPresetService(BaseWorkspaceService):
             for config in resolved or ()
             if (config_id := config.get("id")) is not None
         }
-        policies_by_id = self._mcp_tool_policies(
+        policies_by_id = self.mcp_tool_policies(
             [
                 integrations[grant.mcp_integration_id]
                 for grant in grants
@@ -1680,11 +1678,9 @@ class AgentPresetService(BaseWorkspaceService):
             MCPSecretResolutionError: If configured credentials/env exist but
                 cannot be resolved.
         """
-        integrations_service = IntegrationService(self.session, role=self.role)
-        available = await integrations_service.list_mcp_integrations()
-        mcp_integration = next(
-            (i for i in available if i.id == mcp_integration_id), None
-        )
+        mcp_integration = await IntegrationService(
+            self.session, role=self.role
+        ).get_mcp_integration(mcp_integration_id=mcp_integration_id)
         if mcp_integration is None:
             logger.warning(
                 "MCP integration not found",
@@ -1694,7 +1690,18 @@ class AgentPresetService(BaseWorkspaceService):
                 },
             )
             return None
+        return await self.resolve_loaded_mcp_integration_secrets(mcp_integration)
 
+    async def resolve_loaded_mcp_integration_secrets(
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
+        """Resolve secrets for a row loaded from this workspace.
+
+        Same contract as :meth:`resolve_mcp_integration_secrets`, minus the
+        lookup. ``mcp_integration`` must come from this service's workspace,
+        e.g. via :meth:`load_mcp_integrations`.
+        """
+        integrations_service = IntegrationService(self.session, role=self.role)
         if mcp_integration.server_type == "stdio":
             stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
             if not stdio_env:
@@ -1748,27 +1755,24 @@ class AgentPresetService(BaseWorkspaceService):
         return server_config.get("headers", {})
 
     async def resolve_stdio_mcp_integration(
-        self, mcp_integration_id: uuid.UUID, *, resolve_env: bool
+        self, integration: MCPIntegration, *, resolve_env: bool
     ) -> StdioMCPIntegrationSnapshot | None:
-        """Load one stdio integration and derive its config, policy and env.
+        """Derive a stdio integration's config, policy and env from one row.
 
-        Everything comes from a single read of the workspace-scoped row, so a
-        concurrent edit can't pair the old command with the new env. Returns
-        ``None`` when the row is missing or isn't a stdio server.
+        Everything comes from the single workspace-scoped row the caller
+        loaded, so a concurrent edit can't pair the old command with the new
+        env. Returns ``None`` when the row isn't a stdio server.
 
         Raises:
             TracecatValidationError: If the saved command fails validation.
             MCPSecretResolutionError: If ``resolve_env`` is set and the env
                 cannot be resolved.
         """
-        integrations_service = IntegrationService(self.session, role=self.role)
-        integration = await integrations_service.get_mcp_integration(
-            mcp_integration_id=mcp_integration_id
-        )
-        if integration is None or integration.server_type != "stdio":
+        if integration.server_type != "stdio":
             return None
-        refs = self._mcp_integration_refs(
-            [str(mcp_integration_id)], {mcp_integration_id: integration}
+        integrations_service = IntegrationService(self.session, role=self.role)
+        refs = self.mcp_integration_refs(
+            [str(integration.id)], {integration.id: integration}
         )
         config = refs[0]
         if not is_stdio_mcp_server(config):
@@ -1815,7 +1819,7 @@ class AgentPresetService(BaseWorkspaceService):
                 )
         return StdioMCPIntegrationSnapshot(
             config=config,
-            tools=self._mcp_tool_policies([integration]).get(integration.id, {}),
+            tools=self.mcp_tool_policies([integration]).get(integration.id, {}),
             env=env,
         )
 

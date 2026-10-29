@@ -293,39 +293,39 @@ class UserMCPClient:
         *,
         fail_on_error: bool = False,
     ) -> UserMCPDiscoveryResult:
-        """Connect to all configured servers and report per-server failures."""
-        tools: dict[str, MCPToolDefinition] = {}
-        failed_servers: dict[str, str] = {}
+        """Connect to all configured servers concurrently.
+
+        Each server keeps its own timeout, capped by one deadline shared by
+        the whole discovery. Per-server failures are reported in the result;
+        with ``fail_on_error`` the first failure cancels the other servers
+        and is raised.
+        """
+        tools_by_server: dict[str, dict[str, MCPToolDefinition]] = {}
+        errors_by_server: dict[str, str] = {}
         loop = asyncio.get_running_loop()
         discovery_deadline = loop.time() + MCP_DISCOVERY_TIMEOUT_SECONDS
-        budget_exhausted = False
 
-        for server_name, config in self._configs.items():
-            # Never start another connection after the shared budget expires.
-            if budget_exhausted or loop.time() >= discovery_deadline:
+        async def discover(server_name: str, config: MCPHttpServerConfig) -> None:
+            if loop.time() >= discovery_deadline:
                 budget_error = UserMCPDiscoveryBudgetExceededError(server_name)
                 logger.error(
                     "Skipped user MCP server after the discovery budget expired",
                     server_name=server_name,
                 )
-                failed_servers[server_name] = type(budget_error).__name__
+                errors_by_server[server_name] = type(budget_error).__name__
                 if fail_on_error:
                     raise budget_error
-                continue
-            timeout: asyncio.Timeout | None = None
-            server_deadline: float | None = None
+                return
             try:
                 server_timeout = min(
                     config.get("timeout") or MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
                     MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
                 )
                 server_deadline = min(loop.time() + server_timeout, discovery_deadline)
-                timeout = asyncio.timeout_at(server_deadline)
-                async with timeout:
-                    server_tools = await self._discover_server_tools(
+                async with asyncio.timeout_at(server_deadline):
+                    tools_by_server[server_name] = await self._discover_server_tools(
                         server_name, config
                     )
-                tools.update(server_tools)
             except Exception as e:
                 error_summary = _safe_discovery_error_summary(e)
                 logger.error(
@@ -333,19 +333,30 @@ class UserMCPClient:
                     server_name=server_name,
                     error_summary=error_summary,
                 )
-                failed_servers[server_name] = error_summary
+                errors_by_server[server_name] = error_summary
                 if fail_on_error:
                     raise _typed_discovery_error(server_name, e) from e
-            finally:
-                # Timer callbacks can fire slightly before the clock reaches
-                # their deadline. Once the shared timeout fired, never start
-                # another server even if the next clock read is still earlier.
-                if (
-                    timeout is not None
-                    and server_deadline == discovery_deadline
-                    and timeout.expired()
-                ):
-                    budget_exhausted = True
+
+        first_error: Exception | None = None
+        try:
+            async with asyncio.TaskGroup() as group:
+                for server_name, config in self._configs.items():
+                    group.create_task(discover(server_name, config))
+        except ExceptionGroup as errors:
+            # Only reachable with ``fail_on_error``: surface the first failure
+            # as the typed error callers expect, not a group.
+            first_error = errors.exceptions[0]
+        if first_error is not None:
+            raise first_error
+
+        # Merge in configuration order so the tool list doesn't depend on
+        # which server answered first.
+        tools: dict[str, MCPToolDefinition] = {}
+        failed_servers: dict[str, str] = {}
+        for server_name in self._configs:
+            tools.update(tools_by_server.get(server_name, {}))
+            if (error := errors_by_server.get(server_name)) is not None:
+                failed_servers[server_name] = error
 
         logger.info(
             "Discovered user MCP tools",
