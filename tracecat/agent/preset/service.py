@@ -793,9 +793,10 @@ class AgentPresetService(BaseWorkspaceService):
         fields_set = set(params.model_fields_set)
         if managed:
             # Compare against the preset as it is now, not as the caller
-            # loaded it. Managed presets cannot change their topology, so
-            # this row lock cannot cross the parent and child lock order.
-            await self.session.refresh(preset, with_for_update=True)
+            # loaded it. The shared ownership lock is held, so no rollout is
+            # writing it; a plain re-read is enough, and taking no row lock
+            # here keeps the service's skill-then-preset lock order.
+            await self.session.refresh(preset)
             # The agent builder sends the whole form back on save, so only
             # fields whose value changed count against a managed preset.
             fields_set = changed_fields(

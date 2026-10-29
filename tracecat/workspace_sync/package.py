@@ -357,7 +357,10 @@ async def _with_template_steps(
             RegistryRepository.origin != DEFAULT_REGISTRY_ORIGIN,
         )
     ):
-        for name, action in (manifest or {}).get("actions", {}).items():
+        actions = manifest.get("actions") if isinstance(manifest, dict) else None
+        if not isinstance(actions, dict):
+            continue
+        for name, action in actions.items():
             if isinstance(action, dict) and "implementation" in action:
                 implementations.setdefault(name, []).append(action["implementation"])
     for namespace, name, implementation in (
