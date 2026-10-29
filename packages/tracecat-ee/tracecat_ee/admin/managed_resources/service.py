@@ -39,6 +39,7 @@ from tracecat.managed_resources.source import (
     pin_source,
     require_managed_source,
     resolve_source_tag,
+    source_release_candidate,
 )
 from tracecat.managed_resources.source_setting import managed_source_workspace_id
 from tracecat.managed_resources.workflows import RolloutRunner, TemporalRolloutRunner
@@ -49,6 +50,7 @@ from tracecat.workspace_sync.transport import VcsTransportFactory
 from tracecat_ee.admin.managed_resources.schemas import (
     ManagedReferenceMatchesUpdate,
     ManagedReferenceMatchItem,
+    ManagedReleaseCandidateRead,
     ManagedReleaseCreate,
     ManagedRolloutApplyRequest,
     ManagedRolloutPreviewRequest,
@@ -394,6 +396,27 @@ class AdminManagedResourcesService(BasePlatformService):
             data={"release_tag": tag.name, "commit_id": tag.commit_sha},
         )
         return tag
+
+    async def release_candidate(self) -> ManagedReleaseCandidateRead:
+        """Describe what cutting a release now would tag.
+
+        Raises:
+            ManagedSourceUnavailableError: No usable source is configured.
+            VcsProviderError: The provider refused the request.
+        """
+        source = await require_managed_source(self.session)
+        candidate = await source_release_candidate(
+            self.session, source, transport_factory=self._transport_factory
+        )
+        return ManagedReleaseCandidateRead(
+            branch=candidate.branch,
+            commit_sha=candidate.commit.sha,
+            commit_message=candidate.commit.message,
+            commit_author=candidate.commit.author,
+            commit_date=candidate.commit.date,
+            existing_tags=candidate.existing_tags,
+            package=candidate.package,
+        )
 
     # -- rollouts -----------------------------------------------------------
     async def preview_rollouts(

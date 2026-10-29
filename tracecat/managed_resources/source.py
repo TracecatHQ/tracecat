@@ -31,13 +31,22 @@ from tracecat.managed_resources.source_setting import (
     MANAGED_RESOURCES_SOURCE_KEY,
     ManagedSourceSetting,
 )
-from tracecat.registry.repositories.schemas import GitTagInfo
+from tracecat.registry.repositories.schemas import GitCommitInfo, GitTagInfo
 from tracecat.workspace_sync.enums import VcsProvider
+from tracecat.workspace_sync.schemas import (
+    MANIFEST_FILENAME,
+    WorkspacePackageManifest,
+    workspace_manifest_from_json,
+)
 from tracecat.workspace_sync.service import (
     WorkspaceSyncService,
     parse_workspace_git_url,
 )
-from tracecat.workspace_sync.transport import VcsTransportFactory, VcsTreeSnapshot
+from tracecat.workspace_sync.transport import (
+    VcsSyncTransport,
+    VcsTransportFactory,
+    VcsTreeSnapshot,
+)
 
 SOURCE_REPOSITORY_SCOPES: frozenset[str] = frozenset({"workspace_sync:sync"})
 """The only scope granted when reading the source repository.
@@ -316,6 +325,28 @@ async def cut_source_release(
         session, source, transport_factory=transport_factory
     )
     transport = service.transport()
+    _branch, head = await _base_branch_head(transport, url)
+    await transport.create_tag(url=url, tag=tag, sha=head.sha)
+    logger.info(
+        "Cut managed resources release",
+        tag=tag,
+        commit_sha=head.sha,
+        source_workspace_id=source.workspace_id,
+    )
+    return GitTagInfo(name=tag, commit_sha=head.sha, date=head.date)
+
+
+async def _base_branch_head(
+    transport: VcsSyncTransport, url: GitUrl
+) -> tuple[str, GitCommitInfo]:
+    """Return the source repository's base branch and its latest commit.
+
+    The base branch is the one the source binding names, or the
+    repository's default branch.
+
+    Raises:
+        TracecatValidationError: There is no default branch, or it is empty.
+    """
     branch = url.ref
     if not branch:
         branches = await transport.list_branches(url=url, limit=10000)
@@ -325,12 +356,52 @@ async def cut_source_release(
     commits = await transport.list_commits(url=url, branch=branch, limit=1)
     if not commits:
         raise TracecatValidationError(f"Branch {branch!r} has no commits")
-    head = commits[0]
-    await transport.create_tag(url=url, tag=tag, sha=head.sha)
-    logger.info(
-        "Cut managed resources release",
-        tag=tag,
-        commit_sha=head.sha,
-        source_workspace_id=source.workspace_id,
+    return branch, commits[0]
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseCandidate:
+    """What cutting a release now would tag."""
+
+    branch: str
+    commit: GitCommitInfo
+    existing_tags: list[str]
+    """Tags that already point at this commit."""
+    package: WorkspacePackageManifest | None
+    """The package metadata at this commit, if a package was published."""
+
+
+async def source_release_candidate(
+    session: AsyncSession,
+    source: ManagedSource,
+    *,
+    transport_factory: VcsTransportFactory | None = None,
+) -> ReleaseCandidate:
+    """Describe the commit a new release would tag, and the package in it.
+
+    Raises:
+        TracecatValidationError: The base branch is missing or empty.
+        VcsProviderError: The provider refused the request.
+    """
+    service, url = source_sync_service(
+        session, source, transport_factory=transport_factory
     )
-    return GitTagInfo(name=tag, commit_sha=head.sha, date=head.date)
+    transport = service.transport()
+    branch, head = await _base_branch_head(transport, url)
+    existing: list[str] = []
+    cursor: str | None = None
+    while True:
+        tags, cursor = await service.list_tags(limit=100, cursor=cursor, url=url)
+        existing.extend(info.name for info in tags if info.commit_sha == head.sha)
+        if cursor is None:
+            break
+    tree = await transport.read_files(url=url, ref=head.sha, ref_kind="commit")
+    package: WorkspacePackageManifest | None = None
+    if manifest := tree.files.get(MANIFEST_FILENAME):
+        try:
+            package = workspace_manifest_from_json(manifest).package
+        except ValueError:
+            package = None
+    return ReleaseCandidate(
+        branch=branch, commit=head, existing_tags=existing, package=package
+    )

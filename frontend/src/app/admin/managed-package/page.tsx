@@ -1,5 +1,6 @@
 "use client"
 
+import { ReleaseSteps } from "./components/release-steps"
 import { SourceSection } from "./components/source-section"
 import { TargetsSection } from "./components/targets-section"
 import { VersionsSection } from "./components/versions-section"
@@ -7,6 +8,7 @@ import {
   useManagedSource,
   useManagedTags,
   useManagedTargets,
+  useReleaseCandidate,
 } from "./use-managed-package"
 
 /** Platform admin page for publishing and rolling out the managed package. */
@@ -15,6 +17,7 @@ export default function AdminManagedPackagePage() {
   const hasSource = source !== null
   const tagsQuery = useManagedTags({ enabled: hasSource })
   const targetsQuery = useManagedTargets()
+  const { candidate } = useReleaseCandidate({ enabled: hasSource })
 
   return (
     <div className="size-full overflow-auto">
@@ -25,11 +28,20 @@ export default function AdminManagedPackagePage() {
               Managed package
             </h2>
             <p className="text-base text-muted-foreground">
-              Publish a curated package from a source workspace, cut releases,
-              and roll them out to customer workspaces.
+              Three separate steps: publish the package from the source
+              workspace, cut a release tag, then deploy that tag to customer
+              workspaces. Customers change only at the last step.
             </p>
           </div>
         </div>
+
+        {hasSource && (
+          <ReleaseSteps
+            candidate={candidate}
+            tags={tagsQuery.tags}
+            targets={targetsQuery.targets}
+          />
+        )}
 
         <SourceSection />
 

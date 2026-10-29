@@ -24,6 +24,7 @@ from tracecat.vcs.exceptions import VcsProviderError
 from tracecat_ee.admin.managed_resources.schemas import (
     ManagedReferenceMatchesUpdate,
     ManagedReferenceMatchItem,
+    ManagedReleaseCandidateRead,
     ManagedReleaseCreate,
     ManagedRolloutApplyRequest,
     ManagedRolloutPreviewRequest,
@@ -151,6 +152,18 @@ _DOMAIN_ERRORS = (
     TracecatValidationError,
     VcsProviderError,
 )
+
+
+@router.get("/source/release-candidate", response_model=ManagedReleaseCandidateRead)
+async def get_release_candidate(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+) -> ManagedReleaseCandidateRead:
+    """Describe the commit a new release would tag and the package in it."""
+    try:
+        return await AdminManagedResourcesService(session, role).release_candidate()
+    except _DOMAIN_ERRORS as e:
+        raise _domain_error(e) from e
 
 
 @router.post("/source/releases", response_model=GitTagInfo, status_code=201)

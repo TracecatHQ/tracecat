@@ -5,6 +5,7 @@ import {
   adminApplyRollouts,
   adminAssignTarget,
   adminCutRelease,
+  adminGetReleaseCandidate,
   adminGetRollout,
   adminGetSource,
   adminListReferenceMatches,
@@ -19,6 +20,7 @@ import {
   adminUpdateTarget,
   type GitTagInfo,
   type ManagedReferenceMatchItem,
+  type ManagedReleaseCandidateRead,
   type ManagedRolloutRead,
   type ManagedTargetRead,
   type ManagedWorkspaceRead,
@@ -38,6 +40,7 @@ export const managedPackageKeys = {
   all: BASE_KEY,
   source: [...BASE_KEY, "source"] as const,
   tags: [...BASE_KEY, "tags"] as const,
+  releaseCandidate: [...BASE_KEY, "release-candidate"] as const,
   targets: [...BASE_KEY, "targets"] as const,
   candidates: (organizationId: string | null) =>
     [...BASE_KEY, "candidates", organizationId] as const,
@@ -111,6 +114,25 @@ export function useManagedTags({ enabled }: { enabled: boolean }) {
   })
   return {
     tags: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  }
+}
+
+/**
+ * The commit a new release would tag (the source base branch HEAD), tags
+ * already on it, and the package published in it.
+ */
+export function useReleaseCandidate({ enabled }: { enabled: boolean }) {
+  const query = useQuery<ManagedReleaseCandidateRead>({
+    queryKey: managedPackageKeys.releaseCandidate,
+    meta: SUPPRESS_TOAST,
+    queryFn: () => adminGetReleaseCandidate(),
+    enabled,
+    retry: false,
+  })
+  return {
+    candidate: query.data,
     isLoading: query.isLoading,
     error: query.error,
   }

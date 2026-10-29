@@ -58,6 +58,7 @@ import type {
   AdminGetOrgTierData,
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
+  AdminGetReleaseCandidateResponse,
   AdminGetRolloutData,
   AdminGetRolloutResponse,
   AdminGetSecuritySettingsResponse,
@@ -9163,6 +9164,20 @@ export const adminListSourceTags = (
     },
   })
 }
+
+/**
+ * Get Release Candidate
+ * Describe the commit a new release would tag and the package in it.
+ * @returns ManagedReleaseCandidateRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetReleaseCandidate =
+  (): CancelablePromise<AdminGetReleaseCandidateResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/managed-resources/source/release-candidate",
+    })
+  }
 
 /**
  * Cut Release

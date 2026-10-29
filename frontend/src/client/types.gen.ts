@@ -7473,6 +7473,28 @@ export type ManagedReferenceMatchesUpdate = {
 }
 
 /**
+ * The commit a new release would tag, and the package published in it.
+ */
+export type ManagedReleaseCandidateRead = {
+  /**
+   * Base branch of the source repository.
+   */
+  branch: string
+  commit_sha: string
+  commit_message: string
+  commit_author: string
+  commit_date: string
+  /**
+   * Tags already on this commit.
+   */
+  existing_tags?: Array<string>
+  /**
+   * Package metadata at this commit; null if none was published.
+   */
+  package?: WorkspacePackageManifest | null
+}
+
+/**
  * Cut a release tag at the HEAD of the source repository's base branch.
  */
 export type ManagedReleaseCreate = {
@@ -8149,6 +8171,42 @@ export type OutputType =
   | {
       [key: string]: unknown
     }
+
+/**
+ * A custom registry repository version that a package's actions need.
+ */
+export type PackageRegistryRequirement = {
+  /**
+   * Registry repository origin.
+   */
+  origin: string
+  /**
+   * Registry version string.
+   */
+  version: string
+  /**
+   * Git commit of the registry version, if any.
+   */
+  commit_sha?: string | null
+  /**
+   * Fully qualified action names the package uses from it.
+   */
+  actions?: Array<string>
+}
+
+/**
+ * One resource recorded in a managed resources package manifest.
+ */
+export type PackageResourceEntry = {
+  /**
+   * Kind of resource.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Stable Git source id.
+   */
+  source_id: string
+}
 
 export type PackageResourceStatus = "explicit" | "implied" | "excluded"
 
@@ -13887,6 +13945,24 @@ export type WorkspaceMembershipRead = {
 }
 
 /**
+ * What a managed resources package export contains and needs.
+ */
+export type WorkspacePackageManifest = {
+  /**
+   * Resources matched by the include file.
+   */
+  explicit?: Array<PackageResourceEntry>
+  /**
+   * Dependencies of explicit resources, included automatically.
+   */
+  implied?: Array<PackageResourceEntry>
+  /**
+   * Custom registry versions the packaged actions resolve to.
+   */
+  registry?: Array<PackageRegistryRequirement>
+}
+
+/**
  * The managed resources package selection of the source workspace.
  */
 export type WorkspacePackageRead = {
@@ -16703,6 +16779,8 @@ export type AdminListSourceTagsData = {
 }
 
 export type AdminListSourceTagsResponse = Page_GitTagInfo_
+
+export type AdminGetReleaseCandidateResponse = ManagedReleaseCandidateRead
 
 export type AdminCutReleaseData = {
   requestBody: ManagedReleaseCreate
@@ -23976,6 +24054,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/source/release-candidate": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedReleaseCandidateRead
       }
     }
   }

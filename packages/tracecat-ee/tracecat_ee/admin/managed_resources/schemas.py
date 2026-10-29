@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from tracecat.managed_resources.enums import ManagedReferenceKind, ManagedTargetStatus
 from tracecat.workspace_sync.enums import VcsProvider
+from tracecat.workspace_sync.schemas import WorkspacePackageManifest
 
 
 class ManagedSourceRead(BaseModel):
@@ -114,3 +115,20 @@ class ManagedReleaseCreate(BaseModel):
     """Cut a release tag at the HEAD of the source repository's base branch."""
 
     tag: str = Field(min_length=1, max_length=255)
+
+
+class ManagedReleaseCandidateRead(BaseModel):
+    """The commit a new release would tag, and the package published in it."""
+
+    branch: str = Field(description="Base branch of the source repository.")
+    commit_sha: str
+    commit_message: str
+    commit_author: str
+    commit_date: str
+    existing_tags: list[str] = Field(
+        default_factory=list, description="Tags already on this commit."
+    )
+    package: WorkspacePackageManifest | None = Field(
+        default=None,
+        description="Package metadata at this commit; null if none was published.",
+    )

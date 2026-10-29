@@ -24362,6 +24362,63 @@ export const $ManagedReferenceMatchesUpdate = {
   description: "Replace a target's saved reference matches.",
 } as const
 
+export const $ManagedReleaseCandidateRead = {
+  properties: {
+    branch: {
+      type: "string",
+      title: "Branch",
+      description: "Base branch of the source repository.",
+    },
+    commit_sha: {
+      type: "string",
+      title: "Commit Sha",
+    },
+    commit_message: {
+      type: "string",
+      title: "Commit Message",
+    },
+    commit_author: {
+      type: "string",
+      title: "Commit Author",
+    },
+    commit_date: {
+      type: "string",
+      title: "Commit Date",
+    },
+    existing_tags: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Existing Tags",
+      description: "Tags already on this commit.",
+    },
+    package: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspacePackageManifest",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Package metadata at this commit; null if none was published.",
+    },
+  },
+  type: "object",
+  required: [
+    "branch",
+    "commit_sha",
+    "commit_message",
+    "commit_author",
+    "commit_date",
+  ],
+  title: "ManagedReleaseCandidateRead",
+  description:
+    "The commit a new release would tag, and the package published in it.",
+} as const
+
 export const $ManagedReleaseCreate = {
   properties: {
     tag: {
@@ -26741,6 +26798,69 @@ export const $OutputType = {
       type: "object",
     },
   ],
+} as const
+
+export const $PackageRegistryRequirement = {
+  properties: {
+    origin: {
+      type: "string",
+      minLength: 1,
+      title: "Origin",
+      description: "Registry repository origin.",
+    },
+    version: {
+      type: "string",
+      minLength: 1,
+      title: "Version",
+      description: "Registry version string.",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+      description: "Git commit of the registry version, if any.",
+    },
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+      description: "Fully qualified action names the package uses from it.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["origin", "version"],
+  title: "PackageRegistryRequirement",
+  description:
+    "A custom registry repository version that a package's actions need.",
+} as const
+
+export const $PackageResourceEntry = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Kind of resource.",
+    },
+    source_id: {
+      type: "string",
+      minLength: 1,
+      title: "Source Id",
+      description: "Stable Git source id.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["resource_type", "source_id"],
+  title: "PackageResourceEntry",
+  description: "One resource recorded in a managed resources package manifest.",
 } as const
 
 export const $PackageResourceStatus = {
@@ -46130,6 +46250,40 @@ export const $WorkspaceMembershipRead = {
   type: "object",
   required: ["user_id", "workspace_id"],
   title: "WorkspaceMembershipRead",
+} as const
+
+export const $WorkspacePackageManifest = {
+  properties: {
+    explicit: {
+      items: {
+        $ref: "#/components/schemas/PackageResourceEntry",
+      },
+      type: "array",
+      title: "Explicit",
+      description: "Resources matched by the include file.",
+    },
+    implied: {
+      items: {
+        $ref: "#/components/schemas/PackageResourceEntry",
+      },
+      type: "array",
+      title: "Implied",
+      description:
+        "Dependencies of explicit resources, included automatically.",
+    },
+    registry: {
+      items: {
+        $ref: "#/components/schemas/PackageRegistryRequirement",
+      },
+      type: "array",
+      title: "Registry",
+      description: "Custom registry versions the packaged actions resolve to.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "WorkspacePackageManifest",
+  description: "What a managed resources package export contains and needs.",
 } as const
 
 export const $WorkspacePackageRead = {

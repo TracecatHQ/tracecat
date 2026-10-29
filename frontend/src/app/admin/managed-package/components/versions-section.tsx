@@ -2,7 +2,11 @@
 
 import { PlusIcon } from "lucide-react"
 import { type FormEvent, useState } from "react"
-import type { GitTagInfo, ManagedTargetRead } from "@/client"
+import type {
+  GitTagInfo,
+  ManagedReleaseCandidateRead,
+  ManagedTargetRead,
+} from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -26,7 +30,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail } from "@/lib/errors"
 import { formatTimestamp, RELEASE_TAG_PATTERN } from "../managed-package-utils"
-import { useCutRelease } from "../use-managed-package"
+import { useCutRelease, useReleaseCandidate } from "../use-managed-package"
 
 const CUT_RELEASE_FORM_ID = "managed-package-cut-release-form"
 
@@ -86,7 +90,7 @@ export function VersionsSection({
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent size="sm">
+        <DialogContent size="md">
           {dialogOpen && (
             <CutReleaseForm
               latestTag={tags[0]?.name ?? null}
@@ -180,6 +184,9 @@ function CutReleaseForm({
   const [tag, setTag] = useState("")
   const [formError, setFormError] = useState<string | null>(null)
   const cutRelease = useCutRelease()
+  const { candidate, isLoading: candidateIsLoading } = useReleaseCandidate({
+    enabled: true,
+  })
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -206,10 +213,15 @@ function CutReleaseForm({
       <DialogHeader>
         <DialogTitle>Cut release</DialogTitle>
         <DialogDescription>
-          Tags the head of the source repository&apos;s base branch.
+          Tags the latest commit on the source repository&apos;s base branch. No
+          customer changes until you deploy the tag.
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
+        <ReleaseCandidateSummary
+          candidate={candidate}
+          isLoading={candidateIsLoading}
+        />
         <form
           id={CUT_RELEASE_FORM_ID}
           onSubmit={handleSubmit}
@@ -241,11 +253,89 @@ function CutReleaseForm({
           size="sm"
           type="submit"
           form={CUT_RELEASE_FORM_ID}
-          disabled={cutRelease.isPending || tag.trim() === ""}
+          disabled={cutRelease.isPending || tag.trim() === "" || !candidate}
         >
           {cutRelease.isPending ? "Tagging..." : "Cut release"}
         </Button>
       </DialogFooter>
     </>
+  )
+}
+
+/**
+ * Shows exactly what a release would tag: the base branch commit and the
+ * package published in it.
+ */
+function ReleaseCandidateSummary({
+  candidate,
+  isLoading,
+}: {
+  candidate: ManagedReleaseCandidateRead | undefined
+  isLoading: boolean
+}) {
+  if (isLoading) {
+    return (
+      <p className="mb-4 text-xs text-muted-foreground">
+        Reading the source repository...
+      </p>
+    )
+  }
+  if (!candidate) {
+    return (
+      <p className="mb-4 text-xs text-destructive">
+        Could not read the source repository&apos;s base branch.
+      </p>
+    )
+  }
+  const pkg = candidate.package
+  const existingTags = candidate.existing_tags ?? []
+  const explicit = pkg?.explicit ?? []
+  const implied = pkg?.implied ?? []
+  const registry = pkg?.registry ?? []
+  return (
+    <div className="mb-4 space-y-2 rounded-md border px-3 py-2 text-xs">
+      <p>
+        <span className="text-muted-foreground">Commit </span>
+        <code>{candidate.commit_sha.substring(0, 7)}</code>
+        <span className="text-muted-foreground"> on </span>
+        <span className="font-medium">{candidate.branch}</span>
+        <span className="text-muted-foreground">
+          {" "}
+          by {candidate.commit_author}, {formatTimestamp(candidate.commit_date)}
+        </span>
+      </p>
+      <p className="text-muted-foreground">{candidate.commit_message}</p>
+      {existingTags.length > 0 && (
+        <p className="text-amber-700 dark:text-amber-400">
+          This commit is already released as {existingTags.join(", ")}. A new
+          tag would ship the same package.
+        </p>
+      )}
+      {pkg ? (
+        <div className="space-y-1">
+          <p>
+            Package: {explicit.length} selected, {implied.length} included as
+            dependencies
+            {registry.length > 0 &&
+              `, ${registry.length} custom registry ${registry.length === 1 ? "repository" : "repositories"}`}
+          </p>
+          <ul className="flex flex-wrap gap-1.5">
+            {explicit.map((entry) => (
+              <li
+                key={`${entry.resource_type}:${entry.source_id}`}
+                className="rounded border px-1.5 py-0.5 font-mono"
+              >
+                {entry.resource_type}/{entry.source_id}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-destructive">
+          No package is published on this commit. Publish one from the source
+          workspace&apos;s Git sync page first.
+        </p>
+      )}
+    </div>
   )
 }

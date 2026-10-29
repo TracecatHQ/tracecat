@@ -692,3 +692,25 @@ async def test_a_package_installed_registry_repo_is_locked_in_the_target_org(
 
     with pytest.raises(ManagedResourceLockedError):
         await RegistryReposService(harness.session, org_role).delete_repository(repo)
+
+
+@pytest.mark.anyio
+async def test_release_candidate_shows_the_head_commit_and_its_package(
+    harness: Harness,
+) -> None:
+    before = await harness.admin.release_candidate()
+
+    assert before.branch == "main"
+    assert before.existing_tags == ["v1.0.0"]
+    assert before.package is not None
+    assert {(e.resource_type, e.source_id) for e in before.package.explicit} == {
+        ("workflow", "qa-child"),
+        ("agent_preset", "qa-triage-parent"),
+        ("table", "qa_indicators"),
+    }
+
+    await harness.publish("v1.1.0", V2)
+    after = await harness.admin.release_candidate()
+
+    assert after.commit_sha != before.commit_sha
+    assert after.existing_tags == ["v1.1.0"]

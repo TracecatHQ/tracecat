@@ -39,6 +39,10 @@ import {
   usePackageSelection,
 } from "@/components/workspace-sync/package-picker"
 import {
+  PackagePublishSteps,
+  PackagePublishSummary,
+} from "@/components/workspace-sync/package-publish-overview"
+import {
   getReviewRequestAbbreviation,
   getReviewRequestLabel,
   getWorkspaceSyncPushOutcome,
@@ -223,10 +227,15 @@ export function GitSyncPushTab({
       }
       const prUrl = result.commit.pr_url
       toast({
-        title: prUrl
-          ? `${reviewRequestShort} ready`
-          : `Pushed to ${targetBranch}`,
-        description: result.commit.message ?? result.commit.sha ?? undefined,
+        title: getPushToastTitle({
+          isPackage: Boolean(sourcePackage),
+          hasPr: Boolean(prUrl),
+          targetBranch,
+          reviewRequestShort,
+        }),
+        description: sourcePackage
+          ? "No customer workspace changed. Merge it, then cut a release and deploy it from Admin, Managed package."
+          : (result.commit.message ?? result.commit.sha ?? undefined),
         action: prUrl ? (
           <ToastAction
             asChild
@@ -256,7 +265,11 @@ export function GitSyncPushTab({
     <>
       <div className="flex flex-1 flex-col">
         <div className="px-4 py-3">
-          <WorkspacePushExplanation />
+          {sourcePackage ? (
+            <PackagePublishSteps branch={targetBranch} />
+          ) : (
+            <WorkspacePushExplanation />
+          )}
         </div>
         {workspacePackageError && (
           <GitSyncNotice tone="error">
@@ -292,6 +305,12 @@ export function GitSyncPushTab({
               workspaceId={workspaceId}
             />
           </GitSyncNotice>
+        )}
+        {visiblePreview && sourcePackage && (
+          <PackagePublishSummary
+            diffs={visiblePreview.resource_diffs ?? []}
+            compareRef={compareRef}
+          />
         )}
         {visiblePreview ? (
           <GitSyncChangeList
@@ -357,6 +376,7 @@ export function GitSyncPushTab({
         )}
         <PushSplitButton
           label={getPushButtonLabel({
+            isPackage: Boolean(sourcePackage),
             isBlocked,
             isPending: exportWorkspaceIsPending,
             createPr: outcome.createPr,
@@ -500,6 +520,7 @@ function getBlockedPushBranch({
 }
 
 function getPushButtonLabel({
+  isPackage,
   isBlocked,
   isPending,
   createPr,
@@ -507,6 +528,7 @@ function getPushButtonLabel({
   targetBranch,
   reviewRequestShort,
 }: {
+  isPackage: boolean
   isBlocked: boolean
   isPending: boolean
   createPr: boolean
@@ -515,16 +537,43 @@ function getPushButtonLabel({
   reviewRequestShort: string
 }): string {
   if (isPending) {
-    return "Pushing..."
+    return isPackage ? "Publishing..." : "Pushing..."
   }
   if (isBlocked) {
     return "Pick another branch"
   }
-  const push = changeCount > 0 ? `Push ${changeCount}` : "Push"
+  let push = changeCount > 0 ? `Push ${changeCount}` : "Push"
+  if (isPackage) {
+    push =
+      changeCount > 0 ? `Publish package (${changeCount})` : "Publish package"
+  }
   if (createPr) {
     return `${push} and open ${reviewRequestShort}`
   }
   return `${push} to ${targetBranch}`
+}
+
+function getPushToastTitle({
+  isPackage,
+  hasPr,
+  targetBranch,
+  reviewRequestShort,
+}: {
+  isPackage: boolean
+  hasPr: boolean
+  targetBranch: string
+  reviewRequestShort: string
+}): string {
+  if (isPackage && hasPr) {
+    return `Package ${reviewRequestShort} ready`
+  }
+  if (isPackage) {
+    return `Package published to ${targetBranch}`
+  }
+  if (hasPr) {
+    return `${reviewRequestShort} ready`
+  }
+  return `Pushed to ${targetBranch}`
 }
 
 function getPushPreviewSummary(
