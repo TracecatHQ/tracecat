@@ -1,0 +1,125 @@
+name: Sync stable references
+
+# Stable releases are cut on release/* branches and never merged back, so main
+# would keep serving stale Compose defaults and install docs. Poll the latest
+# stable release from main (release events run the tag's copy of a workflow,
+# which older trains lack) and propose a bump PR when main falls behind.
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-stable-refs
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Propose stable reference bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Create the bump branch and commit.
+      contents: write
+      # Open the bump PR.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Resolve latest stable release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(gh api "repos/$REPO/releases/latest" --jq .tag_name)"
+          stable='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+          if ! [[ "$version" =~ ^${stable}$ ]]; then
+            echo "Latest release is not a stable version: $version" >&2
+            exit 1
+          fi
+          branch="ci/sync-stable-refs-$version"
+          # One proposal per version: a closed PR is a decision, not a retry.
+          if gh api "repos/$REPO/git/ref/heads/$branch" >/dev/null 2>&1; then
+            echo "Branch $branch already exists; nothing to do."
+            echo "sync=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "sync=true"
+            echo "version=$version"
+            echo "branch=$branch"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update stable references
+        id: update
+        if: steps.release.outputs.sync == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/sync_stable_refs.py "$VERSION" > "$RUNNER_TEMP/changed"
+          if [[ -s "$RUNNER_TEMP/changed" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open bump PR
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ steps.release.outputs.version }}
+          BRANCH: ${{ steps.release.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD)"
+          gh api "repos/$REPO/git/refs" -f "ref=refs/heads/$BRANCH" -f "sha=$base" >/dev/null
+
+          # createCommitOnBranch commits through the API so GitHub signs it.
+          while IFS= read -r path; do
+            jq -n --arg path "$path" --rawfile contents "$path" \
+              '{path: $path, contents: ($contents | @base64)}'
+          done < "$RUNNER_TEMP/changed" | jq -s . > "$RUNNER_TEMP/additions.json"
+          jq -n \
+            --arg repo "$REPO" \
+            --arg branch "$BRANCH" \
+            --arg base "$base" \
+            --arg headline "release: sync main to stable $VERSION" \
+            --slurpfile additions "$RUNNER_TEMP/additions.json" \
+            '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: {input: {
+                branch: {repositoryNameWithOwner: $repo, branchName: $branch},
+                expectedHeadOid: $base,
+                message: {headline: $headline},
+                fileChanges: {additions: $additions[0]}
+              }}
+            }' > "$RUNNER_TEMP/commit.json"
+          gh api graphql --input "$RUNNER_TEMP/commit.json" >/dev/null
+
+          cat > "$RUNNER_TEMP/body.md" <<BODY
+          Automated by \`.github/workflows/sync-stable-refs.yml\`.
+
+          [$VERSION](https://github.com/$REPO/releases/tag/$VERSION) is the latest stable release, but stable releases are cut on \`release/*\` branches, so \`main\` still pins an older version in its Compose defaults, Fargate \`tracecat_image_tag\`, and install docs. This updates those references with \`scripts/sync_stable_refs.py\`. It does not change \`__version__\`.
+
+          Changed files:
+
+          $(sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/changed")
+          BODY
+          gh pr create \
+            --repo "$REPO" \
+            --base main \
+            --head "$BRANCH" \
+            --title "release: sync main to stable $VERSION" \
+            --body-file "$RUNNER_TEMP/body.md"
