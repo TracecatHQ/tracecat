@@ -252,7 +252,9 @@ class CaseSearchService(BaseWorkspaceService):
             *case_identity_predicates(query),
         ]
         if lexical is not None:
-            predicates.append(build_case_text_expressions(lexical).predicate)
+            predicates.append(
+                build_case_text_expressions(lexical, self.workspace_id).predicate
+            )
         predicates.extend(
             compile_filter(tree, resolver) for tree in trees if tree is not None
         )
@@ -409,7 +411,9 @@ class CaseSearchService(BaseWorkspaceService):
         )
 
         text_expressions = (
-            build_case_text_expressions(lexical) if lexical is not None else None
+            build_case_text_expressions(lexical, self.workspace_id)
+            if lexical is not None
+            else None
         )
         if lexical is not None:
             stmt = stmt.execution_options(

@@ -72,6 +72,18 @@ class VectorMigration(Protocol):
     def downgrade(self) -> None: ...
 
 
+class WordMigration(Protocol):
+    _BACKFILL_BATCH: int
+    _WORDS_FUNCTION_SQL: str
+    _TRIGGER_FUNCTION_SQL: str
+    _TRIGGER_SQL: str
+    _TABLE_INDEXES: tuple[tuple[str, str], ...]
+    _WORD_INDEXES: tuple[tuple[str, str], ...]
+
+    def upgrade(self) -> None: ...
+    def downgrade(self) -> None: ...
+
+
 def _load_revision(filename: str, name: str) -> object:
     path = Path(__file__).resolve().parents[2] / "alembic/versions" / filename
     spec = importlib.util.spec_from_file_location(name, path)
@@ -98,6 +110,16 @@ def load_vector_migration() -> VectorMigration:
         VectorMigration,
         _load_revision(
             "5ca140c06ec2_store_case_search_vectors.py", "case_search_vector_migration"
+        ),
+    )
+
+
+def load_word_migration() -> WordMigration:
+    """Load the stored word-list revision that follows the vector revision."""
+    return cast(
+        WordMigration,
+        _load_revision(
+            "e4fd31674ae9_store_case_search_words.py", "case_search_word_migration"
         ),
     )
 
@@ -137,14 +159,41 @@ def apply_vector_migration(
                 migration.upgrade()
 
 
+def apply_word_migration(
+    engine: Engine,
+    *,
+    downgrade: bool = False,
+    backfill_batch: int | None = None,
+    search_path: str | None = None,
+) -> None:
+    """Apply only the stored word-list revision; it requires the vector revision."""
+    migration = load_word_migration()
+    if backfill_batch is not None:
+        migration._BACKFILL_BATCH = backfill_batch
+    with engine.connect() as conn:
+        context = MigrationContext.configure(conn)
+        with context.begin_transaction(), Operations.context(context):
+            if search_path is not None:
+                conn.execute(
+                    sa.text("SELECT set_config('search_path', :search_path, false)"),
+                    {"search_path": search_path},
+                )
+            if downgrade:
+                migration.downgrade()
+            else:
+                migration.upgrade()
+
+
 def apply_case_search_migrations(engine: Engine, *, downgrade: bool = False) -> None:
-    """Apply both case search revisions in dependency order."""
+    """Apply every case search revision in dependency order."""
     if downgrade:
+        apply_word_migration(engine, downgrade=True)
         apply_vector_migration(engine, downgrade=True)
         apply_search_migration(engine, downgrade=True)
     else:
         apply_search_migration(engine)
         apply_vector_migration(engine)
+        apply_word_migration(engine)
 
 
 @pytest.fixture
@@ -171,6 +220,12 @@ def search_database() -> Iterator[Engine]:
                     )
                 )
                 is False
+            )
+            # The word vocabulary references workspaces; cases here do not.
+            conn.execute(sa.text("CREATE TABLE workspace (id uuid PRIMARY KEY)"))
+            conn.execute(
+                sa.text("INSERT INTO workspace (id) VALUES (:first), (:second)"),
+                {"first": WORKSPACE, "second": OTHER_WORKSPACE},
             )
             conn.execute(
                 sa.text("""CREATE TABLE "case" (
@@ -238,7 +293,7 @@ def search_statement(
     limit: int = 50,
 ) -> sa.Select[tuple[uuid.UUID, int, bool, bool]]:
     """Compose all filters before LIMIT and preserve a case-ID tie-breaker."""
-    expressions = build_case_text_expressions(parse_fixture_query(query))
+    expressions = build_case_text_expressions(parse_fixture_query(query), workspace)
     return (
         sa.select(
             Case.id,
@@ -483,7 +538,9 @@ def test_filters_precede_pagination_and_integer_score_seeks_are_stable(
             .all()
         )
         assert [row[0] for row in first] == list(reversed(expected))[:3]
-        expressions = build_case_text_expressions(parse_case_text_query("powershell"))
+        expressions = build_case_text_expressions(
+            parse_case_text_query("powershell"), WORKSPACE
+        )
         cursor = first[-1]
         seek = sa.tuple_(expressions.score, Case.id) < sa.tuple_(
             sa.literal(cursor[1]), sa.literal(cursor[0])
@@ -496,7 +553,7 @@ def test_filters_precede_pagination_and_integer_score_seeks_are_stable(
     ("query", "index"),
     [
         ('"powershell"', "ix_case_summary_tsv"),
-        ("powershel", "ix_case_summary_trgm"),
+        ("powershel", "ix_case_summary_words"),
         ("literal:PowerShell", "ix_case_summary_trgm"),
     ],
 )
@@ -510,7 +567,7 @@ def test_candidate_predicates_can_use_the_declared_indexes(
         conn.execute(
             sa.text("SET LOCAL pg_trgm.strict_word_similarity_threshold = 0.65")
         )
-        expressions = build_case_text_expressions(parse_fixture_query(query))
+        expressions = build_case_text_expressions(parse_fixture_query(query), WORKSPACE)
         compiled = (
             sa.select(Case.id)
             .where(expressions.predicate)
@@ -788,6 +845,8 @@ def test_wrong_extension_schema_fails_before_index_creation(
 def test_migration_checks_extension_without_installation(
     search_database: Engine,
 ) -> None:
+    # The vocabulary's trigram index also depends on pg_trgm.
+    apply_word_migration(search_database, downgrade=True)
     apply_search_migration(search_database, downgrade=True)
     operator = sa.create_engine(search_database.url, poolclass=NullPool)
     try:
@@ -982,3 +1041,37 @@ def test_safe_vector_exception_boundary_disables_parallel_operations(
             )
             == "u"
         )
+
+
+def test_typo_matching_uses_complete_words_and_over_budget_fallback(
+    search_database: Engine,
+) -> None:
+    with search_database.begin() as conn:
+        listed = seed_case(conn, 1, "synthetic alert", "ran powershel encoded")
+        # Over the byte budget, so it has no stored word list.
+        large = seed_case(conn, 2, "synthetic large", "word " * 2000 + "powershel")
+        # Similar only across a word boundary: no complete word matches.
+        seed_case(conn, 3, "synthetic split", "power shell")
+        other = seed_case(
+            conn, 4, "synthetic other", "powershel", workspace=OTHER_WORKSPACE
+        )
+        assert (
+            conn.scalar(
+                sa.text('SELECT description_words IS NULL FROM "case" WHERE id=:id'),
+                {"id": large},
+            )
+            is True
+        )
+        assert set(search_ids(conn, "powershell")) == {listed, large}
+        assert search_ids(conn, "powershell", workspace=OTHER_WORKSPACE) == [other]
+        # A duplicate vocabulary word from a concurrent insert is harmless.
+        conn.execute(
+            sa.text(
+                "INSERT INTO case_search_word (workspace_id, word) VALUES (:ws, 'powershel')"
+            ),
+            {"ws": WORKSPACE},
+        )
+        assert set(search_ids(conn, "powershell")) == {listed, large}
+        # Words of deleted cases stay in the vocabulary without matching.
+        conn.execute(sa.text('DELETE FROM "case" WHERE id=:id'), {"id": listed})
+        assert search_ids(conn, "powershell") == [large]

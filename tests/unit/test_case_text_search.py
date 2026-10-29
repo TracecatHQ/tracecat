@@ -20,6 +20,8 @@ from tracecat.db.models import Case
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.query.lexical_types import SearchMode
 
+WORKSPACE = uuid.UUID("00000000-0000-4000-8000-000000000001")
+
 
 @pytest.mark.parametrize(
     "value",
@@ -95,7 +97,7 @@ def test_words_phrases_indicators_and_fuzzy_budget() -> None:
 
 @pytest.mark.parametrize("value", ["CASE-0001", "case-1"])
 def test_identifiers_match_exact_columns_and_indexed_text_mentions(value: str) -> None:
-    expression = build_case_text_expressions(parse_case_text_query(value))
+    expression = build_case_text_expressions(parse_case_text_query(value), WORKSPACE)
     statement = sa.select(Case.id).where(expression.predicate)
     sql = str(statement.compile(dialect=postgresql.dialect()))
     assert "case_number =" in sql
@@ -141,7 +143,7 @@ def test_short_exact_words_are_allowed_with_a_selective_clause(value: str) -> No
 
 def test_phrase_sql_uses_separate_source_vectors() -> None:
     expression = build_case_text_expressions(
-        parse_case_text_query('"powershell encoded"')
+        parse_case_text_query('"powershell encoded"'), WORKSPACE
     )
     sql = str(
         sa.select(Case.id)
@@ -157,20 +159,24 @@ def test_phrase_sql_uses_separate_source_vectors() -> None:
 
 
 def test_fuzzy_operator_matches_index_expression_and_literals_are_bound() -> None:
-    expression = build_case_text_expressions(parse_case_text_query("powershel"))
+    expression = build_case_text_expressions(
+        parse_case_text_query("powershel"), WORKSPACE
+    )
     sql = str(
         sa.select(Case.id)
         .where(expression.predicate)
         .compile(dialect=postgresql.dialect())
     )
     # psycopg doubles percent signs in compiled SQL, preserving the %>> operator.
-    assert "lower(CASE WHEN" in sql
     assert 'CAST("case".summary AS TEXT)' in sql
     assert "%%>>" in sql
     assert "EXISTS (SELECT" in sql
     assert "strict_word_similarity(" in sql
+    # Typo words come from the workspace vocabulary, matched to stored lists.
+    assert '"case".summary_words && array((SELECT case_search_word.word' in sql
+    assert "case_search_word.workspace_id = %(workspace_id_1)s" in sql
     literal = build_case_text_expressions(
-        parse_case_text_query("abc%_\\' OR true", mode=SearchMode.LITERAL)
+        parse_case_text_query("abc%_\\' OR true", mode=SearchMode.LITERAL), WORKSPACE
     )
     compiled = (
         sa.select(Case.id)
