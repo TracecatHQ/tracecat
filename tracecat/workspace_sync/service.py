@@ -22,6 +22,8 @@ from tracecat.agent.skill.library.service import (
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, has_any_scope
 from tracecat.db.models import (
+    CaseDropdownDefinition,
+    CaseFields,
     CaseTag,
     Form,
     ManagedResource,
@@ -542,6 +544,7 @@ class WorkspaceSyncService(SyncMappingService):
                 if identity := _natural_identity(adapter, resource_spec):
                     identities.setdefault(adapter.resource_type, set()).add(identity)
 
+        adopted_by_source_id = await self._managed_source_id_keys(managed)
         skipped: list[str] = []
         kept: dict[str, dict[str, BaseModel]] = {}
         for adapter in WORKSPACE_RESOURCE_ADAPTERS:
@@ -550,9 +553,13 @@ class WorkspaceSyncService(SyncMappingService):
             kept[adapter.spec_attr] = {}
             for source_id, resource_spec in incoming.items():
                 identity = _natural_identity(adapter, resource_spec)
-                if mapped.get(source_id) in managed.get(adapter.resource_type, ()) or (
-                    identity is not None
-                    and identity in identities.get(adapter.resource_type, ())
+                if (
+                    mapped.get(source_id) in managed.get(adapter.resource_type, ())
+                    or (
+                        identity is not None
+                        and identity in identities.get(adapter.resource_type, ())
+                    )
+                    or source_id in adopted_by_source_id.get(adapter.resource_type, ())
                 ):
                     skipped.append(adapter.source_path(source_id))
                     continue
@@ -563,6 +570,36 @@ class WorkspaceSyncService(SyncMappingService):
             snapshot.model_copy(update={"spec": workspace_spec_from_maps(kept)}),
             sorted(skipped),
         )
+
+    async def _managed_source_id_keys(
+        self, managed: Mapping[SyncResourceType, set[uuid.UUID]]
+    ) -> dict[SyncResourceType, set[str]]:
+        """Keys the importer adopts a managed resource by when they equal a source id.
+
+        Dropdowns are adopted by ``ref`` and case fields by schema key, even
+        under a different display name.
+        """
+        keys: dict[SyncResourceType, set[str]] = {}
+        if dropdown_ids := managed.get(SyncResourceType.CASE_DROPDOWN):
+            keys[SyncResourceType.CASE_DROPDOWN] = set(
+                await self.session.scalars(
+                    select(CaseDropdownDefinition.ref).where(
+                        CaseDropdownDefinition.id.in_(dropdown_ids)
+                    )
+                )
+            )
+        if field_ids := managed.get(SyncResourceType.CASE_FIELD):
+            fields = await self.session.scalar(
+                select(CaseFields).where(CaseFields.workspace_id == self.workspace_id)
+            )
+            if fields is not None:
+                # Same derivation as the case field adapter's local ids.
+                keys[SyncResourceType.CASE_FIELD] = {
+                    name
+                    for name in fields.schema or {}
+                    if uuid.uuid5(fields.id, name) in field_ids
+                }
+        return keys
 
     async def _mapped_local_ids(
         self, resource_type: SyncResourceType, specs: Mapping[str, BaseModel]

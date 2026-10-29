@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
@@ -21,10 +21,12 @@ from tests.unit.test_workspace_sync_acceptance_contract import _workflow_spec, _
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentPreset,
+    CaseDropdownDefinition,
     ManagedDetachedCopy,
     Skill,
     Workflow,
     Workspace,
+    WorkspaceSyncResourceMapping,
 )
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -132,6 +134,68 @@ async def test_customer_pull_skips_a_workflow_that_collides_with_a_managed_alias
     assert applied.skipped_managed == ["workflows/customer-child/definition.yml"]
     await session.refresh(child)
     assert child.title == title_before
+
+
+@pytest.mark.anyio
+async def test_customer_pull_skips_a_dropdown_adopted_by_a_managed_ref(
+    session: AsyncSession,
+    svc_role: Role,
+    target: tuple[WorkspaceSyncService, FakeVcsServer],
+) -> None:
+    # The importer adopts a dropdown by ref, even under another name, so a
+    # customer file whose source id is a managed dropdown's ref must skip.
+    service, fake_vcs = target
+    dropdown = await session.scalar(
+        select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.workspace_id == svc_role.workspace_id,
+            CaseDropdownDefinition.ref == "qa_resolution_reason",
+        )
+    )
+    assert dropdown is not None
+    await mark_managed(
+        session,
+        svc_role,
+        SyncResourceType.CASE_DROPDOWN,
+        dropdown.id,
+        source_id="qa_resolution_reason",
+    )
+    # A customer repository that never mapped the managed dropdown.
+    await session.execute(
+        delete(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.local_id == dropdown.id,
+        )
+    )
+    name_before = dropdown.name
+    path = "case_dropdowns/qa_resolution_reason.yml"
+    commit = await fake_vcs.transport_factory(
+        VcsProvider.GITHUB, session=session, role=svc_role
+    ).write_files(
+        url=GIT_URL,
+        files={
+            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            path: _yaml(
+                {
+                    "version": 1,
+                    "type": "case_dropdown",
+                    "id": "qa_resolution_reason",
+                    "name": "Customer rename attempt",
+                    "options": [{"label": "Only", "ref": "only"}],
+                }
+            ),
+        },
+        message="Customer repo",
+        branch="customer/dropdown",
+        create_pr=False,
+    )
+    assert commit.sha is not None
+
+    applied = await service.pull(options=PullOptions(commit_sha=commit.sha))
+
+    assert applied.success, applied.diagnostics
+    assert applied.skipped_managed == [path]
+    await session.refresh(dropdown)
+    assert dropdown.name == name_before
 
 
 @pytest.mark.anyio
