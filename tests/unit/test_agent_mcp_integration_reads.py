@@ -5,7 +5,7 @@ Invariants:
   many servers it selects.
 - A user MCP tool call reads its integration row once.
 - Both reads keep the workspace predicate: a row from another workspace is
-  refused, never used.
+  refused, never used. Methods that take an already-loaded row re-check it.
 """
 
 import uuid
@@ -29,10 +29,12 @@ from tracecat.agent.tokens import UserMCPServerClaim
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.auth.types import Role
 from tracecat.db.models import MCPIntegration
+from tracecat.exceptions import TracecatValidationError
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.schemas import (
     MCPHttpIntegrationCreate,
     MCPStdioIntegrationCreate,
+    MCPToolSummary,
 )
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.lock.service import RegistryLockService
@@ -255,3 +257,44 @@ async def test_user_mcp_call_refuses_row_from_another_workspace(
 
     with pytest.raises(ToolError, match="is unavailable"):
         await trusted_server._resolve_user_mcp_config(claim, _other_workspace(svc_role))
+
+
+@pytest.mark.anyio
+async def test_loaded_row_methods_refuse_rows_from_another_workspace(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Rows passed in by a caller are re-checked, not trusted."""
+    service = IntegrationService(session, role=svc_role)
+    (http_row,) = await _http_integrations(session, svc_role, 1)
+    await service.persist_mcp_integration_tools(
+        mcp_integration_id=http_row.id,
+        discovered_tools=[MCPToolSummary(name="search")],
+    )
+    stdio_row = await service.create_mcp_integration(
+        params=MCPStdioIntegrationCreate(
+            name="Synthetic stdio MCP",
+            stdio_command="npx",
+            stdio_args=["-y", "example-mcp-server"],
+        )
+    )
+    owner = AgentPresetService(session, role=svc_role)
+    other = AgentPresetService(session, role=_other_workspace(svc_role))
+
+    assert owner.mcp_tool_policies([http_row])
+    assert other.mcp_tool_policies([http_row]) == {}
+
+    assert owner.mcp_integration_refs([str(http_row.id)], {http_row.id: http_row})
+    with pytest.raises(TracecatValidationError):
+        other.mcp_integration_refs([str(http_row.id)], {http_row.id: http_row})
+
+    assert await owner.resolve_loaded_mcp_integration_secrets(http_row) is not None
+    assert await other.resolve_loaded_mcp_integration_secrets(http_row) is None
+
+    assert (
+        await owner.resolve_stdio_mcp_integration(stdio_row, resolve_env=False)
+        is not None
+    )
+    assert (
+        await other.resolve_stdio_mcp_integration(stdio_row, resolve_env=False) is None
+    )

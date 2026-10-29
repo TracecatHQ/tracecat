@@ -195,7 +195,6 @@ async def test_discovery_retries_share_one_server_deadline(
 async def test_discovery_servers_share_total_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The shared deadline caps every server, below its own timeout."""
     contacted: list[str] = []
 
     async def hang(
@@ -206,6 +205,7 @@ async def test_discovery_servers_share_total_budget(
         return {}
 
     monkeypatch.setattr(UserMCPClient, "_discover_server_tools", hang)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_CONCURRENCY", 1)
     monkeypatch.setattr(
         user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 1, raising=False
     )
@@ -216,10 +216,48 @@ async def test_discovery_servers_share_total_budget(
         UserMCPClient(
             [_mcp_server("first"), _mcp_server("second")]
         ).discover_tools_detailed(),
-        timeout=0.5,
+        timeout=1,
     )
-    assert contacted == ["first", "second"]
+    assert contacted == ["first"]
     assert set(result.failed_servers) == {"first", "second"}
+
+
+@pytest.mark.anyio
+async def test_budget_timeout_firing_early_skips_remaining_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contacted: list[str] = []
+
+    async def hang(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        contacted.append(name)
+        await asyncio.Event().wait()
+        return {}
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", hang)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_CONCURRENCY", 1)
+    monkeypatch.setattr(
+        user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 1, raising=False
+    )
+    monkeypatch.setattr(
+        user_client, "MCP_DISCOVERY_TIMEOUT_SECONDS", 0.05, raising=False
+    )
+    # Event loops may run a timer slightly before its deadline.
+    timeout_at = asyncio.timeout_at
+    monkeypatch.setattr(
+        asyncio,
+        "timeout_at",
+        lambda when: timeout_at(None if when is None else when - 0.04),
+    )
+    result = await asyncio.wait_for(
+        UserMCPClient(
+            [_mcp_server("first"), _mcp_server("second")]
+        ).discover_tools_detailed(),
+        timeout=1,
+    )
+    assert contacted == ["first"]
+    assert result.failed_servers["second"] == "UserMCPDiscoveryBudgetExceededError"
 
 
 @pytest.mark.anyio
@@ -797,6 +835,7 @@ async def test_discovery_respects_fired_timeout_before_clock_deadline(
 
     monkeypatch.setattr(user_client.asyncio, "timeout_at", timeout_at)
     monkeypatch.setattr(UserMCPClient, "_discover_server_tools", discover)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_CONCURRENCY", 1)
     monkeypatch.setattr(user_client, "MCP_DISCOVERY_TIMEOUT_SECONDS", 60)
     monkeypatch.setattr(
         user_client,
@@ -807,11 +846,15 @@ async def test_discovery_respects_fired_timeout_before_clock_deadline(
         [_mcp_server("first"), _mcp_server("second")]
     ).discover_tools_detailed()
     assert loop.time() < min(deadlines)
-    assert contacted == ["first", "second"]
+    assert contacted == (
+        ["first"] if failure == "shared_timeout" else ["first", "second"]
+    )
     expected_failures = {"first", "second"}
     if suppress_cancellation and failure != "inner_timeout":
-        expected_failures = set()
+        expected_failures = {"second"} if failure == "shared_timeout" else set()
     assert set(result.failed_servers) == expected_failures
+    if failure == "shared_timeout":
+        assert result.failed_servers["second"] == "UserMCPDiscoveryBudgetExceededError"
 
 
 @pytest.mark.anyio
@@ -940,3 +983,32 @@ async def test_strict_discovery_first_failure_cancels_other_servers(
     assert raised.value.server_name == "broken"
     assert isinstance(raised.value.__cause__, httpx.ConnectError)
     assert cancelled.is_set()
+
+
+@pytest.mark.anyio
+async def test_discovery_caps_servers_in_flight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Response caps are per response, so only a few servers run at once."""
+    names = [f"s{i}" for i in range(6)]
+    in_flight = 0
+    peak = 0
+
+    async def discover(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.01)
+        in_flight -= 1
+        return _named_tool(name)
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", discover)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_CONCURRENCY", 2)
+    result = await asyncio.wait_for(
+        UserMCPClient([_mcp_server(n) for n in names]).discover_tools_detailed(),
+        timeout=1,
+    )
+    assert peak == 2
+    assert list(result.definitions) == [f"mcp__{n}__search" for n in names]
