@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 from sqlalchemy import case, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 from temporalio import activity
 
 from tracecat.authz.controls import require_scope
@@ -45,7 +45,17 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
         *,
         version: int | None = None,
         load_relationships: bool = True,
+        load_workflow: bool = False,
     ) -> WorkflowDefinition | None:
+        """Get a workflow's current definition, or a specific version.
+
+        Args:
+            workflow_id: Workflow to look up.
+            version: Definition version; defaults to the workflow's current one.
+            load_relationships: Load the workflow with its actions and case trigger.
+            load_workflow: Load only the workflow row, in the same query. Its own
+                relationships raise on access.
+        """
         statement = select(WorkflowDefinition).where(
             WorkflowDefinition.workspace_id == self.workspace_id,
             WorkflowDefinition.workflow_id == workflow_id,
@@ -56,6 +66,10 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
                     selectinload(Workflow.case_trigger),
                     selectinload(Workflow.actions),
                 )
+            )
+        elif load_workflow:
+            statement = statement.options(
+                joinedload(WorkflowDefinition.workflow).raiseload("*")
             )
         if version is not None:
             statement = statement.where(WorkflowDefinition.version == version)
@@ -189,7 +203,7 @@ async def get_workflow_definition_activity(
     with activity_error_boundary(_workflow_definition_lookup_error_classification):
         async with WorkflowDefinitionsService.with_session(role=input.role) as service:
             defn = await service.get_definition_by_workflow_id(
-                input.workflow_id, version=input.version
+                input.workflow_id, version=input.version, load_relationships=False
             )
     if not defn:
         logger.error(

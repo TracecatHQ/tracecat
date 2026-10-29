@@ -7,6 +7,8 @@ from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
@@ -1450,3 +1452,65 @@ async def test_template_expects_validation_leaves_no_plaintext_in_chain(mocker):
     assert err.__cause__ is None
     assert err.__context__ is None
     assert canary not in str(err)
+
+
+@pytest.mark.anyio
+async def test_prepare_resolved_context_loads_all_variables_for_templates(mocker):
+    """Template steps read VARS the caller's args never show."""
+    action_name = "tools.test.lookup"
+    _, get_workspace_variables, _ = _patch_expression_policy_resolution(
+        mocker,
+        action_name=action_name,
+        action_secrets=set(),
+        fetched_secrets={},
+        workspace_variables={"api": {"base_url": "https://api.example.com"}},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            return_value=ActionImplementation(
+                type="template",
+                action_name=action_name,
+                template_definition={},
+            )
+        ),
+    )
+
+    prepared = await prepare_resolved_context(
+        input=_expression_policy_input(action_name, {"limit": 10}),
+        role=_expression_policy_role("tracecat-executor"),
+    )
+
+    assert get_workspace_variables.await_args.kwargs["variable_exprs"] is None
+    assert prepared.resolved_context.variables == {
+        "api": {"base_url": "https://api.example.com"}
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_workspace_variables_sends_no_statements_without_names(
+    svc_role: Role,
+):
+    """UDFs that reference no VARS no longer load every workspace variable."""
+    statements: list[str] = []
+
+    def record(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        assert (
+            await executor_service.get_workspace_variables(set(), role=svc_role) == {}
+        )
+        skipped = len(statements)
+        # Same session and SELECT the old empty-name path ran, minus the filter.
+        await executor_service.get_workspace_variables(None, role=svc_role)
+        fetched = len(statements) - skipped
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+
+    assert skipped == 0
+    # RLS set_config twice, then the variable SELECT.
+    assert fetched == 3

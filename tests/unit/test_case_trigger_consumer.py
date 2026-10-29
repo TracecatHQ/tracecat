@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 from redis.exceptions import ResponseError
@@ -394,16 +394,17 @@ async def test_dispatch_workflow_skips_non_current_definition(
     consumer._disable_invalid_case_trigger = AsyncMock()
     workflow_service_connect = AsyncMock()
 
+    get_definition = AsyncMock(
+        return_value=SimpleNamespace(
+            workflow=SimpleNamespace(version=2),
+            version=1,
+            content={"title": "old"},
+            registry_lock=None,
+        )
+    )
     monkeypatch.setattr(
         "tracecat.cases.triggers.consumer.WorkflowDefinitionsService.get_definition_by_workflow_id",
-        AsyncMock(
-            return_value=SimpleNamespace(
-                workflow=SimpleNamespace(version=2),
-                version=1,
-                content={"title": "old"},
-                registry_lock=None,
-            )
-        ),
+        get_definition,
     )
     monkeypatch.setattr(
         "tracecat.cases.triggers.consumer.WorkflowExecutionsService.connect",
@@ -435,6 +436,10 @@ async def test_dispatch_workflow_skips_non_current_definition(
     assert dispatched is True
     consumer._disable_invalid_case_trigger.assert_awaited_once()
     workflow_service_connect.assert_not_called()
+    # Only the workflow row is needed for the version check, in the same query.
+    get_definition.assert_awaited_once_with(
+        ANY, load_relationships=False, load_workflow=True
+    )
 
 
 @pytest.mark.anyio
@@ -754,11 +759,12 @@ async def test_dispatch_selected_workflow_start_outcomes(
         "tracecat.cases.triggers.consumer.WorkflowExecutionsService.connect",
         AsyncMock(return_value=exec_service),
     )
+    get_definition = AsyncMock(
+        return_value=SimpleNamespace(content={"title": "test"}, registry_lock=None)
+    )
     monkeypatch.setattr(
         "tracecat.cases.triggers.consumer.WorkflowDefinitionsService.get_definition_by_workflow_id",
-        AsyncMock(
-            return_value=SimpleNamespace(content={"title": "test"}, registry_lock=None)
-        ),
+        get_definition,
     )
     monkeypatch.setattr(AuditService, "create_event", mock_audit_create_event)
 
@@ -794,6 +800,7 @@ async def test_dispatch_selected_workflow_start_outcomes(
     )
 
     assert processed is True
+    get_definition.assert_awaited_once_with(ANY, load_relationships=False)
     exec_service.create_workflow_execution_wait_for_start.assert_awaited_once()
     payload = exec_service.create_workflow_execution_wait_for_start.await_args.kwargs[
         "payload"
