@@ -62,7 +62,10 @@ class CaseEventsService(BaseWorkspaceService):
         """List all events for a case."""
         statement = (
             select(CaseEvent)
-            .where(CaseEvent.case_id == case.id)
+            .where(
+                CaseEvent.workspace_id == self.workspace_id,
+                CaseEvent.case_id == case.id,
+            )
             .order_by(CaseEvent.created_at.desc(), CaseEvent.surrogate_id.desc())
         )
         result = await self.session.execute(statement)
