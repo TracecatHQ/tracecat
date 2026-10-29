@@ -140,11 +140,19 @@ def test_only_serialized_promotion_can_publish_latest() -> None:
         metadata = next(step for step in job["steps"] if step.get("id") == "meta")
         assert metadata["with"]["flavor"] == "latest=false"
         assert "latest" not in metadata["with"]["tags"]
-        # X.Y floats like latest, so only the guarded promotion may move it.
-        assert "{{major}}.{{minor}}" not in metadata["with"]["tags"]
         for step in job["steps"]:
             # Manifest creation must not append tags outside metadata-action.
             assert ":latest" not in step.get("run", "")
+    # X.Y floats like latest, so only the guarded promotion may move it.
+    metadata_steps = [
+        step
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("docker/metadata-action@")
+    ]
+    assert len(metadata_steps) == 5
+    for metadata in metadata_steps:
+        assert "{{major}}.{{minor}}" not in metadata["with"]["tags"]
 
 
 @pytest.mark.parametrize("version", ["1.2.0", "1.3.0-alpha.1"])
