@@ -1,0 +1,135 @@
+# Lightweight local dev stack. `just cluster` layers this on the dev profile by
+# default; `just cluster up -d --full` runs every service instead.
+#   docker compose -f docker-compose.dev.yml -f docker-compose.lite.yml up -d
+#
+# What changes:
+# - Temporal runs as the single-binary dev server (SQLite, built-in UI on
+#   TEMPORAL_UI_PORT) instead of auto-setup + its own Postgres + a UI container.
+# - Optional services only start when their profile is enabled:
+#   just cluster up -d --with agents,mcp   (or COMPOSE_PROFILES=agents,mcp)
+#     agents          litellm, agent-worker, agent-executor
+#     mcp             mcp
+#     workspace-sync  background-worker
+# - Healthchecks probe every 1-2s while starting, then every 30s.
+# - Memory caps per service, and MALLOC_ARENA_MAX=2 for Python services.
+#
+# Temporal history lives in its own volume (temporal-lite-data), so workflow
+# runs from the full stack's Temporal are not visible here and vice versa.
+# Tracecat data in Postgres, MinIO, and Redis is shared between modes.
+
+x-python-env: &python-env
+  MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-2}
+
+services:
+  temporal:
+    image: temporalio/temporal:1.8.0
+    # The image runs as uid 1000 but a fresh named volume is root-owned.
+    user: "0:0"
+    command:
+      - server
+      - start-dev
+      - --ip=0.0.0.0
+      - --db-filename=/data/temporal.db
+      - --namespace=default
+      - --ui-port=8080
+      - --log-level=warn
+    environment: !reset []
+    ports:
+      - ${TEMPORAL_UI_PORT:-8081}:8080
+    volumes:
+      - temporal-lite-data:/data
+    depends_on: !reset []
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+      start_interval: 2s
+    mem_limit: 512m
+
+  temporal_postgres_db:
+    profiles: [lite-disabled]
+
+  temporal_ui:
+    profiles: [lite-disabled]
+
+  litellm:
+    profiles: [agents]
+    environment: *python-env
+    healthcheck:
+      interval: 30s
+      start_period: 180s
+      start_interval: 2s
+      retries: 3
+
+  agent-worker:
+    profiles: [agents]
+    environment: *python-env
+
+  agent-executor:
+    profiles: [agents]
+    environment: *python-env
+
+  mcp:
+    profiles: [mcp]
+    environment: *python-env
+
+  background-worker:
+    profiles: [workspace-sync]
+    environment: *python-env
+
+  api:
+    environment: *python-env
+    healthcheck:
+      interval: 30s
+      start_period: 180s
+      start_interval: 2s
+      retries: 3
+    mem_limit: 1536m
+
+  worker:
+    environment: *python-env
+    mem_limit: 1g
+
+  executor:
+    environment: *python-env
+    mem_limit: 1536m
+
+  migrations:
+    environment: *python-env
+
+  ui:
+    mem_limit: 3g
+
+  postgres_db:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - synchronous_commit=off
+    healthcheck:
+      interval: 30s
+      start_interval: 2s
+    mem_limit: 1g
+
+  minio:
+    healthcheck:
+      interval: 30s
+      start_period: 60s
+      start_interval: 2s
+    mem_limit: 512m
+
+  redis:
+    healthcheck:
+      interval: 30s
+      start_period: 30s
+      start_interval: 1s
+    mem_limit: 256m
+
+  caddy:
+    mem_limit: 128m
+
+volumes:
+  temporal-lite-data:

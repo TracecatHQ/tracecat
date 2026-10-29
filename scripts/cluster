@@ -40,6 +40,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
 LOADTEST_COMPOSE_FILE="${REPO_ROOT}/packages/tracecat-benchmark/docker-compose.loadtest.yml"
+LITE_COMPOSE_FILE="${REPO_ROOT}/docker-compose.lite.yml"
+LITE_PROFILES=(agents mcp workspace-sync)
 
 # Default profile
 PROFILE="dev"
@@ -50,6 +52,10 @@ CLUSTER_USE_SANDBOX_COMPOSE=true
 # numbered-cluster isolation is preserved.
 CLUSTER_COMPOSE_OVERRIDES=()
 LOADTEST_OVERRIDE=false
+# The dev profile runs the lite stack (docker-compose.lite.yml) unless --full
+# is given. --with enables the optional services that lite leaves off.
+CLUSTER_FULL=false
+CLUSTER_WITH_PROFILES=()
 
 # Get worktree identifier for namespacing clusters
 # Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
@@ -502,6 +508,27 @@ add_compose_override() {
     fi
 }
 
+# Enable optional lite services from a comma-separated list such as
+# "agents,mcp". Unknown names fail fast so a typo does not silently start
+# a stack without the service.
+add_lite_profiles() {
+    local list=$1 name known profile
+    local -a names
+    IFS=',' read -r -a names <<< "$list"
+    for name in "${names[@]}"; do
+        [[ -z "$name" ]] && continue
+        known=false
+        for profile in "${LITE_PROFILES[@]}"; do
+            [[ "$name" == "$profile" ]] && known=true
+        done
+        if [[ "$known" != "true" ]]; then
+            echo "Error: unknown --with profile '$name'. Valid: ${LITE_PROFILES[*]}" >&2
+            exit 1
+        fi
+        CLUSTER_WITH_PROFILES+=("$name")
+    done
+}
+
 usage() {
     cat <<EOF
 Usage: ./cluster [cluster_num] [-p profile] [tenant mode] <command> [args...]
@@ -528,6 +555,16 @@ Sandbox mode:
   --sandbox                       Keep nsjail sandboxing enabled
   --no-sandbox                    Disable nsjail sandboxing and sandbox
                                   compose privileges
+
+Lite stack (dev profile default):
+  The dev profile layers docker-compose.lite.yml: Temporal dev server, memory
+  caps, and the agent, MCP, and workspace-sync services left off.
+  --with <list>                   Also start optional services, comma-separated:
+                                  agents (litellm, agent-worker,
+                                  agent-executor), mcp, workspace-sync
+                                  (background-worker). COMPOSE_PROFILES works too.
+  --full                          Run every service (the pre-lite dev stack).
+                                  Load tests always run the full stack.
 
 Compose overrides:
   Layered after the profile and sandbox compose files. They do not change the
@@ -589,6 +626,8 @@ Examples:
   ./cluster --ee-multi-tenant false up -d
                                   Start cluster with explicit tenant mode
   ./cluster up -d --no-sandbox    Start cluster without nsjail sandboxing
+  ./cluster up -d --with agents   Lite stack plus the agent services
+  ./cluster up -d --full          Start every service
   ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --no-seed      Start cluster without creating dev tenant user
   ./cluster up -d --default-tier-entitlements none
@@ -858,6 +897,22 @@ while [[ $# -gt 0 ]]; do
             CLUSTER_USE_SANDBOX_COMPOSE=false
             shift
             ;;
+        --full)
+            CLUSTER_FULL=true
+            shift
+            ;;
+        --with)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --with requires a profile list (e.g. agents,mcp)" >&2
+                exit 1
+            fi
+            add_lite_profiles "$2"
+            shift 2
+            ;;
+        --with=*)
+            add_lite_profiles "${1#*=}"
+            shift
+            ;;
         --loadtest)
             add_compose_override "$LOADTEST_COMPOSE_FILE"
             shift
@@ -956,6 +1011,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-sandbox)
             CLUSTER_USE_SANDBOX_COMPOSE=false
+            shift
+            ;;
+        --full)
+            CLUSTER_FULL=true
+            shift
+            ;;
+        --with)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --with requires a profile list (e.g. agents,mcp)" >&2
+                exit 1
+            fi
+            add_lite_profiles "$2"
+            shift 2
+            ;;
+        --with=*)
+            add_lite_profiles "${1#*=}"
             shift
             ;;
         --loadtest)
@@ -1092,6 +1163,15 @@ COMPOSE_FILE=$(get_compose_file "$PROFILE")
 COMPOSE_FILES=(-f "$COMPOSE_FILE")
 if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
     COMPOSE_FILES+=(-f "${REPO_ROOT}/docker-compose.sandbox.yml")
+fi
+CLUSTER_LITE=false
+if [[ "$PROFILE" == "dev" && "$CLUSTER_FULL" != "true" && "$LOADTEST_OVERRIDE" != "true" ]]; then
+    CLUSTER_LITE=true
+    COMPOSE_FILES+=(-f "$LITE_COMPOSE_FILE")
+fi
+if [[ ${#CLUSTER_WITH_PROFILES[@]} -gt 0 ]]; then
+    with_profiles=$(IFS=','; echo "${CLUSTER_WITH_PROFILES[*]}")
+    export COMPOSE_PROFILES="${COMPOSE_PROFILES:+${COMPOSE_PROFILES},}${with_profiles}"
 fi
 for compose_override in ${CLUSTER_COMPOSE_OVERRIDES[@]+"${CLUSTER_COMPOSE_OVERRIDES[@]}"}; do
     COMPOSE_FILES+=(-f "$compose_override")
@@ -1371,6 +1451,9 @@ build_env "$CLUSTER_NUM"
 
 if [[ "$COMMAND" == "up" ]]; then
     echo "EE multi-tenant: ${TRACECAT__EE_MULTI_TENANT}"
+    if [[ "$CLUSTER_LITE" == "true" ]]; then
+        echo "Lite stack (profiles: ${COMPOSE_PROFILES:-none}). Use --with agents,mcp,workspace-sync or --full for more."
+    fi
 fi
 
 # Sync dependencies before the first cluster start or standalone dev seed.

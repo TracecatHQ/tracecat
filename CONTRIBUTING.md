@@ -84,6 +84,24 @@ test@tracecat.com / password1234
 
 You can then access the application at http://localhost:80.
 
+`just cluster` runs a lite stack by default (`docker-compose.dev.yml` plus
+`docker-compose.lite.yml`) so several worktree stacks fit on a laptop:
+
+- Temporal runs as the single-binary dev server, with its UI on the usual
+  Temporal UI port.
+- The agent services, the MCP server, and the workspace-sync worker are off.
+  Turn them on with `--with`, for example
+  `just cluster up -d --with agents,mcp,workspace-sync`. The `agents` profile
+  starts LiteLLM, the agent worker, and the agent executor.
+- Services have memory caps.
+
+Use `just cluster up -d --full` for the complete stack, the same services the
+production compose file runs. Lite mode keeps Temporal history in its own
+volume, so workflow runs from a full stack do not appear in lite mode and vice
+versa; Postgres, MinIO, and Redis data is shared. When switching an existing
+stack between modes, run `just cluster down` first so services that the new
+mode leaves off are stopped.
+
 > [!IMPORTANT]
 > `--seed` creates a test user only. Superadmin is determined by `TRACECAT__AUTH_SUPERADMIN_EMAIL` in `.env` set via `./env.sh`, and the first signup or login with that email becomes the organization owner.
 
