@@ -234,12 +234,32 @@ class ManagedRolloutEngine:
             else:
                 plan = await self._plan_apply(rollout)
         except (TracecatValidationError, TracecatNotFoundError) as e:
-            await self._finish(rollout, ManagedRolloutStatus.FAILED, error=str(e))
-            return rollout
+            if rollout := await self._still_previewing(rollout_id):
+                await self._finish(rollout, ManagedRolloutStatus.FAILED, error=str(e))
+            return await self._rollout(rollout_id)
+        if (rollout := await self._still_previewing(rollout_id)) is None:
+            return await self._rollout(rollout_id)
         rollout.preview = plan.preview.model_dump(mode="json")
         rollout.state_fingerprint = plan.fingerprint
         rollout.commit_sha = plan.commit_sha or None
         await self._finish(rollout, plan.status)
+        return rollout
+
+    async def _still_previewing(self, rollout_id: uuid.UUID) -> ManagedRollout | None:
+        """Lock and re-read the rollout; ``None`` if it left PREVIEWING.
+
+        A newer preview of the same target marks this one STALE while it is
+        still being computed. Writing the result back would revive it.
+        """
+        rollout = await self.session.scalar(
+            select(ManagedRollout)
+            .where(ManagedRollout.id == rollout_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if rollout is None or rollout.status != ManagedRolloutStatus.PREVIEWING:
+            await self.session.commit()
+            return None
         return rollout
 
     async def apply(self, rollout_id: uuid.UUID) -> ManagedRollout:
@@ -458,8 +478,10 @@ class ManagedRolloutEngine:
                 if row.resource_type != REGISTRY_RESOURCE_TYPE
                 and (row.resource_type, row.source_id) not in incoming_keys
             ]
+            rollout_id = rollout.id
             failures = await self._delete_managed(workspace, removed)
-        rollout = await self._rollout(rollout.id)
+        # A failed delete rolls back, which expires every loaded object.
+        rollout = await self._rollout(rollout_id)
         rollout.result = {
             "imported": {
                 resource_type: count.imported
@@ -478,14 +500,18 @@ class ManagedRolloutEngine:
         await self._finish(rollout, ManagedRolloutStatus.APPLIED)
 
     async def _apply_unassign(self, rollout: ManagedRollout) -> None:
-        workspace = await self._workspace(rollout.workspace_id)
-        managed = await self._managed_rows(workspace.id)
+        rollout_id, workspace_id = rollout.id, rollout.workspace_id
+        workspace = await self._workspace(workspace_id)
+        managed = await self._managed_rows(workspace_id)
         with managed_write_bypass():
             failures = await self._delete_managed(
                 workspace,
                 [row for row in managed if row.resource_type != REGISTRY_RESOURCE_TYPE],
             )
-        rollout = await self._rollout(rollout.id)
+        # A failed delete rolls back, which expires every loaded object.
+        rollout = await self._rollout(rollout_id)
+        workspace = await self._workspace(workspace_id)
+        managed = await self._managed_rows(workspace_id)
         if failures:
             await self._finish(
                 rollout,
@@ -639,8 +665,11 @@ class ManagedRolloutEngine:
     ) -> list[str]:
         """Delete managed resources one by one; return the ones that failed."""
         role = target_role(workspace)
+        workspace_id = workspace.id
+        # Plain copies: a failed delete rolls back, which expires the rows.
+        refs = [_RowRef.of(row) for row in rows]
         failures: list[str] = []
-        for row in rows:
+        for row in refs:
             try:
                 await _delete_resource(self.session, role, row)
                 await self.session.execute(
@@ -648,7 +677,7 @@ class ManagedRolloutEngine:
                 )
                 await self.session.execute(
                     delete(WorkspaceSyncResourceMapping).where(
-                        WorkspaceSyncResourceMapping.workspace_id == workspace.id,
+                        WorkspaceSyncResourceMapping.workspace_id == workspace_id,
                         WorkspaceSyncResourceMapping.provider
                         == MANAGED_MAPPING_NAMESPACE,
                         WorkspaceSyncResourceMapping.resource_type == row.resource_type,
@@ -1558,9 +1587,28 @@ def _fingerprint(
     ).hexdigest()
 
 
-async def _delete_resource(
-    session: AsyncSession, role: Role, row: ManagedResource
-) -> None:
+@dataclass(frozen=True, slots=True)
+class _RowRef:
+    """The fields of a managed row a delete needs, detached from the session."""
+
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    resource_type: str
+    local_id: uuid.UUID
+    source_id: str
+
+    @classmethod
+    def of(cls, row: ManagedResource) -> _RowRef:
+        return cls(
+            id=row.id,
+            workspace_id=row.workspace_id,
+            resource_type=row.resource_type,
+            local_id=row.local_id,
+            source_id=row.source_id,
+        )
+
+
+async def _delete_resource(session: AsyncSession, role: Role, row: _RowRef) -> None:
     """Delete one resource through its own service, so cleanup runs as usual."""
     local_id = row.local_id
     match SyncResourceType(row.resource_type):

@@ -464,6 +464,81 @@ async def test_registry_requirements_read_the_current_version_index(
     ]
 
 
+@pytest.mark.anyio
+async def test_registry_requirements_follow_template_steps_into_other_registries(
+    session: AsyncSession, svc_role: Role, source: SourceHarness
+) -> None:
+    # acme.triage is a template whose step calls acme.enrich_ip, which lives
+    # in another repository. Rollout validation resolves template steps, so
+    # both repositories must ship.
+    step_repo = await _custom_action(session, svc_role, with_version=True)
+    assert svc_role.organization_id is not None
+    template_repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin=f"git+ssh://git@github.com/acme/templates-{uuid.uuid4().hex[:8]}.git",
+    )
+    session.add(template_repo)
+    await session.flush()
+    template = {
+        "namespace": "acme",
+        "name": "triage",
+        "action_type": "template",
+        "description": "Triage an alert",
+        "interface": {"expects": {}, "returns": None},
+        "implementation": {
+            "type": "template",
+            "template_action": {
+                "type": "action",
+                "definition": {
+                    "name": "triage",
+                    "namespace": "acme",
+                    "title": "Triage",
+                    "display_group": "Acme",
+                    "expects": {},
+                    "steps": [
+                        {"ref": "enrich", "action": "acme.enrich_ip", "args": {}}
+                    ],
+                    "returns": "${{ steps.enrich.result }}",
+                },
+            },
+        },
+    }
+    version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=template_repo.id,
+        version="3.0.0",
+        commit_sha="e" * 40,
+        manifest={"actions": {"acme.triage": template}},
+        tarball_uri="s3://registry/templates-3.0.0.tar.gz",
+    )
+    session.add(version)
+    await session.flush()
+    template_repo.current_version_id = version.id
+    session.add(
+        RegistryIndex(
+            organization_id=svc_role.organization_id,
+            registry_version_id=version.id,
+            namespace="acme",
+            name="triage",
+            action_type="template",
+            description="Triage an alert",
+            options={"include_in_schema": True},
+        )
+    )
+    await session.flush()
+
+    requirements = await package_registry_requirements(
+        source.service,
+        _spec_using("acme.triage"),
+        organization_id=source.service.organization_id,
+    )
+
+    assert {(r.origin, tuple(r.actions)) for r in requirements} == {
+        (template_repo.origin, ("acme.triage",)),
+        (step_repo.origin, ("acme.enrich_ip",)),
+    }
+
+
 def test_skill_declared_registry_tools_count_as_packaged_actions() -> None:
     skill = SkillResourceSpec(
         id="enricher",

@@ -15,7 +15,7 @@ workflow as *explicit*, and the table and child workflow it uses as
 from __future__ import annotations
 
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -39,7 +39,9 @@ from tracecat.managed_resources.include import (
     parse_package_include,
     unmatched_patterns,
 )
+from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
@@ -327,6 +329,47 @@ def _declared_registry_tools(skill_markdown: str | None) -> list[str]:
     return [tool for tool in frontmatter.metadata.tools if not tool.startswith("mcp.")]
 
 
+async def _with_template_steps(
+    service: WorkspaceSyncService, names: set[str], *, organization_id: uuid.UUID
+) -> set[str]:
+    """Add the step actions of every custom template the names reach.
+
+    A template can call an action from another registry, and rollout
+    validation resolves template steps, so that registry is needed too.
+    Platform templates only call platform actions, so only the organization's
+    current registry versions are walked.
+    """
+    manifests = [
+        RegistryVersionManifest.model_validate(manifest)
+        for manifest in await service.session.scalars(
+            select(RegistryVersion.manifest)
+            .join(
+                RegistryRepository,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+            )
+            .where(
+                RegistryRepository.organization_id == organization_id,
+                RegistryRepository.origin != DEFAULT_REGISTRY_ORIGIN,
+            )
+        )
+    ]
+    found = set(names)
+    queue = deque(sorted(names))
+    while queue:
+        name = queue.popleft()
+        for manifest in manifests:
+            if (action := manifest.actions.get(name)) is None:
+                continue
+            impl = RegistryActionImplValidator.validate_python(action.implementation)
+            if impl.type != "template":
+                continue
+            for step in impl.template_action.definition.steps:
+                if step.action not in found:
+                    found.add(step.action)
+                    queue.append(step.action)
+    return found
+
+
 async def package_registry_requirements(
     service: WorkspaceSyncService,
     spec: WorkspaceSpec,
@@ -342,7 +385,11 @@ async def package_registry_requirements(
         TracecatValidationError: A custom action's repository has no current
             version, so the package cannot say what to install.
     """
-    qualified = sorted(packaged_action_names(spec))
+    qualified = sorted(
+        await _with_template_steps(
+            service, packaged_action_names(spec), organization_id=organization_id
+        )
+    )
     pairs = [tuple(name.rsplit(".", 1)) for name in qualified if "." in name]
     if not pairs:
         return []

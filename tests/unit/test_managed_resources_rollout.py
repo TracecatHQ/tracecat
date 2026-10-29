@@ -43,6 +43,7 @@ from tracecat.db.models import (
     AgentPresetSkill,
     ManagedDetachedCopy,
     ManagedResource,
+    ManagedRollout,
     ManagedTarget,
     Organization,
     PlatformSetting,
@@ -61,6 +62,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.managed_resources.detach import ManagedDetachService
 from tracecat.managed_resources.enums import (
     ManagedReferenceKind,
+    ManagedRolloutKind,
     ManagedRolloutStatus,
 )
 from tracecat.managed_resources.guard import ManagedResourceLockedError
@@ -776,6 +778,64 @@ async def test_a_registry_the_tag_no_longer_needs_is_released(
         )
         is None
     )
+
+
+@pytest.mark.anyio
+async def test_a_superseded_preview_is_not_revived(harness: Harness) -> None:
+    # A newer preview marks this one STALE while it is still being computed;
+    # the finishing worker must leave it STALE.
+    customer = await harness.new_target("november")
+    rollout = ManagedRollout(
+        workspace_id=customer.id,
+        kind=ManagedRolloutKind.APPLY,
+        status=ManagedRolloutStatus.STALE,
+        tag="v1.0.0",
+    )
+    harness.session.add(rollout)
+    await harness.session.commit()
+    engine = ManagedRolloutEngine(harness.session)
+
+    assert await engine._still_previewing(rollout.id) is None
+    assert (await engine._rollout(rollout.id)).status == ManagedRolloutStatus.STALE
+
+
+@pytest.mark.anyio
+async def test_a_failed_delete_does_not_stop_the_others(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The failed delete rolls back, which expires every loaded row; the loop
+    # must still report it and delete the rest.
+    customer = await harness.new_target("oscar")
+    rows = [
+        ManagedResource(
+            workspace_id=customer.id,
+            resource_type=SyncResourceType.VARIABLE.value,
+            local_id=uuid.uuid4(),
+            source_id=f"default/var_{name}",
+            source_path=f"variables/default/var_{name}.yml",
+            deployed_tag="v1.0.0",
+            deployed_commit_sha="a" * 40,
+        )
+        for name in ("broken", "fine")
+    ]
+    harness.session.add_all(rows)
+    await harness.session.commit()
+    broken_local_id = rows[0].local_id
+
+    async def delete_resource(session, role, row) -> None:
+        if row.local_id == broken_local_id:
+            raise RuntimeError("delete failed")
+
+    monkeypatch.setattr(
+        "tracecat.managed_resources.rollout._delete_resource", delete_resource
+    )
+    engine = ManagedRolloutEngine(harness.session)
+
+    failures = await engine._delete_managed(customer, rows)
+
+    assert failures == ["variable default/var_broken"]
+    remaining = await engine._managed_rows(customer.id)
+    assert [row.source_id for row in remaining] == ["default/var_broken"]
 
 
 def test_a_customer_case_field_named_like_the_source_id_is_a_conflict() -> None:
