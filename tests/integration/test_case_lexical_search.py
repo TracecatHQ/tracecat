@@ -19,8 +19,12 @@ from tests.integration.test_case_search_reads import (
     capture_search_queries,
     population_counts,
 )
-from tests.integration.test_case_text_search_postgres import load_search_migration
+from tests.integration.test_case_text_search_postgres import (
+    load_search_migration,
+    load_vector_migration,
+)
 from tests.unit.test_case_aggregation import add_case
+from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole, WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseStatus
@@ -39,10 +43,12 @@ pytest_plugins = ["tests.unit.test_case_aggregation"]
 pytestmark = [pytest.mark.anyio, pytest.mark.integration]
 
 
-@pytest.fixture
-async def lexical_service(aggregate_service: CasesService) -> CasesService:
-    """Provision prerequisites only in the disposable test database."""
-    session = aggregate_service.session
+async def provision_case_search(session: AsyncSession) -> None:
+    """Install both case search revisions' objects in the disposable test database.
+
+    The model already declares the vector columns, so only functions, the
+    trigger, and indexes are created here.
+    """
     await session.execute(
         sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
     )
@@ -61,6 +67,27 @@ async def lexical_service(aggregate_service: CasesService) -> CasesService:
                 f'CREATE INDEX IF NOT EXISTS "{name}" ON public."case" (workspace_id,id) WHERE {predicate}'
             )
         )
+    vectors = load_vector_migration()
+    await session.execute(
+        sa.text(
+            vectors._TRIGGER_FUNCTION_SQL.replace("CREATE ", "CREATE OR REPLACE ", 1)
+        )
+    )
+    await session.execute(
+        sa.text(vectors._TRIGGER_SQL.replace("CREATE ", "CREATE OR REPLACE ", 1))
+    )
+    for _, definition in vectors._VECTOR_INDEXES:
+        await session.execute(
+            sa.text(
+                definition.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+            )
+        )
+
+
+@pytest.fixture
+async def lexical_service(aggregate_service: CasesService) -> CasesService:
+    """Provision prerequisites only in the disposable test database."""
+    await provision_case_search(aggregate_service.session)
     return aggregate_service
 
 
@@ -404,7 +431,7 @@ async def test_missing_index_returns_typed_availability_and_legacy_keeps_working
     lexical_service: CasesService, lexical_client: httpx.AsyncClient
 ) -> None:
     await lexical_service.session.execute(
-        sa.text("DROP INDEX public.ix_case_summary_fts")
+        sa.text("DROP INDEX public.ix_case_summary_tsv")
     )
     response = await lexical_client.post(
         "/cases/search", json={"search_term": "powershell", "search_mode": "full_text"}
@@ -430,9 +457,14 @@ async def test_missing_index_returns_typed_availability_and_legacy_keeps_working
 
 
 @pytest.fixture
-async def timeout_service() -> AsyncIterator[CasesService]:
+async def timeout_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[CasesService]:
     """Own committed synthetic setup so a second connection can lock the table."""
 
+    # A short budget makes the blocked statements time out inside the tests'
+    # own asyncio deadline.
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 1500)
     engine = create_async_engine(TEST_DB_CONFIG.test_url, poolclass=NullPool)
     org_id, workspace_id = uuid4(), uuid4()
     try:
@@ -462,24 +494,7 @@ async def timeout_service() -> AsyncIterator[CasesService]:
                     scopes=frozenset({"case:read"}),
                 ),
             )
-            await session.execute(
-                sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
-            )
-            migration = load_search_migration()
-            for command in migration._FUNCTION_SQL_COMMANDS:
-                await session.execute(sa.text(command))
-            for name, expression in migration._INDEXES:
-                await session.execute(
-                    sa.text(
-                        f'CREATE INDEX IF NOT EXISTS "{name}" ON public."case" USING gin ({expression})'
-                    )
-                )
-            for name, predicate in migration._FALLBACK_INDEXES:
-                await session.execute(
-                    sa.text(
-                        f'CREATE INDEX IF NOT EXISTS "{name}" ON public."case" (workspace_id,id) WHERE {predicate}'
-                    )
-                )
+            await provision_case_search(session)
             await text_case(service, "PowerShell encoded")
             await session.commit()
             yield service
