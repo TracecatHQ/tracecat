@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
 import pytest
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_CONFIG
 from tests.support.fake_vcs import FakeVcsServer
 from tests.support.managed_resources import (
     GIT_URL,
@@ -31,7 +33,11 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.managed_resources.detach import ManagedDetachService
-from tracecat.managed_resources.guard import ManagedResourceLockedError
+from tracecat.managed_resources.guard import (
+    ManagedResourceLockedError,
+    hold_ownership_lock,
+    ownership_lock_key,
+)
 from tracecat.sync import PullOptions
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowUpdate
@@ -201,25 +207,47 @@ async def test_customer_pull_skips_a_dropdown_adopted_by_a_managed_ref(
 
 
 @pytest.mark.anyio
-async def test_customer_pull_checks_managed_resources_under_the_ownership_lock(
-    target: tuple[WorkspaceSyncService, FakeVcsServer],
-    monkeypatch: pytest.MonkeyPatch,
+async def test_customer_pull_holds_the_ownership_lock_until_it_commits(
+    svc_role: Role,
 ) -> None:
-    # The lock is held from the managed check through the import, so a
-    # rollout cannot claim a resource in between.
-    service, _ = target
-    calls: list[bool] = []
+    # The managed check waits for a running rollout, and the lock it takes is
+    # held until the pull's transaction ends, so a rollout cannot claim a
+    # resource between the check and the import.
+    role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+    assert role.workspace_id is not None
+    key = ownership_lock_key(role.workspace_id)
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(bind=engine, expire_on_commit=False)
 
-    async def record(session, workspace_id, *, shared: bool) -> None:
-        calls.append(shared)
+    async def rollout_could_lock() -> bool:
+        async with sessions() as probe:
+            return bool(
+                await probe.scalar(
+                    text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": key}
+                )
+            )
 
-    monkeypatch.setattr("tracecat.managed_resources.guard.hold_ownership_lock", record)
+    try:
+        async with sessions() as rollout, sessions() as customer:
+            await hold_ownership_lock(rollout, role.workspace_id, shared=False)
+            check = asyncio.create_task(
+                WorkspaceSyncService(customer, role)._skip_managed_incoming(
+                    WorkspaceRemoteSnapshot(
+                        commit_sha="", files={}, spec=WorkspaceSpec()
+                    )
+                )
+            )
+            await asyncio.sleep(0.5)
+            assert not check.done()
+            await rollout.commit()
+            await asyncio.wait_for(check, timeout=10)
 
-    await service._skip_managed_incoming(
-        WorkspaceRemoteSnapshot(commit_sha="", files={}, spec=WorkspaceSpec())
-    )
-
-    assert calls == [True]
+            # Checked, not yet committed: a rollout still cannot start.
+            assert not await rollout_could_lock()
+            await customer.commit()
+            assert await rollout_could_lock()
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.anyio

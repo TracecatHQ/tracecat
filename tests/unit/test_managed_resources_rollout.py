@@ -604,6 +604,28 @@ async def test_saved_reference_matches_are_listed_and_replaced(
     ]
     assert listed.next_cursor is None
 
+    # A repeated key is stored once, with its last value; the response agrees.
+    repeated = await harness.admin.save_references(
+        target_id,
+        ManagedReferenceMatchesUpdate(
+            matches=[
+                ManagedReferenceMatchItem(
+                    reference_kind=ManagedReferenceKind.SECRET_STORE,
+                    source_key="source-store",
+                    resolved_id=None,
+                ),
+                ManagedReferenceMatchItem(
+                    reference_kind=ManagedReferenceKind.SECRET_STORE,
+                    source_key="source-store",
+                    resolved_id=store_id,
+                ),
+            ]
+        ),
+    )
+    assert [(m.source_key, m.resolved_id) for m in repeated] == [
+        ("source-store", store_id)
+    ]
+
     # The request replaces the set: an omitted match stops applying.
     assert (
         await harness.admin.save_references(

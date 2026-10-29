@@ -436,10 +436,12 @@ class AdminManagedResourcesService(BasePlatformService):
             data={"match_count": len(params.matches)},
             customer=False,
         )
-        # The saved set is exactly the request's, which is bounded by its schema.
-        return sorted(
-            params.matches, key=lambda item: (item.reference_kind, item.source_key)
-        )
+        # The saved set is the request's, bounded by its schema. A repeated key
+        # was upserted twice, so its last value is the one stored.
+        saved = {
+            (item.reference_kind, item.source_key): item for item in params.matches
+        }
+        return [saved[key] for key in sorted(saved)]
 
     # -- releases -----------------------------------------------------------
     async def cut_release(self, params: ManagedReleaseCreate) -> GitTagInfo:
