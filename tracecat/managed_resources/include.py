@@ -78,12 +78,18 @@ def parse_package_include(content: str) -> PackageInclude:
 
 
 def render_package_include(patterns: Iterable[str]) -> str:
-    """Render include file text from patterns, one per line, sorted.
+    """Render include file text from patterns, one per line, in order.
+
+    Order is kept because a later gitignore line overrides an earlier one:
+    ``workflows/**`` then ``!workflows/x/**`` excludes ``x``, but the reverse
+    order includes it. Only exact repeats are dropped.
 
     Raises:
         PackageIncludeError: A pattern is not valid gitignore syntax.
     """
-    lines = sorted({pattern.strip() for pattern in patterns if pattern.strip()})
+    lines = list(
+        dict.fromkeys(pattern.strip() for pattern in patterns if pattern.strip())
+    )
     content = _INCLUDE_FILE_HEADER + "".join(f"{line}\n" for line in lines)
     # Parse once so a bad pattern never reaches the repository.
     parse_package_include(content)

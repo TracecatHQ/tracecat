@@ -338,3 +338,45 @@ def test_customer_skill_bindings_are_kept_and_package_wins_duplicates() -> None:
 
     assert merged == [a, d, c]
     assert with_customer_skill_bindings(preset_id, [a]) == [a]
+
+
+@pytest.mark.anyio
+async def test_edit_forms_may_resend_unchanged_locked_fields(
+    session: AsyncSession, seeded: Role
+) -> None:
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == seeded.workspace_id,
+            Secret.name == "qa_threatintel",
+        )
+    )
+    variable = await session.scalar(
+        select(WorkspaceVariable).where(
+            WorkspaceVariable.workspace_id == seeded.workspace_id,
+            WorkspaceVariable.name == "qa_config",
+        )
+    )
+    assert secret is not None and variable is not None
+    await mark_managed(session, seeded, SyncResourceType.SECRET_METADATA, secret.id)
+    await mark_managed(session, seeded, SyncResourceType.VARIABLE, variable.id)
+    secrets = SecretsService(session, role=seeded)
+
+    await secrets.update_secret(
+        secret,
+        SecretUpdate(
+            name=secret.name,
+            environment=secret.environment,
+            keys=[
+                SecretKeyValue(key=key, value=SecretStr("rotated"))
+                for key in secrets.secret_key_names(secret)
+            ],
+        ),
+    )
+    await VariablesService(session, role=seeded).update_variable(
+        variable,
+        VariableUpdate(
+            name=variable.name,
+            environment=variable.environment,
+            values=dict.fromkeys(variable.values or {}, "rotated"),
+        ),
+    )

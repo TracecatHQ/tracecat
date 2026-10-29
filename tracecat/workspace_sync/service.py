@@ -651,6 +651,11 @@ class WorkspaceSyncService(SyncMappingService):
         """
         self._require_workflow_export_scope()
         self._validate_export_params(params)
+        if await self.is_package_source():
+            raise TracecatValidationError(
+                "This workspace publishes the managed resources package. Push "
+                "the package from Git sync instead of a single workflow."
+            )
         url = await self._workspace_git_url()
         projection = await self.project_workspace(
             workflow_ids=[WorkflowUUID.new(workflow.id)],

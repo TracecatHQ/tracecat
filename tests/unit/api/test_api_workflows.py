@@ -42,6 +42,15 @@ from tracecat.workflow.management.types import (
 )
 
 
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.managed_resources.guard.is_managed",
+        AsyncMock(return_value=False),
+    )
+
+
 @pytest.fixture
 def mock_workflow(test_workspace: Workspace) -> Workflow:
     """Create a mock workflow DB object."""

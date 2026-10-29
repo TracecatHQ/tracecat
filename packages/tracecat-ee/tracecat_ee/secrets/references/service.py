@@ -18,7 +18,10 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.managed_resources.values import ensure_values_only_update
+from tracecat.managed_resources.values import (
+    changed_fields,
+    ensure_values_only_update,
+)
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.enums import (
     AwsSecretResolutionErrorCode,
@@ -191,7 +194,17 @@ class SecretReferencesService(SecretsService):
             workspace_id=self.role.workspace_id,
             resource_type=SyncResourceType.SECRET_METADATA,
             local_id=secret.id,
-            fields_set=params.model_fields_set,
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True),
+                {
+                    "name": secret.name,
+                    "description": secret.description,
+                    "environment": secret.environment,
+                    "tags": secret.tags,
+                    "store_id": secret.store_id,
+                    "key_mapping": secret.remote_key_mapping,
+                },
+            ),
             allowed_fields={"remote_reference"},
         )
         if not is_external_reference(secret):

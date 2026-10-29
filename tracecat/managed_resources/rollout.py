@@ -78,7 +78,10 @@ from tracecat.managed_resources.enums import (
     ManagedRolloutStatus,
     ManagedTargetStatus,
 )
-from tracecat.managed_resources.guard import managed_write_bypass
+from tracecat.managed_resources.guard import (
+    REGISTRY_REPOSITORY_RESOURCE_TYPE,
+    managed_write_bypass,
+)
 from tracecat.managed_resources.identities import (
     IdentityKey,
     spec_identity,
@@ -128,7 +131,7 @@ from tracecat.workspace_sync.schemas import (
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import VcsTransportFactory
 
-REGISTRY_RESOURCE_TYPE = "registry_repository"
+REGISTRY_RESOURCE_TYPE = REGISTRY_REPOSITORY_RESOURCE_TYPE
 """``managed_resource.resource_type`` for a registry repository a package installed.
 
 The row's ``source_id`` is the repository origin and ``source_path`` the

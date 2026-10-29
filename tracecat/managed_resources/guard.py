@@ -21,10 +21,11 @@ from collections.abc import Collection, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import ManagedResource
+from tracecat.db.tenant_rls import RLS_BYPASS_ON, RLS_BYPASS_VAR
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.workspace_sync.enums import SyncResourceType
 
@@ -36,12 +37,19 @@ _bypass: ContextVar[bool] = ContextVar("managed_write_bypass", default=False)
 class ManagedResourceLockedError(TracecatAuthorizationError):
     """A caller tried to change a managed resource."""
 
-    def __init__(self, resource_type: SyncResourceType, local_id: uuid.UUID) -> None:
+    def __init__(
+        self, resource_type: SyncResourceType | str, local_id: uuid.UUID
+    ) -> None:
+        resource_type_value = (
+            resource_type.value
+            if isinstance(resource_type, SyncResourceType)
+            else resource_type
+        )
         super().__init__(
             LOCKED_MESSAGE,
-            detail={"resource_type": resource_type.value, "local_id": str(local_id)},
+            detail={"resource_type": resource_type_value, "local_id": str(local_id)},
         )
-        self.resource_type = resource_type
+        self.resource_type = resource_type_value
         self.local_id = local_id
 
 
@@ -149,3 +157,45 @@ async def ensure_none_managed(
     )
     if managed:
         raise ManagedResourceLockedError(resource_type, min(managed))
+
+
+REGISTRY_REPOSITORY_RESOURCE_TYPE = "registry_repository"
+"""``managed_resource.resource_type`` of a registry repository a package installed."""
+
+
+async def ensure_registry_repository_unmanaged(
+    session: AsyncSession, repository_id: uuid.UUID
+) -> None:
+    """Refuse a change to a registry repository a managed package installed.
+
+    Registry repositories belong to an organization, but managed rows are
+    readable only inside one workspace. So this one existence check runs in a
+    savepoint with the RLS bypass on, and the savepoint is rolled back:
+    Postgres undoes ``set_config`` with the savepoint, so the bypass never
+    outlives the check.
+
+    Raises:
+        ManagedResourceLockedError: A package installed the repository.
+    """
+    if bypass_active():
+        return
+    savepoint = await session.begin_nested()
+    try:
+        await session.execute(
+            text("SELECT set_config(:name, :value, true)"),
+            {"name": RLS_BYPASS_VAR, "value": RLS_BYPASS_ON},
+        )
+        installed = await session.scalar(
+            select(
+                exists().where(
+                    ManagedResource.resource_type == REGISTRY_REPOSITORY_RESOURCE_TYPE,
+                    ManagedResource.local_id == repository_id,
+                )
+            )
+        )
+    finally:
+        await savepoint.rollback()
+    if installed:
+        raise ManagedResourceLockedError(
+            REGISTRY_REPOSITORY_RESOURCE_TYPE, repository_id
+        )

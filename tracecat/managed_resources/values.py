@@ -14,8 +14,10 @@ renaming it, or deleting it raises :class:`ManagedResourceLockedError`.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
+from enum import Enum
 
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.managed_resources.guard import (
@@ -24,6 +26,29 @@ from tracecat.managed_resources.guard import (
     is_managed,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
+
+
+def changed_fields(
+    sent: Mapping[str, object], current: Mapping[str, object]
+) -> set[str]:
+    """Return the sent fields whose value differs from the current one.
+
+    Edit forms send every field back, so a field counts as changed only when
+    its value is new. A field with no current value to compare is changed.
+    """
+    return {
+        name
+        for name, value in sent.items()
+        if name not in current or _normalized(value) != _normalized(current[name])
+    }
+
+
+def _normalized(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, Enum):
+        return value.value
+    return value
 
 
 async def ensure_values_only_update(
@@ -40,7 +65,8 @@ async def ensure_values_only_update(
     """Refuse an update that changes more than values on a managed resource.
 
     Args:
-        fields_set: The update fields the caller sent.
+        fields_set: The update fields the caller changed; see
+            :func:`changed_fields`.
         allowed_fields: Fields a customer may change, e.g. ``{"values"}``.
         current_keys: Returns the key names the resource has now. Called only
             for managed resources, since reading them may decrypt values.

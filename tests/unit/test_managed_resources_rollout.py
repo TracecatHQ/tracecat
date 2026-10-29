@@ -70,6 +70,7 @@ from tracecat.managed_resources.source_setting import (
     MANAGED_RESOURCES_SOURCE_KEY,
     ManagedSourceSetting,
 )
+from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.tables.schemas import TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -656,3 +657,38 @@ async def test_customer_registry_repo_with_the_same_origin_blocks(
 
 async def _managed_source(harness: Harness) -> ManagedSource:
     return await require_managed_source(harness.session)
+
+
+@pytest.mark.anyio
+async def test_a_package_installed_registry_repo_is_locked_in_the_target_org(
+    harness: Harness,
+) -> None:
+    origin = f"git+ssh://git@github.com/acme/registry-{uuid.uuid4().hex[:6]}.git"
+    assert harness.source_role.organization_id is not None
+    await _source_registry_version(
+        harness.session, harness.source_role.organization_id, origin
+    )
+    customer = await harness.new_target("lima")
+    engine = ManagedRolloutEngine(harness.session)
+    await engine._install_registry(
+        customer,
+        await _managed_source(harness),
+        [PackageRegistryRequirement(origin=origin, version="1.2.0")],
+    )
+    await harness.session.commit()
+    repo = await harness.session.scalar(
+        select(RegistryRepository).where(
+            RegistryRepository.organization_id == customer.organization_id,
+            RegistryRepository.origin == origin,
+        )
+    )
+    assert repo is not None
+    org_role = Role(
+        type="service",
+        service_id="tracecat-service",
+        organization_id=customer.organization_id,
+        scopes=frozenset({"*"}),
+    )
+
+    with pytest.raises(ManagedResourceLockedError):
+        await RegistryReposService(harness.session, org_role).delete_repository(repo)

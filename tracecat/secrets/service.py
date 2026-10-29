@@ -29,7 +29,10 @@ from tracecat.exceptions import (
 from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.managed_resources.guard import ensure_unmanaged
-from tracecat.managed_resources.values import ensure_values_only_update
+from tracecat.managed_resources.values import (
+    changed_fields,
+    ensure_values_only_update,
+)
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
@@ -388,7 +391,16 @@ class SecretsService(BaseOrgService):
             workspace_id=self.role.workspace_id,
             resource_type=SyncResourceType.SECRET_METADATA,
             local_id=secret.id,
-            fields_set=params.model_fields_set,
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True),
+                {
+                    "type": secret.type,
+                    "name": secret.name,
+                    "description": secret.description,
+                    "environment": secret.environment,
+                    "tags": secret.tags,
+                },
+            ),
             allowed_fields={"keys"},
             current_keys=lambda: self.secret_key_names(secret),
             requested_keys=(

@@ -74,16 +74,24 @@ def test_pattern_matching_nothing_is_reported() -> None:
     assert unmatched_patterns(include, all_paths) == ["workflows/gone/**"]
 
 
-def test_render_sorts_dedupes_and_round_trips() -> None:
+def test_render_keeps_order_dedupes_and_round_trips() -> None:
     content = render_package_include(
         ["workflows/wf-b/**", "workflows/wf-a/**", "workflows/wf-a/**", "  "]
     )
 
     assert content.startswith("# ")
     assert parse_package_include(content).patterns == (
-        "workflows/wf-a/**",
         "workflows/wf-b/**",
+        "workflows/wf-a/**",
     )
+
+
+def test_render_keeps_a_negation_after_the_pattern_it_narrows() -> None:
+    include = parse_package_include(
+        render_package_include(["workflows/**", "!workflows/wf-b/**"])
+    )
+
+    assert matched_resources(include, PATHS) == {WORKFLOW_A}
 
 
 def test_render_rejects_a_malformed_pattern() -> None:

@@ -13,7 +13,10 @@ from tracecat.db.models import WorkspaceVariable
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import VariableID
 from tracecat.managed_resources.guard import ensure_unmanaged
-from tracecat.managed_resources.values import ensure_values_only_update
+from tracecat.managed_resources.values import (
+    changed_fields,
+    ensure_values_only_update,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.variables.schemas import (
     VariableCreate,
@@ -177,7 +180,15 @@ class VariablesService(BaseWorkspaceService):
             workspace_id=self.workspace_id,
             resource_type=SyncResourceType.VARIABLE,
             local_id=variable.id,
-            fields_set=params.model_fields_set,
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True),
+                {
+                    "name": variable.name,
+                    "description": variable.description,
+                    "environment": variable.environment,
+                    "tags": variable.tags,
+                },
+            ),
             allowed_fields={"values"},
             current_keys=lambda: (variable.values or {}).keys(),
             requested_keys=params.values.keys() if params.values is not None else None,

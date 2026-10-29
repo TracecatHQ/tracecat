@@ -546,7 +546,7 @@ def managed_resource_locked_exception_handler(
     authorization errors.
     """
     resource_type = (
-        exc.resource_type.value if isinstance(exc, ManagedResourceLockedError) else None
+        exc.resource_type if isinstance(exc, ManagedResourceLockedError) else None
     )
     logger.info(
         "Refused change to managed resource",

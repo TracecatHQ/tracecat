@@ -11,6 +11,7 @@ from tracecat import config
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.exceptions import RegistryError, RegistryNotFound
+from tracecat.managed_resources.guard import ensure_registry_repository_unmanaged
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
@@ -81,6 +82,7 @@ class RegistryReposService(BaseOrgService):
         self, repository: RegistryRepository, params: RegistryRepositoryUpdate
     ) -> RegistryRepository:
         """Update a registry repository."""
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(repository, key, value)
         self.session.add(repository)
@@ -109,6 +111,7 @@ class RegistryReposService(BaseOrgService):
             RegistryActionValidationError, TracecatCredentialsNotFoundError:
                 surfaced from the underlying sync.
         """
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
         # parse_git_url and RegistryActionsService are imported lazily
         # because tracecat.git.utils and tracecat.registry.repository both
         # import RegistryReposService back, which would cycle if pulled to
@@ -222,6 +225,7 @@ class RegistryReposService(BaseOrgService):
 
     async def delete_repository(self, repository: RegistryRepository) -> None:
         """Delete a registry repository."""
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
         if repository.current_version_id is not None:
             repository.current_version_id = None
             await self.session.flush()
@@ -249,6 +253,7 @@ class RegistryReposService(BaseOrgService):
         Raises:
             RegistryError: If version not found, doesn't belong to repo, or missing artifact
         """
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
         # Fetch the version and verify it belongs to this repository
         statement = select(RegistryVersion).where(
             RegistryVersion.id == version_id,
