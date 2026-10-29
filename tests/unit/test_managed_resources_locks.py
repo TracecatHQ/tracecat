@@ -50,6 +50,7 @@ from tracecat.db.models import (
     Skill,
     Table,
     Workflow,
+    WorkspaceSyncResourceMapping,
     WorkspaceVariable,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -62,7 +63,9 @@ from tracecat.managed_resources.presets import (
     preserve_customer_skill_bindings,
     with_customer_skill_bindings,
 )
-from tracecat.secrets.schemas import SecretKeyValue, SecretUpdate
+from tracecat.managed_resources.rollout import ManagedRolloutEngine
+from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
+from tracecat.secrets.schemas import AwsSecretKeyMapping, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableRowInsert
@@ -74,7 +77,13 @@ from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookUpdate
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowUpdate
+from tracecat.workspace_sync.adapters.base import MANAGED_MAPPING_NAMESPACE
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.schemas import (
+    SecretMetadataResourceSpec,
+    WorkspaceRemoteSnapshot,
+    WorkspaceSpec,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -239,6 +248,98 @@ async def test_managed_preset_accepts_a_customer_skill_but_keeps_package_skills(
                 skills=[AgentPresetSkillBindingBase(skill_id=customer_skill)]
             ),
         )
+
+
+@pytest.mark.anyio
+async def test_managed_preset_save_may_resend_unchanged_fields_with_skills(
+    session: AsyncSession, seeded: Role
+) -> None:
+    # The agent builder sends the whole form back when only skills changed.
+    preset, package_skills = await _managed_preset(session, seeded)
+    customer_skill = await _customer_skill(session, seeded)
+
+    await AgentPresetService(session, role=seeded).update_preset(
+        preset,
+        AgentPresetUpdate(
+            name=preset.name,
+            instructions=preset.instructions,
+            model_name=preset.model_name,
+            skills=[
+                AgentPresetSkillBindingBase(skill_id=skill_id)
+                for skill_id in [*package_skills, customer_skill]
+            ],
+        ),
+    )
+
+    bound = set(
+        await session.scalars(
+            select(AgentPresetSkill.skill_id).where(
+                AgentPresetSkill.preset_id == preset.id
+            )
+        )
+    )
+    assert customer_skill in bound
+
+
+@pytest.mark.anyio
+async def test_rollout_keeps_the_customer_aws_secret_reference(
+    session: AsyncSession, seeded: Role
+) -> None:
+    assert seeded.workspace_id is not None
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == seeded.workspace_id,
+            Secret.name == "qa_threatintel",
+        )
+    )
+    assert secret is not None
+    secret.remote_reference = "customer/threatintel"
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=seeded.workspace_id,
+            provider=MANAGED_MAPPING_NAMESPACE,
+            resource_type=SyncResourceType.SECRET_METADATA.value,
+            source_id="threatintel",
+            local_id=secret.id,
+        )
+    )
+    await session.flush()
+
+    def aws_spec(
+        source_id: str, name: str, reference: str
+    ) -> SecretMetadataResourceSpec:
+        return SecretMetadataResourceSpec(
+            id=source_id,
+            name=name,
+            environment="default",
+            keys=["API_KEY"],
+            source=SecretSource.AWS_SECRETS_MANAGER,
+            store="org-store",
+            remote_reference=reference,
+            key_mapping=AwsSecretKeyMapping(
+                mode=AwsSecretMappingMode.WHOLE_STRING, keys=["API_KEY"]
+            ),
+        )
+
+    package_spec = aws_spec("threatintel", "qa_threatintel", "package/intel")
+    new_spec = aws_spec("new", "new_secret", "package/new")
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="",
+        files={},
+        spec=WorkspaceSpec(
+            secret_metadata={"threatintel": package_spec, "new": new_spec}
+        ),
+    )
+
+    kept = await ManagedRolloutEngine(session)._with_customer_secret_references(
+        seeded.workspace_id, snapshot
+    )
+
+    assert kept.spec.secret_metadata["threatintel"].remote_reference == (
+        "customer/threatintel"
+    )
+    # A secret the rollout creates takes the package's reference.
+    assert kept.spec.secret_metadata["new"].remote_reference == "package/new"
 
 
 @pytest.mark.anyio

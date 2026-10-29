@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import uuid
 from collections import Counter
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -121,6 +121,7 @@ from tracecat.managed_resources.presets import (
     ensure_preset_update_allowed,
     with_customer_skill_bindings,
 )
+from tracecat.managed_resources.values import changed_fields
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -142,6 +143,17 @@ if TYPE_CHECKING:
 
 _MANAGED_DERIVED_FIELDS = ("enable_internet_access", "tool_tunnels")
 """Preset fields derived from its skills that a managed preset must keep."""
+
+
+def _preset_values(preset: AgentPreset, fields: Iterable[str]) -> dict[str, object]:
+    """Return the preset's stored value for each update field it has a column for.
+
+    A field without a column is left out, so it counts as changed.
+    """
+    columns = sa.inspect(AgentPreset).column_attrs.keys()
+    # getattr: the names come from the update schema and are checked against
+    # the mapped columns first.
+    return {field: getattr(preset, field) for field in fields if field in columns}
 
 
 class AgentPresetService(BaseWorkspaceService):
@@ -769,7 +781,13 @@ class AgentPresetService(BaseWorkspaceService):
             self.session,
             workspace_id=self.workspace_id,
             preset_id=preset.id,
-            fields_set=set(params.model_fields_set),
+            # The agent builder sends the whole form back on save, so only
+            # fields whose value changed count against a managed preset.
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True, exclude={"skills"}),
+                _preset_values(preset, params.model_fields_set - {"skills"}),
+            )
+            | ({"skills"} & params.model_fields_set),
             requested_skill_ids=(
                 [binding.skill_id for binding in params.skills or []]
                 if "skills" in params.model_fields_set

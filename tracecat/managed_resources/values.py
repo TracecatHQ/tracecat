@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Collection, Iterable, Mapping
-from enum import Enum
 
-from pydantic import BaseModel
+from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.managed_resources.guard import (
@@ -44,11 +43,9 @@ def changed_fields(
 
 
 def _normalized(value: object) -> object:
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
-    if isinstance(value, Enum):
-        return value.value
-    return value
+    # JSON form, so a model, enum, UUID or nested list of them compares equal
+    # to the plain value stored in a column.
+    return to_jsonable_python(value)
 
 
 async def ensure_values_only_update(

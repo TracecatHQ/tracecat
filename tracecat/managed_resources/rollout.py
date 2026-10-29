@@ -317,6 +317,7 @@ class ManagedRolloutEngine:
                 preview, ManagedRolloutStatus.FAILED, snapshot, [], "", tree.commit_sha
             )
         snapshot = await self._with_customer_trigger_status(workspace.id, snapshot)
+        snapshot = await self._with_customer_secret_references(workspace.id, snapshot)
         managed = await self._managed_rows(workspace.id)
         current = await sync.project_workspace(
             create_missing_mappings=False, skip_unpublished=True
@@ -1069,6 +1070,61 @@ class ManagedRolloutEngine:
             workflows[source_id] = spec.model_copy(update=update)
         return snapshot.model_copy(
             update={"spec": snapshot.spec.model_copy(update={"workflows": workflows})}
+        )
+
+    async def _with_customer_secret_references(
+        self, workspace_id: uuid.UUID, snapshot: WorkspaceRemoteSnapshot
+    ) -> WorkspaceRemoteSnapshot:
+        """Keep the target's own AWS secret name or ARN on managed secrets.
+
+        The package matches the store; the customer points the secret at
+        their own secret, so a rollout must not overwrite that reference. A
+        secret the rollout creates starts with the package's reference.
+        """
+        mappings = dict(
+            (
+                await self.session.execute(
+                    select(
+                        WorkspaceSyncResourceMapping.source_id,
+                        WorkspaceSyncResourceMapping.local_id,
+                    ).where(
+                        WorkspaceSyncResourceMapping.workspace_id == workspace_id,
+                        WorkspaceSyncResourceMapping.provider
+                        == MANAGED_MAPPING_NAMESPACE,
+                        WorkspaceSyncResourceMapping.resource_type
+                        == SyncResourceType.SECRET_METADATA.value,
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        if not mappings:
+            return snapshot
+        references = dict(
+            (
+                await self.session.execute(
+                    select(Secret.id, Secret.remote_reference).where(
+                        Secret.id.in_(list(mappings.values())),
+                        Secret.remote_reference.is_not(None),
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        secrets = {
+            source_id: spec.model_copy(update={"remote_reference": reference})
+            if spec.remote_reference is not None
+            and (local_id := mappings.get(source_id)) is not None
+            and (reference := references.get(local_id)) is not None
+            else spec
+            for source_id, spec in snapshot.spec.secret_metadata.items()
+        }
+        return snapshot.model_copy(
+            update={
+                "spec": snapshot.spec.model_copy(update={"secret_metadata": secrets})
+            }
         )
 
     async def _delete_warnings(
