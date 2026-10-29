@@ -65,6 +65,8 @@ Updates and data migrations can be tricky business. We'd love to help on [Discor
     If you use nsjail, download the latest `docker-compose.sandbox.yml`.
 
     ```
+    # Back up your existing overlay first; the download below overwrites it
+    cp docker-compose.sandbox.yml docker-compose.sandbox.yml.bak
     curl -fL -o docker-compose.sandbox.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.sandbox.yml
     ```
   </Step>

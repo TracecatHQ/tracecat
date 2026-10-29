@@ -163,6 +163,7 @@ To make every service trust your CA — including custom LLM providers and Pytho
     ```
 
     The `cert-init` service copies the default certifi bundle into a shared volume and appends your CA certificates.
+    When you update Tracecat, set `<version>` in the override to the new image tag.
     Docker Compose merges the override with each service's existing configuration.
     Apply the same `*custom-ca` block to any other service that makes outbound HTTPS calls.
   </Step>

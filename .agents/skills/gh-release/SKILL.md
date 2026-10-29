@@ -242,10 +242,12 @@ git show '<tag>:docker-compose.yml' |
   sed 's/${TRACECAT__IMAGE_TAG:-latest}/${TRACECAT__IMAGE_TAG:-<tag>}/g' \
   > "$ASSET_DIR/docker-compose.yml"
 rg -oN --no-filename 'TRACECAT__IMAGE_TAG:-[^}]*' "$ASSET_DIR/docker-compose.yml" | sort -u
+find "$ASSET_DIR" -type f -size +0 | wc -l
 ```
 
-Stop unless the last command prints exactly `TRACECAT__IMAGE_TAG:-<tag>`, or
-if any `git show` failed. All six files exist at every release tag since 1.1.0.
+Stop unless the `rg` line prints exactly `TRACECAT__IMAGE_TAG:-<tag>` and the
+count is `6`. A missing file at the tag leaves an empty asset, which the count
+catches. All six files exist at every release tag since 1.1.0.
 
 Publish the existing tag using `--verify-tag`, so a typo cannot create a tag on
 the default branch. `gh` uploads the files to a draft and then publishes it:

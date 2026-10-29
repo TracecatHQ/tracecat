@@ -133,7 +133,8 @@ curl -fL -o docker-compose.yml https://github.com/TracecatHQ/tracecat/releases/l
 # 4. Download the latest Caddyfile
 curl -fL -o Caddyfile https://github.com/TracecatHQ/tracecat/releases/latest/download/Caddyfile
 
-# 5. If you use nsjail, download the latest sandbox overlay
+# 5. If you use nsjail, back up and download the latest sandbox overlay
+cp docker-compose.sandbox.yml docker-compose.sandbox.yml.bak
 curl -fL -o docker-compose.sandbox.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.sandbox.yml
 
 # 6. Pull the new images and restart Tracecat with the updated configuration
@@ -142,7 +143,7 @@ docker compose up -d
 ```
 
 With nsjail, run both commands in step 6 with `-f docker-compose.yml -f docker-compose.sandbox.yml`.
-The migration script creates a backup of your existing `.env` before rewriting it.
+The migration script offers to back up your existing `.env` before rewriting it; answer `y`.
 It keeps only keys that exist in the new template, so add `TRACECAT__IMAGE_TAG` back to `.env` after step 2 if you set it.
 After the stack starts, verify that your containers are healthy and that you can sign in successfully.
 
