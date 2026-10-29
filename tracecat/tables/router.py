@@ -146,6 +146,15 @@ async def create_table(
 ) -> TableRead:
     """Create a new table."""
     service = TablesService(session, role=role)
+    folder_service = TableFolderService(session, role=role)
+    folder = None
+    if params.folder_path and params.folder_path != "/":
+        folder = await folder_service.get_folder_by_path(params.folder_path)
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path '{params.folder_path}' not found",
+            )
     try:
         table = await service.create_table(params)
     except ValueError as e:
@@ -174,6 +183,8 @@ async def create_table(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the table",
         ) from e
+    if folder is not None:
+        await folder_service.move_table(table.id, folder)
     return await _build_table_read(service, table.id)
 
 

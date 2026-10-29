@@ -327,6 +327,7 @@ function TablesActions() {
       <CreateTableDialog
         open={activeDialog === "create"}
         onOpenChange={(open) => setActiveDialog(open ? "create" : null)}
+        folderPath={currentFolderPath}
       />
       <TableImportTableDialog
         open={activeDialog === "import"}

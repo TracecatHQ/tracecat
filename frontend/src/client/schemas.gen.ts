@@ -35796,6 +35796,19 @@ export const $TableCreate = {
       title: "Columns",
       description: "The columns of the table",
     },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+      description:
+        "Folder to create the table in. Defaults to the workspace root.",
+    },
   },
   type: "object",
   required: ["name"],

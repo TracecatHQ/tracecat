@@ -282,6 +282,10 @@ class TableCreate(BaseModel):
         default_factory=list,
         description="The columns of the table",
     )
+    folder_path: str | None = Field(
+        default=None,
+        description="Folder to create the table in. Defaults to the workspace root.",
+    )
 
     @field_validator("name")
     @classmethod
