@@ -346,10 +346,11 @@ _verified_buckets: set[str] = set()
 
 
 async def ensure_bucket_exists_once(bucket: str) -> None:
-    """Ensure the bucket exists, checking S3 at most once per process.
+    """Ensure the bucket exists, skipping the S3 check once it has passed.
 
     For hot paths that would otherwise send a HEAD request before every upload.
-    A bucket deleted after its first check is not recreated until restart.
+    Concurrent first calls may each check. A bucket deleted after a passing
+    check is not recreated until restart.
 
     Args:
         bucket: Bucket name (required)
