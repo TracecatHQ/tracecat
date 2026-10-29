@@ -140,6 +140,8 @@ def test_only_serialized_promotion_can_publish_latest() -> None:
         metadata = next(step for step in job["steps"] if step.get("id") == "meta")
         assert metadata["with"]["flavor"] == "latest=false"
         assert "latest" not in metadata["with"]["tags"]
+        # X.Y floats like latest, so only the guarded promotion may move it.
+        assert "{{major}}.{{minor}}" not in metadata["with"]["tags"]
         for step in job["steps"]:
             # Manifest creation must not append tags outside metadata-action.
             assert ":latest" not in step.get("run", "")
@@ -208,13 +210,19 @@ def test_ui_build_pushes_only_metadata_tags() -> None:
 
 
 def _run_promotion(
-    tmp_path: Path, version: str, latest: str, *, fail_api: bool = False
+    tmp_path: Path,
+    version: str,
+    *,
+    minor: str,
+    latest: str,
+    fail_api: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the promote step with a Docker stub.
 
-    `inspect` of latest prints `latest` as its version label. `-` means the
-    latest tag doesn't exist yet, `!` means the registry call fails, and `?`
-    means the tag exists but its child content is missing.
+    `inspect` prints `minor` as the version label of the `X.Y` tag and
+    `latest` as that of `latest`. `-` means the tag doesn't exist yet, `!`
+    means the registry call fails, and `?` means the tag exists but its
+    child content is missing.
     """
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     step = workflow["jobs"]["promote-latest"]["steps"][-1]
@@ -223,16 +231,18 @@ def _run_promotion(
     docker.write_text(
         "#!/bin/bash\n"
         'if [[ "$3" == inspect ]]; then\n'
-        '  case "$LATEST" in\n'
-        '    -) echo "ERROR: ${@: -1}: not found" >&2; exit 1 ;;\n'
+        '  for arg in "$@"; do [[ "$arg" == ghcr.io/* ]] && ref=$arg; done\n'
+        '  if [[ "$ref" == *:latest ]]; then label=$LATEST; else label=$MINOR; fi\n'
+        '  case "$label" in\n'
+        '    -) echo "ERROR: $ref: not found" >&2; exit 1 ;;\n'
         '    !) echo "ERROR: unexpected status 503" >&2; exit 1 ;;\n'
         "  esac\n"
         '  if [[ "$4" == --raw ]]; then\n'
         "    echo '{}'\n"
-        '  elif [[ "$LATEST" == "?" ]]; then\n'
+        '  elif [[ "$label" == "?" ]]; then\n'
         '    echo "ERROR: sha256:abc: not found" >&2; exit 1\n'
         "  else\n"
-        '    echo "$LATEST"\n'
+        '    echo "$label"\n'
         "  fi\n"
         "  exit 0\n"
         "fi\n"
@@ -251,6 +261,7 @@ def _run_promotion(
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "CAPTURE_ARGS": str(args_file),
             "VERSION": version,
+            "MINOR": minor,
             "LATEST": latest,
             "FAIL_API": str(fail_api).lower(),
         },
@@ -261,16 +272,17 @@ def _run_promotion(
     return result, args_file.read_text().splitlines()
 
 
-def _create_args(version: str, images: list[str]) -> list[str]:
+def _create_args(version: str, images: list[str], tags: list[str]) -> list[str]:
     return [
         arg
         for image in images
+        for tag in tags
         for arg in (
             "buildx",
             "imagetools",
             "create",
             "--tag",
-            f"ghcr.io/tracecathq/{image}:latest",
+            f"ghcr.io/tracecathq/{image}:{tag}",
             f"ghcr.io/tracecathq/{image}:{version}",
         )
     ]
@@ -284,40 +296,47 @@ ALL_IMAGES = ["tracecat", "tracecat-ui", "tracecat-tunnel-gateway"]
 def test_promotion_updates_all_images_from_the_same_stable_tag(
     tmp_path: Path, version: str, fail_api: bool
 ) -> None:
-    result, created = _run_promotion(tmp_path, version, "1.2.0", fail_api=fail_api)
+    result, created = _run_promotion(
+        tmp_path, version, minor="-", latest="1.2.0", fail_api=fail_api
+    )
     assert (result.returncode != 0) == fail_api, result.stderr
     images = ["tracecat"] if fail_api else ALL_IMAGES
-    assert created == _create_args(version, images)
+    assert created == _create_args(version, images, [version[:3], "latest"])
 
 
 @pytest.mark.parametrize(
-    ("version", "latest", "promotes"),
+    ("version", "minor", "latest", "tags"),
     [
-        # An older train's patch never moves latest back.
-        ("1.1.4", "1.2.3", False),
-        ("1.2.3", "1.3.0", False),
+        # An older train's patch moves its own X.Y, never latest.
+        ("1.1.4", "1.1.3", "1.2.3", ["1.1"]),
+        # Rebuilding an older patch moves neither.
+        ("1.2.3", "1.2.4", "1.2.4", []),
         # Same version re-promotes (rebuild), and patches compare numerically.
-        ("1.2.3", "1.2.3", True),
-        ("1.2.10", "1.2.9", True),
-        ("2.0.0", "1.9.9", True),
-        # No latest manifest yet: the first stable release bootstraps it.
-        ("1.0.0", "-", True),
+        ("1.2.3", "1.2.3", "1.2.3", ["1.2", "latest"]),
+        ("1.2.10", "1.2.9", "1.2.9", ["1.2", "latest"]),
+        # A missing tag is its first promotion.
+        ("2.0.0", "-", "1.9.9", ["2.0", "latest"]),
+        ("1.0.0", "-", "-", ["1.0", "latest"]),
     ],
 )
-def test_promotion_only_moves_latest_forward(
-    tmp_path: Path, version: str, latest: str, promotes: bool
+def test_promotion_only_moves_floating_tags_forward(
+    tmp_path: Path, version: str, minor: str, latest: str, tags: list[str]
 ) -> None:
-    result, created = _run_promotion(tmp_path, version, latest)
+    result, created = _run_promotion(tmp_path, version, minor=minor, latest=latest)
     assert result.returncode == 0, result.stderr
-    assert created == (_create_args(version, ALL_IMAGES) if promotes else [])
+    assert created == _create_args(version, ALL_IMAGES, tags)
 
 
-@pytest.mark.parametrize("latest", ["!", "?", ""])
-def test_promotion_stops_when_latest_version_is_unreadable(
-    tmp_path: Path, latest: str
+@pytest.mark.parametrize("floating", ["minor", "latest"])
+@pytest.mark.parametrize("label", ["!", "?", "", "v1.2.3", "1.3.0-rc.1"])
+def test_promotion_stops_when_a_floating_version_is_unreadable(
+    tmp_path: Path, floating: str, label: str
 ) -> None:
-    # A registry error, missing child content or a missing label must not be
-    # read as "no latest".
-    result, created = _run_promotion(tmp_path, "1.2.4", latest)
+    # A registry error, missing child content, or a label sort -V can't order
+    # must stop the job, not be read as "no tag" or "newer".
+    labels = {"minor": "1.2.3", "latest": "1.2.3", floating: label}
+    result, created = _run_promotion(
+        tmp_path, "1.2.4", minor=labels["minor"], latest=labels["latest"]
+    )
     assert result.returncode != 0
     assert created == []

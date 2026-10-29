@@ -51,7 +51,7 @@ Options:
   --registry REGISTRY       Registry host. Default: ghcr.io.
   --namespace NAMESPACE     Image namespace. Default: tracecathq.
   --builder NAME            Docker buildx builder to use.
-  --latest                  Always add the latest tag.
+  --latest                  Require the latest tag (needs a bare X.Y.Z tag).
   --no-latest               Do not add the latest tag.
   --no-sha-tag              Do not add the sha-<commit> tag.
   --no-semver-aliases       Do not add stable semver aliases like 1.2.
@@ -122,13 +122,8 @@ add_tag() {
   fi
 }
 
-is_release_tag() {
-  local tag="${1#v}"
-  [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)*$ ]]
-}
-
-is_nightly_tag() {
-  [[ "$1" == nightly-* ]]
+is_bare_stable_tag() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
 add_semver_aliases() {
@@ -273,14 +268,18 @@ resolve_tags() {
     add_tag "sha-$short_sha"
   fi
 
+  # latest only ever points at a bare stable version, so its version label
+  # stays X.Y.Z for the publish workflow's only-forward check.
   case "$LATEST_MODE" in
     always)
+      is_bare_stable_tag "$primary_tag" ||
+        abort "--latest needs a bare stable tag (X.Y.Z), not $primary_tag."
       add_tag latest
       ;;
     never)
       ;;
     auto)
-      if is_release_tag "$primary_tag" && ! is_nightly_tag "$primary_tag"; then
+      if is_bare_stable_tag "$primary_tag"; then
         add_tag latest
       fi
       ;;

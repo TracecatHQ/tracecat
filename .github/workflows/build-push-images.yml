@@ -131,7 +131,6 @@ jobs:
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
             type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
@@ -216,7 +215,6 @@ jobs:
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
             type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
@@ -289,7 +287,6 @@ jobs:
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
             type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
@@ -374,7 +371,6 @@ jobs:
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
             type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
@@ -446,7 +442,6 @@ jobs:
             type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
             type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
@@ -505,37 +500,54 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Promote both stable manifests to latest
+      - name: Promote stable manifests to X.Y and latest
         env:
           VERSION: ${{ needs.validate.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          # latest only moves forward, so an older train's patch leaves it alone.
-          latest=ghcr.io/tracecathq/tracecat:latest
-          current=''
-          # --raw reads only the tag's own manifest, so "not found" here means
-          # the tag is absent (the first promotion), not missing child content.
-          if ! root=$(docker buildx imagetools inspect --raw "$latest" 2>&1); then
-            if [[ "$root" != *"$latest: not found"* ]]; then
+          # Floating tags only move forward: an older train's patch leaves
+          # latest alone, and rebuilding an older patch leaves its X.Y alone.
+          # Called from `if`, so errexit is off inside: every failure exits.
+          moves_forward() {
+            local ref="ghcr.io/tracecathq/tracecat:$1" root current
+            # --raw reads only the tag's own manifest, so "not found" here means
+            # the tag is absent (its first promotion), not missing child content.
+            if ! root=$(docker buildx imagetools inspect --raw "$ref" 2>&1); then
+              if [[ "$root" == *"$ref: not found"* ]]; then
+                return 0
+              fi
               echo "$root" >&2
               exit 1
             fi
-          else
-            # Any failure reading the label stops the job.
-            current=$(docker buildx imagetools inspect "$latest" \
-              --format '{{ index (index .Image "linux/amd64").Config.Labels "org.opencontainers.image.version" }}')
-            if [[ -z "$current" ]]; then
-              echo 'Could not read the version label on latest.' >&2
+            if ! current=$(docker buildx imagetools inspect "$ref" \
+              --format '{{ index (index .Image "linux/amd64").Config.Labels "org.opencontainers.image.version" }}'); then
               exit 1
             fi
+            # sort -V only orders plain versions; anything else needs a human.
+            if ! [[ "$current" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "$1 has version label '$current', not X.Y.Z; fix it before promoting." >&2
+              exit 1
+            fi
+            if [[ "$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n 1)" != "$VERSION" ]]; then
+              echo "$1 is $current, newer than $VERSION; leaving it unchanged."
+              return 1
+            fi
+          }
+          tags=()
+          if moves_forward "${VERSION%.*}"; then
+            tags+=("${VERSION%.*}")
           fi
-          if [[ -n "$current" && "$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n 1)" != "$VERSION" ]]; then
-            echo "latest is $current, newer than $VERSION; leaving it unchanged."
+          if moves_forward latest; then
+            tags+=(latest)
+          fi
+          if [[ ${#tags[@]} -eq 0 ]]; then
             exit 0
           fi
           for image in tracecat tracecat-ui tracecat-tunnel-gateway; do
-            docker buildx imagetools create \
-              --tag "ghcr.io/tracecathq/$image:latest" \
-              "ghcr.io/tracecathq/$image:$VERSION"
+            for tag in "${tags[@]}"; do
+              docker buildx imagetools create \
+                --tag "ghcr.io/tracecathq/$image:$tag" \
+                "ghcr.io/tracecathq/$image:$VERSION"
+            done
           done

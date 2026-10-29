@@ -101,8 +101,8 @@ Before mutation, show:
 - For a patch, the pinned baseline and evidence that the migration gate passed.
 - Public tag and whether the GitHub release is stable or a prerelease.
 - Version-bump, branch-push, tag-push, and release-publication commands.
-- Stable image tags update `latest` only when newer than the version `latest`
-  points to, so an older train's hotfix moves only its `X.Y` tag.
+- Stable image tags update `X.Y` and `latest`, each only when newer than the
+  version it points to, so an older train's hotfix moves only its `X.Y` tag.
   Prereleases leave `latest` unchanged.
 - Whether the GitHub release is marked latest: only when the tag is higher
   than every published stable release, because the Compose docs download
@@ -155,8 +155,8 @@ cannot protect a direct dispatch or rerun. On a mismatch or lookup failure,
 stop; never bypass the helper or move the tag. A new release containing the
 current publisher requires a separately approved release plan. For a retry,
 verify the run ID, event, and release commit rather than accepting an older
-successful run. Rebuild only the newest patch of a train: a rebuild re-pushes
-the `X.Y` tag, so rebuilding an older patch moves that tag back.
+successful run. Rebuilding an older patch leaves both `X.Y` and `latest`
+unchanged.
 
 ## Release notes
 
