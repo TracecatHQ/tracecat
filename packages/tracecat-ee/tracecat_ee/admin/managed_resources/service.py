@@ -530,6 +530,17 @@ class AdminManagedResourcesService(BasePlatformService):
 
         Applying a tag also moves the target's pin to it.
         """
+        # Targets first, in id order, then rollouts: the order preview
+        # creation and completion use, so they cannot deadlock with an apply.
+        target_ids = select(ManagedRollout.target_id).where(
+            ManagedRollout.id.in_(params.rollout_ids)
+        )
+        await self.session.execute(
+            select(ManagedTarget.id)
+            .where(ManagedTarget.id.in_(target_ids))
+            .order_by(ManagedTarget.id)
+            .with_for_update()
+        )
         started: list[ManagedRollout] = []
         found: list[uuid.UUID] = []
         for rollout_id in params.rollout_ids:
