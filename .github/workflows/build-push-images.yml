@@ -124,9 +124,9 @@ jobs:
       # known version. Non-release builds keep the release line's version, so
       # give each commit its own: .post<commit time><NN> sorts above the base
       # (an upgrade, not a refused downgrade) and is the same on both
-      # platforms and on any rebuild of the commit. NN counts first-parent
-      # ancestors from the same second, since a merged PR stack lands several
-      # commits at once.
+      # platforms and on any rebuild of the commit. NN counts ancestors from
+      # the same second, since a merged PR stack lands several commits at
+      # once.
       - name: Stamp registry version on non-release builds
         if: needs.validate.outputs.release == 'false'
         shell: bash
@@ -141,11 +141,9 @@ jobs:
             exit 0
           fi
           time=$(git log -1 --format=%ct)
-          same_second=0
-          while read -r ancestor_time; do
-            [[ "$ancestor_time" == "$time" ]] || break
-            same_second=$((same_second + 1))
-          done < <(git log --first-parent --skip=1 -n 99 --format=%ct)
+          # Count every same-second ancestor, merge parents included, so a
+          # commit always sorts above the same-second commits it contains.
+          same_second=$(git log --skip=1 -n 99 --format=%ct | grep -cxF "$time" || true)
           if (( same_second >= 99 )); then
             echo "Too many commits share commit time $time." >&2
             exit 1

@@ -132,8 +132,43 @@ def _registry_init(version: str, pep440_version: str) -> str:
     return "".join(lines)
 
 
-def _run_registry_stamp(tmp_path: Path, init_text: str, commit_times: list[int]) -> str:
-    """Commit once per commit time, run the stamp step, and return the file."""
+def _git(repo: Path, *args: str, commit_time: int | None = None) -> None:
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+    if commit_time is not None:
+        env["GIT_COMMITTER_DATE"] = f"@{commit_time} +0000"
+    subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True
+    )
+
+
+def _commit(repo: Path, commit_time: int) -> None:
+    _git(
+        repo,
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        str(commit_time),
+        commit_time=commit_time,
+    )
+
+
+def _init_registry_repo(repo: Path, init_text: str) -> None:
+    init = repo / REGISTRY_INIT.relative_to(ROOT)
+    init.parent.mkdir(parents=True)
+    init.write_text(init_text)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", ".")
+
+
+def _run_stamp_step(repo: Path) -> str:
+    """Run the workflow's stamp step at the repo's HEAD and return the file."""
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     step = next(
         step
@@ -141,36 +176,26 @@ def _run_registry_stamp(tmp_path: Path, init_text: str, commit_times: list[int])
         if step.get("name") == "Stamp registry version on non-release builds"
     )
     assert step["if"] == "needs.validate.outputs.release == 'false'"
-
-    init = tmp_path / REGISTRY_INIT.relative_to(ROOT)
-    init.parent.mkdir(parents=True)
-    init.write_text(init_text)
-    git_env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "test",
-        "GIT_AUTHOR_EMAIL": "test@example.com",
-        "GIT_COMMITTER_NAME": "test",
-        "GIT_COMMITTER_EMAIL": "test@example.com",
-    }
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
-    subprocess.run(["git", "add", "."], cwd=tmp_path, env=git_env, check=True)
-    for commit_time in commit_times:
-        subprocess.run(
-            ["git", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty"]
-            + ["-m", str(commit_time)],
-            cwd=tmp_path,
-            env={**git_env, "GIT_COMMITTER_DATE": f"@{commit_time} +0000"},
-            check=True,
-        )
-
+    init = repo / REGISTRY_INIT.relative_to(ROOT)
+    original = init.read_text()
     subprocess.run(
         ["bash", "-euo", "pipefail", "-c", step["run"]],
-        cwd=tmp_path,
+        cwd=repo,
         capture_output=True,
         text=True,
         check=True,
     )
-    return init.read_text()
+    stamped = init.read_text()
+    init.write_text(original)
+    return stamped
+
+
+def _run_registry_stamp(tmp_path: Path, init_text: str, commit_times: list[int]) -> str:
+    """Commit once per commit time, run the stamp step, and return the file."""
+    _init_registry_repo(tmp_path, init_text)
+    for commit_time in commit_times:
+        _commit(tmp_path, commit_time)
+    return _run_stamp_step(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -181,7 +206,8 @@ def _run_registry_stamp(tmp_path: Path, init_text: str, commit_times: list[int])
         # A merged PR stack lands several commits in the same second.
         ([1761696000, 1761696000], "176169600001"),
         ([1761696000, 1761696000, 1761696000], "176169600002"),
-        ([1761696000, 1761695999, 1761696000], "176169600000"),
+        # Same-second ancestors count even when they aren't adjacent.
+        ([1761696000, 1761695999, 1761696000], "176169600001"),
     ],
 )
 def test_non_release_api_builds_stamp_a_per_commit_registry_version(
@@ -193,6 +219,34 @@ def test_non_release_api_builds_stamp_a_per_commit_registry_version(
     stamped = _run_registry_stamp(tmp_path, original, commit_times)
 
     assert stamped == _registry_init(f"1.0.0.post{post}", f"1.0.0.post{post}")
+
+
+def test_registry_stamp_puts_a_merge_above_its_same_second_merge_parent(
+    tmp_path: Path,
+) -> None:
+    """A merge must not reuse the version of a branch commit it brings in."""
+    _init_registry_repo(tmp_path, _registry_init("1.0.0", "1.0.0"))
+    _commit(tmp_path, 1761695999)
+    _git(tmp_path, "checkout", "-q", "-b", "feature")
+    _commit(tmp_path, 1761696000)
+    _git(tmp_path, "checkout", "-q", "main")
+    _git(
+        tmp_path,
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "merge",
+        "feature",
+        commit_time=1761696000,
+    )
+
+    merged = _run_stamp_step(tmp_path)
+    _git(tmp_path, "checkout", "-q", "feature")
+    branch = _run_stamp_step(tmp_path)
+
+    assert branch == _registry_init("1.0.0.post176169600000", "1.0.0.post176169600000")
+    assert merged == _registry_init("1.0.0.post176169600001", "1.0.0.post176169600001")
 
 
 @pytest.mark.parametrize(
