@@ -21,6 +21,7 @@ from tracecat.auth.api_keys import (
 )
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.authz.membership import lock_role_changes
 from tracecat.authz.service import resolve_granter_scopes
 from tracecat.db.models import ScimConnection
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -69,6 +70,9 @@ class ScimConnectionService(BaseOrgService):
         Raises:
             ScimTokenOwnerRequiredError: The caller is not an organization owner.
         """
+        # Serializes against role changes, so a concurrent demotion cannot land
+        # between the owner check and the new token.
+        await lock_role_changes(self.session, self.organization_id)
         await self._ensure_can_issue_token()
         generated = generate_managed_api_key(prefix=SCIM_API_KEY_PREFIX)
         preview = make_api_key_preview(generated.raw, prefix=SCIM_API_KEY_PREFIX)

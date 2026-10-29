@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.scim.connections import (
@@ -264,3 +264,38 @@ async def test_demoted_owner_cannot_issue_from_cached_scopes(
         await ScimConnectionService(session, role=demoted).issue_token()
 
     assert not await _connection_exists(session, org)
+
+
+@pytest.mark.anyio
+async def test_issue_token_locks_role_changes_before_reading_scopes(
+    session: AsyncSession, owner_role: Role
+) -> None:
+    """The owner check runs under the org lock that role changes take."""
+    statements: list[str] = []
+
+    def capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    bind = session.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        await ScimConnectionService(session, role=owner_role).issue_token()
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    lock = next(
+        i
+        for i, statement in enumerate(statements)
+        if "FROM organization " in statement and "FOR NO KEY UPDATE" in statement
+    )
+    scope_read = next(
+        i for i, statement in enumerate(statements) if "FROM scope" in statement
+    )
+    assert lock < scope_read
