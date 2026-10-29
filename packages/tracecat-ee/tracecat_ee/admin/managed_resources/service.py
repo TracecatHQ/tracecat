@@ -13,8 +13,8 @@ from tracecat.managed_resources.source import (
     ManagedSource,
     ManagedSourceSetting,
     get_managed_source,
+    list_source_tags,
     load_managed_source,
-    source_sync_service,
 )
 from tracecat.pagination import Page, PageParams
 from tracecat.registry.repositories.schemas import GitTagInfo
@@ -115,9 +115,8 @@ class AdminManagedResourcesService(BasePlatformService):
             TracecatValidationError: The cursor is malformed.
             VcsProviderError: The provider rejected or failed the request.
         """
-        sync_service = await source_sync_service(self.session, self.role)
-        tags, next_cursor = await sync_service.list_tags(
-            limit=page.limit, cursor=page.cursor
+        tags, next_cursor = await list_source_tags(
+            self.session, self.role, limit=page.limit, cursor=page.cursor
         )
         return Page(items=tags, next_cursor=next_cursor)
 

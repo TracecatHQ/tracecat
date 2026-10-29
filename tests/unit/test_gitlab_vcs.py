@@ -544,6 +544,22 @@ async def test_gitlab_list_tags_rejects_foreign_cursors() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("header", ["-1", "0", str(2**40)])
+async def test_gitlab_list_tags_rejects_out_of_range_next_page(
+    monkeypatch: pytest.MonkeyPatch, header: str
+) -> None:
+    api = _tagged_gitlab_api()
+    monkeypatch.setattr(
+        api,
+        "_tag_page",
+        lambda request: httpx.Response(200, json=[], headers={"x-next-page": header}),
+    )
+    transport = _MockGitLabTransport(api=api)
+    with pytest.raises(GitLabError, match="pagination"):
+        await transport.list_tags(url=_git_url(), limit=2)
+
+
+@pytest.mark.anyio
 async def test_gitlab_list_ignores_next_page_header_once_limit_is_met() -> None:
     def respond(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

@@ -1652,10 +1652,13 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             for tag in self._tag_entries(GitLabTag, values)
         )
         next_page = _gitlab_next_page(next_header)
-        next_cursor = (
-            encode_tag_cursor(next_page, per_page) if next_page is not None else None
-        )
-        return tags, next_cursor
+        if next_page is None:
+            return tags, None
+        try:
+            return tags, encode_tag_cursor(next_page, per_page)
+        except PydanticValidationError as e:
+            # An out-of-range x-next-page is a bad provider response, not a 500.
+            raise GitLabError("GitLab pagination response was invalid") from e
 
     async def _credentials(self) -> GitLabTokenCredentials:
         """Load organization GitLab token credentials."""
@@ -2076,9 +2079,12 @@ def _gitlab_next_page(header: str | None) -> int | None:
     if not header:
         return None
     try:
-        return int(header)
+        page = int(header)
     except ValueError as e:
         raise GitLabError("GitLab pagination response was invalid") from e
+    if page < 1:
+        raise GitLabError("GitLab pagination response was invalid")
+    return page
 
 
 def _gitlab_error_message(response: httpx.Response) -> str:
@@ -2684,7 +2690,16 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                 return sha, None
             return sha, _data_center_timestamp(commit.authorTimestamp)
 
-        return dict(await asyncio.gather(*(commit_date(sha) for sha in shas)))
+        tasks = [asyncio.create_task(commit_date(sha)) for sha in shas]
+        try:
+            return dict(await asyncio.gather(*tasks))
+        except BaseException:
+            # Stop the sibling reads before the caller closes the client, and
+            # collect their outcomes so none is left unretrieved.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     async def write_files(
         self,

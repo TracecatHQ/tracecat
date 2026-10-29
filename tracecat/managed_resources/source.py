@@ -26,9 +26,12 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.registry.repositories.schemas import GitTagInfo
 from tracecat.workspace_sync.enums import VcsProvider
-from tracecat.workspace_sync.service import WorkspaceSyncService
-from tracecat.workspaces.schemas import WorkspaceSettingsRead
+from tracecat.workspace_sync.service import (
+    WorkspaceSyncService,
+    parse_workspace_git_url,
+)
 
 MANAGED_RESOURCES_SOURCE_KEY = "managed_resources_source"
 """Platform setting key holding a :class:`ManagedSourceSetting` JSON object."""
@@ -85,6 +88,15 @@ class ManagedSourceSetting(BaseModel):
         )
 
 
+class _GitBinding(BaseModel):
+    """The Git sync fields of workspace settings; other settings are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    git_provider: VcsProvider | None = None
+    git_repo_url: str | None = None
+
+
 async def load_managed_source(
     session: AsyncSession, workspace_id: WorkspaceID
 ) -> ManagedSource:
@@ -103,10 +115,10 @@ async def load_managed_source(
     )
     if workspace is None:
         raise TracecatNotFoundError("Workspace not found")
-    # Settings are JSONB, so a malformed row can hold anything; parse it with
-    # the same schema the workspace API reads it with.
+    # Settings are JSONB, so a malformed row can hold anything. Validate only
+    # the Git binding, so an unrelated bad setting does not block the source.
     try:
-        settings = WorkspaceSettingsRead.model_validate(workspace.settings or {})
+        settings = _GitBinding.model_validate(workspace.settings or {})
     except PydanticValidationError as e:
         raise TracecatValidationError(
             "The source workspace's settings are malformed"
@@ -179,19 +191,28 @@ def source_repository_role(source: ManagedSource) -> Role:
     )
 
 
-async def source_sync_service(
-    session: AsyncSession, actor: PlatformRole
-) -> WorkspaceSyncService:
-    """Return a workspace sync service that reads the source repository.
+async def list_source_tags(
+    session: AsyncSession,
+    actor: PlatformRole,
+    *,
+    limit: int,
+    cursor: str | None,
+) -> tuple[list[GitTagInfo], str | None]:
+    """List one page of the source repository's tags, newest first.
 
     This is the only bridge from a platform superuser, who has no organization
-    context, to the source organization's VCS credentials. It reuses
-    :meth:`WorkspaceSyncService.for_workspace`, so provider selection, repository
-    URL parsing and transport wiring match ordinary workspace sync.
+    context, to the source organization's VCS credentials. Credentials come
+    from :class:`WorkspaceSyncService` under :func:`source_repository_role`.
+
+    The provider and repository URL are the ones :func:`get_managed_source`
+    checked against the pin. They are never re-read from workspace settings,
+    so a binding changed after that check cannot redirect the read.
 
     Args:
         session: A database session that can read across organizations.
         actor: The platform superuser making the request.
+        limit: Maximum tags per page.
+        cursor: An opaque cursor from a previous page, or ``None``.
 
     Raises:
         ManagedSourceUnavailableError: No source is configured, or the
@@ -208,6 +229,8 @@ async def source_sync_service(
         source_workspace_id=source.workspace_id,
         source_organization_id=source.organization_id,
     )
-    return await WorkspaceSyncService.for_workspace(
-        session, source_repository_role(source)
+    service = WorkspaceSyncService(
+        session, source_repository_role(source), provider=source.git_provider
     )
+    url = parse_workspace_git_url(source.git_provider, source.git_repo_url)
+    return await service.list_tags(limit=limit, cursor=cursor, url=url)
