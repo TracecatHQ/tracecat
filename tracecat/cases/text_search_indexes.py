@@ -45,29 +45,34 @@ _BEFORE_ROW_INSERT_UPDATE = 23
 
 async def ensure_case_text_indexes(session: AsyncSession) -> None:
     """Verify extension/index readiness without installing or scanning sources."""
-    extension = await session.scalar(
-        sa.text("""
-        SELECT EXISTS (SELECT 1 FROM pg_extension e
-            JOIN pg_namespace n ON n.oid = e.extnamespace
-            WHERE e.extname = 'pg_trgm' AND n.nspname = 'public')
-    """)
+    trgm_schema: str | None = await session.scalar(
+        sa.text(
+            "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'"
+        )
     )
-    if not extension:
+    if trgm_schema is None:
         raise LexicalSearchError(LexicalSearchErrorCode.UNAVAILABLE)
+    # Search calls pg_trgm unqualified because its schema varies (public, or
+    # ibm_extension on IBM Cloud). Verify that search_path resolves each name
+    # to the extension's own objects, not a same-named lookalike.
     permitted = await session.scalar(
         sa.text("""
-        WITH extension AS (SELECT oid FROM pg_extension WHERE extname = 'pg_trgm'),
+        WITH extension AS (
+            SELECT oid, extnamespace FROM pg_extension WHERE extname = 'pg_trgm'
+        ),
         required AS (
-            SELECT to_regprocedure('public.strict_word_similarity(text,text)')::oid AS oid
+            SELECT to_regprocedure('strict_word_similarity(text,text)')::oid AS oid
             UNION ALL
-            SELECT o.oprcode FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace
+            SELECT o.oprcode FROM pg_operator o
                 JOIN pg_depend d ON d.classid = 'pg_operator'::regclass AND d.objid = o.oid
                     AND d.deptype = 'e' AND d.refclassid = 'pg_extension'::regclass
                 JOIN extension e ON e.oid = d.refobjid
-            WHERE n.nspname = 'public' AND o.oprname = '%>>'
-                AND o.oprleft = 'text'::regtype AND o.oprright = 'text'::regtype
+            WHERE o.oid = to_regoperator('%>>(text,text)')
         )
-        SELECT has_schema_privilege('public', 'USAGE') AND count(*) = 2
+        -- Search also calls the public.tracecat_case_* helpers.
+        SELECT has_schema_privilege('public', 'USAGE')
+            AND has_schema_privilege((SELECT extnamespace FROM extension), 'USAGE')
+            AND count(*) = 2
             AND coalesce(bool_and(has_function_privilege(r.oid, 'EXECUTE')), false)
         FROM required r JOIN pg_depend d ON d.classid = 'pg_proc'::regclass AND d.objid = r.oid
             AND d.deptype = 'e' AND d.refclassid = 'pg_extension'::regclass
@@ -137,7 +142,10 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
             i.indrelid = 'public.case'::regclass AND a.amname = 'gin'
             AND NOT i.indisunique AND i.indpred IS NULL
             AND i.indnkeyatts = 1 AND i.indnatts = 1 AND i.indkey[0] = 0
-            AND o.opcname = 'gin_trgm_ops' AND n.nspname = 'public' AS compatible,
+            AND o.opcname = 'gin_trgm_ops' AND n.nspname = (
+                SELECT en.nspname FROM pg_extension e
+                JOIN pg_namespace en ON en.oid = e.extnamespace WHERE e.extname = 'pg_trgm'
+            ) AS compatible,
             pg_get_expr(i.indexprs, i.indrelid) AS expression
         FROM pg_class c JOIN pg_namespace s ON s.oid = c.relnamespace
         LEFT JOIN pg_index i ON i.indexrelid = c.oid
@@ -181,19 +189,25 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
         CASE_SEARCH_TRIGGER_FUNCTION,
         CASE_SEARCH_TRIGGER_BODY_HASH,
     )
-    await _ensure_indexes(session, CASE_SEARCH_VECTOR_INDEXES)
-    await _ensure_stored_words(session)
+    await _ensure_indexes(session, CASE_SEARCH_VECTOR_INDEXES, trgm_schema)
+    await _ensure_stored_words(session, trgm_schema)
 
 
-async def _ensure_stored_words(session: AsyncSession) -> None:
+async def _ensure_stored_words(session: AsyncSession, trgm_schema: str) -> None:
     """Verify the word-list helper, its trigger, vocabulary, and indexes.
 
     Search reads the vocabulary but never calls the helper; only case writes do,
     through the trigger, so the helper's execute privilege is not checked here.
+    The migration points the helper's show_trgm call at pg_trgm's schema; the
+    hash covers the canonical body, which names public.
     """
     words_function = await session.scalar(
         sa.text("""
-        SELECT md5(regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g')) = :body_hash
+        SELECT md5(replace(
+                regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g'),
+                :show_trgm, 'public.show_trgm('
+            )) = :body_hash
+            AND strpos(p.prosrc, :show_trgm) > 0
             AND p.prorettype = 'text[]'::regtype AND l.lanname = 'sql'
             AND p.provolatile = 'i' AND p.proisstrict
             AND NOT p.prosecdef AND p.prokind = 'f'
@@ -204,6 +218,7 @@ async def _ensure_stored_words(session: AsyncSession) -> None:
         {
             "function": f"public.{CASE_WORDS_FUNCTION}(text)",
             "body_hash": CASE_WORDS_BODY_HASH,
+            "show_trgm": f"{trgm_schema}.show_trgm(",
         },
     )
     if words_function is None:
@@ -228,7 +243,7 @@ async def _ensure_stored_words(session: AsyncSession) -> None:
         CASE_SEARCH_WORDS_TRIGGER_FUNCTION,
         CASE_SEARCH_WORDS_TRIGGER_BODY_HASH,
     )
-    await _ensure_indexes(session, CASE_SEARCH_WORD_INDEXES)
+    await _ensure_indexes(session, CASE_SEARCH_WORD_INDEXES, trgm_schema)
 
 
 async def _ensure_trigger(
@@ -267,13 +282,24 @@ async def _ensure_trigger(
         raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
 
 
-async def _ensure_indexes(session: AsyncSession, indexes: dict[str, str]) -> None:
+async def _ensure_indexes(
+    session: AsyncSession, indexes: dict[str, str], trgm_schema: str
+) -> None:
     """Verify each named index exists, is ready, and has its exact definition."""
     rows = (
         (
             await session.execute(
                 sa.text("""
-        SELECT c.relname, pg_get_indexdef(c.oid), i.indisvalid AND i.indisready
+        SELECT c.relname, pg_get_indexdef(c.oid), i.indisvalid AND i.indisready,
+            -- The definition omits a visible opclass's schema, so a same-named
+            -- lookalike earlier on search_path would render identically.
+            NOT EXISTS (
+                SELECT 1 FROM unnest(i.indclass::oid[]) AS k(opclass)
+                JOIN pg_opclass o ON o.oid = k.opclass
+                WHERE o.opcname = 'gin_trgm_ops' AND o.opcnamespace IS DISTINCT FROM (
+                    SELECT extnamespace FROM pg_extension WHERE extname = 'pg_trgm'
+                )
+            )
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         JOIN pg_index i ON i.indexrelid = c.oid
         WHERE n.nspname = 'public' AND c.relname = ANY(:names)
@@ -284,12 +310,13 @@ async def _ensure_indexes(session: AsyncSession, indexes: dict[str, str]) -> Non
         .tuples()
         .all()
     )
-    for name, definition, ready in rows:
-        # pg_get_indexdef() schema-qualifies the operator class when public is
-        # not on the connection's search_path.
+    for name, definition, ready, trgm_owned in rows:
+        # pg_get_indexdef() schema-qualifies the operator class when pg_trgm's
+        # schema is not on the connection's search_path.
+        qualified = f" {trgm_schema}.gin_trgm_ops)"
         if (
-            definition.replace(" public.gin_trgm_ops)", " gin_trgm_ops)")
-            != (indexes[name])
+            definition.replace(qualified, " gin_trgm_ops)") != indexes[name]
+            or trgm_owned is not True
         ):
             raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
         if ready is not True:

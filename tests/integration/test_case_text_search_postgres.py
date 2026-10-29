@@ -35,6 +35,8 @@ from tracecat.cases.text_search import (
 from tracecat.cases.text_search_indexes import ensure_case_text_indexes
 from tracecat.db.models import Case
 from tracecat.query.lexical_types import (
+    LexicalSearchError,
+    LexicalSearchErrorCode,
     SearchMode,
 )
 
@@ -627,6 +629,10 @@ async def test_migration_is_retryable_and_downgrade_preserves_source_and_extensi
                 value.startswith("public.tracecat_case_safe_vector_v1(")
                 for value in expressions
             )
+            # Search resolves pg_trgm through the search_path, like tables.
+            await session.execute(
+                sa.text("SELECT set_config('search_path', 'pg_catalog, public', true)")
+            )
             await ensure_case_text_indexes(session)
     finally:
         await engine.dispose()
@@ -784,7 +790,8 @@ async def test_spoofed_legacy_expression_index_blocks_migration_not_readiness(
         connect_args={
             "server_settings": {
                 "role": role,
-                "search_path": "synthetic_search,pg_catalog",
+                # public keeps pg_trgm resolvable; only the helpers are spoofed.
+                "search_path": "synthetic_search,pg_catalog,public",
             }
         },
     )
@@ -815,9 +822,13 @@ async def test_spoofed_legacy_expression_index_blocks_migration_not_readiness(
         )
 
 
-def test_wrong_extension_schema_fails_before_index_creation(
+@pytest.mark.anyio
+async def test_extension_outside_public_is_used_in_place(
     search_database: Engine,
 ) -> None:
+    """IBM Cloud keeps extensions in its read-only ibm_extension schema."""
+    # The vocabulary's trigram index and word-list helper also use pg_trgm.
+    apply_word_migration(search_database, downgrade=True)
     apply_search_migration(search_database, downgrade=True)
     # Relocation touches extension objects owned by the bootstrap superuser,
     # so it is an operator task even when a normal role installed pg_trgm.
@@ -825,21 +836,64 @@ def test_wrong_extension_schema_fails_before_index_creation(
     operator = sa.create_engine(search_database.url, poolclass=NullPool)
     try:
         with operator.begin() as conn:
-            conn.execute(sa.text("CREATE SCHEMA synthetic_trgm"))
-            conn.execute(sa.text("ALTER EXTENSION pg_trgm SET SCHEMA synthetic_trgm"))
-        with pytest.raises(DBAPIError, match="requires pg_trgm in the public schema"):
-            apply_search_migration(search_database)
+            conn.execute(sa.text("CREATE SCHEMA ibm_extension"))
+            # IBM's schema is read-only: usable by every role, writable by none.
+            conn.execute(sa.text("GRANT USAGE ON SCHEMA ibm_extension TO PUBLIC"))
+            conn.execute(sa.text("ALTER EXTENSION pg_trgm SET SCHEMA ibm_extension"))
+        apply_search_migration(search_database)
+        apply_word_migration(search_database)
         with operator.begin() as conn:
-            indexes = set(
+            opclass_schemas = set(
                 conn.execute(
-                    sa.text("SELECT indexname FROM pg_indexes WHERE tablename = 'case'")
+                    sa.text("""SELECT n.nspname FROM pg_index i
+                    JOIN pg_opclass o ON o.oid = i.indclass[0]
+                    JOIN pg_namespace n ON n.oid = o.opcnamespace
+                    WHERE i.indexrelid IN ('public.ix_case_summary_trgm'::regclass,
+                        'public.ix_case_description_trgm'::regclass,
+                        'public.ix_case_search_word_word_trgm'::regclass)""")
                 ).scalars()
             )
-            assert not INDEX_NAMES & indexes
-            conn.execute(sa.text("ALTER EXTENSION pg_trgm SET SCHEMA public"))
-        apply_search_migration(search_database)
+            assert opclass_schemas == {"ibm_extension"}
+            assert "ibm_extension.show_trgm(" in conn.scalar(
+                sa.text(
+                    "SELECT prosrc FROM pg_proc WHERE oid = 'public.tracecat_case_words_v1(text)'::regprocedure"
+                )
+            )
+            assert (
+                conn.scalar(
+                    sa.text(
+                        "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'"
+                    )
+                )
+                == "ibm_extension"
+            )
     finally:
         operator.dispose()
+
+    with search_database.begin() as conn:
+        role = conn.scalar(sa.text("SELECT current_user"))
+        typo = seed_case(conn, 1, "Powershel detected")
+        conn.execute(sa.text("SET LOCAL search_path = public, ibm_extension"))
+        assert search_ids(conn, "powershell") == [typo]
+
+    for search_path, ready in (("public, ibm_extension", True), ("public", False)):
+        engine = create_async_engine(
+            search_database.url.set(drivername="postgresql+asyncpg"),
+            poolclass=NullPool,
+            connect_args={
+                "server_settings": {"role": role, "search_path": search_path}
+            },
+        )
+        try:
+            async with AsyncSession(engine) as session:
+                if ready:
+                    await ensure_case_text_indexes(session)
+                else:
+                    with pytest.raises(LexicalSearchError) as error:
+                        await ensure_case_text_indexes(session)
+                    assert error.value.code == LexicalSearchErrorCode.UNAVAILABLE
+        finally:
+            await engine.dispose()
 
 
 def test_migration_checks_extension_without_installation(
@@ -852,7 +906,7 @@ def test_migration_checks_extension_without_installation(
     try:
         with operator.begin() as conn:
             conn.execute(sa.text("DROP EXTENSION pg_trgm"))
-        with pytest.raises(DBAPIError, match="requires pg_trgm in the public schema"):
+        with pytest.raises(DBAPIError, match="requires pg_trgm to be enabled"):
             apply_search_migration(search_database)
         with operator.begin() as conn:
             assert not conn.scalar(

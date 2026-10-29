@@ -268,7 +268,7 @@ async def test_nested_fuzzy_execution_changes_and_restores_threshold_once() -> N
         async with case_search_execution_context(session):
             pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
-    assert statements.count("SELECT public.strict_word_similarity('', '')") == 2
+    assert statements.count("SELECT strict_word_similarity('', '')") == 2
     threshold_parameters = [
         call.args[1]
         for call in session.execute.await_args_list

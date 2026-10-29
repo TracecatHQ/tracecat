@@ -314,8 +314,8 @@ def _field_clause(
         sa.select(CaseSearchWord.word)
         .where(
             CaseSearchWord.workspace_id == workspace_id,
-            CaseSearchWord.word.bool_op("OPERATOR(public.%>>)")(term),
-            sa.func.public.strict_word_similarity(term, CaseSearchWord.word)
+            CaseSearchWord.word.bool_op("%>>")(term),
+            sa.func.strict_word_similarity(term, CaseSearchWord.word)
             >= FUZZY_THRESHOLD,
         )
         .scalar_subquery(),
@@ -333,15 +333,14 @@ def _field_clause(
         sa.select(1)
         .select_from(split_words)
         .where(
-            sa.func.public.strict_word_similarity(term, split_words.c.word)
-            >= FUZZY_THRESHOLD
+            sa.func.strict_word_similarity(term, split_words.c.word) >= FUZZY_THRESHOLD
         )
         .correlate(Case)
     )
     # Over-budget sources have no stored list: split their complete text per
     # row. The full-text operator rejects most rows before the split, and CASE
     # keeps the planner from evaluating either for rows that have a list.
-    full_candidates = _full_normalized(source).bool_op("OPERATOR(public.%>>)")(term)
+    full_candidates = _full_normalized(source).bool_op("%>>")(term)
     fallback_words = field.words.is_(None)
     fuzzy = sa.or_(
         indexed_fuzzy,
@@ -359,7 +358,7 @@ def _field_clause(
             ),
         ),
     )
-    similarity = sa.func.public.strict_word_similarity(term, _full_normalized(source))
+    similarity = sa.func.strict_word_similarity(term, _full_normalized(source))
     return (
         exact,
         sa.or_(exact, fuzzy),
@@ -545,13 +544,13 @@ WITH page_sources AS MATERIALIZED (
     FROM matched m
     CROSS JOIN LATERAL regexp_matches(m.source, '[[:alnum:]]+|[^[:alnum:]]+', 'g')
         WITH ORDINALITY AS t(parts, ordinality)
-    WHERE NOT m.exact AND m.fuzzy AND lower(m.source) OPERATOR(public.%>>) lower(m.value)
+    WHERE NOT m.exact AND m.fuzzy AND lower(m.source) %>> lower(m.value)
 ), fuzzy_context AS (
     SELECT case_id, field, position, 1 AS priority, token_start AS anchor,
         overlay(substring(source FROM greatest(1, token_start - 60) FOR 480)
             PLACING :start_marker FROM least(61, token_start) FOR 0) AS context
     FROM tokens WHERE token ~ '^[[:alnum:]]+$'
-        AND public.strict_word_similarity(lower(value), lower(token)) >= :threshold
+        AND strict_word_similarity(lower(value), lower(token)) >= :threshold
 ), contexts AS (
     SELECT * FROM exact_context UNION ALL SELECT * FROM fuzzy_context
 ), chosen AS (
@@ -672,9 +671,7 @@ async def case_search_execution_context(
                 return
             # Extension GUCs are registered only after this connection loads
             # pg_trgm. A fresh pooled connection cannot SHOW them before that.
-            await session.execute(
-                sa.text("SELECT public.strict_word_similarity('', '')")
-            )
+            await session.execute(sa.text("SELECT strict_word_similarity('', '')"))
             previous_threshold = await session.scalar(
                 sa.text("SHOW pg_trgm.strict_word_similarity_threshold")
             )
