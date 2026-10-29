@@ -70,7 +70,12 @@ describe("useManagedResources", () => {
   it("loads every page and looks resources up by type and id", async () => {
     listManaged
       .mockResolvedValueOnce({
-        items: [managed("workflow", "wf-1", "src-wf-1")],
+        items: [
+          {
+            ...managed("workflow", "wf-1", "src-wf-1"),
+            workflow_id: "wf_short1",
+          },
+        ],
         next_cursor: "page-2",
       })
       .mockResolvedValueOnce({
@@ -92,6 +97,8 @@ describe("useManagedResources", () => {
       cursor: "page-2",
     })
     expect(result.current.isManaged("workflow", "wf-1")).toBe(true)
+    // Workflow APIs return the short id; it finds the same record.
+    expect(result.current.isManaged("workflow", "wf_short1")).toBe(true)
     // Same id, other type: not managed.
     expect(result.current.isManaged("table", "wf-1")).toBe(false)
     // Case fields are keyed by their current name, not their derived local

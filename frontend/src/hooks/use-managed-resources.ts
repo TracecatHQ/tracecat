@@ -49,25 +49,46 @@ const RESOURCE_LIST_KEYS: Record<SyncResourceType, string[][]> = {
   secret_metadata: [["workspace-secrets"]],
 }
 
-/**
- * Build the lookup key for one resource.
- *
- * Case fields have no row id of their own (their `local_id` is derived from
- * the field name), so they are keyed by their current field name, which the
- * API returns as `case_field_name`. It can differ from `source_id`.
- */
+/** Build the lookup key for one resource. */
 function lookupKey(resourceType: SyncResourceType, id: string): string {
   return `${resourceType}:${id}`
 }
 
-function recordLookupKey(
+/**
+ * Every key a caller may look a record up by.
+ *
+ * Case fields have no row id of their own (their `local_id` is derived from
+ * the field name), so they are keyed by their current field name, which the
+ * API returns as `case_field_name`; it can differ from `source_id`.
+ * Workflows are keyed by both their UUID and the short `wf_` id that workflow
+ * APIs return.
+ */
+function recordLookupKeys(
   resource: ManagedResourceRead | DetachedCopyRead
-): string {
-  const id =
-    resource.resource_type === "case_field"
-      ? (resource.case_field_name ?? resource.local_id)
-      : resource.local_id
-  return lookupKey(resource.resource_type, id)
+): string[] {
+  if (resource.resource_type === "case_field") {
+    return [
+      lookupKey(
+        resource.resource_type,
+        resource.case_field_name ?? resource.local_id
+      ),
+    ]
+  }
+  const keys = [lookupKey(resource.resource_type, resource.local_id)]
+  if (resource.workflow_id) {
+    keys.push(lookupKey(resource.resource_type, resource.workflow_id))
+  }
+  return keys
+}
+
+function indexByLookupKeys<T extends ManagedResourceRead | DetachedCopyRead>(
+  records: T[]
+): Map<string, T> {
+  return new Map(
+    records.flatMap((record) =>
+      recordLookupKeys(record).map((key) => [key, record] as const)
+    )
+  )
 }
 
 /** Lookup helpers for the current workspace's managed resources. */
@@ -167,12 +188,11 @@ export function useManagedResources(
   const detachedCopies = detachedQuery.data ?? NO_DETACHED
 
   const managedByKey = useMemo(
-    () =>
-      new Map(managedResources.map((item) => [recordLookupKey(item), item])),
+    () => indexByLookupKeys(managedResources),
     [managedResources]
   )
   const detachedByKey = useMemo(
-    () => new Map(detachedCopies.map((item) => [recordLookupKey(item), item])),
+    () => indexByLookupKeys(detachedCopies),
     [detachedCopies]
   )
 

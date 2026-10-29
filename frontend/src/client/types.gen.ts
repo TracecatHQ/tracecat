@@ -4824,6 +4824,10 @@ export type DetachedCopyRead = {
    * For a case field copy, its current schema key.
    */
   case_field_name?: string | null
+  /**
+   * For a workflow copy, its short ``wf_`` id.
+   */
+  workflow_id?: string | null
 }
 
 /**
@@ -7538,6 +7542,10 @@ export type ManagedResourceRead = {
    * For a case field, its current schema key. Case fields have no row id, and the key can differ from ``source_id``.
    */
   case_field_name?: string | null
+  /**
+   * For a workflow, its short ``wf_`` id, as workflow APIs return it.
+   */
+  workflow_id?: string | null
 }
 
 /**

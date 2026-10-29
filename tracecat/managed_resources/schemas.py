@@ -32,6 +32,10 @@ class ManagedResourceRead(BaseModel):
             "id, and the key can differ from ``source_id``."
         ),
     )
+    workflow_id: str | None = Field(
+        default=None,
+        description="For a workflow, its short ``wf_`` id, as workflow APIs return it.",
+    )
 
 
 class DetachedCopyRead(BaseModel):
@@ -44,6 +48,10 @@ class DetachedCopyRead(BaseModel):
     detached_at: datetime
     case_field_name: str | None = Field(
         default=None, description="For a case field copy, its current schema key."
+    )
+    workflow_id: str | None = Field(
+        default=None,
+        description="For a workflow copy, its short ``wf_`` id.",
     )
 
 

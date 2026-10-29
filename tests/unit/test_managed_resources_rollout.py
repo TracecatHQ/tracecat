@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.managed_resources.schemas import (
     ManagedReferenceMatchesUpdate,
@@ -53,6 +53,7 @@ from tracecat.db.models import (
     User,
     Workflow,
     Workspace,
+    WorkspaceSyncResourceMapping,
 )
 from tracecat.exceptions import (
     TracecatNotFoundError,
@@ -87,6 +88,7 @@ from tracecat.tables.schemas import TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
+from tracecat.workspace_sync.adapters.base import MANAGED_MAPPING_NAMESPACE
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     CaseDropdownResourceSpec,
@@ -917,6 +919,16 @@ async def test_cleanup_clears_rows_whose_resource_is_already_gone(
         )
     ]
     harness.session.add_all(rows)
+    harness.session.add_all(
+        WorkspaceSyncResourceMapping(
+            workspace_id=customer.id,
+            provider=MANAGED_MAPPING_NAMESPACE,
+            resource_type=row.resource_type,
+            source_id=row.source_id,
+            local_id=row.local_id,
+        )
+        for row in rows
+    )
     await harness.session.commit()
     engine = ManagedRolloutEngine(harness.session)
 
@@ -926,6 +938,15 @@ async def test_cleanup_clears_rows_whose_resource_is_already_gone(
 
     assert failures == []
     assert await engine._managed_rows(customer.id) == []
+    assert (
+        await harness.session.scalar(
+            select(func.count()).where(
+                WorkspaceSyncResourceMapping.workspace_id == customer.id,
+                WorkspaceSyncResourceMapping.provider == MANAGED_MAPPING_NAMESPACE,
+            )
+        )
+        == 0
+    )
 
 
 def test_matches_a_tag_no_longer_uses_are_recognised_from_diagnostics() -> None:

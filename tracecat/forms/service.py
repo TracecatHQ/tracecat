@@ -65,7 +65,10 @@ from tracecat.forms.storage import delete_file_blobs, lock_forms_for_deletion
 from tracecat.forms.types import ResolveResult
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import (
+    ensure_unmanaged,
+    hold_for_customer_write,
+)
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.service import BaseOrgService, BaseWorkspaceService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -525,6 +528,9 @@ class FormsService(BaseWorkspaceService):
         fields sent, since a client may send ``config: null`` with a status.
         """
         if params.config is None:
+            # A status toggle is allowed, but still takes the ownership lock
+            # so it cannot land while a rollout carries the old status forward.
+            await hold_for_customer_write(self.session, self.workspace_id)
             return
         await ensure_unmanaged(
             self.session,

@@ -19,6 +19,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.managed_resources.detach import DetachedCopy, ManagedDetachService
 from tracecat.managed_resources.schemas import (
     DetachedCopyRead,
@@ -66,7 +67,10 @@ async def list_managed_resources(
     return Page(
         items=[
             ManagedResourceRead.model_validate(row, from_attributes=True).model_copy(
-                update={"case_field_name": names.get(row.local_id)}
+                update={
+                    "case_field_name": names.get(row.local_id),
+                    "workflow_id": _workflow_id(row.resource_type, row.local_id),
+                }
             )
             for row in page.items
         ],
@@ -102,6 +106,7 @@ async def list_detached_copies(
                 original_name=row.original_name,
                 detached_at=row.created_at,
                 case_field_name=names.get(row.local_id),
+                workflow_id=_workflow_id(row.resource_type, row.local_id),
             )
             for row in page.items
         ],
@@ -148,6 +153,13 @@ async def _paginate[T](
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=e.detail or str(e)
         ) from e
+
+
+def _workflow_id(resource_type: str, local_id: uuid.UUID) -> str | None:
+    """The short ``wf_`` id workflow APIs use, for a workflow row."""
+    if resource_type != SyncResourceType.WORKFLOW.value:
+        return None
+    return WorkflowUUID.new(local_id).short()
 
 
 async def _case_field_names(

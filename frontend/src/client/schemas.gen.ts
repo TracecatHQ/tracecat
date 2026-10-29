@@ -16312,6 +16312,18 @@ export const $DetachedCopyRead = {
       title: "Case Field Name",
       description: "For a case field copy, its current schema key.",
     },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "For a workflow copy, its short ``wf_`` id.",
+    },
   },
   type: "object",
   required: [
@@ -24528,6 +24540,19 @@ export const $ManagedResourceRead = {
       title: "Case Field Name",
       description:
         "For a case field, its current schema key. Case fields have no row id, and the key can differ from ``source_id``.",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description:
+        "For a workflow, its short ``wf_`` id, as workflow APIs return it.",
     },
   },
   type: "object",
