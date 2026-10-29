@@ -20400,6 +20400,36 @@ export const $GitSettingsUpdate = {
   title: "GitSettingsUpdate",
 } as const
 
+export const $GitTagInfo = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+      description: "Tag name",
+    },
+    commit_sha: {
+      type: "string",
+      pattern: "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      title: "Commit Sha",
+      description: "SHA of the commit the tag points to (SHA-1 or SHA-256)",
+    },
+    date: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      title: "Date",
+      description:
+        "Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.",
+    },
+  },
+  type: "object",
+  required: ["name", "commit_sha", "date"],
+  title: "GitTagInfo",
+  description: "Git tag information for repository management.",
+} as const
+
 export const $GraphOperation = {
   properties: {
     type: {
@@ -24214,6 +24244,69 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $ManagedSourceRead = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    git_provider: {
+      $ref: "#/components/schemas/VcsProvider",
+    },
+    git_repo_url: {
+      type: "string",
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "organization_id", "git_provider", "git_repo_url"],
+  title: "ManagedSourceRead",
+  description:
+    "The workspace managed resources are published from, and its Git binding.",
+} as const
+
+export const $ManagedSourceSettingRead = {
+  properties: {
+    source: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ManagedSourceRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "ManagedSourceSettingRead",
+  description:
+    "The managed resources source setting; ``source`` is null when unset.",
+} as const
+
+export const $ManagedSourceUpdate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "ManagedSourceUpdate",
+  description: `Set the managed resources source.
+
+The workspace must have a Git sync provider and repository URL; both are
+pinned with the setting.`,
+} as const
+
 export const $ManagedTunnelCreate = {
   properties: {
     name: {
@@ -26171,6 +26264,45 @@ export const $Page_ExternalGroupRead_ = {
   type: "object",
   required: ["items"],
   title: "Page[ExternalGroupRead]",
+} as const
+
+export const $Page_GitTagInfo_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/GitTagInfo",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[GitTagInfo]",
 } as const
 
 export const $Page_SecretStoreRead_ = {

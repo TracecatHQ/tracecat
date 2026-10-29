@@ -147,9 +147,18 @@ SEARCH_POLICY_TABLES = frozenset(
         "search_chunk",
     }
 )
+# Managed rollout state: tenant sessions may only read their workspace's rows;
+# writes require the RLS-bypass session that platform rollouts use.
+READ_ONLY_WORKSPACE_POLICY_TABLES = frozenset(
+    {"managed_resource", "managed_target", "managed_reference_match"}
+)
 # group_member.organization_id is a nullable denormalization for the membership
 # foreign key; the table is governed by its parent group's policy.
-SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"}) | SEARCH_POLICY_TABLES
+SPECIAL_WORKSPACE_POLICY_TABLES = (
+    frozenset({"oauth_state"})
+    | SEARCH_POLICY_TABLES
+    | READ_ONLY_WORKSPACE_POLICY_TABLES
+)
 SPECIAL_ORG_POLICY_TABLES = (
     frozenset({"workspace", "scope", "agent_catalog", "group_member"})
     | SEARCH_POLICY_TABLES
@@ -413,6 +422,42 @@ def enable_agent_catalog_table_rls() -> str:
 
 def disable_service_account_child_table_rls(table: str) -> str:
     return f"""
+        DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
+        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def _workspace_read_policy(table: str) -> str:
+    return f"{policy_name(table)}_workspace_read"
+
+
+def enable_workspace_read_only_table_rls(table: str) -> str:
+    # Split policy, as for agent_catalog: the FOR ALL policy admits only the
+    # RLS-bypass session, so tenant sessions cannot insert, update or delete.
+    # The additive FOR SELECT policy lets a tenant read its workspace's rows.
+    return f"""
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name(table)} ON "{table}"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+            );
+
+        CREATE POLICY {_workspace_read_policy(table)} ON "{table}"
+            FOR SELECT
+            USING (
+                workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+            );
+    """
+
+
+def disable_workspace_read_only_table_rls(table: str) -> str:
+    return f"""
+        DROP POLICY IF EXISTS {_workspace_read_policy(table)} ON "{table}";
         DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """

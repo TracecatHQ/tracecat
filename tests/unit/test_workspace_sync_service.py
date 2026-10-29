@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import httpx
 import pytest
 import respx
-from github.GithubException import GithubException
+from github.GithubException import GithubException, RateLimitExceededException
 
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat.auth.types import Role
@@ -2332,6 +2332,183 @@ async def test_github_list_branches_includes_default_beyond_limit(
         )
 
     assert [(b.name, b.is_default) for b in branches] == expected
+
+
+_TAG_URL = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+
+
+def _gh_commit(oid: str, date: str) -> dict[str, Any]:
+    return {"__typename": "Commit", "oid": oid, "committedDate": date}
+
+
+def _gh_refs_page(
+    nodes: list[dict[str, Any]], *, end_cursor: str | None = None
+) -> dict[str, Any]:
+    page_info = {"hasNextPage": end_cursor is not None, "endCursor": end_cursor}
+    return {"data": {"repository": {"refs": {"pageInfo": page_info, "nodes": nodes}}}}
+
+
+def _github_graphql_service(gh: Mock) -> AsyncMock:
+    gh_service = AsyncMock()
+    gh_service.get_github_client_for_repo.return_value = gh
+    return gh_service
+
+
+@pytest.mark.anyio
+async def test_github_list_tags_pages_one_graphql_query_per_page(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    gh = Mock()
+    gh.requester.graphql_query.side_effect = [
+        (
+            {},
+            _gh_refs_page(
+                [
+                    # Annotated: dated by the tagger.
+                    {
+                        "name": "v3",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": {"date": "2026-03-02T00:00:00Z"},
+                            "target": _gh_commit("c" * 40, "2026-03-01T00:00:00Z"),
+                        },
+                    },
+                    # Annotated with no tagger: falls back to the commit date.
+                    {
+                        "name": "v2",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": None,
+                            "target": _gh_commit("b" * 40, "2026-02-01T00:00:00Z"),
+                        },
+                    },
+                ],
+                end_cursor="Y3Vyc29yOjI=",
+            ),
+        ),
+        (
+            {},
+            _gh_refs_page(
+                [
+                    {
+                        "name": "v1",
+                        "target": _gh_commit("a" * 40, "2026-01-01T00:00:00Z"),
+                    },
+                    # A tag on a tree, and a chain deeper than the query
+                    # follows (its innermost target has no fields), are skipped.
+                    {"name": "tree", "target": {"__typename": "Tree"}},
+                    {
+                        "name": "too-deep",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": {"date": "2026"},
+                            "target": {"__typename": "Tag"},
+                        },
+                    },
+                ]
+            ),
+        ),
+    ]
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=_github_graphql_service(gh),
+    ):
+        first, cursor = await transport.list_tags(url=_TAG_URL, limit=2)
+        second, last_cursor = await transport.list_tags(
+            url=_TAG_URL, limit=2, cursor=cursor
+        )
+
+    assert [(t.name, t.commit_sha, t.date) for t in [*first, *second]] == [
+        ("v3", "c" * 40, "2026-03-02T00:00:00Z"),
+        ("v2", "b" * 40, "2026-02-01T00:00:00Z"),
+        ("v1", "a" * 40, "2026-01-01T00:00:00Z"),
+    ]
+    assert (cursor, last_cursor) == ("Y3Vyc29yOjI=", None)
+    calls = gh.requester.graphql_query.call_args_list
+    assert [call.args[1] for call in calls] == [
+        {"owner": "TracecatHQ", "name": "sync", "first": 2, "after": None},
+        {"owner": "TracecatHQ", "name": "sync", "first": 2, "after": "Y3Vyc29yOjI="},
+    ]
+    assert "orderBy: {field: TAG_COMMIT_DATE, direction: DESC}" in calls[0].args[0]
+    assert gh.close.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_github_list_tags_follows_a_two_level_tag_chain(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    chained = {
+        "name": "release",
+        "target": {
+            "__typename": "Tag",
+            "tagger": {"date": "2026-05-02T00:00:00Z"},
+            "target": {
+                "__typename": "Tag",
+                "tagger": {"date": "2026-05-01T00:00:00Z"},
+                "target": _gh_commit("e" * 40, "2026-04-01T00:00:00Z"),
+            },
+        },
+    }
+    gh = Mock()
+    gh.requester.graphql_query.return_value = ({}, _gh_refs_page([chained]))
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=_github_graphql_service(gh),
+    ):
+        tags, _cursor = await transport.list_tags(url=_TAG_URL)
+
+    # Peeled to the commit, dated by the outermost tagger.
+    assert [(t.name, t.commit_sha, t.date) for t in tags] == [
+        ("release", "e" * 40, "2026-05-02T00:00:00Z")
+    ]
+    query = gh.requester.graphql_query.call_args.args[0]
+    assert query.count("... on Tag") == 3
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (GithubException(502, "bad gateway"), 502),
+        # Primary GraphQL limits arrive as HTTP 200 + RATE_LIMITED; PyGithub
+        # raises them as 400, which must not look like a bad request.
+        (
+            GithubException(
+                400, {"errors": [{"type": "RATE_LIMITED", "message": "limited"}]}
+            ),
+            429,
+        ),
+        # Secondary limits arrive as 403s.
+        (RateLimitExceededException(403, {"message": "secondary rate limit"}), 429),
+    ],
+)
+async def test_github_list_tags_reports_upstream_status(
+    workspace_sync_service: WorkspaceSyncService,
+    error: GithubException,
+    expected_status: int,
+) -> None:
+    gh = Mock()
+    gh.requester.graphql_query.side_effect = error
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+    with (
+        patch(
+            "tracecat.workspace_sync.transport.GitHubAppService",
+            return_value=_github_graphql_service(gh),
+        ),
+        pytest.raises(GitHubAppError) as exc,
+    ):
+        await transport.list_tags(url=_TAG_URL)
+    assert exc.value.status_code == expected_status
 
 
 _ARCHIVE_URL = "https://codeload.github.com/TracecatHQ/sync/legacy.tar.gz/archive"

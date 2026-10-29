@@ -6200,6 +6200,24 @@ export type GitSettingsUpdate = {
 }
 
 /**
+ * Git tag information for repository management.
+ */
+export type GitTagInfo = {
+  /**
+   * Tag name
+   */
+  name: string
+  /**
+   * SHA of the commit the tag points to (SHA-1 or SHA-256)
+   */
+  commit_sha: string
+  /**
+   * Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.
+   */
+  date: string
+}
+
+/**
  * A single graph operation.
  */
 export type GraphOperation = {
@@ -7410,6 +7428,33 @@ export type status6 =
   | "superseded"
 
 /**
+ * The workspace managed resources are published from, and its Git binding.
+ */
+export type ManagedSourceRead = {
+  workspace_id: string
+  organization_id: string
+  git_provider: VcsProvider
+  git_repo_url: string
+}
+
+/**
+ * The managed resources source setting; ``source`` is null when unset.
+ */
+export type ManagedSourceSettingRead = {
+  source?: ManagedSourceRead | null
+}
+
+/**
+ * Set the managed resources source.
+ *
+ * The workspace must have a Git sync provider and repository URL; both are
+ * pinned with the setting.
+ */
+export type ManagedSourceUpdate = {
+  workspace_id: string
+}
+
+/**
  * Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.
  */
 export type ManagedTunnelCreate = {
@@ -7930,6 +7975,18 @@ export type Page_ExternalGroupMappingRead_ = {
 
 export type Page_ExternalGroupRead_ = {
   items: Array<ExternalGroupRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_GitTagInfo_ = {
+  items: Array<GitTagInfo>
   /**
    * Next-page cursor
    */
@@ -16169,6 +16226,23 @@ export type WatchtowerEnableWatchtowerAgentData = {
 
 export type WatchtowerEnableWatchtowerAgentResponse = void
 
+export type AdminGetSourceResponse = ManagedSourceSettingRead
+
+export type AdminSetSourceData = {
+  requestBody: ManagedSourceUpdate
+}
+
+export type AdminSetSourceResponse = ManagedSourceRead
+
+export type AdminClearSourceResponse = void
+
+export type AdminListSourceTagsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type AdminListSourceTagsResponse = Page_GitTagInfo_
+
 export type AdminListOrganizationsResponse =
   Array<tracecat_ee__admin__organizations__schemas__OrgRead>
 
@@ -23252,6 +23326,52 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/source": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedSourceSettingRead
+      }
+    }
+    put: {
+      req: AdminSetSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/admin/managed-resources/source/tags": {
+    get: {
+      req: AdminListSourceTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_GitTagInfo_
         /**
          * Validation Error
          */
