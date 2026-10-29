@@ -4057,6 +4057,17 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first()
 
+    async def get_mcp_integrations(
+        self, mcp_integration_ids: Iterable[uuid.UUID]
+    ) -> Sequence[MCPIntegration]:
+        """Get the MCP integrations with these IDs in this workspace."""
+        statement = select(MCPIntegration).where(
+            MCPIntegration.id.in_(list(mcp_integration_ids)),
+            MCPIntegration.workspace_id == self.workspace_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
     async def _probe_mcp_http_server(
         self, mcp_integration: MCPIntegration
     ) -> list[MCPToolSummary]:

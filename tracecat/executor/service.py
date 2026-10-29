@@ -786,16 +786,22 @@ async def resolve_shared_action_context(
     provenance = build_provenance(task.args) if action_impl.type == "template" else None
     collected = collect_expressions(argument_plan.evaluable)
 
-    # Fetch secrets and variables
-    resolved_secrets = await secrets_manager.resolve_action_secrets(
-        secret_exprs=collected.secrets, action_secrets=action_secrets
+    # Template steps read VARS the caller's args don't show, and parsing every
+    # step expression per run costs more than the fetch, so templates load all.
+    variable_names = None if action_impl.type == "template" else collected.variables
+
+    # Fetch secrets and variables concurrently; each opens its own session.
+    resolved_secrets, workspace_variables = await asyncio.gather(
+        secrets_manager.resolve_action_secrets(
+            secret_exprs=collected.secrets, action_secrets=action_secrets
+        ),
+        get_workspace_variables(
+            variable_exprs=variable_names,
+            environment=input.run_context.environment,
+            role=role,
+        ),
     )
     secrets = resolved_secrets.values
-    workspace_variables = await get_workspace_variables(
-        variable_exprs=collected.variables,
-        environment=input.run_context.environment,
-        role=role,
-    )
 
     # Derive masks from the raw secrets before they can reach an exception.
     early_mask_values = (
@@ -1337,11 +1343,24 @@ def flatten_wrapped_exc_error_group(
 
 
 async def get_workspace_variables(
-    variable_exprs: set[str],
+    variable_exprs: set[str] | None,
     *,
     environment: str | None = None,
     role: Role | None = None,
 ) -> dict[str, dict[str, str]]:
+    """Fetch workspace variables by name.
+
+    Args:
+        variable_exprs: Variable names to fetch. None fetches every variable;
+            an empty set fetches none and skips the database.
+        environment: Variable environment to read from.
+        role: Role to read the variables as.
+
+    Returns:
+        Variable values keyed by variable name.
+    """
+    if variable_exprs is not None and not variable_exprs:
+        return {}
     try:
         async with VariablesService.with_session(role=role) as service:
             variables = await service.search_variables(

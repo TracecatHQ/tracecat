@@ -112,7 +112,8 @@ _TABLE_SQL = f"""CREATE TABLE public.{_TABLE} (
 )"""
 # The table is new and empty, so its indexes are built in the transaction
 # before the backfill needs them. Definitions use the unqualified operator
-# class that pg_get_indexdef() reports when public is on the search_path.
+# class that pg_get_indexdef() reports when pg_trgm's schema is on the
+# search_path.
 _TABLE_INDEXES = (
     (
         f"ix_{_TABLE}_workspace_id_word",
@@ -195,10 +196,24 @@ def _check_function(signature: str, body: str, attributes: str) -> bool:
     return True
 
 
-def _check_words_function() -> bool:
+def _trgm_schema() -> str | None:
+    """Return pg_trgm's schema as SQL: public, or ibm_extension on IBM Cloud."""
+    return op.get_bind().scalar(
+        sa.text(
+            "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'"
+        )
+    )
+
+
+def _in_trgm_schema(sql: str, trgm_schema: str) -> str:
+    """Point this revision's pg_trgm calls, written for public, at its schema."""
+    return sql.replace("public.show_trgm(", f"{trgm_schema}.show_trgm(")
+
+
+def _check_words_function(trgm_schema: str) -> bool:
     return _check_function(
         f"public.{_WORDS_FUNCTION}(text)",
-        _WORDS_BODY,
+        _in_trgm_schema(_WORDS_BODY, trgm_schema),
         "p.prorettype = 'text[]'::regtype AND l.lanname = 'sql' "
         "AND p.provolatile = 'i' AND p.proisstrict",
     )
@@ -249,7 +264,7 @@ def _check_trigger() -> bool:
 type _IndexState = Literal["absent", "invalid", "ready"]
 
 
-def _index_state(name: str, definition: str) -> _IndexState:
+def _index_state(name: str, definition: str, trgm_schema: str) -> _IndexState:
     """Return this revision's index state; raise on a same-named collision."""
     row = (
         op.get_bind()
@@ -266,8 +281,9 @@ def _index_state(name: str, definition: str) -> _IndexState:
     )
     if row is None:
         return "absent"
-    # The operator class is schema-qualified when public is not on search_path.
-    if row[0].replace(" public.gin_trgm_ops)", " gin_trgm_ops)") != definition:
+    # The operator class is schema-qualified when its schema is not on search_path.
+    qualified = f" {trgm_schema}.gin_trgm_ops)"
+    if row[0].replace(qualified, " gin_trgm_ops)") != definition:
         raise RuntimeError(
             f"Index public.{name} has an incompatible existing definition ({row[0]}); "
             "preserve it and resolve the name collision before retrying."
@@ -344,10 +360,12 @@ def _backfill() -> None:
 
 
 def upgrade() -> None:
-    if not op.get_bind().scalar(
-        sa.text("SELECT to_regprocedure('public.show_trgm(text)') IS NOT NULL")
+    trgm_schema = _trgm_schema()
+    if trgm_schema is None or not op.get_bind().scalar(
+        sa.text("SELECT to_regprocedure(:show_trgm) IS NOT NULL"),
+        {"show_trgm": f"{trgm_schema}.show_trgm(text)"},
     ):
-        raise RuntimeError("Case search word lists require pg_trgm in schema public.")
+        raise RuntimeError("Case search word lists require pg_trgm.")
     # Inspect every object before changing anything.
     columns = _column_types("public.case", ("summary_words", "description_words"))
     if any(value != "text[]" for value in columns.values()):
@@ -361,11 +379,11 @@ def upgrade() -> None:
             f"public.{_TABLE} has an incompatible definition ({table_columns}); "
             "preserve it and ask an operator to resolve the collision."
         )
-    words_exists = _check_words_function()
+    words_exists = _check_words_function(trgm_schema)
     function_exists = _check_trigger_function()
     trigger_exists = _check_trigger()
     states = {
-        name: _index_state(name, definition)
+        name: _index_state(name, definition, trgm_schema)
         for name, definition in (*_TABLE_INDEXES, *_WORD_INDEXES)
     }
 
@@ -389,10 +407,10 @@ def upgrade() -> None:
         op.execute(
             definition.replace(
                 "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1
-            ).replace(" gin_trgm_ops)", " public.gin_trgm_ops)")
+            ).replace(" gin_trgm_ops)", f" {trgm_schema}.gin_trgm_ops)")
         )
     if not words_exists:
-        op.execute(_WORDS_FUNCTION_SQL)
+        op.execute(_in_trgm_schema(_WORDS_FUNCTION_SQL, trgm_schema))
     if not function_exists:
         op.execute(_TRIGGER_FUNCTION_SQL)
     if not trigger_exists:
@@ -411,7 +429,7 @@ def upgrade() -> None:
                     "CREATE INDEX ", "CREATE INDEX CONCURRENTLY IF NOT EXISTS ", 1
                 )
             )
-            if _index_state(name, definition) != "ready":
+            if _index_state(name, definition, trgm_schema) != "ready":
                 raise RuntimeError(
                     f"Case search index public.{name} is not ready; retry the migration."
                 )
@@ -423,11 +441,12 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Called for their collision checks: never drop objects this revision
     # did not create.
-    _check_words_function()
+    trgm_schema = _trgm_schema() or "public"
+    _check_words_function(trgm_schema)
     _check_trigger_function()
     _check_trigger()
     for name, definition in _WORD_INDEXES:
-        _index_state(name, definition)
+        _index_state(name, definition, trgm_schema)
     with op.get_context().autocommit_block():
         for name, _ in reversed(_WORD_INDEXES):
             op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS public."{name}"')

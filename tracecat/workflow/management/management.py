@@ -1102,6 +1102,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         there, or its type changed) is skipped, so that action runs fresh.
         """
         stmt = select(Action).where(
+            Action.workspace_id == self.workspace_id,
             Action.workflow_id == WorkflowUUID.new(workflow_id),
             Action.locked_execution_id.is_not(None),
         )

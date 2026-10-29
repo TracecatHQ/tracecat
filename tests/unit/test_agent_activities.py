@@ -100,6 +100,7 @@ from tracecat.agent.tools import BuildToolsResult, create_tool_from_registry
 from tracecat.agent.types import AgentConfig, Tool
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.db.models import MCPIntegration
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -239,9 +240,14 @@ def _patch_preset_service(
     refs: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     service = MagicMock(spec=AgentPresetService)
-    service.resolve_mcp_integration_tool_policies = AsyncMock(return_value=policies)
-    service.resolve_mcp_integration_refs = AsyncMock(return_value=refs)
-    service.resolve_mcp_integration_secrets = AsyncMock(return_value=secrets or {})
+    service.load_mcp_integrations = AsyncMock(
+        side_effect=lambda ids: {i: MagicMock(spec=MCPIntegration, id=i) for i in ids}
+    )
+    service.mcp_tool_policies = MagicMock(return_value=policies)
+    service.mcp_integration_refs = MagicMock(return_value=refs)
+    service.resolve_loaded_mcp_integration_secrets = AsyncMock(
+        return_value=secrets or {}
+    )
     monkeypatch.setattr(AgentPresetService, "with_session", _async_ctx(service))
     return service
 
@@ -654,12 +660,11 @@ class TestBuildToolDefinitionsActivity:
         assert result.tool_approvals == {"mcp.Jira.getIssue": True}
         assert result.user_mcp_claims is not None
         assert result.user_mcp_claims[0].id == integration_id
-        preset_service.resolve_mcp_integration_tool_policies.assert_awaited_once_with(
-            [integration_id]
-        )
-        preset_service.resolve_mcp_integration_secrets.assert_awaited_once_with(
-            integration_id
-        )
+        # One workspace-scoped read serves policy, address and credentials.
+        preset_service.load_mcp_integrations.assert_awaited_once_with({integration_id})
+        preset_service.resolve_loaded_mcp_integration_secrets.assert_awaited_once()
+        (row,) = preset_service.resolve_loaded_mcp_integration_secrets.await_args.args
+        assert row.id == integration_id
         lock_service.resolve_lock_with_bindings.assert_awaited_once_with(set())
 
     @staticmethod
@@ -700,7 +705,7 @@ class TestBuildToolDefinitionsActivity:
 
         assert result.tool_definitions == {}
         assert not result.user_mcp_claims
-        preset_service.resolve_mcp_integration_tool_policies.assert_not_awaited()
+        preset_service.load_mcp_integrations.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_stdio_servers_compile_from_saved_tools_when_enabled(
@@ -766,7 +771,7 @@ class TestBuildToolDefinitionsActivity:
         assert [(c.name, c.id, c.url) for c in result.user_mcp_claims] == [
             ("files", integration_id, None)
         ]
-        preset_service.resolve_mcp_integration_secrets.assert_not_awaited()
+        preset_service.resolve_loaded_mcp_integration_secrets.assert_not_awaited()
 
     @pytest.mark.anyio
     @pytest.mark.parametrize("strict", [False, True])

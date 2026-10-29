@@ -1,8 +1,9 @@
 from collections.abc import AsyncGenerator
+from typing import Any
 
 import pytest
 import yaml
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -131,6 +132,119 @@ async def test_get_definition_falls_back_to_latest_when_current_version_missing(
     )
     assert null_pointer_result is not None
     assert null_pointer_result.id == version_two.id
+
+
+async def _count_definition_lookup_statements(
+    session: AsyncSession,
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    **kwargs: Any,
+) -> int:
+    """Count SQL statements one definition lookup sends from a cold session."""
+    session.expunge_all()
+    statements: list[str] = []
+
+    def record(*args: Any) -> None:
+        statements.append(args[2])
+
+    connection = (await session.connection()).sync_connection
+    assert connection is not None
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        defn = await definitions_service.get_definition_by_workflow_id(
+            workflow_id, **kwargs
+        )
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+    assert defn is not None
+    # Leave no loaded copy behind to clash with the fixture's workflow teardown.
+    session.expunge_all()
+    return len(statements)
+
+
+@pytest.mark.anyio
+async def test_get_definition_without_relationships_is_one_statement(
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    session: AsyncSession,
+):
+    """Run and case-trigger lookups skip the workflow's always-on selectins."""
+    await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id, dsl=_dsl_input("v1"), commit=True
+    )
+
+    full = await _count_definition_lookup_statements(
+        session, definitions_service, workflow_id
+    )
+    bare = await _count_definition_lookup_statements(
+        session, definitions_service, workflow_id, load_relationships=False
+    )
+    with_workflow = await _count_definition_lookup_statements(
+        session,
+        definitions_service,
+        workflow_id,
+        load_relationships=False,
+        load_workflow=True,
+    )
+
+    # Definition, workflow, then the workflow's actions, webhook, case trigger
+    # and schedules selectins.
+    assert full == 6
+    assert bare == 1
+    assert with_workflow == 1
+
+
+@pytest.mark.anyio
+async def test_get_definition_load_workflow_reads_version_in_one_query(
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    session: AsyncSession,
+):
+    """The case-trigger consumer compares versions without extra round trips."""
+    created = await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id, dsl=_dsl_input("v1"), commit=True
+    )
+    workflow = await session.scalar(select(Workflow).where(Workflow.id == workflow_id))
+    assert workflow is not None
+    workflow.version = created.version
+    await session.commit()
+    session.expunge_all()
+
+    defn = await definitions_service.get_definition_by_workflow_id(
+        workflow_id, load_relationships=False, load_workflow=True
+    )
+
+    assert defn is not None
+    assert defn.workflow.version == created.version
+    session.expunge_all()
+
+
+@pytest.mark.anyio
+async def test_get_definition_refuses_other_workspace(
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    session: AsyncSession,
+    svc_workspace: Workspace,
+):
+    """Skipping relationships keeps the workspace predicate on the lookup."""
+    await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id, dsl=_dsl_input("v1"), commit=True
+    )
+    other = Workspace(name="other", organization_id=svc_workspace.organization_id)
+    session.add(other)
+    await session.commit()
+    other_service = WorkflowDefinitionsService(
+        session=session,
+        role=definitions_service.role.model_copy(update={"workspace_id": other.id}),
+    )
+
+    for kwargs in ({}, {"load_workflow": True}):
+        assert (
+            await other_service.get_definition_by_workflow_id(
+                workflow_id, load_relationships=False, **kwargs
+            )
+            is None
+        )
 
 
 @pytest.mark.anyio
