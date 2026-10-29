@@ -15,6 +15,11 @@ from tracecat.registry.repositories.schemas import (
 )
 from tracecat.sync import CommitInfo, PushStatus
 from tracecat.workspace_sync.enums import VcsProvider
+from tracecat.workspace_sync.tags import (
+    TAG_PAGE_MAX,
+    decode_tag_cursor,
+    encode_tag_cursor,
+)
 from tracecat.workspace_sync.transport import (
     VcsSyncTransport,
     VcsTreeSnapshot,
@@ -179,9 +184,11 @@ class FakeVcsTransport:
         limit: int = 100,
         cursor: str | None = None,
     ) -> tuple[list[GitTagInfo], str | None]:
-        """Page tags newest commit first; the cursor is the next offset."""
+        """Page tags newest commit first, with the real providers' cursor rules."""
         if limit <= 0:
             return [], None
+        page_size = min(limit, TAG_PAGE_MAX)
+        start = decode_tag_cursor(cursor, page_size=page_size, first=0)
         repo = self._server._repo(url)
         # Commit SHAs come from a counter, so they break created_at ties in order.
         ordered = sorted(
@@ -189,8 +196,7 @@ class FakeVcsTransport:
             key=lambda item: (repo._commits[item[1]].created_at, item[1], item[0]),
             reverse=True,
         )
-        start = int(cursor) if cursor else 0
-        end = start + limit
+        end = start + page_size
         tags = [
             GitTagInfo(
                 name=name,
@@ -199,7 +205,8 @@ class FakeVcsTransport:
             )
             for name, sha in ordered[start:end]
         ]
-        return tags, str(end) if end < len(ordered) else None
+        next_cursor = encode_tag_cursor(end, page_size) if end < len(ordered) else None
+        return tags, next_cursor
 
 
 class _FakeRepo:

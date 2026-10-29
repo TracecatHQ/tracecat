@@ -539,7 +539,7 @@ async def test_malformed_payloads_are_provider_errors():
         with pytest.raises(BitbucketError, match="invalid BitbucketRepository"):
             await transport._model(client, repo, BitbucketRepository)
         with pytest.raises(BitbucketError, match="invalid page"):
-            await transport._page(client, f"{repo}/refs/tags")
+            await transport._cloud_page(client, f"{repo}/refs/tags")
 
 
 @pytest.mark.anyio

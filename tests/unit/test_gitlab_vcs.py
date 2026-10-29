@@ -29,11 +29,14 @@ from tracecat.sync import PushStatus
 from tracecat.vcs.gitlab.app import (
     GITLAB_TOKEN_SECRET_NAME,
     GitLabApiError,
+    GitLabError,
     GitLabTokenService,
 )
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
+from tracecat.vcs.gitlab.types import GitLabBranch
 from tracecat.workspace_sync.schemas import MANIFEST_FILENAME, WorkspaceManifest
 from tracecat.workspace_sync.serialization import canonical_json_text
+from tracecat.workspace_sync.tags import encode_tag_cursor
 from tracecat.workspace_sync.transport import GitLabWorkspaceSyncTransport
 
 type _FileContent = str | bytes
@@ -532,6 +535,38 @@ async def test_gitlab_list_tags_rejects_foreign_cursors() -> None:
     with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
         await transport.list_tags(url=_git_url(), limit=2, cursor="not-a-cursor")
     assert await transport.list_tags(url=_git_url(), limit=0) == ([], None)
+    # The effective page size is min(limit, 100), so any limit over 100 can
+    # follow a cursor issued at 100.
+    issued_at_100 = encode_tag_cursor(2, 100)
+    assert await transport.list_tags(
+        url=_git_url(), limit=150, cursor=issued_at_100
+    ) == ([], None)
+
+
+@pytest.mark.anyio
+async def test_gitlab_list_ignores_next_page_header_once_limit_is_met() -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[{"name": "main", "default": True}],
+            headers={"x-next-page": "not-a-number"},
+        )
+
+    transport = _MockGitLabTransport(api=_tagged_gitlab_api())
+    async with httpx.AsyncClient(
+        base_url="https://gitlab.example.test/api/v4",
+        transport=httpx.MockTransport(respond),
+    ) as client:
+        # Limit met: the malformed header is never parsed.
+        branches = await transport._gitlab_list(
+            client, "/projects/x/repository/branches", model=GitLabBranch, limit=1
+        )
+        assert [b.name for b in branches] == ["main"]
+        # Another page needed: the malformed header is an error.
+        with pytest.raises(GitLabError, match="pagination"):
+            await transport._gitlab_list(
+                client, "/projects/x/repository/branches", model=GitLabBranch
+            )
 
 
 @pytest.mark.anyio

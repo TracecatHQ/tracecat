@@ -28,6 +28,7 @@ from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.service import WorkspaceSyncService
+from tracecat.workspaces.schemas import WorkspaceSettingsRead
 
 MANAGED_RESOURCES_SOURCE_KEY = "managed_resources_source"
 """Platform setting key holding a :class:`ManagedSourceSetting` JSON object."""
@@ -102,30 +103,26 @@ async def load_managed_source(
     )
     if workspace is None:
         raise TracecatNotFoundError("Workspace not found")
-    # Settings are JSONB, so a malformed row can hold a non-object value or a
-    # non-string URL despite the column's type.
-    settings: object = workspace.settings or {}
-    if not isinstance(settings, dict):
-        raise TracecatValidationError("The source workspace's settings are malformed")
-    raw_provider = settings.get("git_provider")
-    repo_url = settings.get("git_repo_url")
-    if not raw_provider or not isinstance(repo_url, str) or not repo_url:
+    # Settings are JSONB, so a malformed row can hold anything; parse it with
+    # the same schema the workspace API reads it with.
+    try:
+        settings = WorkspaceSettingsRead.model_validate(workspace.settings or {})
+    except PydanticValidationError as e:
+        raise TracecatValidationError(
+            "The source workspace's settings are malformed"
+        ) from e
+    # Require an explicit provider rather than for_workspace's GitHub fallback,
+    # so the pinned binding names the provider that will actually be used.
+    if settings.git_provider is None or not settings.git_repo_url:
         raise TracecatValidationError(
             "The source workspace must have both a Git provider and a Git "
             "repository URL configured"
         )
-    try:
-        provider = VcsProvider(raw_provider)
-    except ValueError as e:
-        raise TracecatValidationError(
-            f"Unsupported Git provider configured for the source workspace: "
-            f"{raw_provider}"
-        ) from e
     return ManagedSource(
         workspace_id=workspace.id,
         organization_id=workspace.organization_id,
-        git_provider=provider,
-        git_repo_url=repo_url,
+        git_provider=settings.git_provider,
+        git_repo_url=settings.git_repo_url,
     )
 
 

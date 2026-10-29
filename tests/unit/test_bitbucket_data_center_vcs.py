@@ -1,5 +1,6 @@
 """Data Center API and credential contracts; shared sync uses FakeVcsServer."""
 
+import base64
 import json
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -363,8 +364,8 @@ async def test_list_tags_pages_by_start_and_dates_each_commit_once():
         ],
         [("v1", "2026-01-01T00:00:00+00:00")],
     ]
-    # The cursor is the next start offset.
-    assert cursors == ["3", None]
+    # The opaque cursor carries the next start offset.
+    assert cursors[0] is not None and cursors[1] is None
     assert [r.url.params["start"] for r in server.tag_requests] == ["0", "3"]
     assert {r.url.params["orderBy"] for r in server.tag_requests} == {"MODIFICATION"}
     # v2 and v2-alias share a commit, so it is read once.
@@ -374,12 +375,24 @@ async def test_list_tags_pages_by_start_and_dates_each_commit_once():
     await transport.list_tags(url=DC_URL, limit=500)
     assert server.tag_requests[-1].url.params["limit"] == "100"
     requests_before = len(server.tag_requests)
-    # Over 4300 digits, int() itself raises a plain ValueError (a 500), so long
-    # cursors are rejected before parsing.
-    for cursor in ("-1", "1" * 19, "9" * 5000, "٣"):
+    # An offset only means something at the page size that issued it.
+    with pytest.raises(TracecatValidationError, match="different page size"):
+        await transport.list_tags(url=DC_URL, limit=2, cursor=cursors[0])
+    huge = base64.urlsafe_b64encode(
+        f'{{"position": {"9" * 5000}, "page_size": 3}}'.encode()
+    ).decode()
+    for cursor in ("-1", "3", huge):
         with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
-            await transport.list_tags(url=DC_URL, cursor=cursor)
+            await transport.list_tags(url=DC_URL, limit=3, cursor=cursor)
     assert len(server.tag_requests) == requests_before
+
+
+@pytest.mark.anyio
+async def test_data_center_never_pages_by_cloud_next_links():
+    transport = _MockDataCenterTransport(_TagServer([]).respond)
+    async with httpx.AsyncClient(base_url="https://example.test/") as client:
+        with pytest.raises(NotImplementedError, match="_page_at"):
+            await transport._cloud_page(client, "projects/DEMO/repos/sync/tags")
 
 
 @pytest.mark.anyio

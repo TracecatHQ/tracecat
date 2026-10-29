@@ -60,6 +60,9 @@ class AdminManagedResourcesService(BasePlatformService):
         """
         source = await load_managed_source(self.session, params.workspace_id)
         value = ManagedSourceSetting.pin(source).model_dump_json().encode()
+        # Not AdminSettingsService._upsert_setting: that is a select-then-write
+        # and handles encryption. This value is not sensitive, so it is stored
+        # unencrypted with one atomic Postgres upsert instead.
         stmt = pg_insert(PlatformSetting).values(
             key=MANAGED_RESOURCES_SOURCE_KEY,
             value=value,
@@ -120,9 +123,4 @@ class AdminManagedResourcesService(BasePlatformService):
 
 
 def _source_read(source: ManagedSource) -> ManagedSourceRead:
-    return ManagedSourceRead(
-        workspace_id=source.workspace_id,
-        organization_id=source.organization_id,
-        git_provider=source.git_provider,
-        git_repo_url=source.git_repo_url,
-    )
+    return ManagedSourceRead.model_validate(source, from_attributes=True)
