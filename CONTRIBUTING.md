@@ -84,7 +84,8 @@ test@tracecat.com / password1234
 
 You can then access the application at http://localhost:80.
 
-`just cluster` runs a lite stack by default (`docker-compose.dev.yml` plus
+`just cluster` runs a lite stack by default (`docker-compose.dev.yml`,
+`docker-compose.sandbox.yml` unless you pass `--no-sandbox`, and
 `docker-compose.lite.yml`) so several worktree stacks fit on a laptop:
 
 - Temporal runs as the single-binary dev server, with its UI on the usual
@@ -93,7 +94,7 @@ You can then access the application at http://localhost:80.
   Turn them on with `--with`, for example
   `just cluster up -d --with agents,mcp,workspace-sync`. The `agents` profile
   starts LiteLLM, the agent worker, and the agent executor.
-- Services have memory caps.
+- Core services have memory caps; the opt-in services above do not.
 
 Use `just cluster up -d --full` for the complete stack, the same services the
 production compose file runs. Lite mode keeps Temporal history in its own
