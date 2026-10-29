@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Create follow up
+  title: Create follow-up
   description: >-
     Create a new incident follow-up. Calls POST /v3/follow_ups directly. Requires API key scope:
     follow_ups.create.

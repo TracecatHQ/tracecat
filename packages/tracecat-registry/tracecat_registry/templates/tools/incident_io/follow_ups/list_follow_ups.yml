@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: List follow ups
+  title: List follow-ups
   description: >-
     List follow-ups for an organisation. Calls GET /v3/follow_ups directly. Requires API key
     scope: actions.view.

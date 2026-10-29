@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Update follow up
+  title: Update follow-up
   description: >-
     Update an existing incident follow-up. Calls PUT /v3/follow_ups/{id} directly. Requires API
     key scope: follow_ups.update.

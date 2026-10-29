@@ -40,6 +40,104 @@ Default: `null`.
 
 </ParamField>
 
+## Connect follow-up external issue
+
+Action ID: `tools.incident_io.connect_follow_up_external_issue`
+
+Connect a follow-up to an existing issue in an issue tracker, using the URL of the issue. Calls POST /v3/follow_ups/&#123;id&#125;/actions/connect_external_issue directly. Requires API key scope: follow_ups.connect_external_issue.
+
+Reference: [https://docs.incident.io/api-reference/follow-ups-v3/connect-external-issue](https://docs.incident.io/api-reference/follow-ups-v3/connect-external-issue)
+
+### Secrets
+
+Required secrets:
+
+- `incident_io`: required values `INCIDENT_IO_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+Unique identifier for the follow-up
+
+</ParamField>
+
+<ParamField path="provider" type="string" required>
+
+The issue tracker provider the issue belongs to. Allowed values: `asana`, `azure_devops`, `click_up`, `freshservice`, `linear`, `jira`, `salesforce`, `jira_server`, `github`, `gitlab`, `service_now`, `shortcut`, `notion`.
+
+</ParamField>
+
+<ParamField path="url" type="string" required>
+
+URL of the issue in the external provider
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+incident.io API base URL.
+
+Default: `null`.
+
+</ParamField>
+
+## Connect incident external issue
+
+Action ID: `tools.incident_io.connect_incident_external_issue`
+
+Connect an existing issue in an issue tracker to an incident, as its external issue. Calls POST /v2/incidents/&#123;id&#125;/actions/connect_external_issue directly.
+
+Reference: [https://docs.incident.io/api-reference/incidents-v2/connect-external-issue](https://docs.incident.io/api-reference/incidents-v2/connect-external-issue)
+
+### Secrets
+
+Required secrets:
+
+- `incident_io`: required values `INCIDENT_IO_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The unique identifier of the incident
+
+</ParamField>
+
+<ParamField path="issue_template_id" type="string" required>
+
+ID of the incident ticket template to sync the issue with
+
+</ParamField>
+
+<ParamField path="provider" type="string" required>
+
+The issue tracker provider the issue belongs to. It must match the provider of the incident ticket template. Allowed values: `asana`, `azure_devops`, `click_up`, `freshservice`, `linear`, `jira`, `salesforce`, `jira_server`, `github`, `gitlab`, `service_now`, `shortcut`, `notion`.
+
+</ParamField>
+
+<ParamField path="url" type="string" required>
+
+URL of the issue in the issue tracker
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+incident.io API base URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="replace" type="boolean | null">
+
+Whether to replace the incident's current external issue, if it has a different one
+
+Default: `null`.
+
+</ParamField>
+
 ## Create action
 
 Action ID: `tools.incident_io.create_action`
@@ -152,7 +250,7 @@ Default: `null`.
 
 </ParamField>
 
-## Create follow up
+## Create follow-up
 
 Action ID: `tools.incident_io.create_follow_up`
 
@@ -1628,7 +1726,7 @@ Default: `null`.
 
 </ParamField>
 
-## List follow ups
+## List follow-ups
 
 Action ID: `tools.incident_io.list_follow_ups`
 
@@ -2536,7 +2634,7 @@ Default: `null`.
 
 </ParamField>
 
-## Update follow up
+## Update follow-up
 
 Action ID: `tools.incident_io.update_follow_up`
 
