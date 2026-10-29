@@ -36,6 +36,13 @@ class ManagedResourceRead(BaseModel):
         default=None,
         description="For a workflow, its short ``wf_`` id, as workflow APIs return it.",
     )
+    package_skill_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        description=(
+            "For an agent preset, the skills the package binds to it. They "
+            "cannot be removed; skills the customer added can."
+        ),
+    )
 
 
 class DetachedCopyRead(BaseModel):

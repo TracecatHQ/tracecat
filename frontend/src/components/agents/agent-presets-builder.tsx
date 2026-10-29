@@ -2311,6 +2311,12 @@ function AgentPresetRail({
   readOnly?: boolean
 }) {
   const subagents = useWatch({ control: form.control, name: "subagents" })
+  const { getManaged } = useManagedResources(workspaceId)
+  // The package's own skills stay bound to a managed preset; only skills the
+  // customer added can be removed.
+  const packageSkillIds = readOnly
+    ? (getManaged("agent_preset", preset?.id)?.package_skill_ids ?? [])
+    : []
   const savedSkillIds = preset
     ? (preset.skills ?? []).map((skill) => skill.skill_id)
     : undefined
@@ -2459,6 +2465,7 @@ function AgentPresetRail({
                     isSaving={isSaving}
                     skillFields={skillFields}
                     savedBindings={preset?.skills}
+                    lockedSkillIds={packageSkillIds}
                     onAddSkillBinding={onAddSkillBinding}
                     onRemoveSkillBinding={onRemoveSkillBinding}
                   />
@@ -3340,6 +3347,7 @@ export function AgentPresetSkillsPanel({
   isSaving,
   skillFields,
   savedBindings,
+  lockedSkillIds = [],
   onAddSkillBinding,
   onRemoveSkillBinding,
 }: {
@@ -3348,6 +3356,8 @@ export function AgentPresetSkillsPanel({
   isSaving: boolean
   skillFields: Array<{ id: string }>
   savedBindings?: AgentPresetRead["skills"]
+  /** Skills that cannot be removed: a managed preset's package skills. */
+  lockedSkillIds?: string[]
   onAddSkillBinding: (binding: SkillBindingFormValue) => void
   onRemoveSkillBinding: (index: number) => void
 }) {
@@ -3480,6 +3490,9 @@ export function AgentPresetSkillsPanel({
                 savedBinding={savedBindings?.find(
                   (binding) =>
                     binding.skill_id === selectedSkills[index]?.skillId
+                )}
+                locked={lockedSkillIds.includes(
+                  selectedSkills[index]?.skillId ?? ""
                 )}
                 onRemove={onRemoveSkillBinding}
               />
@@ -3636,6 +3649,7 @@ function AgentPresetSkillBindingRow({
   isSaving,
   availableSkills,
   savedBinding,
+  locked = false,
   onRemove,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
@@ -3644,6 +3658,8 @@ function AgentPresetSkillBindingRow({
   isSaving: boolean
   availableSkills: SkillReadMinimal[]
   savedBinding?: NonNullable<AgentPresetRead["skills"]>[number]
+  /** The package binds this skill to a managed preset, so it stays. */
+  locked?: boolean
   onRemove: (index: number) => void
 }) {
   const selectedSkillId = form.watch(`skills.${index}.skillId`)
@@ -3697,9 +3713,18 @@ function AgentPresetSkillBindingRow({
         variant="ghost"
         size="icon"
         className={RAIL_REMOVE_BUTTON}
-        onClick={() => onRemove(index)}
-        disabled={isSaving}
-        aria-label={`Remove ${displaySkillName}`}
+        onClick={() => {
+          if (!locked) {
+            onRemove(index)
+          }
+        }}
+        disabled={isSaving || locked}
+        aria-label={
+          locked
+            ? `${displaySkillName} comes from the package and cannot be removed`
+            : `Remove ${displaySkillName}`
+        }
+        title={locked ? "Comes from the package" : undefined}
       >
         <X className="size-3" />
       </Button>

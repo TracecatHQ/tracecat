@@ -7546,6 +7546,10 @@ export type ManagedResourceRead = {
    * For a workflow, its short ``wf_`` id, as workflow APIs return it.
    */
   workflow_id?: string | null
+  /**
+   * For an agent preset, the skills the package binds to it. They cannot be removed; skills the customer added can.
+   */
+  package_skill_ids?: Array<string>
 }
 
 /**

@@ -3802,6 +3802,9 @@ export const workflowsPullWorkflows = (
 /**
  * List Managed Resources
  * List the workspace's managed resources, optionally of one type.
+ *
+ * Only resources of types the caller can read are listed, so a workflow
+ * reader sees managed workflows without needing ``workspace:read``.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.resourceType
@@ -3833,6 +3836,8 @@ export const managedResourcesListManagedResources = (
 /**
  * List Detached Copies
  * List copies made by detaching managed resources, for "detached from X".
+ *
+ * Only copies of types the caller can read are listed.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit

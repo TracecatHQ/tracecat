@@ -13,7 +13,12 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole, WorkspaceUserRou
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import CaseFields, ManagedDetachedCopy, ManagedResource
+from tracecat.db.models import (
+    CaseFields,
+    ManagedDetachedCopy,
+    ManagedPresetSkillBinding,
+    ManagedResource,
+)
 from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
@@ -27,6 +32,7 @@ from tracecat.managed_resources.schemas import (
     ManagedResourceRead,
 )
 from tracecat.pagination import Page, PageParams, PaginationError, paginate
+from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
 from tracecat.workspace_sync.enums import SyncResourceType
 
 router = APIRouter(prefix="/managed-resources", tags=["managed-resources"])
@@ -38,7 +44,6 @@ _Cursor = Annotated[str | None, Query(max_length=8192)]
 
 
 @router.get("", response_model=Page[ManagedResourceRead])
-@require_scope("workspace:read")
 async def list_managed_resources(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -46,14 +51,16 @@ async def list_managed_resources(
     limit: _Limit = config.TRACECAT__LIMIT_DEFAULT,
     cursor: _Cursor = None,
 ) -> Page[ManagedResourceRead]:
-    """List the workspace's managed resources, optionally of one type."""
+    """List the workspace's managed resources, optionally of one type.
+
+    Only resources of types the caller can read are listed, so a workflow
+    reader sees managed workflows without needing ``workspace:read``.
+    """
     stmt = select(ManagedResource).where(
         ManagedResource.workspace_id == role.workspace_id,
         # Registry repository ownership rows are org-level bookkeeping, not
-        # workspace resources the UI badges.
-        ManagedResource.resource_type.in_(
-            [resource_type.value for resource_type in SyncResourceType]
-        ),
+        # workspace resources the UI badges, so they are never listed.
+        ManagedResource.resource_type.in_(_readable_types(role)),
     )
     if resource_type is not None:
         stmt = stmt.where(ManagedResource.resource_type == resource_type.value)
@@ -64,12 +71,22 @@ async def list_managed_resources(
         (ManagedResource.resource_type.asc(), ManagedResource.local_id.asc()),
     )
     names = await _case_field_names(session, role)
+    package_skills = await _package_skill_ids(
+        session,
+        role,
+        [
+            row.local_id
+            for row in page.items
+            if row.resource_type == SyncResourceType.AGENT_PRESET.value
+        ],
+    )
     return Page(
         items=[
             ManagedResourceRead.model_validate(row, from_attributes=True).model_copy(
                 update={
                     "case_field_name": names.get(row.local_id),
                     "workflow_id": _workflow_id(row.resource_type, row.local_id),
+                    "package_skill_ids": package_skills.get(row.local_id, []),
                 }
             )
             for row in page.items
@@ -80,18 +97,21 @@ async def list_managed_resources(
 
 
 @router.get("/detached", response_model=Page[DetachedCopyRead])
-@require_scope("workspace:read")
 async def list_detached_copies(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     limit: _Limit = config.TRACECAT__LIMIT_DEFAULT,
     cursor: _Cursor = None,
 ) -> Page[DetachedCopyRead]:
-    """List copies made by detaching managed resources, for "detached from X"."""
+    """List copies made by detaching managed resources, for "detached from X".
+
+    Only copies of types the caller can read are listed.
+    """
     page = await _paginate(
         session,
         select(ManagedDetachedCopy).where(
-            ManagedDetachedCopy.workspace_id == role.workspace_id
+            ManagedDetachedCopy.workspace_id == role.workspace_id,
+            ManagedDetachedCopy.resource_type.in_(_readable_types(role)),
         ),
         PageParams(limit=limit, cursor=cursor),
         (ManagedDetachedCopy.created_at.desc(), ManagedDetachedCopy.id.asc()),
@@ -153,6 +173,41 @@ async def _paginate[T](
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=e.detail or str(e)
         ) from e
+
+
+def _readable_types(role: Role) -> list[str]:
+    """Resource types whose read scope the caller has."""
+    return [
+        adapter.resource_type.value
+        for adapter in WORKSPACE_RESOURCE_ADAPTERS
+        if adapter.read_scope is not None
+        and (role.scopes is None or has_scope(role.scopes, adapter.read_scope))
+    ]
+
+
+async def _package_skill_ids(
+    session: AsyncDBSession, role: Role, preset_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[uuid.UUID]]:
+    """Map each managed preset to the skills its package binds."""
+    if not preset_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(
+                ManagedPresetSkillBinding.preset_id,
+                ManagedPresetSkillBinding.skill_id,
+            )
+            .where(
+                ManagedPresetSkillBinding.workspace_id == role.workspace_id,
+                ManagedPresetSkillBinding.preset_id.in_(preset_ids),
+            )
+            .order_by(ManagedPresetSkillBinding.skill_id)
+        )
+    ).tuples()
+    by_preset: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for preset_id, skill_id in rows:
+        by_preset.setdefault(preset_id, []).append(skill_id)
+    return by_preset
 
 
 def _workflow_id(resource_type: str, local_id: uuid.UUID) -> str | None:

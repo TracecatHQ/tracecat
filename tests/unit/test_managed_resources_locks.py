@@ -70,6 +70,7 @@ from tracecat.managed_resources.presets import (
     with_customer_skill_bindings,
 )
 from tracecat.managed_resources.rollout import ManagedRolloutEngine
+from tracecat.managed_resources.router import list_managed_resources
 from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
 from tracecat.secrets.schemas import AwsSecretKeyMapping, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
@@ -208,6 +209,31 @@ async def _customer_skill(session: AsyncSession, role: Role) -> uuid.UUID:
     skill = await service.create_skill(SkillCreate(name="customer-notes"))
     await service.publish_skill(skill.id)
     return skill.id
+
+
+@pytest.mark.anyio
+async def test_managed_list_shows_readable_types_and_package_skills(
+    session: AsyncSession, seeded: Role
+) -> None:
+    # Each type needs its own read permission, not workspace:read, and a
+    # managed preset reports the skills its package binds.
+    preset, package_skills = await _managed_preset(session, seeded)
+    await _managed_workflow(session, seeded)
+    agent_reader = seeded.model_copy(update={"scopes": frozenset({"agent:read"})})
+
+    page = await list_managed_resources(
+        role=agent_reader, session=session, resource_type=None, limit=50, cursor=None
+    )
+
+    assert {row.resource_type for row in page.items} == {SyncResourceType.AGENT_PRESET}
+    [row] = page.items
+    assert row.local_id == preset.id
+    assert set(row.package_skill_ids) == package_skills
+    workflow_reader = seeded.model_copy(update={"scopes": frozenset({"workflow:read"})})
+    workflows = await list_managed_resources(
+        role=workflow_reader, session=session, resource_type=None, limit=50, cursor=None
+    )
+    assert {row.resource_type for row in workflows.items} == {SyncResourceType.WORKFLOW}
 
 
 @pytest.mark.anyio

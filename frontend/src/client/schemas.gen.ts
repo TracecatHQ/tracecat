@@ -24554,6 +24554,16 @@ export const $ManagedResourceRead = {
       description:
         "For a workflow, its short ``wf_`` id, as workflow APIs return it.",
     },
+    package_skill_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Package Skill Ids",
+      description:
+        "For an agent preset, the skills the package binds to it. They cannot be removed; skills the customer added can.",
+    },
   },
   type: "object",
   required: [
