@@ -341,6 +341,24 @@ async def test_rollout_keeps_the_customer_aws_secret_reference(
     # A secret the rollout creates takes the package's reference.
     assert kept.spec.secret_metadata["new"].remote_reference == "package/new"
 
+    # A new source id for the same secret is matched by name, as the importer
+    # adopts it.
+    renamed = await ManagedRolloutEngine(session)._with_customer_secret_references(
+        seeded.workspace_id,
+        WorkspaceRemoteSnapshot(
+            commit_sha="",
+            files={},
+            spec=WorkspaceSpec(
+                secret_metadata={
+                    "renamed": aws_spec("renamed", "qa_threatintel", "package/intel")
+                }
+            ),
+        ),
+    )
+    assert renamed.spec.secret_metadata["renamed"].remote_reference == (
+        "customer/threatintel"
+    )
+
 
 @pytest.mark.anyio
 async def test_managed_skill_cannot_be_published_or_archived(

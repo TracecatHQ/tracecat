@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import orjson
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -124,6 +124,7 @@ from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     PackageRegistryRequirement,
+    SecretMetadataResourceSpec,
     WorkflowResourceSpec,
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
@@ -553,6 +554,14 @@ class ManagedRolloutEngine:
                 error="Could not delete: " + ", ".join(failures),
             )
             return
+        # Lock the target before its match rows, the order reference saves
+        # use, so the two cannot deadlock.
+        if rollout.target_id is not None:
+            await self.session.execute(
+                select(ManagedTarget.id)
+                .where(ManagedTarget.id == rollout.target_id)
+                .with_for_update()
+            )
         # Detached copies and customer resources are untouched. A registry
         # repository the package installed is removed once no other workspace
         # in the org is assigned it.
@@ -838,6 +847,7 @@ class ManagedRolloutEngine:
         action index) instead of syncing from Git, so the target org needs no
         credentials for the custom registry repository.
         """
+        await _hold_registry_lock(self.session, workspace.organization_id)
         role = Role(
             type="service",
             service_id="tracecat-service",
@@ -940,6 +950,7 @@ class ManagedRolloutEngine:
         self, workspace: Workspace, managed: Sequence[ManagedResource]
     ) -> None:
         """Uninstall registry repositories only this workspace was assigned."""
+        await _hold_registry_lock(self.session, workspace.organization_id)
         repo_ids = [
             row.local_id
             for row in managed
@@ -1164,26 +1175,43 @@ class ManagedRolloutEngine:
         )
         if not mappings:
             return snapshot
-        references = dict(
-            (
-                await self.session.execute(
-                    select(Secret.id, Secret.remote_reference).where(
-                        Secret.id.in_(list(mappings.values())),
-                        Secret.remote_reference.is_not(None),
-                    )
+        rows = (
+            await self.session.execute(
+                select(
+                    Secret.id,
+                    Secret.environment,
+                    Secret.name,
+                    Secret.remote_reference,
+                ).where(
+                    Secret.id.in_(list(mappings.values())),
+                    Secret.remote_reference.is_not(None),
                 )
             )
-            .tuples()
-            .all()
-        )
-        secrets = {
-            source_id: spec.model_copy(update={"remote_reference": reference})
-            if spec.remote_reference is not None
-            and (local_id := mappings.get(source_id)) is not None
-            and (reference := references.get(local_id)) is not None
-            else spec
-            for source_id, spec in snapshot.spec.secret_metadata.items()
-        }
+        ).tuples()
+        by_id: dict[uuid.UUID, str] = {}
+        # The importer also adopts a managed secret by name when the package
+        # gives it a new source id, so match that way too.
+        by_name: dict[tuple[str, str], str] = {}
+        for secret_id, environment, name, reference in rows:
+            if reference is None:
+                continue
+            by_id[secret_id] = reference
+            by_name[(environment, name)] = reference
+        secrets: dict[str, SecretMetadataResourceSpec] = {}
+        for source_id, spec in snapshot.spec.secret_metadata.items():
+            reference = None
+            if spec.remote_reference is not None:
+                local_id = mappings.get(source_id)
+                reference = (
+                    by_id.get(local_id)
+                    if local_id is not None
+                    else by_name.get((spec.environment, spec.name))
+                )
+            secrets[source_id] = (
+                spec.model_copy(update={"remote_reference": reference})
+                if reference is not None
+                else spec
+            )
         return snapshot.model_copy(
             update={
                 "spec": snapshot.spec.model_copy(update={"secret_metadata": secrets})
@@ -1599,6 +1627,22 @@ def _unused_match_keys(
             if (value := details.get(key)) is not None:
                 unused[kind].add(str(value))
     return unused
+
+
+async def _hold_registry_lock(
+    session: AsyncSession, organization_id: uuid.UUID
+) -> None:
+    """Serialize registry installs and releases across an organization.
+
+    Registry repositories are org-wide, but the ownership lock is per
+    workspace, so two targets in one org could otherwise install and release
+    the same repository at once. Always taken after the workspace lock.
+    """
+    digest = hashlib.sha256(f"managed-registry:{organization_id}".encode()).digest()
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"),
+        {"key": int.from_bytes(digest[:8], "big", signed=True)},
+    )
 
 
 def _uuid_or_none(value: str) -> uuid.UUID | None:

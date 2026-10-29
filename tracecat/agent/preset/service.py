@@ -777,23 +777,7 @@ class AgentPresetService(BaseWorkspaceService):
         On a managed preset only ``skills`` may change, and only by adding or
         removing the customer's own skills.
         """
-        await ensure_preset_update_allowed(
-            self.session,
-            workspace_id=self.workspace_id,
-            preset_id=preset.id,
-            # The agent builder sends the whole form back on save, so only
-            # fields whose value changed count against a managed preset.
-            fields_set=changed_fields(
-                params.model_dump(exclude_unset=True, exclude={"skills"}),
-                _preset_values(preset, params.model_fields_set - {"skills"}),
-            )
-            | ({"skills"} & params.model_fields_set),
-            requested_skill_ids=(
-                [binding.skill_id for binding in params.skills or []]
-                if "skills" in params.model_fields_set
-                else None
-            ),
-        )
+        # Takes the shared ownership lock, as rollouts take it exclusively.
         managed = (
             self.workspace_id is not None
             and not bypass_active()
@@ -804,8 +788,41 @@ class AgentPresetService(BaseWorkspaceService):
                 local_id=preset.id,
             )
         )
+        fields_set = set(params.model_fields_set)
+        if managed:
+            # Compare against the preset as it is now, not as the caller
+            # loaded it. Managed presets cannot change their topology, so
+            # this row lock cannot cross the parent and child lock order.
+            await self.session.refresh(preset, with_for_update=True)
+            # The agent builder sends the whole form back on save, so only
+            # fields whose value changed count against a managed preset.
+            fields_set = changed_fields(
+                params.model_dump(exclude_unset=True, exclude={"skills"}),
+                await self._effective_values(
+                    preset, params.model_fields_set - {"skills"}
+                ),
+            ) | ({"skills"} & params.model_fields_set)
+        await ensure_preset_update_allowed(
+            self.session,
+            workspace_id=self.workspace_id,
+            preset_id=preset.id,
+            fields_set=fields_set,
+            requested_skill_ids=(
+                [binding.skill_id for binding in params.skills or []]
+                if "skills" in params.model_fields_set
+                else None
+            ),
+        )
         try:
-            return await self._update_preset(preset, params, managed=managed)
+            return await self._update_preset(
+                preset,
+                params,
+                locked_values=(
+                    await self._effective_values(preset, _MANAGED_DERIVED_FIELDS)
+                    if managed
+                    else None
+                ),
+            )
         except IntegrityError as exc:
             await self.session.rollback()
             if not is_unique_violation(exc, "uq_agent_preset_workspace_slug_active"):
@@ -814,8 +831,29 @@ class AgentPresetService(BaseWorkspaceService):
                 "Agent preset slug is already in use for this workspace"
             ) from exc
 
+    async def _effective_values(
+        self, preset: AgentPreset, fields: Iterable[str]
+    ) -> dict[str, object]:
+        """The preset's values for ``fields`` as the read API reports them.
+
+        The read API reports internet access as on when the tool policy
+        forces it, so a form resends that value even when the stored flag is
+        off.
+        """
+        values = _preset_values(preset, fields)
+        if "enable_internet_access" in values:
+            policy = (await self.resolve_tool_policies([preset]))[preset.id]
+            values["enable_internet_access"] = (
+                preset.enable_internet_access or policy.requires_internet_access
+            )
+        return values
+
     async def _update_preset(
-        self, preset: AgentPreset, params: AgentPresetUpdate, *, managed: bool = False
+        self,
+        preset: AgentPreset,
+        params: AgentPresetUpdate,
+        *,
+        locked_values: Mapping[str, object] | None = None,
     ) -> AgentPreset:
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
@@ -926,8 +964,8 @@ class AgentPresetService(BaseWorkspaceService):
         )[preset.id]
         if policy.requires_internet_access:
             set_fields["enable_internet_access"] = True
-        if managed and any(
-            field in set_fields and set_fields[field] != getattr(preset, field)
+        if locked_values is not None and any(
+            field in set_fields and set_fields[field] != locked_values[field]
             for field in _MANAGED_DERIVED_FIELDS
         ):
             # A customer skill can force these on, but they belong to the

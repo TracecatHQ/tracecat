@@ -18,9 +18,10 @@ import uuid
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
+from pydantic import ValidationError
 from sqlalchemy import select, tuple_
 
 from tracecat.agent.skill.frontmatter import parse_skill_markdown
@@ -41,7 +42,6 @@ from tracecat.managed_resources.include import (
 )
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
@@ -340,37 +340,65 @@ async def _with_template_steps(
     A template can call an action from another registry, and rollout
     validation resolves template steps, so that registry is needed too.
     Platform templates only call platform actions, so only the organization's
-    current registry versions are walked.
+    own registries are walked: current version manifests, and the older
+    ``RegistryAction`` rows.
     """
-    manifests = [
-        RegistryVersionManifest.model_validate(manifest)
-        for manifest in await service.session.scalars(
-            select(RegistryVersion.manifest)
+    if not any("." in name for name in names):
+        return set(names)
+    implementations: dict[str, list[dict[str, Any]]] = {}
+    for manifest in await service.session.scalars(
+        select(RegistryVersion.manifest)
+        .join(
+            RegistryRepository,
+            RegistryRepository.current_version_id == RegistryVersion.id,
+        )
+        .where(
+            RegistryRepository.organization_id == organization_id,
+            RegistryRepository.origin != DEFAULT_REGISTRY_ORIGIN,
+        )
+    ):
+        for name, action in (manifest or {}).get("actions", {}).items():
+            if isinstance(action, dict) and "implementation" in action:
+                implementations.setdefault(name, []).append(action["implementation"])
+    for namespace, name, implementation in (
+        await service.session.execute(
+            select(
+                RegistryAction.namespace,
+                RegistryAction.name,
+                RegistryAction.implementation,
+            )
             .join(
                 RegistryRepository,
-                RegistryRepository.current_version_id == RegistryVersion.id,
+                RegistryRepository.id == RegistryAction.repository_id,
             )
             .where(
-                RegistryRepository.organization_id == organization_id,
+                RegistryAction.organization_id == organization_id,
                 RegistryRepository.origin != DEFAULT_REGISTRY_ORIGIN,
             )
         )
-    ]
+    ).tuples():
+        implementations.setdefault(f"{namespace}.{name}", []).append(implementation)
+
     found = set(names)
     queue = deque(sorted(names))
     while queue:
-        name = queue.popleft()
-        for manifest in manifests:
-            if (action := manifest.actions.get(name)) is None:
-                continue
-            impl = RegistryActionImplValidator.validate_python(action.implementation)
-            if impl.type != "template":
-                continue
-            for step in impl.template_action.definition.steps:
-                if step.action not in found:
-                    found.add(step.action)
-                    queue.append(step.action)
+        for implementation in implementations.get(queue.popleft(), []):
+            for step in _template_step_actions(implementation):
+                if step not in found:
+                    found.add(step)
+                    queue.append(step)
     return found
+
+
+def _template_step_actions(implementation: dict[str, Any]) -> list[str]:
+    try:
+        impl = RegistryActionImplValidator.validate_python(implementation)
+    except ValidationError:
+        # Not a usable implementation; lock resolution reports it on its own.
+        return []
+    if impl.type != "template":
+        return []
+    return [step.action for step in impl.template_action.definition.steps]
 
 
 async def package_registry_requirements(

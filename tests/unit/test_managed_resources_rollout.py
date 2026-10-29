@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.managed_resources.schemas import (
     ManagedReferenceMatchesUpdate,
@@ -783,22 +783,43 @@ async def test_a_registry_the_tag_no_longer_needs_is_released(
 
 
 @pytest.mark.anyio
-async def test_a_superseded_preview_is_not_revived(harness: Harness) -> None:
+async def test_a_superseded_preview_is_not_revived(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # A newer preview marks this one STALE while it is still being computed;
-    # the finishing worker must leave it STALE.
+    # the finishing worker must leave it STALE with no preview.
     customer = await harness.new_target("november")
+    target_id = await harness.assign(customer, "v1.0.0")
     rollout = ManagedRollout(
         workspace_id=customer.id,
+        target_id=target_id,
         kind=ManagedRolloutKind.APPLY,
-        status=ManagedRolloutStatus.STALE,
+        status=ManagedRolloutStatus.PREVIEWING,
         tag="v1.0.0",
     )
     harness.session.add(rollout)
     await harness.session.commit()
-    engine = ManagedRolloutEngine(harness.session)
+    rollout_id = rollout.id
+    plan_apply = ManagedRolloutEngine._plan_apply
 
-    assert await engine._still_previewing(rollout.id) is None
-    assert (await engine._rollout(rollout.id)).status == ManagedRolloutStatus.STALE
+    async def superseded_mid_plan(engine: ManagedRolloutEngine, row: ManagedRollout):
+        plan = await plan_apply(engine, row)
+        # What the admin service does when a newer preview starts.
+        await engine.session.execute(
+            update(ManagedRollout)
+            .where(ManagedRollout.id == rollout_id)
+            .values(status=ManagedRolloutStatus.STALE)
+        )
+        return plan
+
+    monkeypatch.setattr(ManagedRolloutEngine, "_plan_apply", superseded_mid_plan)
+
+    finished = await ManagedRolloutEngine(
+        harness.session, transport_factory=harness.fake_vcs.transport_factory
+    ).preview(rollout_id)
+
+    assert finished.status == ManagedRolloutStatus.STALE
+    assert finished.preview is None
 
 
 @pytest.mark.anyio

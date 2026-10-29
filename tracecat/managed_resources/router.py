@@ -10,7 +10,8 @@ from sqlalchemy import ColumnElement, Select, select
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole, WorkspaceUserRouteRole
-from tracecat.authz.controls import require_scope
+from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import CaseFields, ManagedDetachedCopy, ManagedResource
 from tracecat.exceptions import (
@@ -61,7 +62,7 @@ async def list_managed_resources(
         PageParams(limit=limit, cursor=cursor),
         (ManagedResource.resource_type.asc(), ManagedResource.local_id.asc()),
     )
-    names = await _case_field_names(session, role.workspace_id)
+    names = await _case_field_names(session, role)
     return Page(
         items=[
             ManagedResourceRead.model_validate(row, from_attributes=True).model_copy(
@@ -91,7 +92,7 @@ async def list_detached_copies(
         PageParams(limit=limit, cursor=cursor),
         (ManagedDetachedCopy.created_at.desc(), ManagedDetachedCopy.id.asc()),
     )
-    names = await _case_field_names(session, role.workspace_id)
+    names = await _case_field_names(session, role)
     return Page(
         items=[
             DetachedCopyRead(
@@ -150,11 +151,17 @@ async def _paginate[T](
 
 
 async def _case_field_names(
-    session: AsyncDBSession, workspace_id: uuid.UUID | None
+    session: AsyncDBSession, role: Role
 ) -> dict[uuid.UUID, str]:
-    """Map each case field's derived local id to its current schema key."""
+    """Map each case field's derived local id to its current schema key.
+
+    Empty for callers who cannot read case fields, so the names are not
+    disclosed to them.
+    """
+    if role.scopes is not None and not has_scope(role.scopes, "case:read"):
+        return {}
     fields = await session.scalar(
-        select(CaseFields).where(CaseFields.workspace_id == workspace_id)
+        select(CaseFields).where(CaseFields.workspace_id == role.workspace_id)
     )
     if fields is None:
         return {}

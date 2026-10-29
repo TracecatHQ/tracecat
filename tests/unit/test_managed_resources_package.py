@@ -563,6 +563,72 @@ async def test_registry_requirements_follow_template_steps_into_other_registries
     }
 
 
+@pytest.mark.anyio
+async def test_registry_requirements_follow_legacy_template_rows(
+    session: AsyncSession, svc_role: Role, source: SourceHarness
+) -> None:
+    # Older registries keep templates as RegistryAction rows, not in a
+    # version manifest; their steps count too.
+    step_repo = await _custom_action(session, svc_role, with_version=True)
+    assert svc_role.organization_id is not None
+    template_repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin=f"git+ssh://git@github.com/acme/legacy-{uuid.uuid4().hex[:8]}.git",
+    )
+    session.add(template_repo)
+    await session.flush()
+    version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=template_repo.id,
+        version="0.9.0",
+        commit_sha="f" * 40,
+        manifest={"actions": {}},
+        tarball_uri="s3://registry/legacy-0.9.0.tar.gz",
+    )
+    session.add(version)
+    await session.flush()
+    template_repo.current_version_id = version.id
+    session.add(
+        RegistryAction(
+            organization_id=svc_role.organization_id,
+            repository_id=template_repo.id,
+            namespace="legacy",
+            name="triage",
+            description="Triage an alert",
+            origin=template_repo.origin,
+            type="template",
+            implementation={
+                "type": "template",
+                "template_action": {
+                    "type": "action",
+                    "definition": {
+                        "name": "triage",
+                        "namespace": "legacy",
+                        "title": "Triage",
+                        "display_group": "Legacy",
+                        "expects": {},
+                        "steps": [
+                            {"ref": "enrich", "action": "acme.enrich_ip", "args": {}}
+                        ],
+                        "returns": "${{ steps.enrich.result }}",
+                    },
+                },
+            },
+        )
+    )
+    await session.flush()
+
+    requirements = await package_registry_requirements(
+        source.service,
+        _spec_using("legacy.triage"),
+        organization_id=source.service.organization_id,
+    )
+
+    origins = {r.origin for r in requirements}
+    assert template_repo.origin in origins
+    assert step_repo.origin in origins
+
+
 def test_skill_declared_registry_tools_count_as_packaged_actions() -> None:
     skill = SkillResourceSpec(
         id="enricher",
