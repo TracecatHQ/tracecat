@@ -5067,9 +5067,9 @@ async def sync_custom_registry(
     pick up newly synced action versions.
 
     Args:
-        org_id: Organization ID to sync. Required for unscoped tokens when the
-            caller belongs to multiple organizations. May be omitted for
-            single-org callers or tokens scoped with organization_id/org:<id>.
+        org_id: Organization ID to sync. Required when the connection covers
+            more than one organization; use the org_id values returned by
+            list_workspaces. May be omitted for single-org connections.
         target_commit_sha: 40-character commit SHA to sync to. Defaults to
             the remote's HEAD when omitted.
 

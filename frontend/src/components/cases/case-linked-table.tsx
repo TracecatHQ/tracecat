@@ -598,7 +598,7 @@ export function CaseLinkedTable({
             onClick={() => setInsertDialogOpen(true)}
           >
             <Plus className="mr-1 size-3" />
-            Add row
+            Insert row
           </Button>
         )}
         {!isExpanded && (

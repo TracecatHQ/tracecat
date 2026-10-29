@@ -742,27 +742,29 @@ describe("CaseTasksPanel", () => {
   it("shows the add-task ghost row as the only empty state", () => {
     renderPanel()
 
-    expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Create task" })
+    ).toBeInTheDocument()
     expect(screen.queryByText("No tasks")).not.toBeInTheDocument()
   })
 
   it("swaps the ghost row for the new-task card and focuses the title", () => {
     renderPanel()
 
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }))
 
     const title = screen.getByPlaceholderText("Task title")
     expect(title).toHaveFocus()
-    expect(
-      screen.queryByRole("button", { name: "Add task" })
-    ).not.toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: "Create task" })).toHaveLength(
+      1
+    )
   })
 
   it("creates on Enter with exactly the six form keys, then resets for rapid entry", async () => {
     const user = userEvent.setup()
     renderPanel()
 
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }))
     await user.keyboard("Triage the alert{Enter}")
 
     await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
@@ -789,7 +791,7 @@ describe("CaseTasksPanel", () => {
     const user = userEvent.setup()
     renderPanel()
 
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }))
     await user.keyboard("Run containment")
     fireEvent.click(screen.getByRole("button", { name: "Workflow" }))
     fireEvent.click(
@@ -807,7 +809,7 @@ describe("CaseTasksPanel", () => {
   it("keeps the new-task card open when a palette consumes its Escape", async () => {
     renderPanel()
 
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }))
     fireEvent.click(screen.getByRole("button", { name: "Workflow" }))
     const search = await screen.findByPlaceholderText("Search workflows…")
     fireEvent.keyDown(search, { key: "Escape" })
@@ -827,12 +829,14 @@ describe("CaseTasksPanel", () => {
     const outerKeyDown = jest.fn()
     renderPanel(outerKeyDown)
 
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }))
     fireEvent.keyDown(screen.getByPlaceholderText("Task title"), {
       key: "Escape",
     })
 
-    expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Create task" })
+    ).toBeInTheDocument()
     // stopPropagation: in slideover/embedded mode a propagated Escape would
     // close the whole case panel, not just the card.
     expect(outerKeyDown).not.toHaveBeenCalled()
@@ -842,7 +846,7 @@ describe("CaseTasksPanel", () => {
     const user = userEvent.setup()
     renderPanel()
 
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }))
     await user.keyboard("Draft in progress")
     fireEvent.blur(screen.getByPlaceholderText("Task title"))
 

@@ -183,3 +183,40 @@ async def test_resolve_authorize_session_without_membership_errors(
 
     with pytest.raises(oidc_session.OrgResolutionError, match="no organization"):
         await oidc_session.resolve_authorize_session(_request_with_cookie(None), user)
+
+
+@pytest.mark.anyio
+async def test_resolve_authorize_session_lists_active_orgs_oldest_first(
+    use_test_session: AsyncSession,
+) -> None:
+    user = await _seed_user(use_test_session)
+    newer = await _seed_member_org(
+        use_test_session, user, created_at=_BASE_TIME + timedelta(days=2)
+    )
+    await _seed_member_org(
+        use_test_session,
+        user,
+        created_at=_BASE_TIME + timedelta(days=1),
+        is_active=False,
+    )
+    oldest = await _seed_member_org(use_test_session, user, created_at=_BASE_TIME)
+    other_user = await _seed_user(use_test_session)
+    await _seed_member_org(use_test_session, other_user, created_at=_BASE_TIME)
+
+    result = await oidc_session.resolve_authorize_session(
+        _request_with_cookie(str(newer.id)), user
+    )
+
+    assert isinstance(result, oidc_session.SessionResult)
+    assert result.organization_id == newer.id
+    assert [org.id for org in result.organizations] == [oldest.id, newer.id]
+    assert result.organizations[0].slug == oldest.slug
+
+
+@pytest.mark.anyio
+async def test_list_active_organizations_without_membership_is_empty(
+    use_test_session: AsyncSession,
+) -> None:
+    user = await _seed_user(use_test_session)
+
+    assert await oidc_session.list_active_organizations(use_test_session, user.id) == []

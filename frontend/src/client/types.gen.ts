@@ -425,6 +425,17 @@ export type AgentBackendRead = {
 }
 
 /**
+ * Cancel the running turn.
+ */
+export type AgentCancelControl = {
+  type: "cancel"
+  /**
+   * Client-generated request ID
+   */
+  id: string
+}
+
+/**
  * List catalog entries with pagination.
  */
 export type AgentCatalogListResponse = {
@@ -497,6 +508,37 @@ export type AgentChannelTokenUpdate = {
    */
   is_active?: boolean | null
 }
+
+/**
+ * The running turn's outcome for a control request.
+ */
+export type AgentControlReceipt = {
+  id: string
+  type: AgentControlType
+  run_id: string
+  status: AgentControlStatus
+  /**
+   * Withdrawn message IDs in send order; set only for `withdraw`
+   */
+  withdrawn?: Array<string>
+  /**
+   * Message IDs the model already read, which stay in the transcript; set only for `withdraw`
+   */
+  too_late?: Array<string>
+}
+
+export type AgentControlRequest =
+  | AgentSteerControl
+  | AgentWithdrawControl
+  | AgentCancelControl
+
+export type AgentControlStatus =
+  | "accepted"
+  | "rejected"
+  | "withdrawn"
+  | "too_late"
+
+export type AgentControlType = "steer" | "withdraw" | "cancel"
 
 /**
  * Create custom LLM provider.
@@ -708,6 +750,22 @@ export type AgentOutput = {
   duration: number
   usage?: RunUsage | null
   session_id: string
+}
+
+/**
+ * A user message the model has not read yet.
+ */
+export type AgentPendingMessageRead = {
+  /**
+   * The ID the client sent the message under
+   */
+  id: string
+  /**
+   * `steer` waits to join the running turn; `message` waits to start a later turn
+   */
+  type: PendingMessageType
+  text: string
+  created_at: string
 }
 
 export type AgentPreset = {
@@ -1092,6 +1150,24 @@ export type AgentSessionCancelResponse = {
 }
 
 /**
+ * Optional controls the session's backend supports.
+ */
+export type AgentSessionCapabilities = {
+  /**
+   * Whether a running turn accepts steering messages
+   */
+  steering?: boolean
+  /**
+   * Whether a running turn can take back pending user messages
+   */
+  withdrawing?: boolean
+  /**
+   * Whether the session can list messages the model has not read
+   */
+  listing_pending?: boolean
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -1181,6 +1257,14 @@ export type AgentSessionForkRequest = {
 }
 
 /**
+ * The session's user messages the model has not read, in send order.
+ */
+export type AgentSessionPendingRead = {
+  session_id: string
+  items: Array<AgentPendingMessageRead>
+}
+
+/**
  * Response schema for agent session.
  */
 export type AgentSessionRead = {
@@ -1203,6 +1287,7 @@ export type AgentSessionRead = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1237,6 +1322,7 @@ export type AgentSessionReadVercel = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1275,6 +1361,7 @@ export type AgentSessionReadWithMessages = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1351,6 +1438,18 @@ export type AgentSettingsUpdate = {
 }
 
 /**
+ * A message for the running turn to take into account before it answers.
+ */
+export type AgentSteerControl = {
+  type: "steer"
+  /**
+   * Client-generated message ID. It reaches at most one turn of the session; a retry returns the first outcome.
+   */
+  id: string
+  text: string
+}
+
+/**
  * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Input = {
@@ -1380,6 +1479,21 @@ export type AgentTagRead = {
   name: string
   ref: string
   color: string | null
+}
+
+/**
+ * Take back pending user messages the model has not read yet.
+ */
+export type AgentWithdrawControl = {
+  type: "withdraw"
+  /**
+   * Client-generated request ID; a retry returns the first outcome
+   */
+  id: string
+  /**
+   * Message IDs to withdraw. Null withdraws all of the session's pending steers and queued messages.
+   */
+  target_ids?: Array<string> | null
 }
 
 /**
@@ -4877,6 +4991,10 @@ export type EffectiveEntitlements = {
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
+  /**
+   * Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions
+   */
+  agent_runtime_preview?: boolean
 }
 
 /**
@@ -5010,6 +5128,10 @@ export type EntitlementsDict = {
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
+  /**
+   * Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions
+   */
+  agent_runtime_preview?: boolean
 }
 
 export type ErrorModel = {
@@ -5185,7 +5307,6 @@ export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
   | "agent-fs-persistence"
-  | "agent-runtime"
   | "workspace-sync-github-archive"
   | "forms"
 
@@ -6039,7 +6160,7 @@ export type GitLabTokenCredentialsRequest = {
    */
   base_url?: string
   /**
-   * GitLab personal/project/group access token with api scope.
+   * GitLab access token with api scope. Project and group tokens also require write_repository for Git sync pushes.
    */
   token: string
 }
@@ -6076,6 +6197,24 @@ export type GitSettingsUpdate = {
   git_allowed_domains?: Array<string>
   git_repo_url?: string | null
   git_repo_package_name?: string | null
+}
+
+/**
+ * Git tag information for repository management.
+ */
+export type GitTagInfo = {
+  /**
+   * Tag name
+   */
+  name: string
+  /**
+   * SHA of the commit the tag points to (SHA-1 or SHA-256)
+   */
+  commit_sha: string
+  /**
+   * Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.
+   */
+  date: string
 }
 
 /**
@@ -7268,6 +7407,9 @@ export type MCPToolSummary = {
   enabled?: boolean
   requires_approval?: boolean
   status?: "available" | "missing"
+  input_schema?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -7284,6 +7426,33 @@ export type status6 =
   | "succeeded"
   | "failed"
   | "superseded"
+
+/**
+ * The workspace managed resources are published from, and its Git binding.
+ */
+export type ManagedSourceRead = {
+  workspace_id: string
+  organization_id: string
+  git_provider: VcsProvider
+  git_repo_url: string
+}
+
+/**
+ * The managed resources source setting; ``source`` is null when unset.
+ */
+export type ManagedSourceSettingRead = {
+  source?: ManagedSourceRead | null
+}
+
+/**
+ * Set the managed resources source.
+ *
+ * The workspace must have a Git sync provider and repository URL; both are
+ * pinned with the setting.
+ */
+export type ManagedSourceUpdate = {
+  workspace_id: string
+}
 
 /**
  * Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.
@@ -7438,6 +7607,32 @@ export type kind2 =
   | "observer-activity"
 
 export type subkind = "scheduled-trigger" | "peer-send-message"
+
+export type MfaPolicyRead = {
+  mfa_required: boolean
+  webauthn_available: boolean
+  webauthn_unavailable_reason?: string | null
+}
+
+export type MfaPolicyUpdate = {
+  /**
+   * Require a security key or passkey at sign-in. Users without one must register one at their next sign-in.
+   */
+  mfa_required: boolean
+}
+
+export type MfaStatusRead = {
+  state: SessionMfaState
+  has_credentials: boolean
+  required_by_policy: boolean
+  webauthn_available: boolean
+  webauthn_unavailable_reason?: string | null
+  recovery_codes_remaining: number
+  /**
+   * When the current step-up verification stops satisfying checks.
+   */
+  step_up_expires_at?: string | null
+}
 
 export type ModelConfig = {
   /**
@@ -7790,8 +7985,32 @@ export type Page_ExternalGroupRead_ = {
   prev_cursor?: string | null
 }
 
+export type Page_GitTagInfo_ = {
+  items: Array<GitTagInfo>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 export type Page_SecretStoreRead_ = {
   items: Array<SecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_SyncOperationRead_ = {
+  items: Array<SyncOperationRead>
   /**
    * Next-page cursor
    */
@@ -7878,6 +8097,8 @@ export type PendingInvitationRead = {
   grants: Array<InvitationGrant>
   expires_at: string
 }
+
+export type PendingMessageType = "steer" | "message"
 
 export type PersistedApprovalDecision =
   | boolean
@@ -8300,6 +8521,14 @@ export type ReasoningUIPart = {
 }
 
 export type state2 = "streaming" | "done"
+
+export type RecoveryCodeVerify = {
+  code: string
+}
+
+export type RecoveryCodesRead = {
+  recovery_codes: Array<string>
+}
 
 /**
  * Availability metadata for a registry action.
@@ -9363,6 +9592,23 @@ export type ScopeCreate = {
 }
 
 /**
+ * Structured explanation of an authorization scope denial.
+ */
+export type ScopeDeniedErrorDetail = {
+  code: "insufficient_scope"
+  message: string
+  required_scopes: Array<string>
+  missing_scopes: Array<string>
+}
+
+/**
+ * HTTP 403 response emitted by the scope-denial exception handler.
+ */
+export type ScopeDeniedResponse = {
+  error: ScopeDeniedErrorDetail
+}
+
+/**
  * Response schema for listing scopes.
  */
 export type ScopeList = {
@@ -9857,6 +10103,12 @@ export type ServiceAccountUpdate = {
   description?: string | null
   scope_ids?: Array<string> | null
 }
+
+export type SessionMfaState =
+  | "not_required"
+  | "verified"
+  | "challenge_required"
+  | "enrollment_required"
 
 export type SessionRead = {
   id: string
@@ -10398,11 +10650,88 @@ export type SubCasesRemovedEventRead = {
   created_at: string
 }
 
+/**
+ * A stable page of diff metadata; file text is fetched separately.
+ */
+export type SyncDiffPage = {
+  items: Array<PullResourceDiff>
+  next_cursor?: string | null
+}
+
+export type SyncDirection = "push" | "pull"
+
+/**
+ * Repeat the same command ID and reviewed revisions after a lost response.
+ */
+export type SyncOperationCommand = {
+  command_id: string
+  preview_revision: number
+  state_revision: number
+}
+
+/**
+ * Start a preview; reuse the client-generated ID after a lost response.
+ */
+export type SyncOperationCreate_Input = {
+  id: string
+  direction: SyncDirection
+  push?: WorkspaceSyncExportRequest_Input | null
+  pull?: WorkflowSyncPullRequest | null
+  compare_ref?: string | null
+}
+
+/**
+ * Start a preview; reuse the client-generated ID after a lost response.
+ */
+export type SyncOperationCreate_Output = {
+  id: string
+  direction: SyncDirection
+  push?: WorkspaceSyncExportRequest_Output | null
+  pull?: WorkflowSyncPullRequest | null
+  compare_ref?: string | null
+}
+
+/**
+ * Expected operation conflict and diff lookup failures.
+ */
+export type SyncOperationError = {
+  detail: string
+}
+
+/**
+ * Small polling response, independent of the number of synced files.
+ */
+export type SyncOperationRead = {
+  id: string
+  direction: SyncDirection
+  status: SyncStatus
+  stage: SyncStage
+  created_at: string
+  expires_at: string
+  commit_sha?: string | null
+  error?: string | null
+  preview?: WorkspaceSyncExportPreview | PullResult | null
+  result?: SyncPushResult | PullResult | null
+  diff_count?: number
+  can_retry?: boolean
+  data_applied?: boolean
+  inputs: SyncOperationCreate_Output
+  preview_revision?: number
+  state_revision?: number
+}
+
 export type SyncPreviewResource = {
   resource_type: string
   source_id: string
   name: string
   path: string
+}
+
+/**
+ * Compact durable push receipt; file details stay in paginated artifacts.
+ */
+export type SyncPushResult = {
+  commit: CommitInfo
 }
 
 /**
@@ -10422,6 +10751,23 @@ export type SyncResourceType =
   | "case_duration"
   | "variable"
   | "secret_metadata"
+
+export type SyncStage =
+  | "fetching"
+  | "preparing"
+  | "awaiting_confirmation"
+  | "applying"
+  | "finishing"
+  | "finished"
+
+export type SyncStatus =
+  | "queued"
+  | "running"
+  | "ready"
+  | "applying"
+  | "completed"
+  | "failed"
+  | "expired"
 
 export type SyntaxToken = {
   type: string
@@ -11983,6 +12329,57 @@ export type WatchtowerToolCallStatus =
   | "rejected"
   | "blocked"
 
+export type WebAuthnAuthenticationVerify = {
+  /**
+   * PublicKeyCredential.toJSON() output from navigator.credentials.get().
+   */
+  credential: {
+    [key: string]: unknown
+  }
+}
+
+export type WebAuthnCredentialRead = {
+  id: string
+  name: string
+  aaguid: string
+  transports: Array<string>
+  backup_eligible: boolean
+  backup_state: boolean
+  created_at: string
+  last_used_at: string | null
+}
+
+export type WebAuthnCredentialUpdate = {
+  name: string
+}
+
+export type WebAuthnOptionsRead = {
+  /**
+   * PublicKeyCredential{Creation,Request}Options as JSON (base64url).
+   */
+  public_key: {
+    [key: string]: unknown
+  }
+}
+
+export type WebAuthnRegistrationResult = {
+  credential: WebAuthnCredentialRead
+  /**
+   * One-time recovery codes, returned only for the first security key.
+   */
+  recovery_codes?: Array<string> | null
+}
+
+export type WebAuthnRegistrationVerify = {
+  /**
+   * PublicKeyCredential.toJSON() output from navigator.credentials.create().
+   */
+  credential: {
+    [key: string]: unknown
+  }
+  name: string
+}
+
 export type WebhookApiKeyGenerateResponse = {
   api_key: string
   preview: string
@@ -12704,6 +13101,49 @@ export type WorkflowExecutionTerminate = {
   reason?: string | null
 }
 
+export type WorkflowExportCode =
+  | "publish_required"
+  | "missing_definition"
+  | "no_actions"
+  | "invalid_definition"
+  | "missing_child_workflow"
+
+/**
+ * Safe workflow context for an export that cannot proceed.
+ */
+export type WorkflowExportDiagnostic = {
+  /**
+   * Authorized local workflow ID.
+   */
+  workflow_id: string
+  /**
+   * Workflow display title.
+   */
+  workflow_title: string
+  /**
+   * Existing stable Git ID.
+   */
+  source_id?: string | null
+  /**
+   * Existing repository path.
+   */
+  source_path?: string | null
+  /**
+   * Export stage that failed.
+   */
+  stage: WorkflowExportStage
+  /**
+   * Machine-readable corrective error code.
+   */
+  code: WorkflowExportCode
+  /**
+   * Safe corrective message without workflow inputs.
+   */
+  message: string
+}
+
+export type WorkflowExportStage = "definition" | "dependency"
+
 export type WorkflowFolderCreate = {
   name: string
   parent_path?: string
@@ -12711,6 +13151,7 @@ export type WorkflowFolderCreate = {
 
 export type WorkflowFolderDelete = {
   recursive?: boolean
+  delete_workflows?: boolean
 }
 
 export type WorkflowFolderMove = {
@@ -13165,6 +13606,18 @@ export type WorkspaceSettingsUpdate = {
 }
 
 /**
+ * Additive diagnostics while retaining the legacy string detail field.
+ */
+export type WorkspaceSyncExportError = {
+  /**
+   * Human-readable failure summary.
+   */
+  detail: string
+  diagnostics?: Array<WorkflowExportDiagnostic>
+  omitted_count?: number
+}
+
+/**
  * Projection summary of the resources an export would commit.
  *
  * Mirrors the pull dry-run preview: it projects the selected resources
@@ -13212,7 +13665,37 @@ export type WorkspaceSyncExportPreviewRequest = {
 /**
  * Request to commit selected workspace resources to a Git branch.
  */
-export type WorkspaceSyncExportRequest = {
+export type WorkspaceSyncExportRequest_Input = {
+  /**
+   * Commit message for the export.
+   */
+  message: string
+  /**
+   * Target branch to commit to.
+   */
+  branch: string
+  /**
+   * Whether to open a pull request for the commit.
+   */
+  create_pr?: boolean
+  /**
+   * Base branch for the pull request, if created.
+   */
+  pr_base_branch?: string | null
+  /**
+   * Specific resources to export, or ``None`` to export all.
+   */
+  resources?: Array<ResourceRef> | null
+  /**
+   * Whether to include workflow schedules in the export.
+   */
+  include_schedules?: boolean
+}
+
+/**
+ * Request to commit selected workspace resources to a Git branch.
+ */
+export type WorkspaceSyncExportRequest_Output = {
   /**
    * Commit message for the export.
    */
@@ -14176,7 +14659,7 @@ export type WorkflowsListWorkflowBranchesData = {
 export type WorkflowsListWorkflowBranchesResponse = Array<GitBranchInfo>
 
 export type WorkflowsExportWorkspaceSyncData = {
-  requestBody: WorkspaceSyncExportRequest
+  requestBody: WorkspaceSyncExportRequest_Input
   workspaceId: string
 }
 
@@ -14196,6 +14679,60 @@ export type WorkflowsPullWorkflowsData = {
 }
 
 export type WorkflowsPullWorkflowsResponse = PullResult
+
+export type WorkflowsCreateSyncOperationData = {
+  requestBody: SyncOperationCreate_Input
+  workspaceId: string
+}
+
+export type WorkflowsCreateSyncOperationResponse = SyncOperationRead
+
+export type WorkflowsListSyncOperationsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowsListSyncOperationsResponse = Page_SyncOperationRead_
+
+export type WorkflowsGetSyncOperationData = {
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsGetSyncOperationResponse = SyncOperationRead
+
+export type WorkflowsApplySyncOperationData = {
+  operationId: string
+  requestBody: SyncOperationCommand
+  workspaceId: string
+}
+
+export type WorkflowsApplySyncOperationResponse = SyncOperationRead
+
+export type WorkflowsRetrySyncOperationData = {
+  operationId: string
+  requestBody: SyncOperationCommand
+  workspaceId: string
+}
+
+export type WorkflowsRetrySyncOperationResponse = SyncOperationRead
+
+export type WorkflowsListSyncDiffsData = {
+  cursor?: string | null
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsListSyncDiffsResponse = SyncDiffPage
+
+export type WorkflowsGetSyncDiffData = {
+  index: number
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsGetSyncDiffResponse = PullResourceDiff
 
 export type SecretsCreateAwsSecretReferenceData = {
   requestBody: AwsSecretReferenceCreate
@@ -15593,6 +16130,13 @@ export type AgentSessionsStreamSessionEventsData = {
 
 export type AgentSessionsStreamSessionEventsResponse = unknown
 
+export type AgentSessionsListPendingMessagesData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsListPendingMessagesResponse = AgentSessionPendingRead
+
 export type AgentSessionsForkSessionData = {
   requestBody?: AgentSessionForkRequest | null
   sessionId: string
@@ -15608,6 +16152,14 @@ export type AgentSessionsCancelSessionData = {
 }
 
 export type AgentSessionsCancelSessionResponse = AgentSessionCancelResponse
+
+export type AgentSessionsControlSessionData = {
+  requestBody: AgentControlRequest
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsControlSessionResponse = AgentControlReceipt
 
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
@@ -15673,6 +16225,23 @@ export type WatchtowerEnableWatchtowerAgentData = {
 }
 
 export type WatchtowerEnableWatchtowerAgentResponse = void
+
+export type AdminGetSourceResponse = ManagedSourceSettingRead
+
+export type AdminSetSourceData = {
+  requestBody: ManagedSourceUpdate
+}
+
+export type AdminSetSourceResponse = ManagedSourceRead
+
+export type AdminClearSourceResponse = void
+
+export type AdminListSourceTagsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type AdminListSourceTagsResponse = Page_GitTagInfo_
 
 export type AdminListOrganizationsResponse =
   Array<tracecat_ee__admin__organizations__schemas__OrgRead>
@@ -15842,6 +16411,14 @@ export type AdminUpdateSecuritySettingsData = {
 
 export type AdminUpdateSecuritySettingsResponse = PlatformSecuritySettingsRead
 
+export type AdminGetMfaSettingsResponse = MfaPolicyRead
+
+export type AdminUpdateMfaSettingsData = {
+  requestBody: MfaPolicyUpdate
+}
+
+export type AdminUpdateMfaSettingsResponse = MfaPolicyRead
+
 export type AdminCheckIpAllowlistData = {
   requestBody: IPAllowlistCheckRequest
 }
@@ -15935,6 +16512,12 @@ export type AdminDemoteFromSuperuserData = {
 }
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
+export type AdminResetUserMfaData = {
+  userId: string
+}
+
+export type AdminResetUserMfaResponse = void
 
 export type AdminAgentListPlatformCatalogData = {
   cursor?: string | null
@@ -16231,6 +16814,14 @@ export type SettingsUpdateSecuritySettingsData = {
 }
 
 export type SettingsUpdateSecuritySettingsResponse = void
+
+export type SettingsGetMfaPolicyResponse = MfaPolicyRead
+
+export type SettingsUpdateMfaPolicyData = {
+  requestBody: MfaPolicyUpdate
+}
+
+export type SettingsUpdateMfaPolicyResponse = MfaPolicyRead
 
 export type SettingsCheckIpAllowlistData = {
   requestBody: IPAllowlistCheckRequest
@@ -18307,6 +18898,49 @@ export type AuthSsoAcsData = {
 
 export type AuthSsoAcsResponse = unknown
 
+export type AuthGetMfaStatusResponse = MfaStatusRead
+
+export type AuthSignOutPendingSessionResponse = void
+
+export type AuthBeginRegistrationResponse = WebAuthnOptionsRead
+
+export type AuthCompleteRegistrationData = {
+  requestBody: WebAuthnRegistrationVerify
+}
+
+export type AuthCompleteRegistrationResponse = WebAuthnRegistrationResult
+
+export type AuthBeginAuthenticationResponse = WebAuthnOptionsRead
+
+export type AuthCompleteAuthenticationData = {
+  requestBody: WebAuthnAuthenticationVerify
+}
+
+export type AuthCompleteAuthenticationResponse = MfaStatusRead
+
+export type AuthVerifyRecoveryCodeData = {
+  requestBody: RecoveryCodeVerify
+}
+
+export type AuthVerifyRecoveryCodeResponse = MfaStatusRead
+
+export type AuthRegenerateRecoveryCodesResponse = RecoveryCodesRead
+
+export type AuthListCredentialsResponse = Array<WebAuthnCredentialRead>
+
+export type AuthRenameCredentialData = {
+  credentialId: string
+  requestBody: WebAuthnCredentialUpdate
+}
+
+export type AuthRenameCredentialResponse = WebAuthnCredentialRead
+
+export type AuthDeleteCredentialData = {
+  credentialId: string
+}
+
+export type AuthDeleteCredentialResponse = void
+
 export type AuthDiscoverAuthMethodData = {
   requestBody: AuthDiscoverRequest
 }
@@ -19551,6 +20185,10 @@ export type $OpenApiTs = {
          */
         200: WorkflowDslPublishResult
         /**
+         * Bad Request
+         */
+        400: WorkspaceSyncExportError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -19611,6 +20249,10 @@ export type $OpenApiTs = {
          */
         200: WorkspaceSyncExportResult
         /**
+         * Bad Request
+         */
+        400: WorkspaceSyncExportError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -19626,6 +20268,10 @@ export type $OpenApiTs = {
          */
         200: WorkspaceSyncExportPreview
         /**
+         * Bad Request
+         */
+        400: WorkspaceSyncExportError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -19640,6 +20286,213 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations": {
+    post: {
+      req: WorkflowsCreateSyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+    get: {
+      req: WorkflowsListSyncOperationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_SyncOperationRead_
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}": {
+    get: {
+      req: WorkflowsGetSyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/apply": {
+    post: {
+      req: WorkflowsApplySyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/retry": {
+    post: {
+      req: WorkflowsRetrySyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/diffs": {
+    get: {
+      req: WorkflowsListSyncDiffsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SyncDiffPage
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Gone
+         */
+        410: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/diffs/{index}": {
+    get: {
+      req: WorkflowsGetSyncDiffData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PullResourceDiff
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Gone
+         */
+        410: SyncOperationError
         /**
          * Validation Error
          */
@@ -22170,7 +23023,7 @@ export type $OpenApiTs = {
          */
         200: AgentSessionRead
         /**
-         * Workspace Chat entitlement or parent session write access required
+         * Workspace Chat or agent backend entitlement, or parent session write access required
          */
         403: unknown
         /**
@@ -22302,6 +23155,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/pending": {
+    get: {
+      req: AgentSessionsListPendingMessagesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionPendingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/sessions/{session_id}/fork": {
     post: {
       req: AgentSessionsForkSessionData
@@ -22325,6 +23193,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionCancelResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/control": {
+    post: {
+      req: AgentSessionsControlSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentControlReceipt
         /**
          * Validation Error
          */
@@ -22443,6 +23326,52 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/source": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedSourceSettingRead
+      }
+    }
+    put: {
+      req: AdminSetSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/admin/managed-resources/source/tags": {
+    get: {
+      req: AdminListSourceTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_GitTagInfo_
         /**
          * Validation Error
          */
@@ -22787,6 +23716,29 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/settings/security/mfa": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+      }
+    }
+    patch: {
+      req: AdminUpdateMfaSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/settings/security/ip-allowlist/check": {
     post: {
       req: AdminCheckIpAllowlistData
@@ -22988,6 +23940,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/users/{user_id}/mfa/reset": {
+    post: {
+      req: AdminResetUserMfaData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
@@ -23565,6 +24532,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/security/mfa": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateMfaPolicyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
         /**
          * Validation Error
          */
@@ -26591,6 +27581,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ScimConnectionTokenRead
+        /**
+         * Only organization owners can issue or rotate the token.
+         */
+        403: unknown
       }
     }
   }
@@ -27233,6 +28227,139 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+      }
+    }
+  }
+  "/auth/mfa/sign-out": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/auth/mfa/webauthn/register/options": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnOptionsRead
+      }
+    }
+  }
+  "/auth/mfa/webauthn/register/verify": {
+    post: {
+      req: AuthCompleteRegistrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WebAuthnRegistrationResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/webauthn/authenticate/options": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnOptionsRead
+      }
+    }
+  }
+  "/auth/mfa/webauthn/authenticate/verify": {
+    post: {
+      req: AuthCompleteAuthenticationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/recovery-codes/verify": {
+    post: {
+      req: AuthVerifyRecoveryCodeData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/recovery-codes": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecoveryCodesRead
+      }
+    }
+  }
+  "/auth/mfa/credentials": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WebAuthnCredentialRead>
+      }
+    }
+  }
+  "/auth/mfa/credentials/{credential_id}": {
+    patch: {
+      req: AuthRenameCredentialData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnCredentialRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AuthDeleteCredentialData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

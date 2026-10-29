@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
+import orjson
 import pytest
+from asyncpg import CharacterNotInRepertoireError
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from tracecat.api import app as api_app
 from tracecat.api.app import (
@@ -20,8 +22,10 @@ from tracecat.api.app import (
     create_app as create_api_app,
 )
 from tracecat.api.common import (
+    database_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    serialize_validation_errors,
     tracecat_exception_handler,
 )
 from tracecat.exceptions import (
@@ -49,6 +53,7 @@ def _build_app(exc: Exception, path: str = "/boom") -> FastAPI:
     own handler must win over the generic authorization handler.
     """
     app = FastAPI()
+    app.add_exception_handler(DBAPIError, database_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
@@ -263,6 +268,17 @@ def test_unexpected_scim_errors_are_sanitized(exc: Exception, scim: bool) -> Non
         assert response.json() == {"message": detail}
 
 
+def test_scim_unstorable_input_uses_scim_envelope() -> None:
+    exc = DBAPIError("INSERT ...", {}, CharacterNotInRepertoireError("private"))
+    app = _build_app(exc, "/scim/v2/Groups")
+    _install_scim_exception_handlers(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/scim/v2/Groups")
+    assert response.status_code == 400
+    assert response.headers["content-type"] == "application/scim+json"
+    assert response.json()["scimType"] == "invalidValue"
+
+
 @pytest.mark.parametrize(
     "request_path", ["/scim/v2/Users/missing", "/api/scim/v2/Users/missing"]
 )
@@ -347,3 +363,25 @@ def test_validation_errors_leave_the_rejected_input_out_of_logs(
     assert "A" * 100 not in str(logged.error.call_args)
     # The executor keeps a gateway error with the run, so it is left out there too.
     assert ("input" in error) is not gateway
+
+
+def test_validation_errors_replace_surrogates() -> None:
+    errors = [
+        {
+            "type": "value_error",
+            "loc": ("body", "a\ud800"),
+            "msg": "bad",
+            "input": "a\udfff",
+            "ctx": {"error": ValueError("b\ud800")},
+        }
+    ]
+    serialized = serialize_validation_errors(errors)
+    assert orjson.loads(orjson.dumps(serialized)) == [
+        {
+            "type": "value_error",
+            "loc": ["body", "a\ufffd"],
+            "msg": "bad",
+            "input": "a\ufffd",
+            "ctx": {"error": "b\ufffd"},
+        }
+    ]

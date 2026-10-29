@@ -1069,7 +1069,7 @@ export function WebhookControls({
                 }
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                {isDeletingApiKey ? "Deleting..." : "Delete key"}
+                {isDeletingApiKey ? "Deleting..." : "Delete"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -1815,7 +1815,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                   disabled={!hasVersion}
                 >
                   <PlusCircleIcon className="size-4" />
-                  <span>Create Schedule</span>
+                  <span>Create schedule</span>
                 </Button>
               </DialogTrigger>
             </span>
@@ -1827,7 +1827,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       </TooltipProvider>
       <DialogContent size="lg" className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Create a new schedule</DialogTitle>
+          <DialogTitle>Create schedule</DialogTitle>
           <DialogDescription>
             Configure the schedule for the workflow. The workflow will not run
             immediately.
@@ -2227,7 +2227,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
             <DialogFooter>
               <Button size="sm" type="submit" variant="default">
                 <PlusCircleIcon className="mr-2 size-4" />
-                <span>Create</span>
+                <span>Create schedule</span>
               </Button>
             </DialogFooter>
           </form>

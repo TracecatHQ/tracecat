@@ -25,6 +25,7 @@ import type {
   ServiceAccountUpdate,
 } from "@/client"
 import { CopyButton } from "@/components/copy-button"
+import { ListHeaderSearch } from "@/components/list-header-search"
 import { AlertNotification } from "@/components/notifications"
 import {
   getScopesForLevel,
@@ -894,21 +895,11 @@ export function ServiceAccountsManager({
     <div className="flex size-full flex-col">
       <div className="shrink-0">
         <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-7 shrink-0 items-center justify-center">
-              <SearchIcon className="size-4 text-muted-foreground" />
-            </div>
-            <Input
-              type="text"
-              placeholder={`Search ${kindLabel.toLowerCase()} service accounts...`}
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className={cn(
-                "h-7 w-64 border-none bg-transparent p-0 text-sm shadow-none outline-none",
-                "placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
-              )}
-            />
-          </div>
+          <ListHeaderSearch
+            placeholder={`Search ${kindLabel.toLowerCase()} service accounts...`}
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
 
           <div className="ml-auto flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
@@ -1098,7 +1089,7 @@ export function ServiceAccountsManager({
                         <SquarePenIcon className="size-3.5" />
                       </RowActionButton>
                       <RowActionButton
-                        label="Issue new API key"
+                        label="Create API key"
                         className="size-7"
                         disabled={
                           Boolean(serviceAccount.disabled_at) || !canUpdate
@@ -1333,7 +1324,7 @@ export function ServiceAccountsManager({
       >
         <DialogContent size="sm">
           <DialogHeader>
-            <DialogTitle>Issue new API key</DialogTitle>
+            <DialogTitle>Create API key</DialogTitle>
             <DialogDescription>
               {issueTarget?.active_api_key?.name ? (
                 <>

@@ -134,7 +134,7 @@ async def store_collection(
         num_chunks=num_chunks,
     )
 
-    await blob.ensure_bucket_exists(bucket)
+    await blob.ensure_bucket_exists_once(bucket)
 
     # Upload chunks
     chunk_refs: list[ObjectRef] = []

@@ -296,7 +296,7 @@ export function EditVariableDialog({
                 className="w-full space-x-2 text-xs text-foreground/80"
               >
                 <PlusCircle className="mr-2 size-4" />
-                Add Item
+                Add item
               </Button>
               {fields.length === 0 && (
                 <span className="text-xs text-foreground/50">

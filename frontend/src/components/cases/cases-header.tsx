@@ -54,10 +54,10 @@ import {
   type FilterOption,
   type SortDirection,
 } from "@/components/filters/filter-multi-select"
+import { ListHeaderSearch } from "@/components/list-header-search"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Input } from "@/components/ui/input"
 import {
   Popover,
   PopoverContent,
@@ -664,30 +664,18 @@ export function CasesHeader({
   return (
     <div className="shrink-0 border-b">
       {/* Row 1: Search */}
-      <header className="flex h-10 items-center border-b pl-3 pr-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-            <SearchIcon className="size-4 text-muted-foreground" />
-          </div>
-          <Input
-            type="text"
-            aria-label="Search cases"
-            aria-describedby="case-search-scope"
-            placeholder={
-              searchMode === "literal"
-                ? "Search exact characters..."
-                : 'Search words, "phrases", or ID...'
-            }
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className={cn(
-              "h-7 w-48 border-none bg-transparent p-0",
-              "text-sm",
-              "shadow-none outline-none",
-              "placeholder:text-muted-foreground",
-              "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-            )}
-          />
+      <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
+        <ListHeaderSearch
+          aria-label="Search cases"
+          aria-describedby="case-search-scope"
+          placeholder={
+            searchMode === "literal"
+              ? "Search exact characters..."
+              : 'Search words, "phrases", or ID...'
+          }
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+        >
           {onSearchModeChange && (
             <Select value={searchMode} onValueChange={onSearchModeChange}>
               <SelectTrigger
@@ -702,9 +690,9 @@ export function CasesHeader({
               </SelectContent>
             </Select>
           )}
-        </div>
+        </ListHeaderSearch>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {onToggleColumn && visibleColumnIds && (
             <CaseColumnPicker
               dropdownDefinitions={dropdownDefinitions}

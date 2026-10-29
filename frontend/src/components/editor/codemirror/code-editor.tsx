@@ -75,14 +75,15 @@ export function CodeEditor({
       onCreateEditor={onCreateEditor}
       className={cn(
         // Ensure the editor and all its tooltips/autocomplete popups are fully rounded and do not stick out
-        "max-w-full min-w-0 rounded-md text-xs focus-visible:outline-none",
-        // Editor container
-        "[&_.cm-editor]:min-w-0 [&_.cm-editor]:rounded-md [&_.cm-editor]:border [&_.cm-focused]:outline-none",
-        // Scroller
-        "[&_.cm-scroller]:min-w-0 [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:rounded-md",
+        "flex max-w-full min-w-0 flex-col rounded-md text-xs focus-visible:outline-none",
+        // Editor container. Grows to any min-height set by the caller.
+        "[&_.cm-editor]:min-w-0 [&_.cm-editor]:grow [&_.cm-editor]:rounded-md [&_.cm-editor]:border [&_.cm-focused]:outline-none",
+        // Scroller fills the editor so the gutter and horizontal scrollbar
+        // reach its bottom edge.
+        "[&_.cm-scroller]:min-w-0 [&_.cm-scroller]:grow [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:rounded-md [&_.cm-editor_.cm-scroller]:!items-stretch [&_.cm-editor_.cm-gutters]:!h-auto",
         wrapLongLines
           ? "[&_.cm-content]:min-w-0 [&_.cm-content]:w-full [&_.cm-line]:break-words [&_.cm-lineWrapping]:break-words [&_.cm-lineWrapping]:whitespace-pre-wrap"
-          : "[&_.cm-content]:min-w-full [&_.cm-content]:w-max",
+          : "[&_.cm-content]:w-max",
         // Tooltip (e.g., hover, autocomplete)
         "[&_.cm-tooltip]:rounded-md",
         // Autocomplete suggestion widget and its children

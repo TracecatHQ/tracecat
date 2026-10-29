@@ -1163,6 +1163,7 @@ class MockActionWithRef:
         self.id = id
         self.type = type
         self.title = title
+        self.description = ""
         self._ref = ref
         self.inputs = inputs
         self.control_flow = control_flow or {}

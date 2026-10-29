@@ -24,6 +24,10 @@ from tracecat.db.exceptions import (
     AuthPoolExhaustedError,
     DatabasePoolAcquisitionOrderError,
 )
+from tracecat.db.locks import (
+    hold_pg_advisory_xact_lock,
+    require_lock_holder_on_commit,
+)
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
 # Global so we don't create more than one engine per process.
@@ -430,6 +434,30 @@ def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManage
 ]:
     """Get a context manager for an async SQLAlchemy database session with RLS context."""
     return contextlib.asynccontextmanager(get_async_session)()
+
+
+@contextlib.asynccontextmanager
+async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, None]:
+    """Start a tenant-scoped serializable snapshot only after acquiring the lock.
+
+    Uses two main-pool connections: one holds the lock, one runs the snapshot.
+    """
+    if not (-(2**63) <= lock_key < 2**63):
+        raise ValueError(
+            f"Lock key {lock_key} out of range for PostgreSQL advisory locks"
+        )
+    _assert_main_pool_checkout_allowed()
+    engine = get_async_engine()
+    # The lock lives on its own connection so the snapshot transaction begins
+    # after the previous holder committed, and may commit more than once.
+    async with hold_pg_advisory_xact_lock(engine, lock_key) as holder:
+        assert holder is not None
+        async with engine.connect() as connection:
+            await connection.execution_options(isolation_level="SERIALIZABLE")
+            async with AsyncSession(connection, expire_on_commit=False) as session:
+                require_lock_holder_on_commit(session, holder, lock_key)
+                await _initialize_session_rls_context(session)
+                yield session
 
 
 def get_async_session_bypass_rls_context_manager() -> (

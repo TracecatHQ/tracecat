@@ -72,6 +72,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     AgentModelNotEnabledError,
+    AgentProviderCredentialsNotFoundError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
 )
@@ -1199,7 +1200,23 @@ class AgentManagementService(BaseOrgService):
 
         credentials = await self.get_catalog_credentials(catalog_id)
         if not credentials:
-            raise TracecatNotFoundError(
+            # A stale default can point at a deleted catalog row, which also
+            # resolves no credentials; that is a missing model, not missing setup.
+            catalog_row_id = await self.session.scalar(
+                select(AgentCatalog.id).where(
+                    AgentCatalog.id == catalog_id,
+                    sa.or_(
+                        AgentCatalog.organization_id.is_(None),
+                        AgentCatalog.organization_id == self.organization_id,
+                    ),
+                )
+            )
+            if catalog_row_id is None:
+                raise TracecatNotFoundError(
+                    "The default model is no longer available. Choose another "
+                    "default model in organization settings."
+                )
+            raise AgentProviderCredentialsNotFoundError(
                 "No organization credentials found for the default model. "
                 "Configure credentials in organization settings first."
             )
@@ -1342,7 +1359,7 @@ class AgentManagementService(BaseOrgService):
             )
 
         if not credentials:
-            raise TracecatNotFoundError(
+            raise AgentProviderCredentialsNotFoundError(
                 f"No credentials found for provider '{preset_config.model_provider}'. "
                 "Please configure credentials for this provider first."
             )

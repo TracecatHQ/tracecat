@@ -29,7 +29,7 @@ dependencies = [
     "alembic==1.13.2",
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
-    "authlib==1.6.12",
+    "authlib==1.9.1",
     "cachetools==7.0.6",
     "claude-agent-sdk==0.2.160",
     "cloudpickle==3.1.1",
@@ -40,8 +40,9 @@ dependencies = [
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
     "fastapi-users[sqlalchemy,oauth]==15.0.5",
+    "fido2==2.2.1",
     "fastapi[standard]==0.137.1",
-    "fastmcp==3.2.0",
+    "fastmcp==3.4.10",
     "google-auth==2.48.0",
     "greenlet==3.0.3",
     "griffe==2.0.2",
@@ -49,14 +50,14 @@ dependencies = [
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
-    "litellm[proxy]==1.101.0",
+    "litellm[proxy]==1.101.3",
     "loguru==0.7.3",
     "markdown-it-py==4.2.0",
     "minio==7.2.18",
-    "opentelemetry-api==1.43.0",
-    "opentelemetry-exporter-otlp-proto-http==1.43.0",
-    "opentelemetry-instrumentation-fastapi==0.64b0",
-    "opentelemetry-sdk==1.43.0",
+    "opentelemetry-api==1.45.1",
+    "opentelemetry-exporter-otlp-proto-http==1.45.1",
+    "opentelemetry-instrumentation-fastapi==0.66b1",
+    "opentelemetry-sdk==1.45.1",
     "orjson==3.11.7",
     "paramiko==5.0.0",
     "pgvector==0.4.2",
@@ -72,7 +73,7 @@ dependencies = [
     "sentry-sdk==2.24.1",
     "sqlalchemy==2.0.45",
     "starlette==1.3.1",
-    "temporalio==1.20.0",
+    "temporalio==1.32.0",
     "tenacity==8.3.0",
     "tiktoken==0.14.0",
     "tomli==2.2.1",
@@ -102,8 +103,8 @@ members = ["packages/*"]
 # Supply-chain cooldown: only resolve releases published at least 7 days ago.
 exclude-newer = "7 days"
 # Security fixes allowed inside the cooldown; each is also pinned exactly.
-# Remove on or after 2026-10-28: once the 7-day cutoff passes, these block upgrades.
-exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", pillow = "2026-10-21T00:00:00Z", uv = "2026-10-21T00:00:00Z" }
+# Remove on or after 2026-11-02: once the 7-day cutoff passes, these block upgrades.
+exclude-newer-package = { virtualenv = "2026-10-23T00:00:00Z" }
 # Keep overrides only for requirements that conflict with our pinned versions.
 override-dependencies = [
     # LiteLLM requires boto3>=1.43.1,<2.0; aioboto3 pins boto3<1.40.62.
@@ -120,6 +121,7 @@ constraint-dependencies = [
     "pyasn1==0.6.4",
     "python-multipart==0.0.31",
     "urllib3==2.8.0",
+    "virtualenv==21.14.13",
 ]
 
 [dependency-groups]

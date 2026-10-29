@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
+
+from tracecat.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
     from tracecat.agent.catalog.types import ModelKey
@@ -11,6 +14,7 @@ if TYPE_CHECKING:
         CatalogMappingRequirement,
         McpIntegrationMappingRequirement,
         PullDiagnostic,
+        PullResult,
         SecretStoreMappingRequirement,
     )
     from tracecat.workspace_sync.schemas import (
@@ -118,3 +122,43 @@ class PreparedSnapshot:
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
     secret_store_mapping_requirements: list[SecretStoreMappingRequirement]
     library_skill_installs: list[str]
+
+
+type WorkflowExportStage = Literal["definition", "dependency"]
+type WorkflowExportCode = Literal[
+    "publish_required",
+    "missing_definition",
+    "no_actions",
+    "invalid_definition",
+    "missing_child_workflow",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedPullPreview:
+    """A correlated immutable pull plan paired with its validated review."""
+
+    snapshot: WorkspaceRemoteSnapshot
+    preview: PullResult
+
+
+@dataclass(frozen=True, slots=True)
+class SyncMappingTarget:
+    """Desired sync mapping state for one projected or imported resource."""
+
+    resource_type: str
+    source_id: str
+    source_path: str
+    local_id: uuid.UUID
+
+
+class SyncCommitConflictError(TracecatValidationError):
+    """The target Git ref moved after the reviewed revision was checked."""
+
+
+class SyncWorkflowImportError(Exception):
+    """Retain the failing source workflow after a transaction rollback."""
+
+    def __init__(self, diagnostic: PullDiagnostic, message: str) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic

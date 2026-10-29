@@ -4696,6 +4696,62 @@ async def test_watchtower_middleware_blocks_when_telemetry_fails(
 
 
 @pytest.mark.anyio
+async def test_watchtower_middleware_passes_tool_call_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastmcp.server.context import Context
+
+    from tracecat.mcp.auth import MCPTokenIdentity
+    from tracecat.mcp.middleware import WatchtowerMonitorMiddleware
+
+    workspace_id = uuid.uuid4()
+    org_id = uuid.uuid4()
+    claimed = frozenset({org_id, uuid.uuid4()})
+    mw = WatchtowerMonitorMiddleware()
+    ctx = MiddlewareContext(
+        message=CallToolRequestParams(
+            name="sync_custom_registry",
+            arguments={"workspace_id": str(workspace_id), "org_id": str(org_id)},
+        ),
+        method="tools/call",
+        fastmcp_context=cast(Context, SimpleNamespace(session_id="test-session-id")),
+    )
+    seen: dict[str, object] = {}
+
+    async def _get_watchtower_context(**kwargs: object) -> tuple[None, None]:
+        seen.update(kwargs)
+        return None, None
+
+    ee_mod = ModuleType("tracecat_ee")
+    watchtower_mod = ModuleType("tracecat_ee.watchtower")
+    service_mod = ModuleType("tracecat_ee.watchtower.service")
+    cast(Any, service_mod).get_watchtower_tool_call_context = _get_watchtower_context
+    cast(Any, service_mod).record_watchtower_tool_call = AsyncMock()
+    cast(Any, watchtower_mod).service = service_mod
+    cast(Any, ee_mod).watchtower = watchtower_mod
+    monkeypatch.setitem(sys.modules, "tracecat_ee", ee_mod)
+    monkeypatch.setitem(sys.modules, "tracecat_ee.watchtower", watchtower_mod)
+    monkeypatch.setitem(sys.modules, "tracecat_ee.watchtower.service", service_mod)
+    monkeypatch.setattr(
+        "tracecat.mcp.middleware._safe_get_token_identity",
+        lambda: MCPTokenIdentity(
+            client_id="client", email="user@example.com", organization_ids=claimed
+        ),
+    )
+    sentinel = cast(ToolResult, object())
+
+    async def _call_next(
+        context: MiddlewareContext[CallToolRequestParams],
+    ) -> ToolResult:
+        return sentinel
+
+    assert await mw.on_call_tool(ctx, _call_next) is sentinel
+    assert seen["claimed_org_ids"] == claimed
+    assert seen["workspace_id"] == workspace_id
+    assert seen["organization_id"] == org_id
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("has_context", "claims", "expected"),
     [

@@ -138,6 +138,51 @@ async def test_deleting_primary_promotes_next_active_domain(
 
 
 @pytest.mark.anyio
+async def test_promoting_domain_demotes_existing_primary(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    org_a: Organization,
+) -> None:
+    service = AdminOrgService(session, role=platform_role)
+    first = await service.create_org_domain(
+        org_a.id, OrgDomainCreate(domain="a.example")
+    )
+    second = await service.create_org_domain(
+        org_a.id, OrgDomainCreate(domain="b.example")
+    )
+
+    updated = await service.update_org_domain(
+        org_a.id, second.id, OrgDomainUpdate(is_primary=True)
+    )
+    domains = {domain.id: domain for domain in await service.list_org_domains(org_a.id)}
+
+    assert updated.is_primary is True
+    assert domains[first.id].is_primary is False
+
+
+@pytest.mark.anyio
+async def test_reactivating_domain_claimed_elsewhere_is_rejected(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    org_a: Organization,
+    org_b: Organization,
+) -> None:
+    service = AdminOrgService(session, role=platform_role)
+    domain = await service.create_org_domain(
+        org_a.id, OrgDomainCreate(domain="shared.example")
+    )
+    await service.update_org_domain(
+        org_a.id, domain.id, OrgDomainUpdate(is_active=False)
+    )
+    await service.create_org_domain(org_b.id, OrgDomainCreate(domain="shared.example"))
+
+    with pytest.raises(ValueError, match="already assigned"):
+        await service.update_org_domain(
+            org_a.id, domain.id, OrgDomainUpdate(is_active=True)
+        )
+
+
+@pytest.mark.anyio
 async def test_primary_domain_cannot_be_set_inactive_in_same_update(
     session: AsyncSession,
     platform_role: PlatformRole,

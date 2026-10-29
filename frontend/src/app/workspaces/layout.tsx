@@ -130,7 +130,17 @@ export default function WorkspaceLayout({
     router.replace("/admin")
   }, [hasNoOrgMemberships, router, user?.isSuperuser, userIsLoading])
 
-  if (workspacesLoading) {
+  // No usable session, e.g. one still waiting on MFA: sign-in routes it.
+  const signedOut = !userIsLoading && !user
+  useEffect(() => {
+    if (!signedOut) {
+      return
+    }
+    const returnUrl = encodeURIComponent(window.location.pathname)
+    router.replace(`/sign-in?returnUrl=${returnUrl}`)
+  }, [router, signedOut])
+
+  if (signedOut || workspacesLoading) {
     return <CenteredSpinner />
   }
   if (hasNoOrgMemberships) {

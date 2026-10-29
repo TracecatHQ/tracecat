@@ -6,15 +6,17 @@ without duplicating the underlying auth logic.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from enum import StrEnum, auto
 
 from fastapi import HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.credentials import _resolve_org_for_regular_user
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import User
+from tracecat.db.models import Organization, OrganizationMembership, User
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 
@@ -27,11 +29,23 @@ class NeedsAction(StrEnum):
 
 
 @dataclass(frozen=True)
+class OrganizationOption:
+    """An active organization the user can grant to an MCP connection."""
+
+    id: OrganizationID
+    name: str
+    slug: str
+
+
+@dataclass(frozen=True)
 class SessionResult:
     """Outcome of session + org resolution."""
 
     user: User
     organization_id: OrganizationID
+    """The org the user is currently working in (active-org cookie or oldest)."""
+    organizations: tuple[OrganizationOption, ...] = ()
+    """Every active org the user belongs to, oldest first."""
 
 
 @dataclass(frozen=True)
@@ -90,4 +104,36 @@ async def _resolve_regular_user_org(
         raise OrgResolutionError(
             f"User {user.email} cannot use MCP: no organization membership"
         ) from exc
-    return SessionResult(user=user, organization_id=org_id)
+    organizations = await list_active_organizations(session, user.id)
+    return SessionResult(
+        user=user,
+        organization_id=org_id,
+        organizations=tuple(organizations),
+    )
+
+
+async def list_active_organizations(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+) -> list[OrganizationOption]:
+    """List the active organizations a user belongs to, oldest first.
+
+    Uses the same ordering as ``_resolve_org_for_regular_user`` so the
+    fallback active org is always the first entry.
+    """
+    result = await session.execute(
+        select(Organization.id, Organization.name, Organization.slug)
+        .join(
+            OrganizationMembership,
+            OrganizationMembership.organization_id == Organization.id,
+        )
+        .where(
+            OrganizationMembership.user_id == user_id,
+            Organization.is_active.is_(True),
+        )
+        .order_by(Organization.created_at.asc(), Organization.id.asc())
+    )
+    return [
+        OrganizationOption(id=org_id, name=name, slug=slug)
+        for org_id, name, slug in result.tuples().all()
+    ]

@@ -15,10 +15,18 @@ from tracecat.auth.ip_allowlist_enforcement import (
     clear_ip_allowlist_cache,
     ensure_allowlist_admits_caller,
 )
+from tracecat.auth.mfa.constants import ORG_MFA_REQUIRED_KEY
+from tracecat.auth.mfa.policy import (
+    clear_mfa_policy_cache,
+    ensure_can_enable_mfa_policy,
+)
+from tracecat.auth.mfa.schemas import MfaPolicyRead, MfaPolicyUpdate
+from tracecat.auth.mfa.webauthn import webauthn_unavailable_reason
 from tracecat.authz.controls import require_scope
 from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import OrganizationDomain
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.settings.schemas import (
     AgentOtelSettingsRead,
@@ -38,6 +46,8 @@ from tracecat.settings.schemas import (
     SAMLSettingsUpdate,
     SecuritySettingsRead,
     SecuritySettingsUpdate,
+    SettingCreate,
+    SettingUpdate,
     parse_stored_ip_allowlists,
 )
 from tracecat.settings.service import (
@@ -267,6 +277,66 @@ async def _load_security_settings(service: SettingsService) -> SecuritySettingsR
         ip_allowlist_enabled=bool(settings_dict.get("ip_allowlist_enabled", False)),
         ip_allowlists=parse_stored_ip_allowlists(settings_dict.get("ip_allowlists")),
     )
+
+
+@router.get("/security/mfa", response_model=MfaPolicyRead)
+@require_scope("org:settings:read")
+async def get_mfa_policy(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> MfaPolicyRead:
+    """Whether members must sign in with a security key."""
+    service = SettingsService(session, role)
+    setting = await service.get_org_setting(ORG_MFA_REQUIRED_KEY)
+    reason = webauthn_unavailable_reason()
+    return MfaPolicyRead(
+        mfa_required=setting is not None and service.get_value(setting) is True,
+        webauthn_available=reason is None,
+        webauthn_unavailable_reason=reason,
+    )
+
+
+@router.patch("/security/mfa", response_model=MfaPolicyRead)
+@require_scope("org:settings:update")
+async def update_mfa_policy(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: MfaPolicyUpdate,
+) -> MfaPolicyRead:
+    """Require (or stop requiring) a security key at sign-in for all members.
+
+    Applies to password, OIDC, and SAML sign-in. Members without a key must
+    register one before they can continue. The caller must already have one.
+    """
+    if params.mfa_required:
+        if role.user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A user is required to enable this setting",
+            )
+        try:
+            await ensure_can_enable_mfa_policy(session, role.user_id)
+        except TracecatValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+            ) from e
+    service = SettingsService(session, role)
+    if setting := await service.get_org_setting(ORG_MFA_REQUIRED_KEY):
+        await service.update_org_setting(
+            setting, SettingUpdate(value=params.mfa_required)
+        )
+    else:
+        await service.create_org_setting(
+            SettingCreate(
+                key=ORG_MFA_REQUIRED_KEY,
+                value=params.mfa_required,
+                is_sensitive=False,
+            )
+        )
+    clear_mfa_policy_cache()
+    return await get_mfa_policy(role=role, session=session)
 
 
 @router.patch("/security", status_code=status.HTTP_204_NO_CONTENT)

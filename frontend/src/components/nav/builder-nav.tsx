@@ -29,20 +29,11 @@ import type {
   WorkflowDslPublish,
 } from "@/client"
 import { ApiError } from "@/client"
+import { DeleteWorkflowConfirmDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+import { AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -97,7 +88,6 @@ import {
   useCreateDraftWorkflowExecution,
   useFolders,
   useOrgAppSettings,
-  useWorkflowManager,
 } from "@/lib/hooks"
 import { cn, copyToClipboard, slugifyActionRef } from "@/lib/utils"
 import {
@@ -218,7 +208,7 @@ function EditableWorkflowTitle({
           }
         }}
         title={title}
-        className="truncate bg-transparent p-0 text-left text-sm text-foreground"
+        className="truncate bg-transparent p-0 text-left text-sm text-muted-foreground"
       >
         {title}
       </button>
@@ -328,7 +318,11 @@ export function BuilderNav() {
         />
 
         {/* Workflow options */}
-        <BuilderNavOptions workspaceId={workspaceId} workflowId={workflow.id} />
+        <BuilderNavOptions
+          workspaceId={workspaceId}
+          workflowId={workflow.id}
+          workflowTitle={workflow.title}
+        />
       </div>
     </div>
   )
@@ -855,6 +849,8 @@ function WorkflowSaveActions({
         branch: data.branch,
         create_pr: pushOutcome.createPr,
       })
+    } catch {
+      // WorkflowProvider presents the error, including Publish-first guidance.
     } finally {
       setIsPublishing(false)
       setPublishOpen(false)
@@ -957,7 +953,7 @@ function WorkflowSaveActions({
                             {hasBranches ? (
                               <>
                                 <SelectItem value={CREATE_NEW_BRANCH_VALUE}>
-                                  Create new branch...
+                                  Create branch...
                                 </SelectItem>
                                 <SelectSeparator />
                                 {(repoBranches ?? []).map((branch) => (
@@ -1088,24 +1084,25 @@ function WorkflowSaveActions({
 function BuilderNavOptions({
   workspaceId,
   workflowId,
+  workflowTitle,
 }: {
   workspaceId: string
   workflowId: string
+  workflowTitle: string
 }) {
   const router = useRouter()
   const { appSettings } = useOrgAppSettings()
-  const { deleteWorkflow } = useWorkflowManager(undefined, {
-    listEnabled: false,
-  })
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
   const enabledExport = appSettings?.app_workflow_export_enabled
 
-  const handleDelete = async () => {
-    await deleteWorkflow(workflowId)
-    router.push(`/workspaces/${workspaceId}/workflows`)
-  }
-
   return (
-    <AlertDialog>
+    <DeleteWorkflowConfirmDialog
+      open={deleteOpen}
+      onOpenChange={setDeleteOpen}
+      workflowId={workflowId}
+      workflowTitle={workflowTitle}
+      onDeleted={() => router.push(`/workspaces/${workspaceId}/workflows`)}
+    >
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon">
@@ -1152,21 +1149,6 @@ function BuilderNavOptions({
           </AlertDialogTrigger>
         </DropdownMenuContent>
       </DropdownMenu>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete workflow</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to delete this workflow? This action cannot be
-            undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={handleDelete}>
-            Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    </DeleteWorkflowConfirmDialog>
   )
 }

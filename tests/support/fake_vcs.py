@@ -1,16 +1,30 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
-from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
+from tracecat.registry.repositories.schemas import (
+    GitBranchInfo,
+    GitCommitInfo,
+    GitTagInfo,
+)
 from tracecat.sync import CommitInfo, PushStatus
 from tracecat.workspace_sync.enums import VcsProvider
-from tracecat.workspace_sync.transport import VcsSyncTransport, VcsTreeSnapshot
+from tracecat.workspace_sync.tags import (
+    TAG_PAGE_MAX,
+    decode_tag_cursor,
+    encode_tag_cursor,
+)
+from tracecat.workspace_sync.transport import (
+    VcsSyncTransport,
+    VcsTreeSnapshot,
+    sync_commit_message,
+)
 
 
 @dataclass
@@ -51,6 +65,13 @@ class FakeVcsServer:
         repo = self._repo(url)
         return repo.files_at_ref(ref or self.default_branch)
 
+    def create_tag(self, url: GitUrl, *, tag: str, ref: str) -> str:
+        """Point ``tag`` at the commit ``ref`` resolves to and return its SHA."""
+        repo = self._repo(url)
+        sha = repo.commit_at_ref(ref).sha
+        repo.tags[tag] = sha
+        return sha
+
     def _repo(self, url: GitUrl) -> _FakeRepo:
         key = f"{url.host}/{url.org}/{url.repo}"
         repo = self._repos.get(key)
@@ -64,15 +85,29 @@ class FakeVcsTransport:
     def __init__(self, *, server: FakeVcsServer) -> None:
         self._server = server
 
-    async def read_files(self, *, url: GitUrl, ref: str) -> VcsTreeSnapshot:
+    async def read_files(
+        self,
+        *,
+        url: GitUrl,
+        ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
+    ) -> VcsTreeSnapshot:
         repo = self._server._repo(url)
-        commit = repo.commit_at_ref(ref)
+        if ref_kind == "branch":
+            commit = repo._commits[repo._branches[ref]]
+        elif ref_kind == "commit":
+            commit = repo._commits[ref]
+        else:
+            commit = repo.commit_at_ref(ref)
         return VcsTreeSnapshot(
             commit_sha=commit.sha,
             tree_sha=commit.tree_sha,
             files=dict(commit.files),
             blob_paths=frozenset(commit.files),
         )
+
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        return branch in self._server._repo(url)._branches
 
     async def write_files(
         self,
@@ -83,17 +118,29 @@ class FakeVcsTransport:
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         del create_pr
         repo = self._server._repo(url)
-        return repo.write_files(
+        base = pr_base_branch or url.ref or self._server.default_branch
+        start_ref = branch_start_ref or base
+        target = branch if branch in repo._branches else start_ref
+        if (
+            expected_commit_sha
+            and repo.commit_at_ref(target).sha != expected_commit_sha
+        ):
+            raise TracecatValidationError("Target branch changed; create a new preview")
+        commit = repo.write_files(
             files=files,
-            message=message,
+            message=sync_commit_message(message, operation_id),
             branch=branch,
-            base_branch=pr_base_branch or url.ref or self._server.default_branch,
+            base_branch=start_ref,
             delete_missing_paths_under=delete_missing_paths_under,
         )
+        return replace(commit, base_ref=base)
 
     async def list_commits(
         self,
@@ -130,6 +177,37 @@ class FakeVcsTransport:
             for branch in repo.branch_names(limit=limit)
         ]
 
+    async def list_tags(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[list[GitTagInfo], str | None]:
+        """Page tags newest commit first, with the real providers' cursor rules."""
+        if limit <= 0:
+            return [], None
+        page_size = min(limit, TAG_PAGE_MAX)
+        start = decode_tag_cursor(cursor, page_size=page_size, first=0)
+        repo = self._server._repo(url)
+        # Commit SHAs come from a counter, so they break created_at ties in order.
+        ordered = sorted(
+            repo.tags.items(),
+            key=lambda item: (repo._commits[item[1]].created_at, item[1], item[0]),
+            reverse=True,
+        )
+        end = start + page_size
+        tags = [
+            GitTagInfo(
+                name=name,
+                commit_sha=sha,
+                date=repo._commits[sha].created_at.isoformat(),
+            )
+            for name, sha in ordered[start:end]
+        ]
+        next_cursor = encode_tag_cursor(end, page_size) if end < len(ordered) else None
+        return tags, next_cursor
+
 
 class _FakeRepo:
     def __init__(self, *, default_branch: str) -> None:
@@ -137,6 +215,7 @@ class _FakeRepo:
         self._counter = 0
         self._commits: dict[str, _FakeCommit] = {}
         self._branches: dict[str, str] = {}
+        self.tags: dict[str, str] = {}
         initial = self._new_commit(
             branch=default_branch,
             message="Initial fake VCS commit",

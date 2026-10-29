@@ -2,7 +2,8 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from datetime import datetime
+from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,48 @@ class AgentControlRejected(RuntimeError):
 
 class AgentControlUncertain(RuntimeError):
     """A control operation may have applied; preserve its identity for retries."""
+
+
+type PendingMessageType = Literal["steer", "message"]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingMessage:
+    """A user message the model has not read yet.
+
+    ``steer`` messages wait to join the running turn; ``message`` ones wait to
+    start a later turn.
+    """
+
+    id: UUID
+    type: PendingMessageType
+    text: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WithdrawResult:
+    """Which pending user messages a withdraw took back.
+
+    ``withdrawn`` lists messages the model had not read, in send order.
+    ``too_late`` lists messages it had already read; they stay in the transcript.
+    """
+
+    withdrawn: tuple[UUID, ...] = ()
+    too_late: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TurnResult:
+    """A finished turn as seen by a caller that ran its workflow as a child.
+
+    ``error`` is set when the turn ended without a usable output, for example
+    when it failed or was cancelled; ``output`` is then ignored. A result with
+    neither an output nor an error is invalid.
+    """
+
+    output: Any
+    error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,6 +9,7 @@ import pytest
 
 import tracecat.config as tracecat_config
 from tracecat.config import bound_env, env_bool, env_networks, env_ports
+from tracecat.feature_flags.enums import FeatureFlag
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
@@ -17,10 +18,11 @@ SANDBOX_POLICY_COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
 )
-# The sandbox Compose file is an override and inherits policy variables from a base.
+# The sandbox and lite Compose files are overrides and inherit policy variables from a base.
 COMPOSE_ENV_FILES = (
     *SANDBOX_POLICY_COMPOSE_ENV_FILES,
     REPO_ROOT / "docker-compose.sandbox.yml",
+    REPO_ROOT / "docker-compose.lite.yml",
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
@@ -487,14 +489,15 @@ def test_bound_env_uses_default_for_empty_string(
     assert result == 10
 
 
-def test_agent_runtime_feature_flag_is_loaded_from_environment(
+def test_removed_agent_runtime_feature_flag_is_ignored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Deployments that still set the removed flag keep starting."""
     try:
         with monkeypatch.context() as env:
-            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime")
+            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime,forms")
             reloaded_config = importlib.reload(tracecat_config)
-            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {"agent-runtime"}
+            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {FeatureFlag.FORMS}
     finally:
         importlib.reload(tracecat_config)
 
@@ -724,3 +727,41 @@ def test_sandbox_memory_limits_must_be_positive(
                 importlib.reload(tracecat_config)
     finally:
         importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5"])
+def test_background_activity_capacity_rejects_invalid_values(monkeypatch, value):
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES", value)
+            with pytest.raises(ValueError):
+                importlib.reload(tracecat_config)
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize("path", SANDBOX_POLICY_COMPOSE_ENV_FILES, ids=lambda p: p.name)
+@pytest.mark.parametrize(
+    "setting",
+    [
+        "TRACECAT__AGENT_SANDBOX_TIMEOUT",
+        "TRACECAT__CONTEXT_COMPRESSION_ENABLED",
+        "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB",
+    ],
+)
+def test_background_worker_shared_settings_match_other_services(
+    path: Path, setting: str
+) -> None:
+    """Background activities use the same validation and payload codec settings."""
+    source = path.read_text()
+    values = []
+    for service in ("api", "worker", "background-worker", "executor", "agent-executor"):
+        block = re.search(
+            rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        assert block is not None
+        value = re.search(rf"{setting}:\s*(\S+)", block["body"])
+        assert value is not None, service
+        values.append(value[1])
+    assert len(set(values)) == 1, values

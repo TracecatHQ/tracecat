@@ -87,6 +87,18 @@ describe("useVercelChat lastError", () => {
     expect(hook.result.current.lastErrorDisconnected).toBe(true)
   })
 
+  it("shows the API's detail when a send is rejected", () => {
+    const { hook, onError } = renderChat()
+    const detail =
+      "No credentials found for provider 'example'. Please configure credentials for this provider first."
+
+    act(() => {
+      onError?.(new Error(JSON.stringify({ detail })))
+    })
+
+    expect(hook.result.current.lastError).toBe(detail)
+  })
+
   it("clears the error once a later turn finishes cleanly", () => {
     const { hook, onError, onFinish } = renderChat()
 

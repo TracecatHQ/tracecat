@@ -487,7 +487,7 @@ function StoreRow({
                       onSelect={() => setConfirm("delete")}
                       className="text-xs text-destructive focus:text-destructive"
                     >
-                      Delete store
+                      Delete
                     </DropdownMenuItem>
                     {referenceCount > 0 && (
                       <p className="whitespace-nowrap px-2 pb-1.5 text-xs text-muted-foreground">
@@ -561,7 +561,7 @@ function StoreRow({
                 )
               }
             >
-              {confirm === "delete" ? "Delete store" : "Disable store"}
+              {confirm === "delete" ? "Delete" : "Disable"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

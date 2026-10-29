@@ -61,9 +61,9 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.9.17"
+          version: "0.13.4"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml

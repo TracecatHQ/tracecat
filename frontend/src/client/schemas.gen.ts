@@ -1389,6 +1389,26 @@ export const $AgentBackendRead = {
   description: "An enabled installed backend available for session creation.",
 } as const
 
+export const $AgentCancelControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "cancel",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "Client-generated request ID",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "AgentCancelControl",
+  description: "Cancel the running turn.",
+} as const
+
 export const $AgentCatalogListResponse = {
   properties: {
     items: {
@@ -1602,6 +1622,83 @@ export const $AgentChannelTokenUpdate = {
   type: "object",
   title: "AgentChannelTokenUpdate",
   description: "Request schema for updating an external channel token.",
+} as const
+
+export const $AgentControlReceipt = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/AgentControlType",
+    },
+    run_id: {
+      type: "string",
+      format: "uuid",
+      title: "Run Id",
+    },
+    status: {
+      $ref: "#/components/schemas/AgentControlStatus",
+    },
+    withdrawn: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Withdrawn",
+      description:
+        "Withdrawn message IDs in send order; set only for `withdraw`",
+    },
+    too_late: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Too Late",
+      description:
+        "Message IDs the model already read, which stay in the transcript; set only for `withdraw`",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "run_id", "status"],
+  title: "AgentControlReceipt",
+  description: "The running turn's outcome for a control request.",
+} as const
+
+export const $AgentControlRequest = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/AgentSteerControl",
+    },
+    {
+      $ref: "#/components/schemas/AgentWithdrawControl",
+    },
+    {
+      $ref: "#/components/schemas/AgentCancelControl",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      cancel: "#/components/schemas/AgentCancelControl",
+      steer: "#/components/schemas/AgentSteerControl",
+      withdraw: "#/components/schemas/AgentWithdrawControl",
+    },
+  },
+} as const
+
+export const $AgentControlStatus = {
+  type: "string",
+  enum: ["accepted", "rejected", "withdrawn", "too_late"],
+} as const
+
+export const $AgentControlType = {
+  type: "string",
+  enum: ["steer", "withdraw", "cancel"],
 } as const
 
 export const $AgentCustomProviderCreate = {
@@ -2358,6 +2455,34 @@ export const $AgentOutput = {
   type: "object",
   required: ["output", "duration", "session_id"],
   title: "AgentOutput",
+} as const
+
+export const $AgentPendingMessageRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "The ID the client sent the message under",
+    },
+    type: {
+      $ref: "#/components/schemas/PendingMessageType",
+      description: `\`steer\` waits to join the running turn; \`message\` waits to start a later turn`,
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "text", "created_at"],
+  title: "AgentPendingMessageRead",
+  description: "A user message the model has not read yet.",
 } as const
 
 export const $AgentPreset = {
@@ -4326,6 +4451,33 @@ export const $AgentSessionCancelResponse = {
     "Response schema for an accepted agent session cancellation request.",
 } as const
 
+export const $AgentSessionCapabilities = {
+  properties: {
+    steering: {
+      type: "boolean",
+      title: "Steering",
+      description: "Whether a running turn accepts steering messages",
+      default: false,
+    },
+    withdrawing: {
+      type: "boolean",
+      title: "Withdrawing",
+      description: "Whether a running turn can take back pending user messages",
+      default: false,
+    },
+    listing_pending: {
+      type: "boolean",
+      title: "Listing Pending",
+      description:
+        "Whether the session can list messages the model has not read",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentSessionCapabilities",
+  description: "Optional controls the session's backend supports.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -4534,6 +4686,28 @@ export const $AgentSessionForkRequest = {
   description: "Request schema for forking an agent session.",
 } as const
 
+export const $AgentSessionPendingRead = {
+  properties: {
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPendingMessageRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  required: ["session_id", "items"],
+  title: "AgentSessionPendingRead",
+  description:
+    "The session's user messages the model has not read, in send order.",
+} as const
+
 export const $AgentSessionRead = {
   properties: {
     id: {
@@ -4654,6 +4828,9 @@ export const $AgentSessionRead = {
       type: "string",
       title: "Backend Id",
       default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
     },
     harness_type: {
       anyOf: [
@@ -4883,6 +5060,9 @@ export const $AgentSessionReadVercel = {
       type: "string",
       title: "Backend Id",
       default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
     },
     harness_type: {
       anyOf: [
@@ -5120,6 +5300,9 @@ export const $AgentSessionReadWithMessages = {
       type: "string",
       title: "Backend Id",
       default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
     },
     harness_type: {
       anyOf: [
@@ -5438,6 +5621,34 @@ export const $AgentSettingsUpdate = {
   title: "AgentSettingsUpdate",
 } as const
 
+export const $AgentSteerControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "steer",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated message ID. It reaches at most one turn of the session; a retry returns the first outcome.",
+    },
+    text: {
+      type: "string",
+      maxLength: 100000,
+      minLength: 1,
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["type", "id", "text"],
+  title: "AgentSteerControl",
+  description:
+    "A message for the running turn to take into account before it answers.",
+} as const
+
 export const $AgentSubagentsConfig_Input = {
   properties: {
     enabled: {
@@ -5513,6 +5724,44 @@ export const $AgentTagRead = {
   required: ["id", "name", "ref", "color"],
   title: "AgentTagRead",
   description: "Tag data.",
+} as const
+
+export const $AgentWithdrawControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "withdraw",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated request ID; a retry returns the first outcome",
+    },
+    target_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            format: "uuid",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Ids",
+      description:
+        "Message IDs to withdraw. Null withdraws all of the session's pending steers and queued messages.",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "AgentWithdrawControl",
+  description: "Take back pending user messages the model has not read yet.",
 } as const
 
 export const $AlertArtifact = {
@@ -16522,6 +16771,13 @@ export const $EffectiveEntitlements = {
         "Whether workspaces may route actions through private network tunnels such as Pangolin",
       default: false,
     },
+    agent_runtime_preview: {
+      type: "boolean",
+      title: "Agent runtime preview",
+      description:
+        "Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -16762,6 +17018,12 @@ export const $EntitlementsDict = {
       title: "Tunnels",
       description:
         "Whether workspaces may route actions through private network tunnels such as Pangolin",
+    },
+    agent_runtime_preview: {
+      type: "boolean",
+      title: "Agent runtime preview",
+      description:
+        "Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions",
     },
   },
   type: "object",
@@ -17354,7 +17616,6 @@ export const $FeatureFlag = {
     "ai-ranking",
     "workflow-concurrency-limits",
     "agent-fs-persistence",
-    "agent-runtime",
     "workspace-sync-github-archive",
     "forms",
   ],
@@ -19992,7 +20253,8 @@ export const $GitLabTokenCredentialsRequest = {
       type: "string",
       format: "password",
       title: "Token",
-      description: "GitLab personal/project/group access token with api scope.",
+      description:
+        "GitLab access token with api scope. Project and group tokens also require write_repository for Git sync pushes.",
       writeOnly: true,
     },
   },
@@ -20136,6 +20398,36 @@ export const $GitSettingsUpdate = {
   },
   type: "object",
   title: "GitSettingsUpdate",
+} as const
+
+export const $GitTagInfo = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+      description: "Tag name",
+    },
+    commit_sha: {
+      type: "string",
+      pattern: "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      title: "Commit Sha",
+      description: "SHA of the commit the tag points to (SHA-1 or SHA-256)",
+    },
+    date: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      title: "Date",
+      description:
+        "Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.",
+    },
+  },
+  type: "object",
+  required: ["name", "commit_sha", "date"],
+  title: "GitTagInfo",
+  description: "Git tag information for repository management.",
 } as const
 
 export const $GraphOperation = {
@@ -23908,6 +24200,18 @@ export const $MCPToolSummary = {
       title: "Status",
       default: "available",
     },
+    input_schema: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Input Schema",
+    },
   },
   type: "object",
   required: ["name"],
@@ -23938,6 +24242,69 @@ export const $MCPVerificationStatusRead = {
   required: ["status"],
   title: "MCPVerificationStatusRead",
   description: "Response model for saved MCP verification status.",
+} as const
+
+export const $ManagedSourceRead = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    git_provider: {
+      $ref: "#/components/schemas/VcsProvider",
+    },
+    git_repo_url: {
+      type: "string",
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "organization_id", "git_provider", "git_repo_url"],
+  title: "ManagedSourceRead",
+  description:
+    "The workspace managed resources are published from, and its Git binding.",
+} as const
+
+export const $ManagedSourceSettingRead = {
+  properties: {
+    source: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ManagedSourceRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "ManagedSourceSettingRead",
+  description:
+    "The managed resources source setting; ``source`` is null when unset.",
+} as const
+
+export const $ManagedSourceUpdate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "ManagedSourceUpdate",
+  description: `Set the managed resources source.
+
+The workspace must have a Git sync provider and repository URL; both are
+pinned with the setting.`,
 } as const
 
 export const $ManagedTunnelCreate = {
@@ -24427,6 +24794,105 @@ export const $MessageOrigin = {
   type: "object",
   required: ["kind"],
   title: "MessageOrigin",
+} as const
+
+export const $MfaPolicyRead = {
+  properties: {
+    mfa_required: {
+      type: "boolean",
+      title: "Mfa Required",
+    },
+    webauthn_available: {
+      type: "boolean",
+      title: "Webauthn Available",
+    },
+    webauthn_unavailable_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webauthn Unavailable Reason",
+    },
+  },
+  type: "object",
+  required: ["mfa_required", "webauthn_available"],
+  title: "MfaPolicyRead",
+} as const
+
+export const $MfaPolicyUpdate = {
+  properties: {
+    mfa_required: {
+      type: "boolean",
+      title: "Mfa Required",
+      description:
+        "Require a security key or passkey at sign-in. Users without one must register one at their next sign-in.",
+    },
+  },
+  type: "object",
+  required: ["mfa_required"],
+  title: "MfaPolicyUpdate",
+} as const
+
+export const $MfaStatusRead = {
+  properties: {
+    state: {
+      $ref: "#/components/schemas/SessionMfaState",
+    },
+    has_credentials: {
+      type: "boolean",
+      title: "Has Credentials",
+    },
+    required_by_policy: {
+      type: "boolean",
+      title: "Required By Policy",
+    },
+    webauthn_available: {
+      type: "boolean",
+      title: "Webauthn Available",
+    },
+    webauthn_unavailable_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webauthn Unavailable Reason",
+    },
+    recovery_codes_remaining: {
+      type: "integer",
+      title: "Recovery Codes Remaining",
+    },
+    step_up_expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Step Up Expires At",
+      description:
+        "When the current step-up verification stops satisfying checks.",
+    },
+  },
+  type: "object",
+  required: [
+    "state",
+    "has_credentials",
+    "required_by_policy",
+    "webauthn_available",
+    "recovery_codes_remaining",
+  ],
+  title: "MfaStatusRead",
 } as const
 
 export const $ModelConfig = {
@@ -25800,6 +26266,45 @@ export const $Page_ExternalGroupRead_ = {
   title: "Page[ExternalGroupRead]",
 } as const
 
+export const $Page_GitTagInfo_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/GitTagInfo",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[GitTagInfo]",
+} as const
+
 export const $Page_SecretStoreRead_ = {
   properties: {
     items: {
@@ -25837,6 +26342,45 @@ export const $Page_SecretStoreRead_ = {
   type: "object",
   required: ["items"],
   title: "Page[SecretStoreRead]",
+} as const
+
+export const $Page_SyncOperationRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SyncOperationRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[SyncOperationRead]",
 } as const
 
 export const $Page_TunnelRead_ = {
@@ -26092,6 +26636,11 @@ export const $PendingInvitationRead = {
   ],
   title: "PendingInvitationRead",
   description: "Pending invitation visible to the invited authenticated user.",
+} as const
+
+export const $PendingMessageType = {
+  type: "string",
+  enum: ["steer", "message"],
 } as const
 
 export const $PersistedApprovalDecision = {
@@ -27457,6 +28006,35 @@ export const $ReasoningUIPart = {
   required: ["type", "text"],
   title: "ReasoningUIPart",
   description: "A reasoning part of a message.",
+} as const
+
+export const $RecoveryCodeVerify = {
+  properties: {
+    code: {
+      type: "string",
+      maxLength: 64,
+      minLength: 1,
+      title: "Code",
+    },
+  },
+  type: "object",
+  required: ["code"],
+  title: "RecoveryCodeVerify",
+} as const
+
+export const $RecoveryCodesRead = {
+  properties: {
+    recovery_codes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Recovery Codes",
+    },
+  },
+  type: "object",
+  required: ["recovery_codes"],
+  title: "RecoveryCodesRead",
 } as const
 
 export const $RegistryActionAvailability = {
@@ -30835,6 +31413,51 @@ export const $ScopeCreate = {
   description: "Create schema for a custom scope.",
 } as const
 
+export const $ScopeDeniedErrorDetail = {
+  properties: {
+    code: {
+      type: "string",
+      const: "insufficient_scope",
+      title: "Code",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    required_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Required Scopes",
+    },
+    missing_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Scopes",
+    },
+  },
+  type: "object",
+  required: ["code", "message", "required_scopes", "missing_scopes"],
+  title: "ScopeDeniedErrorDetail",
+  description: "Structured explanation of an authorization scope denial.",
+} as const
+
+export const $ScopeDeniedResponse = {
+  properties: {
+    error: {
+      $ref: "#/components/schemas/ScopeDeniedErrorDetail",
+    },
+  },
+  type: "object",
+  required: ["error"],
+  title: "ScopeDeniedResponse",
+  description:
+    "HTTP 403 response emitted by the scope-denial exception handler.",
+} as const
+
 export const $ScopeList = {
   properties: {
     items: {
@@ -32646,6 +33269,17 @@ export const $ServiceAccountUpdate = {
   title: "ServiceAccountUpdate",
 } as const
 
+export const $SessionMfaState = {
+  type: "string",
+  enum: [
+    "not_required",
+    "verified",
+    "challenge_required",
+    "enrollment_required",
+  ],
+  title: "SessionMfaState",
+} as const
+
 export const $SessionRead = {
   properties: {
     id: {
@@ -34427,6 +35061,298 @@ export const $SubCasesRemovedEventRead = {
   description: "Event for when sub-cases are removed from this case.",
 } as const
 
+export const $SyncDiffPage = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/PullResourceDiff",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "SyncDiffPage",
+  description:
+    "A stable page of diff metadata; file text is fetched separately.",
+} as const
+
+export const $SyncDirection = {
+  type: "string",
+  enum: ["push", "pull"],
+} as const
+
+export const $SyncOperationCommand = {
+  properties: {
+    command_id: {
+      type: "string",
+      format: "uuid",
+      title: "Command Id",
+    },
+    preview_revision: {
+      type: "integer",
+      minimum: 0,
+      title: "Preview Revision",
+    },
+    state_revision: {
+      type: "integer",
+      minimum: 0,
+      title: "State Revision",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["command_id", "preview_revision", "state_revision"],
+  title: "SyncOperationCommand",
+  description:
+    "Repeat the same command ID and reviewed revisions after a lost response.",
+} as const
+
+export const $SyncOperationCreate_Input = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    push: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportRequest-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    pull: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSyncPullRequest",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    compare_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Ref",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "direction"],
+  title: "SyncOperationCreate",
+  description:
+    "Start a preview; reuse the client-generated ID after a lost response.",
+} as const
+
+export const $SyncOperationCreate_Output = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    push: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportRequest-Output",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    pull: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSyncPullRequest",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    compare_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Ref",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "direction"],
+  title: "SyncOperationCreate",
+  description:
+    "Start a preview; reuse the client-generated ID after a lost response.",
+} as const
+
+export const $SyncOperationError = {
+  properties: {
+    detail: {
+      type: "string",
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "SyncOperationError",
+  description: "Expected operation conflict and diff lookup failures.",
+} as const
+
+export const $SyncOperationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    status: {
+      $ref: "#/components/schemas/SyncStatus",
+    },
+    stage: {
+      $ref: "#/components/schemas/SyncStage",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    preview: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportPreview",
+        },
+        {
+          $ref: "#/components/schemas/PullResult",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preview",
+    },
+    result: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SyncPushResult",
+        },
+        {
+          $ref: "#/components/schemas/PullResult",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Result",
+    },
+    diff_count: {
+      type: "integer",
+      title: "Diff Count",
+      default: 0,
+    },
+    can_retry: {
+      type: "boolean",
+      title: "Can Retry",
+      default: false,
+    },
+    data_applied: {
+      type: "boolean",
+      title: "Data Applied",
+      default: false,
+    },
+    inputs: {
+      $ref: "#/components/schemas/SyncOperationCreate-Output",
+    },
+    preview_revision: {
+      type: "integer",
+      title: "Preview Revision",
+      default: 0,
+    },
+    state_revision: {
+      type: "integer",
+      title: "State Revision",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "direction",
+    "status",
+    "stage",
+    "created_at",
+    "expires_at",
+    "inputs",
+  ],
+  title: "SyncOperationRead",
+  description:
+    "Small polling response, independent of the number of synced files.",
+} as const
+
 export const $SyncPreviewResource = {
   properties: {
     resource_type: {
@@ -34451,6 +35377,19 @@ export const $SyncPreviewResource = {
   title: "SyncPreviewResource",
 } as const
 
+export const $SyncPushResult = {
+  properties: {
+    commit: {
+      $ref: "#/components/schemas/CommitInfo",
+    },
+  },
+  type: "object",
+  required: ["commit"],
+  title: "SyncPushResult",
+  description:
+    "Compact durable push receipt; file details stay in paginated artifacts.",
+} as const
+
 export const $SyncResourceType = {
   type: "string",
   enum: [
@@ -34470,6 +35409,31 @@ export const $SyncResourceType = {
 
 Every member is adapter-backed: it can be projected to and imported from
 repository files.`,
+} as const
+
+export const $SyncStage = {
+  type: "string",
+  enum: [
+    "fetching",
+    "preparing",
+    "awaiting_confirmation",
+    "applying",
+    "finishing",
+    "finished",
+  ],
+} as const
+
+export const $SyncStatus = {
+  type: "string",
+  enum: [
+    "queued",
+    "running",
+    "ready",
+    "applying",
+    "completed",
+    "failed",
+    "expired",
+  ],
 } as const
 
 export const $SyntaxToken = {
@@ -39932,6 +40896,161 @@ export const $WatchtowerToolCallStatus = {
   description: "Tool call result status for Watchtower monitor APIs.",
 } as const
 
+export const $WebAuthnAuthenticationVerify = {
+  properties: {
+    credential: {
+      additionalProperties: true,
+      type: "object",
+      title: "Credential",
+      description:
+        "PublicKeyCredential.toJSON() output from navigator.credentials.get().",
+    },
+  },
+  type: "object",
+  required: ["credential"],
+  title: "WebAuthnAuthenticationVerify",
+} as const
+
+export const $WebAuthnCredentialRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    aaguid: {
+      type: "string",
+      format: "uuid",
+      title: "Aaguid",
+    },
+    transports: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Transports",
+    },
+    backup_eligible: {
+      type: "boolean",
+      title: "Backup Eligible",
+    },
+    backup_state: {
+      type: "boolean",
+      title: "Backup State",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "aaguid",
+    "transports",
+    "backup_eligible",
+    "backup_state",
+    "created_at",
+    "last_used_at",
+  ],
+  title: "WebAuthnCredentialRead",
+} as const
+
+export const $WebAuthnCredentialUpdate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WebAuthnCredentialUpdate",
+} as const
+
+export const $WebAuthnOptionsRead = {
+  properties: {
+    public_key: {
+      additionalProperties: true,
+      type: "object",
+      title: "Public Key",
+      description:
+        "PublicKeyCredential{Creation,Request}Options as JSON (base64url).",
+    },
+  },
+  type: "object",
+  required: ["public_key"],
+  title: "WebAuthnOptionsRead",
+} as const
+
+export const $WebAuthnRegistrationResult = {
+  properties: {
+    credential: {
+      $ref: "#/components/schemas/WebAuthnCredentialRead",
+    },
+    recovery_codes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Recovery Codes",
+      description:
+        "One-time recovery codes, returned only for the first security key.",
+    },
+  },
+  type: "object",
+  required: ["credential"],
+  title: "WebAuthnRegistrationResult",
+} as const
+
+export const $WebAuthnRegistrationVerify = {
+  properties: {
+    credential: {
+      additionalProperties: true,
+      type: "object",
+      title: "Credential",
+      description:
+        "PublicKeyCredential.toJSON() output from navigator.credentials.create().",
+    },
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["credential", "name"],
+  title: "WebAuthnRegistrationVerify",
+} as const
+
 export const $WebhookApiKeyGenerateResponse = {
   properties: {
     api_key: {
@@ -42344,6 +43463,79 @@ export const $WorkflowExecutionTerminate = {
   title: "WorkflowExecutionTerminate",
 } as const
 
+export const $WorkflowExportCode = {
+  type: "string",
+  enum: [
+    "publish_required",
+    "missing_definition",
+    "no_actions",
+    "invalid_definition",
+    "missing_child_workflow",
+  ],
+} as const
+
+export const $WorkflowExportDiagnostic = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workflow Id",
+      description: "Authorized local workflow ID.",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+      description: "Workflow display title.",
+    },
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+      description: "Existing stable Git ID.",
+    },
+    source_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Path",
+      description: "Existing repository path.",
+    },
+    stage: {
+      $ref: "#/components/schemas/WorkflowExportStage",
+      description: "Export stage that failed.",
+    },
+    code: {
+      $ref: "#/components/schemas/WorkflowExportCode",
+      description: "Machine-readable corrective error code.",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      description: "Safe corrective message without workflow inputs.",
+    },
+  },
+  type: "object",
+  required: ["workflow_id", "workflow_title", "stage", "code", "message"],
+  title: "WorkflowExportDiagnostic",
+  description: "Safe workflow context for an export that cannot proceed.",
+} as const
+
+export const $WorkflowExportStage = {
+  type: "string",
+  enum: ["definition", "dependency"],
+} as const
+
 export const $WorkflowFolderCreate = {
   properties: {
     name: {
@@ -42366,6 +43558,11 @@ export const $WorkflowFolderDelete = {
     recursive: {
       type: "boolean",
       title: "Recursive",
+      default: false,
+    },
+    delete_workflows: {
+      type: "boolean",
+      title: "Delete Workflows",
       default: false,
     },
   },
@@ -44245,6 +45442,33 @@ export const $WorkspaceSettingsUpdate = {
   title: "WorkspaceSettingsUpdate",
 } as const
 
+export const $WorkspaceSyncExportError = {
+  properties: {
+    detail: {
+      type: "string",
+      title: "Detail",
+      description: "Human-readable failure summary.",
+    },
+    diagnostics: {
+      items: {
+        $ref: "#/components/schemas/WorkflowExportDiagnostic",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+    omitted_count: {
+      type: "integer",
+      title: "Omitted Count",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "WorkspaceSyncExportError",
+  description:
+    "Additive diagnostics while retaining the legacy string detail field.",
+} as const
+
 export const $WorkspaceSyncExportPreview = {
   properties: {
     resource_counts: {
@@ -44333,7 +45557,67 @@ export const $WorkspaceSyncExportPreviewRequest = {
     "Request a dry-run projection of what an export would push to Git.",
 } as const
 
-export const $WorkspaceSyncExportRequest = {
+export const $WorkspaceSyncExportRequest_Input = {
+  properties: {
+    message: {
+      type: "string",
+      minLength: 1,
+      title: "Message",
+      description: "Commit message for the export.",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+      description: "Target branch to commit to.",
+    },
+    create_pr: {
+      type: "boolean",
+      title: "Create Pr",
+      description: "Whether to open a pull request for the commit.",
+      default: false,
+    },
+    pr_base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Base Branch",
+      description: "Base branch for the pull request, if created.",
+    },
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ResourceRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
+      description: "Specific resources to export, or ``None`` to export all.",
+    },
+    include_schedules: {
+      type: "boolean",
+      title: "Include Schedules",
+      description: "Whether to include workflow schedules in the export.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["message", "branch"],
+  title: "WorkspaceSyncExportRequest",
+  description:
+    "Request to commit selected workspace resources to a Git branch.",
+} as const
+
+export const $WorkspaceSyncExportRequest_Output = {
   properties: {
     message: {
       type: "string",

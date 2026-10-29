@@ -53,18 +53,18 @@ export function TableInsertButton() {
           <DropdownMenuItem onSelect={() => setActiveDialog("column")}>
             <BetweenVerticalStartIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Insert column</span>
+              <span>Create column</span>
               <span className="text-xs text-muted-foreground">
-                Insert a new column into the table
+                Create a new column in the table
               </span>
             </div>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setActiveDialog("csv")}>
             <FileUpIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Add rows from CSV</span>
+              <span>Insert rows from CSV</span>
               <span className="text-xs text-muted-foreground">
-                Add rows from a CSV file
+                Insert rows from a CSV file
               </span>
             </div>
           </DropdownMenuItem>

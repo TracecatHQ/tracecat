@@ -275,7 +275,7 @@ function TablesActions() {
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
-            New table
+            Create
             <ChevronDown className="ml-1 h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
@@ -290,7 +290,7 @@ function TablesActions() {
           <DropdownMenuItem onSelect={() => setActiveDialog("create")}>
             <Plus className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Create table</span>
+              <span>Table</span>
               <span className="text-xs text-muted-foreground">
                 Define columns manually
               </span>
@@ -432,6 +432,21 @@ function SkillsActions() {
           ) : null}
         </>
       )
+    } else if (catalogView === SkillsCatalogViewMode.Library) {
+      // Library skills are installed per row; keep a disabled placeholder so
+      // the header doesn't shift when switching tabs.
+      skillActionControls = (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 bg-background"
+          disabled
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Create
+          <ChevronDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      )
     }
   }
 
@@ -483,7 +498,7 @@ function AddSkillTag({
         onCreateTag={async (params) => {
           await createSkillTag(params)
         }}
-        title="Create new skill tag"
+        title="Create tag"
         description="Enter a name for your new skill tag."
       />
     </>
@@ -501,7 +516,11 @@ function BreadcrumbEntityPage({
     return <Skeleton className={skeletonClassName} />
   }
 
-  return <BreadcrumbPage className="font-semibold">{label}</BreadcrumbPage>
+  return (
+    <BreadcrumbPage className="font-semibold text-muted-foreground">
+      {label}
+    </BreadcrumbPage>
+  )
 }
 
 function SkillsBreadcrumb({
@@ -575,7 +594,9 @@ function SkillLibraryProviderBreadcrumb({
         </BreadcrumbSeparator>
         <BreadcrumbItem className="gap-1.5">
           {providerSlug === undefined ? (
-            <BreadcrumbPage className="font-semibold">Library</BreadcrumbPage>
+            <BreadcrumbPage className="font-semibold text-muted-foreground">
+              Library
+            </BreadcrumbPage>
           ) : (
             <BreadcrumbLink asChild className="text-muted-foreground">
               <Link href={`/workspaces/${workspaceId}/skills/library`}>
@@ -616,7 +637,7 @@ function SkillLibraryProviderBreadcrumb({
               <span className="text-muted-foreground">/</span>
             </BreadcrumbSeparator>
             <BreadcrumbItem>
-              <BreadcrumbPage className="font-semibold">
+              <BreadcrumbPage className="font-semibold text-muted-foreground">
                 {skillSlug}
               </BreadcrumbPage>
             </BreadcrumbItem>
@@ -715,7 +736,7 @@ function AgentsActions() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-7 bg-background">
                 <Plus className="mr-1 h-3.5 w-3.5" />
-                Create new
+                Create
                 <ChevronDown className="ml-1 h-3.5 w-3.5" />
               </Button>
             </DropdownMenuTrigger>
@@ -742,7 +763,7 @@ function AgentsActions() {
                   <div className="flex flex-col text-xs">
                     <span>Folder</span>
                     <span className="text-xs text-muted-foreground">
-                      Create a new folder
+                      Group agents
                     </span>
                   </div>
                 </DropdownMenuItem>
@@ -815,7 +836,7 @@ function AddAgentTag({
         onCreateTag={async (params) => {
           await createAgentTag(params)
         }}
-        title="Create new agent tag"
+        title="Create tag"
         description="Enter a name for your new agent tag."
       />
     </>
@@ -888,6 +909,27 @@ function CasesActions() {
         resources={["case_dropdown"]}
       />
     )
+  } else if (view === CasesViewMode.ClosureRequirements) {
+    // Nothing to push or create here; keep disabled placeholders so the
+    // header doesn't shift when switching tabs.
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="closure requirements"
+        branchSlug="case-closure-requirements"
+        resources={["case_field", "case_dropdown"]}
+        disabled
+      />
+    )
+  } else {
+    // Cases themselves aren't synced; keep Push aligned with the settings tabs.
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="cases"
+        branchSlug="cases"
+        resources={["case_tag", "case_field", "case_dropdown", "case_duration"]}
+        disabled
+      />
+    )
   }
 
   return (
@@ -910,7 +952,17 @@ function CasesActions() {
         <AddCaseTag />
       ) : view === CasesViewMode.Dropdowns ? (
         <AddCaseDropdown />
-      ) : view === CasesViewMode.ClosureRequirements ? null : (
+      ) : view === CasesViewMode.ClosureRequirements ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 bg-background"
+          disabled
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Create
+        </Button>
+      ) : (
         <>
           <Button
             variant="outline"
@@ -1851,7 +1903,7 @@ function CredentialsActions() {
             onClick={() => setDialogOpen(true)}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Add credential
+            Create credential
           </Button>
           <CreateCredentialDialog
             open={dialogOpen}
@@ -1964,7 +2016,7 @@ function VariablesActions() {
         <NewVariableDialogTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Add variable
+            Create variable
           </Button>
         </NewVariableDialogTrigger>
       </NewVariableDialog>
@@ -2116,7 +2168,7 @@ function CaseDetailActions({
 function FormsListActions() {
   const enabled = useFormsAccess() === "enabled"
   const canCreate = useScopeCheck("form:create") === true
-  // The New form dialog picks from the workflow list.
+  // The Create form dialog picks from the workflow list.
   const canReadWorkflows = useScopeCheck("workflow:read") === true
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -2139,7 +2191,7 @@ function FormsListActions() {
             onClick={() => setCreateOpen(true)}
           >
             <Plus className="mr-1 size-3.5" />
-            New form
+            Create form
           </Button>
           <CreateFormDialog open={createOpen} onOpenChange={setCreateOpen} />
         </>
@@ -2169,7 +2221,9 @@ function FormBreadcrumb({
     })
 
   if (!enabled) {
-    return <h1 className="text-sm font-semibold">Forms</h1>
+    return (
+      <h1 className="text-sm font-semibold text-muted-foreground">Forms</h1>
+    )
   }
 
   async function setOnline(next: boolean) {
@@ -2715,7 +2769,9 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
 
   const titleContent =
     typeof pageConfig.title === "string" ? (
-      <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+      <h1 className="text-sm font-semibold text-muted-foreground">
+        {pageConfig.title}
+      </h1>
     ) : (
       pageConfig.title
     )

@@ -254,7 +254,7 @@ export interface TableRowFormDialogProps {
 }
 
 /**
- * The "Add new row" form: one typed field per column, validated against the
+ * The "Insert row" form: one typed field per column, validated against the
  * column types. It knows nothing about where the row is written, so the
  * tables route and the case page each wrap it with their own insert.
  *
@@ -348,7 +348,7 @@ export function TableRowFormDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent size="lg" className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit row" : "Add new row"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit row" : "Insert row"}</DialogTitle>
           <DialogDescription>{resolvedDescription}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -386,7 +386,7 @@ export function TableRowFormDialog({
             </DialogBody>
             <DialogFooter>
               <Button size="sm" type="submit" disabled={isPending}>
-                {isEdit ? "Save" : "Add row"}
+                {isEdit ? "Save" : "Insert row"}
               </Button>
             </DialogFooter>
           </form>
@@ -397,7 +397,7 @@ export function TableRowFormDialog({
 }
 
 /**
- * The tables route's "Add new row" dialog: reads the table from the route and
+ * The tables route's "Insert row" dialog: reads the table from the route and
  * inserts through the tables API.
  */
 export function TableInsertRowDialog({

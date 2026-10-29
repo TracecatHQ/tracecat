@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
-from pydantic_core import to_jsonable_python
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
 from tracecat_ee.admin.router import router as admin_router
@@ -76,22 +76,29 @@ from tracecat.api.common import (
     auth_pool_exhausted_exception_handler,
     bootstrap_role,
     custom_generate_unique_id,
+    database_exception_handler,
     generic_exception_handler,
     http_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    serialize_validation_errors,
     table_row_exception_handler,
     tracecat_exception_handler,
     without_inputs,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
-from tracecat.auth.credentials import authenticated_user_only, require_superuser
+from tracecat.auth.credentials import (
+    authenticated_user_only,
+    require_superuser,
+    require_superuser_step_up,
+)
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
     require_workspace_id_path,
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
+from tracecat.auth.mfa.router import router as mfa_router
 from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
@@ -130,6 +137,7 @@ from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.errors import is_data_error
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
@@ -226,6 +234,7 @@ from tracecat.workflow.management.router import router as workflow_management_ro
 from tracecat.workflow.schedules.router import router as schedules_router
 from tracecat.workflow.store.router import router as workflow_store_router
 from tracecat.workflow.tags.router import router as workflow_tags_router
+from tracecat.workspace_sync.operations.router import router as sync_operations_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
@@ -388,6 +397,15 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
 
         return handler
 
+    async def _database(request: Request, exc: Exception) -> Response:
+        if is_scim_path(request) and is_data_error(exc):
+            return scim_error_response(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Request contains a value that cannot be stored",
+                scim_type="invalidValue",
+            )
+        return await database_exception_handler(request, exc)
+
     def _authorization(request: Request, exc: Exception) -> Response:
         if is_scim_path(request):
             return scim_error_response(
@@ -416,6 +434,7 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
         )
 
     app.add_exception_handler(Exception, _unexpected)
+    app.add_exception_handler(DBAPIError, _database)
     app.add_exception_handler(TracecatAuthorizationError, _authorization)
     app.add_exception_handler(ScopeDeniedError, _scope_denied)
     app.add_exception_handler(HTTPException, _http_async)
@@ -431,8 +450,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": str(exc)},
         )
-    errors = exc.errors()
-    ser_errors = to_jsonable_python(errors, fallback=str)
+    ser_errors = serialize_validation_errors(exc.errors())
     logger.error(
         "API Model Validation error",
         method=request.method,
@@ -567,17 +585,26 @@ def _include_workspace_scoped_router(app: FastAPI, router: APIRouter) -> None:
     )
 
 
-_SUPERUSER_USER_ROUTE_NAMES = frozenset(
-    {"users:user", "users:patch_user", "users:delete_user"}
+_SUPERUSER_USER_ROUTE_NAMES = frozenset({"users:user"})
+_SUPERUSER_STEP_UP_USER_ROUTE_NAMES = frozenset(
+    {"users:patch_user", "users:delete_user"}
 )
 
 
 def _users_router() -> APIRouter:
-    """fastapi-users router whose superuser-only routes honor the platform admin IP allowlist."""
+    """fastapi-users router whose superuser-only routes honor the platform admin IP allowlist.
+
+    Changing or deleting another user also needs a recent security key
+    verification, like the other privileged platform admin actions.
+    """
     users_router = fastapi_users.get_users_router(UserRead, UserUpdate)
     for route in users_router.routes:
-        if isinstance(route, APIRoute) and route.name in _SUPERUSER_USER_ROUTE_NAMES:
+        if not isinstance(route, APIRoute):
+            continue
+        if route.name in _SUPERUSER_USER_ROUTE_NAMES:
             route.dependencies.append(Depends(require_superuser))
+        elif route.name in _SUPERUSER_STEP_UP_USER_ROUTE_NAMES:
+            route.dependencies.append(Depends(require_superuser_step_up))
     return users_router
 
 
@@ -633,6 +660,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workflow_actions_router)
     _include_workspace_scoped_router(app, workflow_tags_router)
     _include_workspace_scoped_router(app, workflow_store_router)
+    _include_workspace_scoped_router(app, sync_operations_router)
     # EE references register first so POST /secrets/aws wins over /secrets/{secret_id}.
     _include_workspace_scoped_router(app, external_secrets_router)
     _include_workspace_scoped_router(app, workspace_secret_stores_router)
@@ -779,6 +807,7 @@ def create_app(**kwargs) -> FastAPI:
     # The ACS callback resolves org context from RelayState, so requiring
     # query/cookie org context at router level can block legitimate IdP callbacks.
     app.include_router(saml_router)
+    app.include_router(mfa_router)
     app.include_router(auth_discovery_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
@@ -795,6 +824,7 @@ def create_app(**kwargs) -> FastAPI:
         AuthPoolExhaustedError,
         auth_pool_exhausted_exception_handler,
     )
+    app.add_exception_handler(DBAPIError, database_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)

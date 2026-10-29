@@ -32,6 +32,7 @@ import {
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
+import { ExportErrorMessage } from "@/components/workspace-sync/export-error"
 import {
   formatResourceTotal,
   getWorkspaceSyncPreviewResourceTotal,
@@ -46,29 +47,39 @@ import {
   WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
+import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useRepositoryBranches,
   useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
-import { getApiErrorDetail } from "@/lib/errors"
 import { getRepoDisplayName } from "@/lib/git"
+import { useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface WorkspaceResourceSyncActionsProps {
   label: string
   branchSlug: string
   resources: SyncResourceType[]
+  disabled?: boolean
 }
 
 export function WorkspaceResourceSyncActions({
   label,
   branchSlug,
   resources,
+  disabled = false,
 }: WorkspaceResourceSyncActionsProps) {
   const workspaceId = useWorkspaceId()
+  const { data: previewRevision } = useQuery({
+    queryKey: ["workspace-sync-preview-revision", workspaceId],
+    queryFn: () => 0,
+    initialData: 0,
+    enabled: false,
+  })
   const canSyncWorkspace = useScopeCheck("workspace_sync:sync")
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const canPushWorkspaceSync =
@@ -113,13 +124,31 @@ export function WorkspaceResourceSyncActions({
   const baseBranch = getWorkspaceSyncBaseBranch(gitRepoUrl, repoBranches)
   const targetBranch = exportBranch.trim()
   const compareRef = isCreatingBranch ? baseBranch : targetBranch || undefined
-  const { preview, previewIsLoading, previewError, refetchPreview } =
-    useWorkspaceSyncExportPreview(workspaceId, {
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: "pull-request",
+    targetBranch,
+    defaultBranch: baseBranch,
+    isCreatingBranch,
+  })
+  const {
+    preview,
+    previewOperationId,
+    previewDiffCount,
+    previewIsLoading,
+    previewError,
+    refetchPreview,
+  } = useWorkspaceSyncExportPreview(workspaceId, {
+    push: {
+      message: exportMessage,
+      branch: targetBranch,
+      create_pr: pushOutcome.createPr,
+      pr_base_branch: baseBranch,
       resources: resourceRefs,
-      compareRef,
-      provider,
-      enabled: false,
-    })
+      include_schedules: false,
+    },
+    compareRef,
+    provider,
+  })
   const [previewRequested, setPreviewRequested] = useState(false)
   const visiblePreview = previewRequested ? preview : undefined
   const visiblePreviewIsLoading = previewRequested && previewIsLoading
@@ -128,12 +157,6 @@ export function WorkspaceResourceSyncActions({
   // types the button requested.
   const totalResourceCount =
     getWorkspaceSyncPreviewResourceTotal(visiblePreview)
-  const pushOutcome = getWorkspaceSyncPushOutcome({
-    mode: "pull-request",
-    targetBranch,
-    defaultBranch: baseBranch,
-    isCreatingBranch,
-  })
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
     defaultBranch: baseBranch,
@@ -143,10 +166,13 @@ export function WorkspaceResourceSyncActions({
   const reviewRequestLabel = getReviewRequestLabel(provider)
   const reviewRequestTitle =
     reviewRequestLabel === "merge request" ? "Merge request" : "Pull request"
-  const previewErrorMessage = previewError
-    ? (getApiErrorDetail(previewError) ?? "Request failed")
-    : undefined
+  const previewErrorMessage = previewError ? (
+    <ExportErrorMessage error={previewError} workspaceId={workspaceId} />
+  ) : undefined
   const exportDisabled =
+    !previewOperationId ||
+    !previewRequested ||
+    previewIsLoading ||
     !gitRepoUrl ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
@@ -166,7 +192,7 @@ export function WorkspaceResourceSyncActions({
 
   useEffect(() => {
     setPreviewRequested(false)
-  }, [compareRef, provider])
+  }, [compareRef, provider, targetBranch, exportMessage, previewRevision])
 
   if (!canPushWorkspaceSync) {
     return null
@@ -178,13 +204,8 @@ export function WorkspaceResourceSyncActions({
     }
 
     try {
-      const result = await exportWorkspace({
-        message: exportMessage,
-        branch: targetBranch,
-        create_pr: pushOutcome.createPr,
-        include_schedules: false,
-        resources: resourceRefs,
-      })
+      if (exportDisabled || !previewOperationId) return
+      const result = await exportWorkspace({ operationId: previewOperationId })
       const prUrl = result.commit.pr_url
       toast({
         title: prUrl ? `${reviewRequestTitle} ready` : "Push complete",
@@ -200,9 +221,12 @@ export function WorkspaceResourceSyncActions({
       })
       setOpen(false)
     } catch (error) {
+      if (error instanceof SyncOperationWaitCancelled) return
       toast({
         title: "Push failed",
-        description: getApiErrorDetail(error) ?? "Request failed",
+        description: (
+          <ExportErrorMessage error={error} workspaceId={workspaceId} />
+        ),
         variant: "destructive",
       })
     }
@@ -223,6 +247,7 @@ export function WorkspaceResourceSyncActions({
           variant="outline"
           size="sm"
           className="h-7 gap-1.5 bg-background"
+          disabled={disabled}
         >
           <GitBranchIcon className="size-3.5" />
           Push
@@ -243,6 +268,7 @@ export function WorkspaceResourceSyncActions({
         <DialogBody>
           {gitRepoUrl ? (
             <div className="space-y-5">
+              {resources.includes("workflow") && <WorkspacePushExplanation />}
               <PushFlow
                 total={totalResourceCount}
                 isLoading={visiblePreviewIsLoading}
@@ -253,6 +279,9 @@ export function WorkspaceResourceSyncActions({
               />
 
               <PushResourcePreview
+                workspaceId={workspaceId}
+                operationId={previewOperationId}
+                diffCount={previewDiffCount}
                 preview={visiblePreview}
                 isLoading={visiblePreviewIsLoading}
                 compareRef={compareRef}

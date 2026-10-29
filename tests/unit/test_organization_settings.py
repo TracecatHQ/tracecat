@@ -16,6 +16,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import OrganizationDomain
+from tracecat.exceptions import TracecatConflictError
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings import service as settings_service_module
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
@@ -92,6 +93,15 @@ async def test_create_and_get_org_setting(
     assert settings_service.get_value(retrieved_setting) == settings_service.get_value(
         created_setting
     )
+
+
+@pytest.mark.anyio
+async def test_duplicate_setting_key_is_conflict(
+    settings_service: SettingsService, create_params: SettingCreate
+) -> None:
+    await settings_service.create_org_setting(create_params)
+    with pytest.raises(TracecatConflictError):
+        await settings_service.create_org_setting(create_params)
 
 
 @pytest.mark.anyio

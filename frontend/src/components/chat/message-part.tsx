@@ -60,10 +60,12 @@ import {
   collectInterruptedToolCallIds,
   getCompactionData,
   getToolDenial,
+  getUserMessageData,
   isApprovalCardArray,
   isInterruptArtifactError,
   isUserPrompt,
   type ToolDenial,
+  USER_MESSAGE_DATA_PART_TYPE,
 } from "@/lib/chat"
 import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
 import { reconstructActionType } from "@/lib/utils"
@@ -207,6 +209,18 @@ export function MessagePart({
     )
   }
 
+  if (part.type === USER_MESSAGE_DATA_PART_TYPE) {
+    const message = getUserMessageData(part.data)
+    if (!message) return null
+    return (
+      <Message key={`${id}-${partIdx}`} from="user">
+        <MessageContent variant="flat">
+          <SmoothResponse text={message.text} animate={false} />
+        </MessageContent>
+      </Message>
+    )
+  }
+
   if (part.type === "text") {
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
@@ -227,6 +241,7 @@ export function MessagePart({
         className="w-full"
         defaultOpen={expandSteps}
         duration={reasoningSeconds}
+        isEmpty={part.text.length === 0}
         isStreaming={
           status === "streaming" && isLastMessage && part.state !== "done"
         }
@@ -486,7 +501,9 @@ export function isAwaitingOutput(
   if (lastPart.type === "data-approval-request") return false
   const isStreamingVisual =
     (lastPart.type === "text" && lastPart.text.length > 0) ||
-    (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
+    // An open thought draws its own thinking line, even before any text.
+    (lastPart.type === "reasoning" &&
+      (lastPart.text.length > 0 || lastPart.state !== "done")) ||
     (isToolUIPart(lastPart) && lastPart.state === "input-streaming") ||
     // A finished compaction has no spinner, so the line returns after it.
     (lastPart.type === "data-compaction" &&

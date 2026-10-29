@@ -277,6 +277,12 @@ variable "platform_admin_ip_allowlist_bypass" {
   default     = false
 }
 
+variable "platform_admin_mfa_bypass" {
+  type        = bool
+  description = "Break-glass override that skips security key (MFA) sign-in and step-up checks for platform admins. Remove after recovery."
+  default     = false
+}
+
 variable "unsafe_disable_secret_error_withholding" {
   type        = bool
   description = "UNSAFE: surface original action and expression error details even when secrets are in scope, instead of the generic 'Details withheld' message. Not recommended; may expose secret-derived values in error messages."
@@ -1032,4 +1038,34 @@ variable "sentry_dsn" {
   type        = string
   default     = null
   sensitive   = true
+}
+
+variable "background_queue" {
+  type    = string
+  default = "shared-background-queue"
+}
+
+variable "background_worker_cpu" {
+  type    = number
+  default = 1024
+}
+
+variable "background_worker_memory" {
+  type    = number
+  default = 2048
+}
+
+variable "background_worker_desired_count" {
+  type    = number
+  default = 1
+}
+
+variable "background_worker_max_concurrent_activities" {
+  type    = number
+  default = 4
+
+  validation {
+    condition     = var.background_worker_max_concurrent_activities > 0 && floor(var.background_worker_max_concurrent_activities) == var.background_worker_max_concurrent_activities
+    error_message = "background_worker_max_concurrent_activities must be a positive integer."
+  }
 }

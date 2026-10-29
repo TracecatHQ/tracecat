@@ -12,6 +12,7 @@ import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type FocusEvent,
+  type KeyboardEvent,
   type ReactNode,
   useCallback,
   useContext,
@@ -72,12 +73,14 @@ import { MentionPopover } from "@/components/mentions/mention-popover"
 import { Badge } from "@/components/ui/badge"
 import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
+import { extensions } from "@/extensions"
 import {
   makeContinueMessage,
   parseChatError,
   useAdoptServerTranscript,
   useCancelChatTurn,
   useGetChatVercel,
+  usePendingMessages,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
@@ -104,6 +107,7 @@ import {
   transformMessages,
   withoutStreamedError,
 } from "@/lib/chat"
+import type { RunningComposer } from "@/lib/extensions"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
@@ -150,6 +154,11 @@ class SubmitAbandonedError extends Error {
     this.name = "SubmitAbandonedError"
   }
 }
+
+/** The installed running-composer slot; Tracecat leaves the composer disabled. */
+const useRunningComposer =
+  extensions.useRunningComposer ??
+  ((): RunningComposer | undefined => undefined)
 
 function matchingUserTextPartKeys(
   messages: UIMessage[],
@@ -340,6 +349,7 @@ export function ChatSessionPane({
     handleKeyDown: handleMentionKeyDown,
     dismiss: dismissMentions,
     dropPrefix: dropMentionPrefix,
+    applySplice: applyMentionSplice,
   } = mentions
   const [selectedTools, setSelectedTools] = useState<string[]>([])
   const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
@@ -512,6 +522,60 @@ export function ChatSessionPane({
 
   // Allow input when ready OR in error state (so user can retry after transient failures)
   const canSubmit = status === "ready" || status === "error"
+  const isGeneratingTurn = status === "submitted" || status === "streaming"
+  const capabilities =
+    chat && "capabilities" in chat ? (chat.capabilities ?? {}) : {}
+  const { pending, refreshPending, withdraw } = usePendingMessages({
+    workspaceId,
+    chatId: chat?.id,
+    // The list is the owner's to withdraw; read-only viewers never fetch it.
+    enabled:
+      isGeneratingTurn &&
+      !isReadonly &&
+      !cannotExecuteAgents &&
+      !!capabilities.listing_pending,
+  })
+  const restoreInput = useCallback(
+    (text: string) => {
+      const draft = promptTextareaRef.current?.value ?? ""
+      const prefix = draft ? `${text}\n` : text
+      // Shift bound mentions past the restored text, and close an open
+      // mention query: its token offsets would otherwise point into the
+      // restored text.
+      dismissMentions()
+      applyMentionSplice({ start: 0, deleted: 0, inserted: prefix.length })
+      setInput(prefix + draft)
+    },
+    [applyMentionSplice, dismissMentions]
+  )
+  const runningComposer = useRunningComposer({
+    chatId: chat?.id,
+    workspaceId,
+    capabilities,
+    running: isGeneratingTurn,
+    messages,
+    pending,
+    refreshPending,
+    withdraw,
+    restoreInput,
+  })
+  // Takes the composer's input while a turn runs, when an extension offers it.
+  const steerComposer =
+    isGeneratingTurn && !isReadonly && !cannotExecuteAgents
+      ? runningComposer
+      : undefined
+  const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleMentionKeyDown(event)) return
+    // Escape during IME composition cancels the candidate, not the messages.
+    if (
+      event.key === "Escape" &&
+      !event.nativeEvent.isComposing &&
+      steerComposer?.onEscape
+    ) {
+      event.preventDefault()
+      steerComposer.onEscape()
+    }
+  }
 
   const isWaitingForResponse = useMemo(
     () => isAwaitingOutput(status, messages),
@@ -523,9 +587,9 @@ export function ChatSessionPane({
     cannotExecuteAgents ||
     inputDisabled ||
     isOptimisticBeforeSendPending ||
-    !canSubmit
+    (!canSubmit && !steerComposer)
 
-  let composerPlaceholder = placeholder
+  let composerPlaceholder = steerComposer?.placeholder ?? placeholder
   if (isReadonly) {
     composerPlaceholder = readonlyDescription
   } else if (cannotExecuteAgents) {
@@ -537,7 +601,6 @@ export function ChatSessionPane({
     composerPlaceholder = inputDisabledPlaceholder
   }
 
-  const isGeneratingTurn = status === "submitted" || status === "streaming"
   const [cancelRequested, setCancelRequested] = useState(false)
 
   useEffect(() => {
@@ -1146,6 +1209,10 @@ export function ChatSessionPane({
   }, [messages, invalidateEntityQueries])
 
   const handleSubmit = async (message: PromptInputMessage) => {
+    if (steerComposer) {
+      await submitToRunningTurn(steerComposer, message)
+      return
+    }
     const hasText = Boolean(message.text?.trim())
 
     if (!hasText || isReadonly || !modelInfo) {
@@ -1170,6 +1237,41 @@ export function ChatSessionPane({
     } finally {
       submitInFlightRef.current = false
     }
+  }
+
+  /** Hand the text to the running turn; the composer keeps it unless taken. */
+  const submitToRunningTurn = async (
+    composer: RunningComposer,
+    message: PromptInputMessage
+  ) => {
+    const messageText = message.text ?? ""
+    if (message.files.length > 0) {
+      // The running turn takes text only; keep the draft and its files.
+      toast({
+        title: "Attachments wait for the next message",
+        description: "Send them once the agent has finished.",
+      })
+      throw new SubmitAbandonedError("A running turn takes text only")
+    }
+    if (!messageText.trim()) return
+    if (submitInFlightRef.current) {
+      throw new SubmitAbandonedError("A submit is already in flight")
+    }
+    submitInFlightRef.current = true
+    try {
+      if (!(await composer.submit(messageText.trim()))) {
+        throw new SubmitAbandonedError("The running turn did not take it")
+      }
+    } finally {
+      submitInFlightRef.current = false
+    }
+    // Keep whatever was typed while the submit was in flight.
+    const live = promptTextareaRef.current?.value ?? ""
+    const remaining = live.startsWith(messageText)
+      ? live.slice(messageText.length)
+      : live
+    setInput(remaining)
+    dropMentionPrefix(live.length - remaining.length)
   }
 
   const submitMessage = async (message: PromptInputMessage) => {
@@ -1312,6 +1414,7 @@ export function ChatSessionPane({
 
   const promptBox = (
     <div ref={promptInputContainerRef} className={promptCenterClass}>
+      {runningComposer?.panel}
       {isReadonly ? (
         <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
           <Badge variant="outline" className="px-1.5 py-0 font-normal">
@@ -1358,7 +1461,7 @@ export function ChatSessionPane({
               // backspace. It calls preventDefault when it consumes a key,
               // which is what stops the prompt input from submitting on Enter
               // while the popover is open.
-              onKeyDown={handleMentionKeyDown}
+              onKeyDown={handlePromptKeyDown}
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
               onSelect={mentions.handleSelectionChange}
@@ -1719,7 +1822,7 @@ function OptimisticPendingMessage({ text }: { text: string }) {
 function ThinkingLine({ label }: { label: string }) {
   return (
     <motion.div
-      className="mt-5"
+      className="mt-1"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}

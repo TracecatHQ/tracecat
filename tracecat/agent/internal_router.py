@@ -253,10 +253,9 @@ def _http_error(exc: ValueError | WorkflowFailureError) -> HTTPException:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
-    cause = exc.cause or exc
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail={"error_type": type(cause).__name__, "message": str(cause)},
+        detail="Internal server error",
     )
 
 

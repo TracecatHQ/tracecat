@@ -4,3 +4,7 @@ class AuthPoolExhaustedError(RuntimeError):
 
 class DatabasePoolAcquisitionOrderError(RuntimeError):
     """Raised when database pools are acquired in a deadlock-prone order."""
+
+
+class AdvisoryLockLostError(RuntimeError):
+    """Raised when a commit is attempted after the advisory lock holder ended."""

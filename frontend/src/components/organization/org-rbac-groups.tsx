@@ -428,7 +428,7 @@ function GroupListItem({
                   className="text-rose-500 focus:text-rose-600"
                   onClick={onDelete}
                 >
-                  Delete group
+                  Delete
                 </DropdownMenuItem>
               </AlertDialogTrigger>
             )}

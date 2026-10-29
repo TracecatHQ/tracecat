@@ -1,4 +1,6 @@
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,15 +10,18 @@ import pytest
 from fastapi import HTTPException, Request
 from fastapi.datastructures import FormData
 from sqlalchemy.exc import NoResultFound
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Webhook, WorkflowDefinition
+from tracecat.db.models import Webhook, Workflow, WorkflowDefinition, Workspace
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.webhooks.dependencies import (
     _ip_allowed,
     parse_webhook_payload,
     validate_incoming_webhook,
+    validate_workflow_definition,
 )
 from tracecat.webhooks.router import _incoming_webhook
 from tracecat.webhooks.schemas import _normalize_cidrs
@@ -319,6 +324,87 @@ class TestValidateIncomingWebhook:
                     assert exc_info.value.status_code == 403
         finally:
             ctx_role.reset(token)
+
+
+class TestValidateWorkflowDefinition:
+    @pytest.fixture
+    async def workflow_id(
+        self, session: AsyncSession, svc_workspace: Workspace
+    ) -> WorkflowUUID:
+        workflow = Workflow(
+            title="webhook-workflow",
+            workspace_id=svc_workspace.id,
+            description="",
+            status="active",
+        )
+        session.add(workflow)
+        await session.flush()
+        session.add(
+            WorkflowDefinition(
+                workspace_id=svc_workspace.id,
+                workflow_id=workflow.id,
+                version=1,
+                content={"title": "webhook-workflow"},
+            )
+        )
+        await session.flush()
+        return WorkflowUUID.new(workflow.id)
+
+    @staticmethod
+    async def _validate(
+        session: AsyncSession, role: Role | None, workflow_id: WorkflowUUID
+    ) -> WorkflowDefinition:
+        @asynccontextmanager
+        async def test_session() -> AsyncIterator[AsyncSession]:
+            yield session
+
+        token = ctx_role.set(role)
+        try:
+            with patch(
+                "tracecat.webhooks.dependencies.get_async_session_context_manager",
+                test_session,
+            ):
+                return await validate_workflow_definition(workflow_id)
+        finally:
+            ctx_role.reset(token)
+
+    @pytest.mark.anyio
+    @pytest.mark.usefixtures("db")
+    async def test_returns_definition_in_webhook_workspace(
+        self, session: AsyncSession, svc_role: Role, workflow_id: WorkflowUUID
+    ):
+        defn = await self._validate(session, svc_role, workflow_id)
+
+        assert defn.workflow_id == workflow_id
+        assert defn.workspace_id == svc_role.workspace_id
+
+    @pytest.mark.anyio
+    @pytest.mark.usefixtures("db")
+    async def test_refuses_definition_from_another_workspace(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_workspace: Workspace,
+        workflow_id: WorkflowUUID,
+    ):
+        other = Workspace(name="other", organization_id=svc_workspace.organization_id)
+        session.add(other)
+        await session.flush()
+        other_role = svc_role.model_copy(update={"workspace_id": other.id})
+
+        with pytest.raises(HTTPException) as exc_info:
+            await self._validate(session, other_role, workflow_id)
+
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_fails_closed_without_webhook_role(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await self._validate(
+                cast(AsyncSession, AsyncMock()), None, WorkflowUUID.new_uuid4()
+            )
+
+        assert exc_info.value.status_code == 401
 
 
 class TestIncomingWebhook:

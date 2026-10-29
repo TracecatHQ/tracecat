@@ -1,5 +1,6 @@
 "use client"
 
+import { TimerOffIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
@@ -37,13 +38,20 @@ import type {
 } from "@/components/filters/filter-multi-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
 import { caseHref } from "@/lib/cases/urls"
-import { getApiErrorDetail } from "@/lib/errors"
+import { getApiErrorDetail, isQueryTimeoutError } from "@/lib/errors"
 import {
   useBatchChangeCaseParent,
   useBatchDeleteCases,
@@ -512,40 +520,6 @@ export function CasesLayout({
     setSidePanelCaseId(null)
   }, [])
 
-  if (isLoading) {
-    return (
-      <DeleteCaseAlertDialog
-        selectedCase={caseToDelete}
-        setSelectedCase={setCaseToDelete}
-      >
-        <div className="flex size-full flex-col">
-          <CasesHeader {...headerProps} />
-          <div className="flex flex-1 items-center justify-center">
-            <CenteredSpinner />
-          </div>
-        </div>
-      </DeleteCaseAlertDialog>
-    )
-  }
-
-  if (error) {
-    return (
-      <DeleteCaseAlertDialog
-        selectedCase={caseToDelete}
-        setSelectedCase={setCaseToDelete}
-      >
-        <div className="flex size-full flex-col">
-          <CasesHeader {...headerProps} />
-          <div className="flex flex-1 items-center justify-center">
-            <span className="text-sm text-red-500">
-              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
-            </span>
-          </div>
-        </div>
-      </DeleteCaseAlertDialog>
-    )
-  }
-
   return (
     <DeleteCaseAlertDialog
       selectedCase={caseToDelete}
@@ -553,7 +527,32 @@ export function CasesLayout({
     >
       <div className="flex size-full flex-col">
         <CasesHeader {...headerProps} />
-        {cases.length === 0 ? (
+        {isLoading ? (
+          <div className="flex flex-1 items-center justify-center">
+            <CenteredSpinner />
+          </div>
+        ) : isQueryTimeoutError(error) ? (
+          <div className="flex flex-1 p-6">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <TimerOffIcon className="size-5 text-muted-foreground/60" />
+                </EmptyMedia>
+                <EmptyTitle>Search took too long</EmptyTitle>
+                <EmptyDescription>
+                  Try a more specific search term or narrow the filters. Or
+                  contact the Tracecat team for support.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </div>
+        ) : error ? (
+          <div className="flex flex-1 items-center justify-center">
+            <span className="text-sm text-red-500">
+              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
+            </span>
+          </div>
+        ) : cases.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
             <p className="text-sm text-muted-foreground">
               {hasNextPage
@@ -635,7 +634,7 @@ export function CasesLayout({
           </div>
         )}
       </div>
-      {workspaceId && (
+      {workspaceId && !isLoading && !error && (
         <CaseSidePanel
           caseId={sidePanelCaseId}
           cases={displayOrderedCases}

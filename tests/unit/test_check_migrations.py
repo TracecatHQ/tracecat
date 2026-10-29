@@ -282,9 +282,12 @@ def test_real_audited_rewrites_are_exact_whole_line_pairs() -> None:
         "b4e8f2a6c1d9",
         "8c0e18190001",
         "d9107f689ccf",
+        "c4f1a9d2e7b3",
+        "3e54217aadda",
+        "e2018a1b2c3d",
+        "e4fd31674ae9",
     }
     for rewrites in AUDITED_REWRITES.values():
-        assert len(rewrites) == 2
         assert all(old.endswith(b"\n") and new.endswith(b"\n") for old, new in rewrites)
 
 

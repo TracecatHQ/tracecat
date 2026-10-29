@@ -199,7 +199,7 @@ test("read permissions gate all authenticated status requests", async () => {
   expect(searchGetEmbeddingConfiguration).not.toHaveBeenCalled()
   expect(screen.queryByLabelText(/Semantic search/)).not.toBeInTheDocument()
   openMenu()
-  await screen.findByText("Remove unique index")
+  await screen.findByText("Delete unique index")
   expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
 })
 
@@ -279,8 +279,8 @@ test("missing provider disables enabling and keeps existing table controls", asy
     "No embedding provider is configured."
   )
   openMenu()
-  await screen.findByText("Remove unique index")
-  expect(screen.getByText("Delete column")).toBeInTheDocument()
+  await screen.findByText("Delete unique index")
+  expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument()
   const item = screen.getByRole("menuitem", { name: ENABLE })
   expect(item).toHaveAttribute("data-disabled")
   fireEvent.click(item)
@@ -291,7 +291,7 @@ test("non-text columns have no vector search item", async () => {
   setup(menus([{ ...column, type: "INTEGER" }]))
   await waitFor(() => expect(tablesGetTableSearch).toHaveBeenCalled())
   openMenu()
-  await screen.findByText("Remove unique index")
+  await screen.findByText("Delete unique index")
   expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
 })
 
@@ -818,7 +818,7 @@ test("deleting a selected column explains the consequence", async () => {
     ).toEqual(configuration)
   )
   openMenu()
-  fireEvent.click(await screen.findByText("Delete column"))
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }))
   expect(
     await screen.findByText(/Deleting it removes it from search/)
   ).toBeInTheDocument()

@@ -88,9 +88,17 @@ export interface DropdownFilterState {
   sortDirection: SortDirection
 }
 
+const MIN_LITERAL_SEARCH_LENGTH = 3
+const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u
+
+// Input the API would reject (punctuation-only words, too-short literals) is
+// treated as no search, so typing "-" does not replace the list with an error.
 function getCaseSearchTerm(query: string, mode: SearchMode): string {
-  if (!query.trim()) return ""
-  return mode === "literal" ? query : query.trim()
+  const trimmed = query.trim()
+  if (mode === "literal") {
+    return trimmed.length >= MIN_LITERAL_SEARCH_LENGTH ? query : ""
+  }
+  return LETTER_OR_NUMBER.test(trimmed) ? trimmed : ""
 }
 
 export interface UseCasesFilters {
@@ -1175,6 +1183,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,
     staleTime: 60000,
+    // The layout and header render these failures inline.
+    meta: { suppressErrorToast: true },
   })
 
   const {
@@ -1202,6 +1212,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,
     staleTime: 60000,
+    // The layout and header render these failures inline.
+    meta: { suppressErrorToast: true },
   })
 
   const visibleRowsData = hasHydratedFilters ? rowsData : undefined

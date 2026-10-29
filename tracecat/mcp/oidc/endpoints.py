@@ -12,18 +12,22 @@ import hashlib
 import hmac
 import secrets
 import time
+import uuid
 from typing import Annotated, Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import jwt
 from fastapi import APIRouter, Depends, Form, Header, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import RedirectResponse, Response
 
 from tracecat.auth.users import optional_current_active_user
 from tracecat.config import TRACECAT__PUBLIC_APP_URL
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import User
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.mcp.oidc import config as oidc_config
 from tracecat.mcp.oidc.features import (
@@ -40,6 +44,12 @@ from tracecat.mcp.oidc.refresh_tokens import (
 )
 from tracecat.mcp.oidc.schemas import (
     AuthCodeData,
+    OrganizationSelectionDetails,
+    OrganizationSelectionOption,
+    OrganizationSelectionRequest,
+    OrganizationSelectionResult,
+    OrganizationSelectionTransaction,
+    RefreshTokenContext,
     RefreshTokenMetadata,
     ResumeTransaction,
 )
@@ -47,15 +57,19 @@ from tracecat.mcp.oidc.session import (
     OrgResolutionError,
     SessionNeedsAction,
     SessionResult,
+    list_active_organizations,
     resolve_authorize_session,
 )
 from tracecat.mcp.oidc.signing import get_public_jwk, mint_jwt, verify_jwt
 from tracecat.mcp.oidc.storage import (
     check_token_rate_limit,
     load_and_delete_auth_code,
+    load_and_delete_org_selection_transaction,
     load_and_delete_resume_transaction,
+    load_org_selection_transaction,
     store_auth_code,
     store_jti,
+    store_org_selection_transaction,
     store_resume_transaction,
 )
 
@@ -240,6 +254,7 @@ async def openid_configuration(request: Request) -> dict[str, Any]:
             "email_verified",
             "name",
             "organization_id",
+            "organization_ids",
         ],
     }
 
@@ -363,12 +378,81 @@ async def _handle_authorize(
     resolved_user = session_result.user
     org_id = session_result.organization_id
 
+    if len(session_result.organizations) > 1:
+        # Multi-org users choose which organizations this connection covers.
+        txn_id = secrets.token_urlsafe(32)
+        await store_org_selection_transaction(
+            OrganizationSelectionTransaction(
+                transaction_id=txn_id,
+                user_id=resolved_user.id,
+                active_organization_id=org_id,
+                authorize_params={
+                    "client_id": client_id,
+                    "redirect_uri": redirect_uri,
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": code_challenge_method,
+                    "scope": scope,
+                    "state": state,
+                    "resource": resource,
+                    **({"nonce": nonce} if nonce else {}),
+                },
+                created_at=time.time(),
+                bound_ip=ip_hash,
+            )
+        )
+        frontend_base = TRACECAT__PUBLIC_APP_URL.rstrip("/")
+        logger.info(
+            "MCP OIDC: redirecting multi-org user to organization selection",
+            user_id=str(resolved_user.id),
+            org_count=len(session_result.organizations),
+        )
+        return RedirectResponse(
+            f"{frontend_base}/oauth/mcp/organizations?txn={txn_id}",
+            status_code=302,
+        )
+
+    redirect_url = await _issue_authorization_code(
+        request,
+        user=resolved_user,
+        organization_id=org_id,
+        organization_ids=[org_id],
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        code_challenge=code_challenge,
+        code_challenge_method=code_challenge_method,
+        scope=scope,
+        state=state,
+        resource=resource,
+        nonce=nonce,
+        ip_hash=ip_hash,
+    )
+    return RedirectResponse(redirect_url, status_code=302)
+
+
+async def _issue_authorization_code(
+    request: Request,
+    *,
+    user: User,
+    organization_id: OrganizationID,
+    organization_ids: list[OrganizationID],
+    client_id: str,
+    redirect_uri: str,
+    code_challenge: str,
+    code_challenge_method: str,
+    scope: str,
+    state: str,
+    resource: str,
+    nonce: str | None,
+    ip_hash: str,
+) -> str:
+    """Store a one-time authorization code and return the client callback URL."""
     code = secrets.token_urlsafe(32)
     code_data = AuthCodeData(
         code=code,
-        user_id=resolved_user.id,
-        email=resolved_user.email,
-        organization_id=org_id,
+        user_id=user.id,
+        email=user.email,
+        organization_id=organization_id,
+        organization_ids=organization_ids,
         is_platform_superuser=False,
         client_id=client_id,
         redirect_uri=redirect_uri,
@@ -384,13 +468,13 @@ async def _handle_authorize(
 
     logger.info(
         "MCP OIDC: issued authorization code",
-        user_id=str(resolved_user.id),
-        organization_id=str(org_id),
+        user_id=str(user.id),
+        organization_id=str(organization_id),
+        organization_count=len(organization_ids),
         client_ip=_get_client_ip(request),
     )
 
-    redirect_url = _build_redirect_url(redirect_uri, {"code": code, "state": state})
-    return RedirectResponse(redirect_url, status_code=302)
+    return _build_redirect_url(redirect_uri, {"code": code, "state": state})
 
 
 @router.get("/authorize")
@@ -481,6 +565,133 @@ async def authorize_resume(
 
 
 # ---------------------------------------------------------------------------
+# Organization selection (multi-org users)
+# ---------------------------------------------------------------------------
+
+
+async def _load_org_selection_for_user(
+    request: Request,
+    user: User | None,
+    txn_id: str,
+) -> OrganizationSelectionTransaction | JSONResponse:
+    """Load a pending selection and check it belongs to this browser and user."""
+    if user is None:
+        return _error_response("login_required", "Sign in to continue", status_code=401)
+    txn = await load_org_selection_transaction(txn_id)
+    if txn is None or (
+        time.time() - txn.created_at > oidc_config.RESUME_TRANSACTION_LIFETIME_SECONDS
+    ):
+        return _error_response(
+            "invalid_request",
+            "This sign-in request has expired. Reconnect from your MCP client.",
+        )
+    if _hash_ip(request) != txn.bound_ip:
+        logger.warning("MCP OIDC: organization selection IP mismatch")
+        return _error_response("invalid_request", "Organization selection IP mismatch")
+    if txn.user_id != user.id:
+        logger.warning(
+            "MCP OIDC: organization selection user mismatch",
+            user_id=str(user.id),
+        )
+        return _error_response(
+            "access_denied",
+            "This sign-in request belongs to a different user",
+            status_code=403,
+        )
+    return txn
+
+
+@router.get("/authorize/organizations", response_model=OrganizationSelectionDetails)
+async def get_authorize_organizations(
+    request: Request,
+    user: OptionalUserDep,
+    txn: str = Query(...),
+) -> Response:
+    """List the organizations a multi-org user can grant to an MCP connection."""
+    loaded = await _load_org_selection_for_user(request, user, txn)
+    if isinstance(loaded, JSONResponse):
+        return loaded
+    assert user is not None
+    async with get_async_session_bypass_rls_context_manager() as session:
+        organizations = await list_active_organizations(session, user.id)
+    details = OrganizationSelectionDetails(
+        organizations=[
+            OrganizationSelectionOption(id=org.id, name=org.name, slug=org.slug)
+            for org in organizations
+        ],
+        active_organization_id=loaded.active_organization_id,
+    )
+    return JSONResponse(details.model_dump(mode="json"), headers=_success_headers())
+
+
+@router.post("/authorize/organizations", response_model=OrganizationSelectionResult)
+async def submit_authorize_organizations(
+    request: Request,
+    user: OptionalUserDep,
+    body: OrganizationSelectionRequest,
+) -> Response:
+    """Finish authorization with the organizations the user selected."""
+    loaded = await _load_org_selection_for_user(request, user, body.txn)
+    if isinstance(loaded, JSONResponse):
+        return loaded
+    assert user is not None
+    params = loaded.authorize_params
+
+    if body.decision == "deny":
+        await load_and_delete_org_selection_transaction(body.txn)
+        denied_params = {
+            "error": "access_denied",
+            "error_description": "User denied the MCP connection",
+        }
+        if state := params.get("state"):
+            denied_params["state"] = state
+        result = OrganizationSelectionResult(
+            redirect_url=_build_redirect_url(params["redirect_uri"], denied_params)
+        )
+        return JSONResponse(result.model_dump(), headers=_success_headers())
+
+    requested = set(body.organization_ids)
+    async with get_async_session_bypass_rls_context_manager() as session:
+        organizations = await list_active_organizations(session, user.id)
+    # Keep membership order so the fallback primary org is deterministic.
+    selected = [org.id for org in organizations if org.id in requested]
+    if not selected:
+        return _error_response(
+            "invalid_request", "Select at least one organization you belong to"
+        )
+
+    # Consume only after validation so a bad submission can be retried.
+    if await load_and_delete_org_selection_transaction(body.txn) is None:
+        return _error_response(
+            "invalid_request",
+            "This sign-in request was already used. Reconnect from your MCP client.",
+        )
+
+    primary_org_id = (
+        loaded.active_organization_id
+        if loaded.active_organization_id in selected
+        else selected[0]
+    )
+    redirect_url = await _issue_authorization_code(
+        request,
+        user=user,
+        organization_id=primary_org_id,
+        organization_ids=selected,
+        client_id=params["client_id"],
+        redirect_uri=params["redirect_uri"],
+        code_challenge=params["code_challenge"],
+        code_challenge_method=params["code_challenge_method"],
+        scope=params["scope"],
+        state=params["state"],
+        resource=params["resource"],
+        nonce=params.get("nonce"),
+        ip_hash=loaded.bound_ip,
+    )
+    result = OrganizationSelectionResult(redirect_url=redirect_url)
+    return JSONResponse(result.model_dump(), headers=_success_headers())
+
+
+# ---------------------------------------------------------------------------
 # Token
 # ---------------------------------------------------------------------------
 
@@ -493,6 +704,7 @@ def _mint_access_token(
     *,
     user_id: str,
     organization_id: str,
+    organization_ids: list[str],
     email: str,
     is_platform_superuser: bool,
     scope: str,
@@ -512,6 +724,7 @@ def _mint_access_token(
         "scope": scope,
         "email": email,
         "organization_id": organization_id,
+        "organization_ids": organization_ids,
         "is_platform_superuser": is_platform_superuser,
     }
     return mint_jwt(claims), jti, now
@@ -653,12 +866,20 @@ async def _handle_authorization_code_grant(
     if not _validate_pkce_s256(code_verifier, code_data.code_challenge):
         return _error_response("invalid_grant", "PKCE verification failed")
 
-    # --- Mint access token ---
+    # --- Narrow the consented orgs and issue the refresh token ---
     granted_scope = strip_refresh_scope(code_data.scope)
+    try:
+        primary_org_id, granted_org_ids, refresh_token_value = await _issue_code_grant(
+            code_data, client_id=auth_client_id, scope=granted_scope
+        )
+    except RefreshTokenError as exc:
+        return _error_response(exc.oauth_error, exc.description)
 
+    # --- Mint access token ---
     access_token, jti, now = _mint_access_token(
         user_id=str(code_data.user_id),
-        organization_id=str(code_data.organization_id),
+        organization_id=str(primary_org_id),
+        organization_ids=[str(org_id) for org_id in granted_org_ids],
         email=code_data.email,
         is_platform_superuser=code_data.is_platform_superuser,
         scope=granted_scope,
@@ -677,7 +898,8 @@ async def _handle_authorization_code_grant(
         "iat": now,
         "email": code_data.email,
         "email_verified": True,
-        "organization_id": str(code_data.organization_id),
+        "organization_id": str(primary_org_id),
+        "organization_ids": [str(org_id) for org_id in granted_org_ids],
     }
     if code_data.nonce:
         id_token_claims["nonce"] = code_data.nonce
@@ -690,35 +912,89 @@ async def _handle_authorization_code_grant(
         "id_token": id_token,
         "scope": granted_scope,
     }
-
-    # --- Issue refresh token if offline_access was requested ---
-    if OFFLINE_ACCESS_SCOPE in granted_scope.split() and refresh_tokens_enabled():
-        metadata = RefreshTokenMetadata(
-            email=code_data.email,
-            is_platform_superuser=code_data.is_platform_superuser,
-            scope=granted_scope,
-            resource=code_data.resource,
-        )
-        async with get_async_session_bypass_rls_context_manager() as session:
-            refresh_token_value = await issue_refresh_token(
-                session,
-                user_id=code_data.user_id,
-                organization_id=code_data.organization_id,
-                client_id=auth_client_id,
-                metadata=metadata,
-            )
+    if refresh_token_value is not None:
         response_body["refresh_token"] = refresh_token_value
 
     logger.info(
         "MCP OIDC: issued tokens",
         user_id=str(code_data.user_id),
-        organization_id=str(code_data.organization_id),
+        organization_id=str(primary_org_id),
         jti=jti,
         client_id=auth_client_id,
         with_refresh="refresh_token" in response_body,
     )
 
     return JSONResponse(response_body, headers=_success_headers())
+
+
+async def _issue_code_grant(
+    code_data: AuthCodeData,
+    *,
+    client_id: str,
+    scope: str,
+) -> tuple[OrganizationID, list[OrganizationID], str | None]:
+    """Narrow a code's consented orgs to current memberships and issue its refresh token.
+
+    Holds the user's refresh-token lock from the membership read through the
+    insert: a concurrent removal either lands first and narrows the grant, or
+    waits and then revokes the issued token.
+
+    Returns:
+        The primary org, the granted orgs, and the refresh token when
+        ``offline_access`` was granted and refresh tokens are enabled.
+
+    Raises:
+        RefreshTokenError: The user is no longer in any consented org.
+    """
+    async with get_async_session_bypass_rls_context_manager() as session:
+        await lock_mcp_refresh_token_users(session, [code_data.user_id])
+        primary_org_id, granted_org_ids = await _current_granted_orgs(
+            session,
+            user_id=code_data.user_id,
+            primary_org_id=code_data.organization_id,
+            approved_org_ids=code_data.organization_ids,
+        )
+        if OFFLINE_ACCESS_SCOPE not in scope.split() or not refresh_tokens_enabled():
+            return primary_org_id, granted_org_ids, None
+        refresh_token_value = await issue_refresh_token(
+            session,
+            user_id=code_data.user_id,
+            organization_id=primary_org_id,
+            client_id=client_id,
+            metadata=RefreshTokenMetadata(
+                email=code_data.email,
+                is_platform_superuser=code_data.is_platform_superuser,
+                scope=scope,
+                resource=code_data.resource,
+                organization_ids=granted_org_ids,
+            ),
+        )
+    return primary_org_id, granted_org_ids, refresh_token_value
+
+
+async def _current_granted_orgs(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    primary_org_id: OrganizationID,
+    approved_org_ids: list[OrganizationID] | None,
+) -> tuple[OrganizationID, list[OrganizationID]]:
+    """Narrow the orgs a refresh token was granted to the user's current memberships.
+
+    Orgs the user has left or that were deactivated drop off; orgs joined
+    after consent are never added.
+    """
+    approved = approved_org_ids or [primary_org_id]
+    active = {org.id for org in await list_active_organizations(session, user_id)}
+    granted = [org_id for org_id in approved if org_id in active]
+    if not granted:
+        raise RefreshTokenError(
+            "invalid_grant",
+            "User is no longer a member of the organizations granted to this connection",
+        )
+    if primary_org_id not in granted:
+        primary_org_id = granted[0]
+    return primary_org_id, granted
 
 
 async def _handle_refresh_token_grant(
@@ -743,12 +1019,28 @@ async def _handle_refresh_token_grant(
     try:
         async with get_async_session_bypass_rls_context_manager() as refresh_session:
             try:
+
+                async def resolve_grant(
+                    token_ctx: RefreshTokenContext,
+                ) -> tuple[OrganizationID, list[OrganizationID]]:
+                    return await _current_granted_orgs(
+                        refresh_session,
+                        user_id=token_ctx.user_id,
+                        primary_org_id=token_ctx.organization_id,
+                        approved_org_ids=token_ctx.metadata.organization_ids,
+                    )
+
                 ctx, new_refresh_token = await rotate_refresh_token(
-                    refresh_session, token=refresh_token, client_id=auth_client_id
+                    refresh_session,
+                    token=refresh_token,
+                    client_id=auth_client_id,
+                    resolve_grant=resolve_grant,
                 )
+                granted_org_ids = ctx.metadata.organization_ids or [ctx.organization_id]
                 access_token, jti, _ = _mint_access_token(
                     user_id=str(ctx.user_id),
                     organization_id=str(ctx.organization_id),
+                    organization_ids=[str(org_id) for org_id in granted_org_ids],
                     email=ctx.metadata.email,
                     is_platform_superuser=ctx.metadata.is_platform_superuser,
                     scope=ctx.metadata.scope,
@@ -834,5 +1126,6 @@ async def userinfo(
             "email": claims.get("email"),
             "email_verified": True,
             "organization_id": claims.get("organization_id"),
+            "organization_ids": claims.get("organization_ids"),
         }
     )

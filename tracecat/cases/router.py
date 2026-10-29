@@ -76,6 +76,7 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_data_error
 from tracecat.db.models import Case
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -757,7 +758,7 @@ async def create_case(
     service = CasesService(session, role)
     try:
         case = await service.create_case(params)
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -802,6 +803,8 @@ async def update_case(
             detail=str(e),
         ) from e
     except DBAPIError as e:
+        if is_data_error(e):
+            raise
         logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1004,6 +1007,8 @@ async def create_field(
     service = CaseFieldsService(session, role)
     try:
         await service.create_field(params)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
     except ProgrammingError as e:
@@ -1032,6 +1037,8 @@ async def update_field(
     service = CaseFieldsService(session, role)
     try:
         await service.update_field(field_id, params)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
     except ProgrammingError as err:
@@ -1058,6 +1065,8 @@ async def delete_field(
     service = CaseFieldsService(session, role)
     try:
         await service.delete_field(field_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
 

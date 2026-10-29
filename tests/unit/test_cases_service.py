@@ -304,6 +304,18 @@ class TestCasesService:
         assert case1.id in case_ids
         assert case2.id in case_ids
 
+    async def test_unknown_assignee_is_validation_error(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        missing = uuid.uuid4()
+        with pytest.raises(TracecatValidationError, match="Assignee not found"):
+            await cases_service.create_case(
+                case_create_params.model_copy(update={"assignee_id": missing})
+            )
+        case = await cases_service.create_case(case_create_params)
+        with pytest.raises(TracecatValidationError, match="Assignee not found"):
+            await cases_service.update_case(case, CaseUpdate(assignee_id=missing))
+
     async def test_create_case_allocates_consecutive_workspace_case_numbers(
         self, cases_service: CasesService
     ) -> None:

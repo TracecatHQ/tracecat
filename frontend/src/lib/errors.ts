@@ -15,6 +15,20 @@ export interface TracecatApiError<T = unknown> extends ApiError {
   }
 }
 
+/** Whether the API cancelled a shared query at its statement timeout. */
+export function isQueryTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error) || !("body" in error)) {
+    return false
+  }
+  const body = error.body
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "type" in body &&
+    body.type === "TracecatQueryTimeoutError"
+  )
+}
+
 export function retryHandler(failureCount: number, error: ApiError) {
   // Check for 4XX errors and terminate
   if (Math.floor(error.status / 100) === 4) {

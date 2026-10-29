@@ -81,6 +81,7 @@
               "agents/skills",
               "agents/secrets-variables",
               "agents/human-in-the-loop",
+              "agents/timeouts",
               "agents/channels"
             ]
           },
@@ -318,6 +319,7 @@
               "tools/snowflake",
               "tools/socket",
               "tools/splunk",
+              "tools/spur",
               "tools/sublime",
               "tools/tavily",
               "tools/tenable_sc",
@@ -369,7 +371,8 @@
               "self-hosting/pgvector",
               "self-hosting/tls",
               "self-hosting/environment-variables",
-              "self-hosting/security"
+              "self-hosting/security",
+              "self-hosting/support"
             ]
           },
           {
@@ -392,6 +395,7 @@
               "authentication/basic",
               "authentication/saml",
               "authentication/oidc",
+              "authentication/mfa",
               "authentication/scim"
             ]
           },

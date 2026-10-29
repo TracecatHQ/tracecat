@@ -14,6 +14,7 @@ from tracecat.executor.service import _prepare_step_context, prepare_resolved_co
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.service import RegistryVersionsService
+from tracecat.secrets.types import ActionSecrets
 
 
 def _udf_impl(*, origin: str, module: str, name: str) -> dict[str, str]:
@@ -111,8 +112,8 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
 
     # Keep test focused on resolution, not secret/variable fetching.
     mocker.patch(
-        "tracecat.executor.service.secrets_manager.get_action_secrets",
-        return_value={},
+        "tracecat.executor.service.secrets_manager.resolve_action_secrets",
+        return_value=ActionSecrets(values={}),
     )
     mocker.patch("tracecat.executor.service.get_workspace_variables", return_value={})
 
@@ -217,8 +218,8 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     )
 
     mocker.patch(
-        "tracecat.executor.service.secrets_manager.get_action_secrets",
-        return_value={},
+        "tracecat.executor.service.secrets_manager.resolve_action_secrets",
+        return_value=ActionSecrets(values={}),
     )
     mocker.patch("tracecat.executor.service.get_workspace_variables", return_value={})
 
@@ -290,13 +291,15 @@ async def test_prepare_resolved_context_includes_projected_secret_masks(
         return_value=SimpleNamespace(secrets=set(), variables=set()),
     )
     mocker.patch(
-        "tracecat.executor.service.secrets_manager.get_action_secrets",
-        return_value={
-            "aws": {
-                "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
-                "AWS_REGION": "us-east-1",
+        "tracecat.executor.service.secrets_manager.resolve_action_secrets",
+        return_value=ActionSecrets(
+            values={
+                "aws": {
+                    "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+                    "AWS_REGION": "us-east-1",
+                }
             }
-        },
+        ),
     )
     mocker.patch("tracecat.executor.service.get_workspace_variables", return_value={})
     mocker.patch(

@@ -496,7 +496,7 @@ export function SlackChannelPanel({
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-base font-medium tracking-tight">
-                        New App
+                        Create app
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         Create a new Slack App using a pre-filled manifest

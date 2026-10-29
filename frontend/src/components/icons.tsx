@@ -605,6 +605,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.proofpoint_tap": createIconRenderer(ProofpointIcon),
     "tools.proofpoint_threat_protection": createIconRenderer(ProofpointIcon),
     "tools.runreveal": createIconRenderer(RunRevealIcon),
+    "tools.spur": createIconRenderer(SpurIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
     "tools.typesafe": createIconRenderer(TypeSafeIcon, {
@@ -1161,6 +1162,11 @@ export const secretIcons: Record<
   proofpoint_tap: ({ className, ...rest }) => (
     <div className={className}>
       <ProofpointIcon {...rest} />
+    </div>
+  ),
+  spur: ({ className, ...rest }) => (
+    <div className={className}>
+      <SpurIcon {...rest} />
     </div>
   ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
@@ -2963,6 +2969,23 @@ export function ProofpointIcon({ className, ...rest }: IconProps) {
       <path
         fill="currentColor"
         d="M14.8587 17.8897C14.8587 21.6478 13.0474 23.8784 10.27 23.8784C7.26834 23.8784 5.53751 21.74 5.53751 17.8897C5.53751 13.7454 7.18784 11.607 10.1895 11.607C13.1911 11.607 14.8874 13.7742 14.8587 17.8897ZM0 36H5.49151V25.3482C6.88307 27.4521 9.06242 28.5357 11.7766 28.5357C16.7333 28.5357 20.4997 24.2934 20.4997 17.6418C20.4997 10.9902 16.831 6.92664 11.7133 6.92664C8.97042 6.92664 7.02683 8.01026 5.3995 10.3735V7.6356H0V35.9942V36Z"
+      />
+    </svg>
+  )
+}
+
+export function SpurIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="0 -4.06 38.5645 38.5645"
+      className={cn("text-[#0A0A0A] dark:text-[#FAFAFA]", className)}
+      {...rest}
+    >
+      <title>Spur</title>
+      <path
+        fill="currentColor"
+        d="M19.7852 0C20.1147 5.07404 20.293 10.1515 20.293 15.2256C20.293 20.2996 20.114 25.3742 19.7852 30.4482H18.7705C18.4517 25.3742 18.2627 20.2996 18.2627 15.2256C18.2627 10.1515 18.4517 5.07404 18.7705 0H19.7852ZM15.7314 13.6963C16.0219 14.1289 16.2379 14.6054 16.2393 15.1055C16.2378 15.6054 16.0219 16.0541 15.7314 16.4873L8.12012 27.3975H7.10449C7.11677 27.3747 12.4345 17.501 13.4482 16.9941V16.2334C11.9258 16.2334 0 15.7256 0 15.7256V14.7109C0 14.7109 11.9258 14.2031 13.4482 14.2031V13.4424C12.4333 12.4274 7.10449 3.03906 7.10449 3.03906H8.12012L15.7314 13.6963ZM31.46 3.03906C31.46 3.03906 26.1312 12.4274 25.1162 13.4424V14.2031C26.6386 14.2031 38.5645 14.7109 38.5645 14.7109V15.7256C38.5645 15.7256 26.6386 16.2334 25.1162 16.2334V16.9941C26.1301 18.008 31.4485 27.3772 31.46 27.3975H30.4443L22.833 16.4873C22.5426 16.0541 22.3266 15.6054 22.3252 15.1055C22.3265 14.6055 22.5425 14.1289 22.833 13.6963L30.4443 3.03906H31.46Z"
       />
     </svg>
   )

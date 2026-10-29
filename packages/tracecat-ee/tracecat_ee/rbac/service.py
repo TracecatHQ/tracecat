@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, exists, func, select
@@ -34,6 +34,7 @@ from tracecat.authz.service import (
     resolve_grantable_role,
     resolve_granter_scopes,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     ExternalGroupMapping,
     Group,
@@ -416,14 +417,22 @@ class RBACService(BaseOrgService):
         )
         ensure_role_fits_scope(role, workspace_id)
 
-    async def _ensure_group_membership_assignable(self, group_id: UUID) -> None:
-        """Reject membership grants containing scopes the caller does not hold."""
+    async def ensure_group_membership_assignable(
+        self, group_ids: Collection[UUID]
+    ) -> None:
+        """Reject membership grants containing scopes the caller does not hold.
+
+        Shared by every path that adds members to a group, including SCIM group
+        mappings, so one ceiling covers manual and provider-sourced membership.
+        """
+        if not group_ids:
+            return
         stmt = (
             select(Scope)
             .join(RoleScope, RoleScope.scope_id == Scope.id)
             .join(GroupRoleAssignment, GroupRoleAssignment.role_id == RoleScope.role_id)
             .where(
-                GroupRoleAssignment.group_id == group_id,
+                GroupRoleAssignment.group_id.in_(group_ids),
                 GroupRoleAssignment.organization_id == self.organization_id,
             )
         )
@@ -542,7 +551,7 @@ class RBACService(BaseOrgService):
         # Verify group exists
         await self._assert_group_exists(group_id)
         await self._reject_if_idp_managed(group_id)
-        await self._ensure_group_membership_assignable(group_id)
+        await self.ensure_group_membership_assignable({group_id})
 
         # Verify user belongs to this organization
         if not await self._user_in_organization(user_id):
@@ -960,16 +969,22 @@ class RBACService(BaseOrgService):
             workspace_id=workspace_id,
             assigned_by=self.role.user_id,
         )
-        if workspace_id is not None:
-            # Legacy workspace table is still written for app versions reading it.
-            await mirror_workspace_membership(
-                self.session, user_id=user_id, workspace_id=workspace_id
-            )
-        self.session.add(assignment)
         try:
+            if workspace_id is not None:
+                # Legacy workspace table is still written for app versions reading it.
+                await mirror_workspace_membership(
+                    self.session, user_id=user_id, workspace_id=workspace_id
+                )
+            self.session.add(assignment)
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
+            if not is_unique_violation(
+                e,
+                "uq_user_role_assignment_user_id_workspace_id",
+                "ix_user_role_assignment_user_org_unique",
+            ):
+                raise
             raise TracecatConflictError(
                 "User already has an assignment for this workspace"
             ) from e

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.cases.durations import (
     CaseDurationAnchorSelection,
     CaseDurationComputation,
+    CaseDurationCreate,
     CaseDurationDefinitionCreate,
     CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
@@ -26,6 +27,7 @@ from tracecat.cases.service import CasesService
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import Case, CaseDuration, CaseEvent
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.tags.schemas import TagCreate
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1434,3 +1436,33 @@ async def test_legacy_custom_timestamp_path_uses_event_scan_fallback(
     assert value.end_event_id == first_custom_event.id
     assert value.ended_at == first_custom_end
     assert value.duration == first_custom_end - created_event.created_at
+
+
+@pytest.mark.anyio
+async def test_duration_rejects_events_not_on_case(
+    session: AsyncSession,
+    svc_role,
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Event reference check",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CLOSED,
+            ),
+        )
+    )
+    case = await cases_service.create_case(make_case_create())
+
+    with pytest.raises(TracecatNotFoundError, match="Duration event not found"):
+        await duration_service.create_duration(
+            case,
+            CaseDurationCreate(
+                definition_id=definition.id, start_event_id=uuid.uuid4()
+            ),
+        )

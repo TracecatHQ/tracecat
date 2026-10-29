@@ -179,6 +179,7 @@ import {
 import type { ModelInfo } from "@/lib/chat"
 import { getApiErrorDetail } from "@/lib/errors"
 import {
+  useChatReadiness,
   useListMcpIntegrations,
   useRegistryActions,
   useWorkspaceAgentModels,
@@ -972,6 +973,269 @@ function PlaygroundEmptyState() {
   )
 }
 
+const BUILDER_READINESS_MESSAGES: Record<string, string> = {
+  no_model:
+    "Select a default model in organization agent settings to use the builder.",
+  default_not_enabled:
+    "Enable the organization default model for this workspace to use the builder.",
+  subset_disabled:
+    "Enable the organization default model for this workspace to use the builder.",
+}
+
+/**
+ * Chat with the builder assistant, which starts with this preset's current
+ * configuration in context and can edit it.
+ */
+function AgentPresetBuilderChatPane({
+  preset,
+  workspaceId,
+  leading,
+  trailing,
+}: {
+  preset: AgentPresetRead | null
+  workspaceId: string
+  /** Rendered at the start of the pane bar (the mode switch). */
+  leading: ReactNode
+  /** Rendered at the end of the pane bar (the setup toggle). */
+  trailing: ReactNode
+}) {
+  const { user } = useAuth()
+  const canExecuteAgents = useScopeCheck("agent:execute")
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
+  const {
+    ready: chatReady,
+    loading: chatReadyLoading,
+    reason: chatReadyReason,
+    modelInfo,
+  } = useChatReadiness(workspaceId)
+
+  const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
+    {
+      workspaceId,
+      entityType: "agent_preset_builder",
+      entityId: preset?.id,
+      createdBy: historyScope === "mine" ? user?.id : undefined,
+    },
+    { enabled: Boolean(preset && workspaceId) }
+  )
+
+  useEffect(() => {
+    setSelectedChatId(null)
+  }, [preset?.id])
+
+  const latestChatId =
+    chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
+  const activeChatId = selectedChatId ?? latestChatId
+
+  const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
+    setHistoryScope(nextScope)
+    setSelectedChatId(null)
+  }
+
+  const { createChat, createChatPending } = useCreateChat(workspaceId)
+  const { chat, chatLoading, chatError } = useGetChatVercel({
+    chatId: activeChatId,
+    workspaceId,
+  })
+
+  const canStartChat = Boolean(
+    canExecuteAgents === true && preset && chatReady && modelInfo
+  )
+  const shouldAutoCreateChat =
+    canStartChat && !activeChatId && !chatsLoading && !createChatPending
+
+  const handleCreateChat = async () => {
+    if (!preset || createChatPending || !canStartChat) {
+      return
+    }
+    try {
+      const newChat = await createChat({
+        title: `${preset.name} builder`,
+        entity_type: "agent_preset_builder",
+        entity_id: preset.id,
+      })
+      setSelectedChatId(newChat.id)
+      await refetchChats()
+    } catch (error) {
+      console.error("Failed to create agent builder chat", error)
+    }
+  }
+
+  // Auto-create chat when the builder is ready and no chat exists
+  useEffect(() => {
+    if (shouldAutoCreateChat) {
+      void handleCreateChat()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoCreateChat])
+
+  const renderBody = () => {
+    if (!preset) {
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessageCircle />
+              </EmptyMedia>
+              <EmptyTitle>Builder</EmptyTitle>
+              <EmptyDescription>
+                Save the agent to start working with the builder.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </div>
+      )
+    }
+
+    if (
+      canExecuteAgents === false &&
+      !activeChatId &&
+      !chatsLoading &&
+      !chatsError
+    ) {
+      return <AgentExecuteRequiredNotice />
+    }
+
+    if (chatReadyLoading) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
+        </div>
+      )
+    }
+
+    if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
+          <AlertCircle className="size-5 text-amber-500" />
+          <p className="max-w-xs text-pretty">
+            {BUILDER_READINESS_MESSAGES[chatReadyReason ?? "no_model"] ??
+              BUILDER_READINESS_MESSAGES.no_model}
+          </p>
+          <Link
+            href="/organization/settings/agent"
+            className="text-xs font-medium text-primary hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Go to agent settings
+          </Link>
+        </div>
+      )
+    }
+
+    if (chatsError) {
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Alert variant="destructive" className="w-full text-xs">
+            <AlertTitle>Unable to load builder chats</AlertTitle>
+            <AlertDescription>
+              {typeof chatsError.message === "string"
+                ? chatsError.message
+                : "Something went wrong while fetching the builder chat."}
+            </AlertDescription>
+          </Alert>
+        </div>
+      )
+    }
+
+    if (chatError) {
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Alert variant="destructive" className="w-full text-xs">
+            <AlertTitle>Builder unavailable</AlertTitle>
+            <AlertDescription>
+              {typeof chatError.message === "string"
+                ? chatError.message
+                : "We couldn't load the builder conversation."}
+            </AlertDescription>
+          </Alert>
+        </div>
+      )
+    }
+
+    if (!activeChatId || chatLoading || chatsLoading || !chat) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
+        </div>
+      )
+    }
+
+    return (
+      <ChatSessionPane
+        chat={chat}
+        workspaceId={workspaceId}
+        entityType="agent_preset_builder"
+        entityId={preset.id}
+        className="flex-1 min-h-0"
+        placeholder="Ask the builder to refine this agent's instructions, tools, or approvals..."
+        modelInfo={modelInfo ?? undefined}
+        emptyState={<BuilderEmptyState />}
+        toolsEnabled={false}
+        centered
+      />
+    )
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <div className="@container/agent-preset-bar flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-5 py-1.5">
+        {leading}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+          {preset ? (
+            <>
+              <ChatHistoryDropdown
+                chats={chats}
+                isLoading={chatsLoading}
+                error={chatsError}
+                selectedChatId={activeChatId ?? undefined}
+                onSelectChat={(chatId) => setSelectedChatId(chatId)}
+                workspaceId={workspaceId}
+                scope={historyScope}
+                onScopeChange={handleHistoryScopeChange}
+                align="end"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-xs"
+                disabled={createChatPending || !canStartChat}
+                onClick={() => void handleCreateChat()}
+              >
+                {createChatPending ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 size-4" />
+                )}
+                New chat
+              </Button>
+              <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
+            </>
+          ) : null}
+          {trailing}
+        </div>
+      </div>
+      <div className="flex-1 min-h-0">{renderBody()}</div>
+    </div>
+  )
+}
+
+function BuilderEmptyState() {
+  return (
+    <div className="max-w-sm text-center">
+      <p className="text-sm font-medium text-foreground">Build with AI</p>
+      <p className="mt-1 text-pretty text-sm text-muted-foreground">
+        The builder already knows this agent's instructions, tools, and approval
+        rules. Ask it to refine them, and it saves the changes for you.
+      </p>
+    </div>
+  )
+}
+
 function AutoResizeTextarea({
   value,
   onChange,
@@ -1025,6 +1289,7 @@ function AutoResizeTextarea({
 
 type AgentPresetSideTab =
   | "live-chat"
+  | "builder"
   | "assistant"
   | "configuration"
   | "subagents"
@@ -1034,6 +1299,7 @@ type AgentPresetSideTab =
 
 const AGENT_PRESET_SIDE_TABS = new Set<AgentPresetSideTab>([
   "live-chat",
+  "builder",
   "assistant",
   "configuration",
   "subagents",
@@ -1253,9 +1519,11 @@ function AgentPresetForm({
   const [leftMode, setLeftMode] = useState<AgentPresetLeftMode>(() =>
     tabToLeftMode(initialTab)
   )
-  // null follows the mode: open for Instructions, hidden in Playground.
+  // null follows the mode: open beside Instructions and Builder, hidden in
+  // Playground and Channels.
   const [railPinned, setRailPinned] = useState<boolean | null>(null)
-  const railOpen = railPinned ?? leftMode === "instructions"
+  const railOpen =
+    railPinned ?? (leftMode === "instructions" || leftMode === "builder")
   const [railTab, setRailTab] = useState<AgentPresetRailTab>(() =>
     tabToRailTab(initialTab)
   )
@@ -1285,7 +1553,7 @@ function AgentPresetForm({
   // Routes a legacy tab target, such as a validation error, to its new home.
   const focusTab = useCallback(
     (tab: AgentPresetSideTab, subagentIndex?: number) => {
-      if (tab === "live-chat" || tab === "channels") {
+      if (tab === "live-chat" || tab === "builder" || tab === "channels") {
         setLeftMode(tabToLeftMode(tab))
         return
       }
@@ -1592,6 +1860,7 @@ function AgentPresetForm({
       options={[
         { value: "instructions", label: "Instructions" },
         { value: "playground", label: "Playground" },
+        { value: "builder", label: "Builder" },
         ...(channelsEnabled
           ? [{ value: "channels" as const, label: "Channels" }]
           : []),
@@ -1609,7 +1878,7 @@ function AgentPresetForm({
           size="icon"
           className={cn(
             "size-7 text-muted-foreground",
-            railOpen && leftMode === "playground" && "bg-accent"
+            railOpen && leftMode !== "instructions" && "bg-accent"
           )}
           aria-label={railToggleLabel}
           aria-pressed={railOpen}
@@ -1647,6 +1916,20 @@ function AgentPresetForm({
         workspaceId={workspaceId}
         enabledModelOptions={enabledModelOptions}
         enabledModelsLoaded={enabledModelsLoaded}
+        leading={modeSwitch}
+        trailing={
+          <>
+            {inlineActions}
+            {railToggle}
+          </>
+        }
+      />
+    )
+  } else if (leftMode === "builder") {
+    leftPanel = (
+      <AgentPresetBuilderChatPane
+        preset={preset}
+        workspaceId={workspaceId}
         leading={modeSwitch}
         trailing={
           <>
@@ -1911,16 +2194,22 @@ function SegmentedControl<T extends string>({
   )
 }
 
-type AgentPresetLeftMode = "instructions" | "playground" | "channels"
+type AgentPresetLeftMode =
+  | "instructions"
+  | "playground"
+  | "builder"
+  | "channels"
 
 const LEFT_MODE_TABS: Record<AgentPresetLeftMode, AgentPresetSideTab> = {
   instructions: "configuration",
   playground: "live-chat",
+  builder: "builder",
   channels: "channels",
 }
 
 function tabToLeftMode(tab: AgentPresetSideTab): AgentPresetLeftMode {
   if (tab === "live-chat") return "playground"
+  if (tab === "builder") return "builder"
   if (tab === "channels") return "channels"
   return "instructions"
 }
@@ -3553,8 +3842,10 @@ export function AgentPresetStructuredOutputPanel({
                   language="json"
                   readOnly={isSaving}
                   className={cn(
-                    "min-h-[320px] overflow-hidden rounded-lg border",
-                    !schema.ok && field.value && "border-destructive/50"
+                    "min-h-[320px] [&_.cm-editor]:rounded-lg [&_.cm-scroller]:rounded-lg",
+                    !schema.ok &&
+                      field.value &&
+                      "[&_.cm-editor]:border-destructive/50"
                   )}
                 />
               </FormControl>

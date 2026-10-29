@@ -3,23 +3,28 @@ import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AgentBackendRead,
+  type AgentControlReceipt,
+  type AgentPendingMessageRead,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
   type AgentSessionsCancelSessionResponse,
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
+  type AgentSessionsListPendingMessagesResponse,
   type AgentSessionsListSessionsResponse,
   type AgentSessionsRemoveSessionArtifactData,
   type AgentSessionsRemoveSessionArtifactResponse,
   type AgentSessionUpdate,
   type ApiError,
   agentSessionsCancelSession,
+  agentSessionsControlSession,
   agentSessionsCreateSession,
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
   agentSessionsListAgentBackends,
+  agentSessionsListPendingMessages,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
@@ -43,6 +48,7 @@ import {
   saveDroppedPrompt,
   serverTookPrompt,
 } from "@/lib/chat-dropped-prompt"
+import type { WithdrawPendingRequest } from "@/lib/extensions"
 import {
   type QueryClient,
   type UseQueryResult,
@@ -186,6 +192,13 @@ export function parseChatError(error: unknown): string {
           const parsedMessage = (parsed as { errorText?: unknown }).errorText
           if (typeof parsedMessage === "string" && parsedMessage.trim()) {
             return parsedMessage.trim()
+          }
+        }
+        // A rejected send carries the API's `{"detail": "..."}` body as its message.
+        if (parsed && typeof parsed === "object" && "detail" in parsed) {
+          const detail = (parsed as { detail?: unknown }).detail
+          if (typeof detail === "string" && detail.trim()) {
+            return detail.trim()
           }
         }
       } catch {
@@ -444,6 +457,71 @@ export function useDeleteChat(workspaceId: string) {
     deleteChat: mutation.mutateAsync,
     isDeleting: mutation.isPending,
     deleteError: mutation.error,
+  }
+}
+
+const NO_PENDING_MESSAGES: AgentPendingMessageRead[] = []
+
+/**
+ * The user's messages the model has not read yet, in send order, and a way to
+ * withdraw them.
+ *
+ * Fetches only while `enabled`; otherwise the list is empty.
+ */
+export function usePendingMessages({
+  workspaceId,
+  chatId,
+  enabled,
+}: {
+  workspaceId: string
+  chatId?: string
+  enabled: boolean
+}) {
+  const queryClient = useQueryClient()
+  const active = enabled && !!chatId
+  const { data } = useQuery<AgentSessionsListPendingMessagesResponse, ApiError>(
+    {
+      queryKey: ["chat", chatId, workspaceId, "pending"],
+      queryFn: () =>
+        agentSessionsListPendingMessages({
+          sessionId: chatId ?? "",
+          workspaceId,
+        }),
+      enabled: active,
+      refetchOnWindowFocus: false,
+    }
+  )
+  const refreshPending = useCallback(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ["chat", chatId, workspaceId, "pending"],
+    })
+  }, [chatId, queryClient, workspaceId])
+
+  const withdraw = useCallback(
+    async ({
+      id,
+      targetIds,
+    }: WithdrawPendingRequest): Promise<AgentControlReceipt> => {
+      if (!chatId) {
+        throw new Error("No chat to withdraw from")
+      }
+      try {
+        return await agentSessionsControlSession({
+          sessionId: chatId,
+          workspaceId,
+          requestBody: { type: "withdraw", id, target_ids: targetIds ?? null },
+        })
+      } finally {
+        await refreshPending()
+      }
+    },
+    [chatId, refreshPending, workspaceId]
+  )
+
+  return {
+    pending: active && data ? data.items : NO_PENDING_MESSAGES,
+    refreshPending,
+    withdraw,
   }
 }
 

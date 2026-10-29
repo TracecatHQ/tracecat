@@ -13,6 +13,7 @@ from typing import cast
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
@@ -26,12 +27,14 @@ from tracecat.mcp.oidc.endpoints import router
 from tracecat.mcp.oidc.refresh_tokens import RefreshTokenError
 from tracecat.mcp.oidc.schemas import (
     AuthCodeData,
+    OrganizationSelectionTransaction,
     RefreshTokenContext,
     RefreshTokenMetadata,
     ResumeTransaction,
 )
 from tracecat.mcp.oidc.session import (
     NeedsAction,
+    OrganizationOption,
     OrgResolutionError,
     SessionNeedsAction,
     SessionResult,
@@ -193,6 +196,9 @@ def app(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
         _stub_bypass_session_context_manager,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.lock_mcp_refresh_token_users", AsyncMock()
     )
     return test_app
 
@@ -729,6 +735,7 @@ async def test_token_rejects_redirect_uri_mismatch(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
     )
+    _patch_code_orgs_active(monkeypatch, code_data)
     secret = oidc_config.get_internal_client_secret()
 
     response = client.post(
@@ -760,6 +767,7 @@ async def test_token_rejects_failed_pkce(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
     )
+    _patch_code_orgs_active(monkeypatch, code_data)
     secret = oidc_config.get_internal_client_secret()
 
     response = client.post(
@@ -793,6 +801,7 @@ async def test_token_success_returns_tokens(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
     )
+    _patch_code_orgs_active(monkeypatch, code_data)
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
     secret = oidc_config.get_internal_client_secret()
 
@@ -838,6 +847,7 @@ async def test_token_accepts_basic_auth(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
     )
+    _patch_code_orgs_active(monkeypatch, code_data)
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
     secret = oidc_config.get_internal_client_secret()
     basic_creds = base64.b64encode(
@@ -882,12 +892,7 @@ async def test_token_auth_code_grant_omits_refresh_without_offline_access(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
     )
-    monkeypatch.setattr(
-        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
-        lambda: (_ for _ in ()).throw(
-            AssertionError("refresh-token session should not be opened")
-        ),
-    )
+    _patch_code_orgs_active(monkeypatch, code_data)
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
     secret = oidc_config.get_internal_client_secret()
@@ -934,6 +939,7 @@ async def test_token_auth_code_grant_includes_refresh_with_offline_access(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
     )
+    _patch_code_orgs_active(monkeypatch, code_data)
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
         tracked_bypass_session_context_manager,
@@ -987,6 +993,7 @@ async def test_token_auth_code_grant_strips_offline_access_when_disabled(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
     )
+    _patch_code_orgs_active(monkeypatch, code_data)
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
     secret = oidc_config.get_internal_client_secret()
@@ -1011,6 +1018,27 @@ async def test_token_auth_code_grant_strips_offline_access_when_disabled(
 # ---------------------------------------------------------------------------
 # Token endpoint — refresh_token grant
 # ---------------------------------------------------------------------------
+
+
+def _org_option(org_id: uuid.UUID, name: str = "Org") -> OrganizationOption:
+    return OrganizationOption(id=org_id, name=name, slug=f"org-{org_id.hex[:8]}")
+
+
+def _patch_active_orgs(monkeypatch: pytest.MonkeyPatch, *org_ids: uuid.UUID) -> None:
+    """Make ``list_active_organizations`` return these orgs, oldest first."""
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.list_active_organizations",
+        AsyncMock(return_value=[_org_option(org_id) for org_id in org_ids]),
+    )
+
+
+def _patch_code_orgs_active(
+    monkeypatch: pytest.MonkeyPatch, code_data: AuthCodeData
+) -> None:
+    """Keep the user a member of every org the code was consented for."""
+    _patch_active_orgs(
+        monkeypatch, *(code_data.organization_ids or [code_data.organization_id])
+    )
 
 
 def _make_refresh_context(**overrides) -> RefreshTokenContext:
@@ -1065,6 +1093,7 @@ async def test_token_refresh_grant_returns_new_tokens_without_id_token(
         "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
         AsyncMock(return_value=True),
     )
+    _patch_active_orgs(monkeypatch, ctx.organization_id)
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
         rotated,
@@ -1100,6 +1129,7 @@ async def test_token_refresh_grant_returns_new_tokens_without_id_token(
     decoded = signing.verify_jwt(body["access_token"])
     assert decoded["sub"] == str(ctx.user_id)
     assert decoded["organization_id"] == str(ctx.organization_id)
+    assert decoded["organization_ids"] == [str(ctx.organization_id)]
     assert decoded["email"] == ctx.metadata.email
     assert decoded["scope"] == ctx.metadata.scope
 
@@ -1195,6 +1225,7 @@ async def test_token_refresh_grant_rolls_back_if_store_jti_fails_before_commit(
         "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
         tracked_bypass_session_context_manager,
     )
+    _patch_active_orgs(monkeypatch, ctx.organization_id)
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
         AsyncMock(return_value=(ctx, "new-rotated-refresh-token")),
@@ -1475,3 +1506,666 @@ def test_get_internal_discovery_url(
     monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
     url = oidc_config.get_internal_discovery_url()
     assert url == f"{expected_base}/oauth/mcp/.well-known/openid-configuration"
+
+
+# ---------------------------------------------------------------------------
+# Multi-org: organization selection and token claims
+# ---------------------------------------------------------------------------
+
+
+def _multi_org_session_result(
+    user: SimpleNamespace, *org_ids: uuid.UUID, active: uuid.UUID | None = None
+) -> SessionResult:
+    return SessionResult(
+        user=cast(User, user),
+        organization_id=active or org_ids[0],
+        organizations=tuple(_org_option(org_id) for org_id in org_ids),
+    )
+
+
+def _selection_txn(
+    user_id: uuid.UUID,
+    active_org_id: uuid.UUID,
+    **overrides,
+) -> OrganizationSelectionTransaction:
+    defaults = {
+        "transaction_id": "select-txn",
+        "user_id": user_id,
+        "active_organization_id": active_org_id,
+        "authorize_params": {
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "redirect_uri": _ALLOWED_REDIRECT,
+            "code_challenge": "test-challenge",
+            "code_challenge_method": "S256",
+            "scope": "openid",
+            "state": "select-state",
+            "resource": f"{_TEST_APP_URL}/mcp",
+        },
+        "created_at": time.time(),
+        "bound_ip": _TESTCLIENT_IP_HASH,
+    }
+    return OrganizationSelectionTransaction(**(defaults | overrides))
+
+
+def _patch_selection_store(
+    monkeypatch: pytest.MonkeyPatch,
+    txn: OrganizationSelectionTransaction | None,
+) -> AsyncMock:
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_org_selection_transaction",
+        AsyncMock(return_value=txn),
+    )
+    consume = AsyncMock(return_value=txn)
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_org_selection_transaction",
+        consume,
+    )
+    return consume
+
+
+@pytest.mark.anyio
+async def test_authorize_single_org_user_skips_selection(
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    stored_codes: list[AuthCodeData] = []
+    store_selection = AsyncMock()
+
+    async def _store_code(data: AuthCodeData) -> None:
+        stored_codes.append(data)
+
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        AsyncMock(return_value=_multi_org_session_result(mock_user, org_id)),
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", _store_code)
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.store_org_selection_transaction",
+        store_selection,
+    )
+
+    response = client.get(
+        "/authorize", params=_authorize_params(), follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith(_ALLOWED_REDIRECT)
+    store_selection.assert_not_awaited()
+    assert stored_codes[0].organization_id == org_id
+    assert stored_codes[0].organization_ids == [org_id]
+
+
+@pytest.mark.anyio
+async def test_authorize_multi_org_user_redirects_to_selection(
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_a, org_b = uuid.uuid4(), uuid.uuid4()
+    stored: list[OrganizationSelectionTransaction] = []
+    store_code = AsyncMock()
+
+    async def _store_selection(txn: OrganizationSelectionTransaction) -> None:
+        stored.append(txn)
+
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        AsyncMock(
+            return_value=_multi_org_session_result(
+                mock_user, org_a, org_b, active=org_b
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.store_org_selection_transaction",
+        _store_selection,
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", store_code)
+
+    response = client.get(
+        "/authorize",
+        params=_authorize_params(state="multi-state", nonce="n-1"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    assert location.startswith(f"{_TEST_APP_URL}/oauth/mcp/organizations?txn=")
+    store_code.assert_not_awaited()
+    assert len(stored) == 1
+    txn = stored[0]
+    assert location.endswith(txn.transaction_id)
+    assert txn.user_id == mock_user.id
+    assert txn.active_organization_id == org_b
+    assert txn.bound_ip == _TESTCLIENT_IP_HASH
+    assert txn.authorize_params["state"] == "multi-state"
+    assert txn.authorize_params["nonce"] == "n-1"
+    assert txn.authorize_params["resource"] == f"{_TEST_APP_URL}/mcp"
+
+
+def test_get_authorize_organizations_requires_login(client: TestClient) -> None:
+    response = client.get("/authorize/organizations", params={"txn": "select-txn"})
+    assert response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_get_authorize_organizations_lists_orgs(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_a, org_b = uuid.uuid4(), uuid.uuid4()
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    _patch_selection_store(monkeypatch, _selection_txn(mock_user.id, org_b))
+    _patch_active_orgs(monkeypatch, org_a, org_b)
+
+    response = client.get("/authorize/organizations", params={"txn": "select-txn"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [org["id"] for org in body["organizations"]] == [str(org_a), str(org_b)]
+    assert body["active_organization_id"] == str(org_b)
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("txn_overrides", "user_matches", "status_code"),
+    [
+        pytest.param({"created_at": 0.0}, True, 400, id="expired"),
+        pytest.param({"bound_ip": "other-ip"}, True, 400, id="ip-mismatch"),
+        pytest.param({}, False, 403, id="user-mismatch"),
+    ],
+)
+async def test_authorize_organizations_rejects_invalid_transaction(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    txn_overrides: dict[str, object],
+    user_matches: bool,
+    status_code: int,
+) -> None:
+    org_id = uuid.uuid4()
+    owner_id = mock_user.id if user_matches else uuid.uuid4()
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    consume = _patch_selection_store(
+        monkeypatch, _selection_txn(owner_id, org_id, **txn_overrides)
+    )
+    store_code = AsyncMock()
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", store_code)
+    _patch_active_orgs(monkeypatch, org_id)
+
+    get_response = client.get("/authorize/organizations", params={"txn": "select-txn"})
+    post_response = client.post(
+        "/authorize/organizations",
+        json={"txn": "select-txn", "organization_ids": [str(org_id)]},
+    )
+
+    assert get_response.status_code == status_code
+    assert post_response.status_code == status_code
+    consume.assert_not_awaited()
+    store_code.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_authorize_organizations_rejects_unknown_transaction(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    _patch_selection_store(monkeypatch, None)
+
+    response = client.get("/authorize/organizations", params={"txn": "missing"})
+
+    assert response.status_code == 400
+    assert "expired" in response.json()["error_description"]
+
+
+@pytest.mark.anyio
+async def test_submit_authorize_organizations_issues_code_for_selection(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_a, org_b, org_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    not_member = uuid.uuid4()
+    stored_codes: list[AuthCodeData] = []
+
+    async def _store_code(data: AuthCodeData) -> None:
+        stored_codes.append(data)
+
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    consume = _patch_selection_store(monkeypatch, _selection_txn(mock_user.id, org_c))
+    _patch_active_orgs(monkeypatch, org_a, org_b, org_c)
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", _store_code)
+
+    response = client.post(
+        "/authorize/organizations",
+        json={
+            "txn": "select-txn",
+            "organization_ids": [str(org_c), str(not_member), str(org_a)],
+        },
+    )
+
+    assert response.status_code == 200
+    redirect_url = response.json()["redirect_url"]
+    assert redirect_url.startswith(_ALLOWED_REDIRECT)
+    query = _location_query_params(redirect_url)
+    assert query["state"] == ["select-state"]
+    consume.assert_awaited_once_with("select-txn")
+    code = stored_codes[0]
+    assert query["code"] == [code.code]
+    # Non-member orgs are dropped and membership order is kept.
+    assert code.organization_ids == [org_a, org_c]
+    # The active org stays primary when it is selected.
+    assert code.organization_id == org_c
+    assert code.user_id == mock_user.id
+    assert code.code_challenge == "test-challenge"
+    assert code.bound_ip == _TESTCLIENT_IP_HASH
+
+
+@pytest.mark.anyio
+async def test_submit_authorize_organizations_falls_back_to_first_selected(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_a, org_b, org_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    stored_codes: list[AuthCodeData] = []
+
+    async def _store_code(data: AuthCodeData) -> None:
+        stored_codes.append(data)
+
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    _patch_selection_store(monkeypatch, _selection_txn(mock_user.id, org_a))
+    _patch_active_orgs(monkeypatch, org_a, org_b, org_c)
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", _store_code)
+
+    response = client.post(
+        "/authorize/organizations",
+        json={"txn": "select-txn", "organization_ids": [str(org_c), str(org_b)]},
+    )
+
+    assert response.status_code == 200
+    assert stored_codes[0].organization_ids == [org_b, org_c]
+    assert stored_codes[0].organization_id == org_b
+
+
+@pytest.mark.anyio
+async def test_submit_authorize_organizations_requires_a_member_org(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    consume = _patch_selection_store(monkeypatch, _selection_txn(mock_user.id, org_id))
+    _patch_active_orgs(monkeypatch, org_id)
+    store_code = AsyncMock()
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", store_code)
+
+    response = client.post(
+        "/authorize/organizations",
+        json={"txn": "select-txn", "organization_ids": [str(uuid.uuid4())]},
+    )
+
+    assert response.status_code == 400
+    # The request stays usable so the user can fix the selection.
+    consume.assert_not_awaited()
+    store_code.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_submit_authorize_organizations_rejects_reused_transaction(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    _patch_selection_store(monkeypatch, _selection_txn(mock_user.id, org_id))
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_org_selection_transaction",
+        AsyncMock(return_value=None),
+    )
+    _patch_active_orgs(monkeypatch, org_id)
+    store_code = AsyncMock()
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", store_code)
+
+    response = client.post(
+        "/authorize/organizations",
+        json={"txn": "select-txn", "organization_ids": [str(org_id)]},
+    )
+
+    assert response.status_code == 400
+    assert "already used" in response.json()["error_description"]
+    store_code.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_submit_authorize_organizations_deny_redirects_access_denied(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    consume = _patch_selection_store(monkeypatch, _selection_txn(mock_user.id, org_id))
+    store_code = AsyncMock()
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", store_code)
+
+    response = client.post(
+        "/authorize/organizations",
+        json={"txn": "select-txn", "decision": "deny"},
+    )
+
+    assert response.status_code == 200
+    redirect_url = response.json()["redirect_url"]
+    assert redirect_url.startswith(_ALLOWED_REDIRECT)
+    query = _location_query_params(redirect_url)
+    assert query["error"] == ["access_denied"]
+    assert query["state"] == ["select-state"]
+    consume.assert_awaited_once_with("select-txn")
+    store_code.assert_not_awaited()
+
+
+def test_submit_authorize_organizations_rejects_non_json_body(
+    app: FastAPI,
+    client: TestClient,
+    mock_user: SimpleNamespace,
+) -> None:
+    """Form posts (cross-site CSRF shape) must not reach the handler."""
+    app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    response = client.post(
+        "/authorize/organizations",
+        content='{"txn": "select-txn", "organization_ids": []}',
+        headers={"content-type": "text/plain"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "with_explicit_org_ids",
+    [pytest.param(True, id="multi-org-code"), pytest.param(False, id="legacy-code")],
+)
+async def test_token_auth_code_grant_issues_organization_ids(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    with_explicit_org_ids: bool,
+) -> None:
+    verifier, challenge = _pkce_pair()
+    primary, other = uuid.uuid4(), uuid.uuid4()
+    granted = [primary, other] if with_explicit_org_ids else []
+    code_data = _make_auth_code_data(challenge=challenge).model_copy(
+        update={
+            "organization_id": primary,
+            "organization_ids": granted,
+            "scope": "openid profile email offline_access",
+        }
+    )
+    issued = AsyncMock(return_value="opaque-refresh-token-value")
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
+        AsyncMock(return_value=code_data),
+    )
+    _patch_code_orgs_active(monkeypatch, code_data)
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
+
+    response = client.post(
+        "/token",
+        data=_token_form(
+            code=code_data.code,
+            verifier=verifier,
+            client_id=oidc_config.INTERNAL_CLIENT_ID,
+            client_secret=oidc_config.get_internal_client_secret(),
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    expected = [str(primary), str(other)] if with_explicit_org_ids else [str(primary)]
+    access_claims = signing.verify_jwt(body["access_token"])
+    assert access_claims["organization_id"] == str(primary)
+    assert access_claims["organization_ids"] == expected
+    id_claims = signing.verify_jwt(
+        body["id_token"], audience=oidc_config.INTERNAL_CLIENT_ID
+    )
+    assert id_claims["organization_ids"] == expected
+    assert issued.await_args is not None
+    metadata = issued.await_args.kwargs["metadata"]
+    assert [str(org_id) for org_id in metadata.organization_ids] == expected
+    assert issued.await_args.kwargs["organization_id"] == primary
+
+
+@pytest.mark.anyio
+async def test_token_auth_code_grant_drops_orgs_left_after_consent(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exchange narrows to current memberships under the user's token lock."""
+    verifier, challenge = _pkce_pair()
+    primary, left = uuid.uuid4(), uuid.uuid4()
+    code_data = _make_auth_code_data(challenge=challenge).model_copy(
+        update={
+            "organization_id": left,
+            "organization_ids": [left, primary],
+            "scope": "openid profile email offline_access",
+        }
+    )
+    issued = AsyncMock(return_value="opaque-refresh-token-value")
+    lock = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
+        AsyncMock(return_value=code_data),
+    )
+    _patch_active_orgs(monkeypatch, primary)
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.lock_mcp_refresh_token_users", lock
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
+
+    response = client.post(
+        "/token",
+        data=_token_form(
+            code=code_data.code,
+            verifier=verifier,
+            client_id=oidc_config.INTERNAL_CLIENT_ID,
+            client_secret=oidc_config.get_internal_client_secret(),
+        ),
+    )
+
+    assert response.status_code == 200
+    access_claims = signing.verify_jwt(response.json()["access_token"])
+    assert access_claims["organization_id"] == str(primary)
+    assert access_claims["organization_ids"] == [str(primary)]
+    assert issued.await_args is not None
+    assert issued.await_args.kwargs["organization_id"] == primary
+    assert issued.await_args.kwargs["metadata"].organization_ids == [primary]
+    assert lock.await_args is not None
+    assert lock.await_args.args[1] == [code_data.user_id]
+
+
+@pytest.mark.anyio
+async def test_token_auth_code_grant_rejects_user_who_left_every_org(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verifier, challenge = _pkce_pair()
+    code_data = _make_auth_code_data(challenge=challenge)
+    issued = AsyncMock(return_value="should-not-be-called")
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
+        AsyncMock(return_value=code_data),
+    )
+    _patch_active_orgs(monkeypatch)
+    store_jti = AsyncMock()
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", store_jti)
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
+
+    response = client.post(
+        "/token",
+        data=_token_form(
+            code=code_data.code,
+            verifier=verifier,
+            client_id=oidc_config.INTERNAL_CLIENT_ID,
+            client_secret=oidc_config.get_internal_client_secret(),
+        ),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_grant"
+    issued.assert_not_awaited()
+    store_jti.assert_not_awaited()
+
+
+def _refresh(client: TestClient) -> httpx.Response:
+    return client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "old-refresh-token",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": oidc_config.get_internal_client_secret(),
+        },
+    )
+
+
+def _patch_refresh(
+    monkeypatch: pytest.MonkeyPatch, ctx: RefreshTokenContext
+) -> _TrackingSession:
+    tracked_session = _TrackingSession()
+
+    @contextlib.asynccontextmanager
+    async def tracked_bypass_session_context_manager():
+        yield tracked_session
+
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        tracked_bypass_session_context_manager,
+    )
+
+    async def rotate(*_args, resolve_grant, **_kwargs):
+        primary, granted = await resolve_grant(ctx)
+        metadata = ctx.metadata.model_copy(update={"organization_ids": granted})
+        narrowed = ctx.model_copy(
+            update={"organization_id": primary, "metadata": metadata}
+        )
+        return narrowed, "new-rotated-refresh-token"
+
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.rotate_refresh_token", rotate)
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
+    return tracked_session
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_keeps_granted_orgs_user_still_belongs_to(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary, kept, left = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    joined_later = uuid.uuid4()
+    ctx = _make_refresh_context(organization_id=primary)
+    ctx.metadata.organization_ids = [primary, kept, left]
+    _patch_refresh(monkeypatch, ctx)
+    _patch_active_orgs(monkeypatch, joined_later, kept, primary)
+
+    response = _refresh(client)
+
+    assert response.status_code == 200
+    claims = signing.verify_jwt(response.json()["access_token"])
+    assert claims["organization_id"] == str(primary)
+    # Orgs the user left drop off; orgs joined after consent are not added.
+    assert claims["organization_ids"] == [str(primary), str(kept)]
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_moves_primary_when_user_left_it(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary, other = uuid.uuid4(), uuid.uuid4()
+    ctx = _make_refresh_context(organization_id=primary)
+    ctx.metadata.organization_ids = [primary, other]
+    _patch_refresh(monkeypatch, ctx)
+    _patch_active_orgs(monkeypatch, other)
+
+    response = _refresh(client)
+
+    assert response.status_code == 200
+    claims = signing.verify_jwt(response.json()["access_token"])
+    assert claims["organization_id"] == str(other)
+    assert claims["organization_ids"] == [str(other)]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "approved_extra",
+    [pytest.param(False, id="legacy-single-org"), pytest.param(True, id="multi-org")],
+)
+async def test_token_refresh_grant_rejects_when_user_left_every_granted_org(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    approved_extra: bool,
+) -> None:
+    primary = uuid.uuid4()
+    ctx = _make_refresh_context(organization_id=primary)
+    if approved_extra:
+        ctx.metadata.organization_ids = [primary, uuid.uuid4()]
+    tracked_session = _patch_refresh(monkeypatch, ctx)
+    _patch_active_orgs(monkeypatch, uuid.uuid4())
+
+    response = _refresh(client)
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_grant"
+    tracked_session.rollback_mock.assert_awaited_once()
+    tracked_session.commit_mock.assert_not_awaited()
+
+
+def test_userinfo_returns_organization_ids(client: TestClient) -> None:
+    org_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    token = signing.mint_jwt(
+        {
+            "iss": oidc_config.get_issuer_url(),
+            "sub": str(uuid.uuid4()),
+            "aud": f"{_TEST_APP_URL}/mcp",
+            "exp": int(time.time()) + 60,
+            "iat": int(time.time()),
+            "email": "user@example.com",
+            "organization_id": org_ids[0],
+            "organization_ids": org_ids,
+        }
+    )
+    response = client.get("/userinfo", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["organization_ids"] == org_ids

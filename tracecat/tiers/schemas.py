@@ -108,6 +108,12 @@ class EffectiveEntitlements(Schema):
         description="Whether workspaces may route actions through private"
         " network tunnels such as Pangolin",
     )
+    agent_runtime_preview: bool = Field(
+        default=False,
+        title="Agent runtime preview",
+        description="Whether agent backends other than the built-in one may be"
+        " listed and used to create or fork agent sessions",
+    )
 
 
 class TierRead(Schema):

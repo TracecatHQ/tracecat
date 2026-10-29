@@ -192,7 +192,7 @@ export function OrgRegistrySshKeySection() {
                         className="text-destructive focus:text-destructive"
                       >
                         <Trash2Icon className="mr-2 size-4" />
-                        Remove
+                        Delete
                       </DropdownMenuItem>
                     )}
                   </DropdownMenuContent>
@@ -255,9 +255,9 @@ export function OrgRegistrySshKeySection() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove SSH key?</AlertDialogTitle>
+            <AlertDialogTitle>Delete SSH key?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes{" "}
+              This permanently deletes{" "}
               <span className="font-mono">{keyPendingRemove?.name ?? ""}</span>.
               {keyPendingRemove && isRegistryKey(keyPendingRemove)
                 ? " Tracecat can't sync the repository until you add a new key."
@@ -270,7 +270,7 @@ export function OrgRegistrySshKeySection() {
               onClick={handleConfirmRemove}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Remove key
+              Delete key
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

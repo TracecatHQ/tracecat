@@ -2,12 +2,15 @@ from collections.abc import AsyncGenerator
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.db.models import Workflow, Workspace
 from tracecat.identifiers.workflow import WorkflowID
+from tracecat.tags import router as tags_router
 from tracecat.tags.schemas import TagCreate, TagUpdate
 from tracecat.tags.service import TagsService
 from tracecat.workflow.tags.service import WorkflowTagsService
@@ -419,3 +422,21 @@ class TestWorkflowTagsService:
             await workflow_tags_service.add_workflow_tag(other_workflow_id, own_tag.id)
         with pytest.raises(NoResultFound):
             await workflow_tags_service.add_workflow_tag(workflow_id, other_tag.id)
+
+
+@pytest.mark.anyio
+async def test_create_duplicate_tag_route_is_client_error(
+    session: AsyncSession, svc_role: Role, tag_create_params: TagCreate
+) -> None:
+    token = ctx_role.set(svc_role)
+    try:
+        await tags_router.create_tag(
+            role=svc_role, session=session, tag=tag_create_params
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await tags_router.create_tag(
+                role=svc_role, session=session, tag=tag_create_params
+            )
+    finally:
+        ctx_role.reset(token)
+    assert exc_info.value.status_code == 400

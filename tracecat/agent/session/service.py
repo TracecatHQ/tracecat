@@ -41,12 +41,14 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
+from tracecat.agent.backends.access import require_backend_entitlement
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
     find_agent_backend,
     get_agent_backend,
 )
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
+from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     SessionForkContext,
@@ -59,6 +61,14 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.control.schemas import (
+    AgentCancelControl,
+    AgentControlReceipt,
+    AgentControlRequest,
+    AgentControlStatus,
+    AgentSteerControl,
+    AgentWithdrawControl,
+)
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
@@ -80,8 +90,10 @@ from tracecat.agent.session.history import (
     prepare_session_history,
 )
 from tracecat.agent.session.schemas import (
+    AgentPendingMessageRead,
     AgentSessionCancelResponse,
     AgentSessionCreate,
+    AgentSessionPendingRead,
     AgentSessionRead,
     AgentSessionUpdate,
 )
@@ -532,7 +544,20 @@ class AgentSessionService(BaseWorkspaceService):
 
         Returns:
             The created AgentSession model.
+
+        Raises:
+            EntitlementRequired: If the backend needs an entitlement the
+                organization lacks.
         """
+        # Callers that do not pin a backend get the one selected for the surface.
+        if "backend_id" not in args.model_fields_set:
+            backend_id = await select_backend_id(
+                self.session, self.organization_id, args.entity_type
+            )
+            args = args.model_copy(update={"backend_id": backend_id})
+        await require_backend_entitlement(
+            self.session, self.organization_id, args.backend_id
+        )
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
         if args.spawned_by_session_id is not None:
             if await self.get_session(args.spawned_by_session_id) is None:
@@ -2034,15 +2059,14 @@ class AgentSessionService(BaseWorkspaceService):
             session_id,
             BasicChatRequest(message=prompt),
         )
-        # This caller constructs the built-in workflow's arguments directly.
-        # Keep that integration restriction explicit until it uses the contract.
-        if agent_session.backend_id != "oss":
+        backend = get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
+        # The caller runs the turn as its own child and reads the result.
+        if not backend.caller_owned_turns:
             raise TracecatValidationError(
                 "This backend does not support caller-owned workflows"
             )
-        get_agent_backend(
-            agent_session.backend_id, harness_type=agent_session.harness_type
-        )
         async with self._build_agent_config(agent_session) as agent_config:
             run_id = agent_session.curr_run_id or uuid.uuid4()
             stream_id = agent_session.active_stream_id or uuid.uuid4()
@@ -2058,6 +2082,8 @@ class AgentSessionService(BaseWorkspaceService):
                 tools=agent_session.tools,
                 agent_preset_id=agent_session.agent_preset_id,
                 agent_preset_version_id=agent_session.agent_preset_version_id,
+                backend_id=agent_session.backend_id,
+                harness_type=agent_session.harness_type,
             )
 
             agent_session.curr_run_id = run_id
@@ -2587,6 +2613,41 @@ class AgentSessionService(BaseWorkspaceService):
             curr_run_id=curr_run_id,
         )
 
+    async def list_pending(self, session_id: uuid.UUID) -> AgentSessionPendingRead:
+        """List the session's user messages the model has not read, in send order.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            TracecatConflictError: If the session's backend is unavailable or
+                cannot list pending messages.
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        try:
+            backend = get_agent_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
+            )
+        except TracecatValidationError as e:
+            raise TracecatConflictError(str(e)) from e
+        if not backend.listing_pending:
+            raise TracecatConflictError(
+                "This agent backend does not support listing pending messages"
+            )
+        pending = await backend.list_pending(session_id)
+        return AgentSessionPendingRead(
+            session_id=session_id,
+            items=[
+                AgentPendingMessageRead(
+                    id=message.id,
+                    type=message.type,
+                    text=message.text,
+                    created_at=message.created_at,
+                )
+                for message in pending
+            ],
+        )
+
     async def request_cancel(
         self,
         session_id: uuid.UUID,
@@ -2625,6 +2686,116 @@ class AgentSessionService(BaseWorkspaceService):
             run_id=curr_run_id,
             reason=reason,
         )
+
+    async def control(
+        self, session_id: uuid.UUID, request: AgentControlRequest
+    ) -> AgentControlReceipt:
+        """Dispatch a control request to the session's running turn.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            TracecatConflictError: If the session has no running turn or its
+                backend is unavailable or does not support the control.
+            AgentControlRejected: If the turn refused the control outright.
+            AgentControlUncertain: If the outcome is unknown; retry with the same ID.
+        """
+        match request:
+            case AgentSteerControl():
+                return await self.steer(session_id, request)
+            case AgentWithdrawControl():
+                return await self.withdraw(session_id, request)
+            case AgentCancelControl():
+                try:
+                    cancelled = await self.request_cancel(session_id)
+                except TracecatValidationError as e:
+                    # Unavailable backends are conflicts here, as for steer and withdraw.
+                    raise TracecatConflictError(str(e)) from e
+                return AgentControlReceipt(
+                    id=request.id,
+                    type=request.type,
+                    run_id=cancelled.run_id,
+                    status="accepted",
+                )
+
+    async def steer(
+        self, session_id: uuid.UUID, request: AgentSteerControl
+    ) -> AgentControlReceipt:
+        """Deliver a steering message to the session's running turn.
+
+        The backend deduplicates ``request.id`` across the session, so a retry
+        never reaches a later turn.
+        """
+        backend, run_id = await self._get_control_turn(session_id, "steer")
+        accepted = await backend.steer(run_id, request.id, request.text)
+        return AgentControlReceipt(
+            id=request.id,
+            type=request.type,
+            run_id=run_id,
+            status="accepted" if accepted else "rejected",
+        )
+
+    async def withdraw(
+        self, session_id: uuid.UUID, request: AgentWithdrawControl
+    ) -> AgentControlReceipt:
+        """Take back the user's pending messages that the model has not read."""
+        backend, run_id = await self._get_control_turn(session_id, "withdraw")
+        result = await backend.withdraw(run_id, request.id, request.target_ids)
+        # Nothing pending is a successful no-op; only all-late is refused.
+        status: AgentControlStatus = (
+            "too_late" if result.too_late and not result.withdrawn else "withdrawn"
+        )
+        return AgentControlReceipt(
+            id=request.id,
+            type=request.type,
+            run_id=run_id,
+            status=status,
+            withdrawn=list(result.withdrawn),
+            too_late=list(result.too_late),
+        )
+
+    async def _get_control_turn(
+        self, session_id: uuid.UUID, control: Literal["steer", "withdraw"]
+    ) -> tuple[AgentBackend[Any, Any], uuid.UUID]:
+        """Resolve the backend and running turn a steer or withdraw targets.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            TracecatConflictError: If the backend is unavailable or lacks the
+                control, or the session has no running turn.
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        if (
+            AgentSessionEntity(agent_session.entity_type)
+            is AgentSessionEntity.WORKSPACE_CHAT
+        ):
+            await self.require_entitlement(Entitlement.WORKSPACE_CHAT)
+
+        try:
+            backend = get_agent_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
+            )
+        except TracecatValidationError as e:
+            # An unavailable backend controls nothing, like one without the control.
+            raise TracecatConflictError(str(e)) from e
+        match control:
+            case "steer":
+                supported, feature = backend.steering, "steering"
+            case "withdraw":
+                supported, feature = backend.withdrawing, "withdrawing"
+        if not supported:
+            raise TracecatConflictError(
+                f"This agent backend does not support {feature}"
+            )
+        lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
+        if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"lifecycle": lifecycle.value},
+            )
+        return backend, curr_run_id
 
     @contextlib.asynccontextmanager
     async def _build_agent_config(
@@ -3550,6 +3721,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         Raises:
             TracecatNotFoundError: If the parent session is not found.
+            EntitlementRequired: If the source session's backend needs an
+                entitlement the organization lacks.
         """
         history_boundary = (
             select(func.max(AgentSessionHistory.surrogate_id))
@@ -3578,6 +3751,9 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
 
+        await require_backend_entitlement(
+            self.session, self.organization_id, source.backend_id
+        )
         backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 
         # Forked sessions are read-only "reviewer" sessions.

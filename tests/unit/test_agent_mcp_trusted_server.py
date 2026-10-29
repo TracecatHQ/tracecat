@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
@@ -9,14 +10,19 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
 from fastmcp.utilities.tests import run_server_async
+from mcp.types import CallToolResult, TextContent
 from pydantic import ValidationError
 from temporalio.exceptions import CancelledError as TemporalCancelledError
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp import trusted_server
 from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METADATA_KEY
+from tracecat.agent.mcp.stdio_probe import NsjailStdioMCPRunner
+from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
+from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.types import StdioMCPIntegrationSnapshot
 from tracecat.agent.tokens import (
     MCPTokenClaims,
     UserMCPServerClaim,
@@ -24,7 +30,10 @@ from tracecat.agent.tokens import (
     verify_mcp_token,
 )
 from tracecat.auth.secrets import get_service_key
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+)
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.types import RegistryLock
 
 
@@ -133,8 +142,13 @@ async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def resolve_mcp_integration_refs(self, integration_ids):
+        async def load_mcp_integrations(self, integration_ids):
+            assert integration_ids == [integration_id]
+            return {integration_id: SimpleNamespace(id=integration_id)}
+
+        def mcp_integration_refs(self, integration_ids, integrations):
             assert integration_ids == [str(integration_id)]
+            assert set(integrations) == {integration_id}
             return [
                 {
                     "type": "http",
@@ -145,8 +159,8 @@ async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
                 }
             ]
 
-        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
-            assert resolved_integration_id == integration_id
+        async def resolve_loaded_mcp_integration_secrets(self, integration):
+            assert integration.id == integration_id
             return {"Authorization": "Bearer secret"}
 
     monkeypatch.setattr(
@@ -534,8 +548,13 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def resolve_mcp_integration_refs(self, integration_ids):
+        async def load_mcp_integrations(self, integration_ids):
+            assert integration_ids == [integration_id]
+            return {integration_id: SimpleNamespace(id=integration_id)}
+
+        def mcp_integration_refs(self, integration_ids, integrations):
             assert integration_ids == [str(integration_id)]
+            assert set(integrations) == {integration_id}
             return [
                 {
                     "type": "http",
@@ -546,8 +565,8 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
                 }
             ]
 
-        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
-            assert resolved_integration_id == integration_id
+        async def resolve_loaded_mcp_integration_secrets(self, integration):
+            assert integration.id == integration_id
             return {}
 
     discovered_config_names: list[list[str]] = []
@@ -655,7 +674,10 @@ async def test_user_mcp_discovery_cache_is_scoped_by_workspace_and_tunnel(
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def resolve_mcp_integration_refs(self, integration_ids):
+        async def load_mcp_integrations(self, integration_ids):
+            return {integration_id: SimpleNamespace(id=integration_id)}
+
+        def mcp_integration_refs(self, integration_ids, integrations):
             return [
                 {
                     "type": "http",
@@ -666,7 +688,7 @@ async def test_user_mcp_discovery_cache_is_scoped_by_workspace_and_tunnel(
                 }
             ]
 
-        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
+        async def resolve_loaded_mcp_integration_secrets(self, integration):
             return {}
 
     async def fake_resolve_proxy(*, workspace_id, tunnel_id, **_: Any) -> str:
@@ -1587,3 +1609,333 @@ async def test_token_scoped_mcp_refuses_deferred_action_in_another_spelling(
             verify_mcp_token(token),
         )
     execute_action.assert_not_awaited()
+
+
+_STDIO_WORKSPACE_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+_STDIO_INTEGRATION_ID = uuid.UUID("00000000-0000-0000-0000-000000000005")
+_STDIO_READ_SCHEMA = {
+    "type": "object",
+    "properties": {"path": {"type": "string"}},
+    "required": ["path"],
+}
+
+
+class _StdioPresetService:
+    """Workspace-scoped preset service holding one stdio integration row."""
+
+    def __init__(self, role: Any) -> None:
+        self.workspace_id = role.workspace_id
+
+    async def __aenter__(self) -> "_StdioPresetService":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    def _owns_row(self, integration_id: uuid.UUID) -> bool:
+        return (
+            self.workspace_id == _STDIO_WORKSPACE_ID
+            and integration_id == _STDIO_INTEGRATION_ID
+        )
+
+    async def load_mcp_integrations(
+        self, integration_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, SimpleNamespace]:
+        return {
+            integration_id: SimpleNamespace(id=integration_id, server_type="stdio")
+            for integration_id in integration_ids
+            if self._owns_row(integration_id)
+        }
+
+    def mcp_integration_refs(
+        self, integration_ids: list[str], integrations: dict[uuid.UUID, Any]
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "stdio",
+                "name": "files",
+                "command": "npx",
+                "args": ["-y", "example-files-server"],
+                "timeout": 30,
+                "id": str(_STDIO_INTEGRATION_ID),
+            }
+        ]
+
+    async def resolve_stdio_mcp_integration(
+        self, integration: Any, *, resolve_env: bool
+    ) -> StdioMCPIntegrationSnapshot | None:
+        assert self._owns_row(integration.id)
+        return StdioMCPIntegrationSnapshot(
+            config={
+                "type": "stdio",
+                "name": "files",
+                "command": "npx",
+                "args": ["-y", "example-files-server"],
+                "timeout": 30,
+                "id": str(_STDIO_INTEGRATION_ID),
+            },
+            tools={
+                "read": MCPToolSummary(
+                    name="read", description="Read", input_schema=_STDIO_READ_SCHEMA
+                ),
+                "delete": MCPToolSummary(name="delete", enabled=False),
+            },
+            env={"API_TOKEN": "secret"} if resolve_env else None,
+        )
+
+
+class _FakeStdioRunner:
+    def __init__(self, result: CallToolResult | None = None) -> None:
+        self.calls: list[tuple[StdioMCPServer, dict[str, str] | None, str, dict]] = []
+        self.result = result or CallToolResult(
+            content=[TextContent(type="text", text="file contents")]
+        )
+
+    async def list_tools(
+        self, server: StdioMCPServer, env: dict[str, str] | None
+    ) -> StdioMCPProbeResult:
+        raise AssertionError("the trusted server lists stdio tools from the row")
+
+    async def call_tool(
+        self,
+        server: StdioMCPServer,
+        env: dict[str, str] | None,
+        tool: str,
+        args: dict[str, Any],
+    ) -> CallToolResult:
+        self.calls.append((server, env, tool, args))
+        return self.result
+
+
+@pytest.fixture
+def stdio_runner(monkeypatch: pytest.MonkeyPatch) -> _FakeStdioRunner:
+    runner = _FakeStdioRunner()
+    monkeypatch.setattr(AgentPresetService, "with_session", _StdioPresetService)
+    monkeypatch.setattr(trusted_server, "get_stdio_mcp_runner", lambda: runner)
+    monkeypatch.setattr(
+        trusted_server, "fetch_tool_definitions_for_lock", AsyncMock(return_value={})
+    )
+    return runner
+
+
+def _stdio_token(
+    *,
+    workspace_id: uuid.UUID = _STDIO_WORKSPACE_ID,
+    allowed_actions: list[str] | None = None,
+    deferred_actions: list[str] | None = None,
+) -> str:
+    return mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=allowed_actions or [],
+        deferred_actions=deferred_actions or [],
+        user_mcp_servers=[UserMCPServerClaim(name="files", id=_STDIO_INTEGRATION_ID)],
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_lists_and_calls_stdio_tool_through_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    stdio_runner: _FakeStdioRunner,
+) -> None:
+    """A stdio row is listed from its saved tools and called through the runner."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = _stdio_token(allowed_actions=["mcp__files__read"])
+
+    async with run_server_async(trusted_server.TokenScopedFastMCP("test")) as url:
+        transport = StreamableHttpTransport(
+            url, headers={"Authorization": f"Bearer {token}"}
+        )
+        async with Client(transport) as client:
+            tools = await client.list_tools()
+            result = await client.call_tool("mcp__files__read", {"path": "a.txt"})
+
+    assert [(tool.name, tool.inputSchema) for tool in tools] == [
+        ("mcp__files__read", _STDIO_READ_SCHEMA)
+    ]
+    assert [
+        block.text for block in result.content if isinstance(block, TextContent)
+    ] == ["file contents"]
+    assert stdio_runner.calls == [
+        (
+            StdioMCPServer(
+                workspace_id=_STDIO_WORKSPACE_ID,
+                mcp_integration_id=_STDIO_INTEGRATION_ID,
+                name="files",
+                command="npx",
+                args=("-y", "example-files-server"),
+                timeout=30,
+            ),
+            {"API_TOKEN": "secret"},
+            "read",
+            {"path": "a.txt"},
+        )
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("claims_kwargs", "tool_name", "error"),
+    [
+        pytest.param(
+            {"allowed_actions": ["mcp__files__read"]},
+            "write",
+            "Tool 'mcp__files__write' not authorized",
+            id="not-in-allowed-actions",
+        ),
+        pytest.param(
+            {"deferred_actions": ["mcp__files__read"]},
+            "read",
+            "requires approval",
+            id="awaiting-approval",
+        ),
+        pytest.param(
+            {"allowed_actions": ["mcp__files__delete"]},
+            "delete",
+            "not available on MCP server 'files'",
+            id="disabled-on-row",
+        ),
+        pytest.param(
+            {
+                "allowed_actions": ["mcp__files__read"],
+                "workspace_id": uuid.UUID("00000000-0000-0000-0000-000000000009"),
+            },
+            "read",
+            "is unavailable",
+            id="row-in-another-workspace",
+        ),
+    ],
+)
+async def test_execute_user_mcp_refuses_stdio_call_before_runner(
+    stdio_runner: _FakeStdioRunner,
+    claims_kwargs: dict[str, Any],
+    tool_name: str,
+    error: str,
+) -> None:
+    claims = _build_claims(
+        allowed_actions=claims_kwargs.get("allowed_actions", ["core.http_request"]),
+        deferred_actions=claims_kwargs.get("deferred_actions"),
+        user_mcp_servers=[UserMCPServerClaim(name="files", id=_STDIO_INTEGRATION_ID)],
+    )
+    if workspace_id := claims_kwargs.get("workspace_id"):
+        claims = claims.model_copy(update={"workspace_id": workspace_id})
+
+    with pytest.raises(ToolError, match=error):
+        await trusted_server._execute_user_mcp("files", tool_name, {}, claims)
+
+    assert stdio_runner.calls == []
+
+
+@pytest.mark.anyio
+async def test_execute_user_mcp_raises_stdio_tool_error_result(
+    stdio_runner: _FakeStdioRunner,
+) -> None:
+    stdio_runner.result = CallToolResult(
+        content=[TextContent(type="text", text="no such file")], isError=True
+    )
+
+    with pytest.raises(ToolError, match="no such file"):
+        await trusted_server._execute_user_mcp(
+            "files",
+            "read",
+            {"path": "missing.txt"},
+            _build_claims(
+                allowed_actions=["mcp__files__read"],
+                user_mcp_servers=[
+                    UserMCPServerClaim(name="files", id=_STDIO_INTEGRATION_ID)
+                ],
+            ),
+        )
+
+
+@pytest.mark.anyio
+async def test_execute_user_mcp_reports_builtin_runner_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(AgentPresetService, "with_session", _StdioPresetService)
+    monkeypatch.setattr(
+        trusted_server, "get_stdio_mcp_runner", lambda: NsjailStdioMCPRunner()
+    )
+
+    with pytest.raises(ToolError, match="no stdio MCP runner is installed"):
+        await trusted_server._execute_user_mcp(
+            "files",
+            "read",
+            {"path": "a.txt"},
+            _build_claims(
+                allowed_actions=["mcp__files__read"],
+                user_mcp_servers=[
+                    UserMCPServerClaim(name="files", id=_STDIO_INTEGRATION_ID)
+                ],
+            ),
+        )
+
+
+@pytest.mark.anyio
+async def test_stdio_call_runs_only_what_one_row_read_holds(
+    monkeypatch: pytest.MonkeyPatch,
+    stdio_runner: _FakeStdioRunner,
+) -> None:
+    """An edit landing after the type check can't pair the old command with
+    the new env: command, policy and env all come from one row snapshot."""
+
+    class _EditedMidCall(_StdioPresetService):
+        async def resolve_stdio_mcp_integration(
+            self, integration: Any, *, resolve_env: bool
+        ) -> StdioMCPIntegrationSnapshot | None:
+            snapshot = await super().resolve_stdio_mcp_integration(
+                integration, resolve_env=resolve_env
+            )
+            assert snapshot is not None
+            config = {**snapshot.config, "args": ["-y", "edited-server"]}
+            return StdioMCPIntegrationSnapshot(
+                config=cast(Any, config),
+                tools=snapshot.tools,
+                env={"API_TOKEN": "edited-secret"},
+            )
+
+    monkeypatch.setattr(AgentPresetService, "with_session", _EditedMidCall)
+
+    await trusted_server._execute_user_mcp(
+        "files",
+        "read",
+        {"path": "a.txt"},
+        _build_claims(
+            allowed_actions=["mcp__files__read"],
+            user_mcp_servers=[
+                UserMCPServerClaim(name="files", id=_STDIO_INTEGRATION_ID)
+            ],
+        ),
+    )
+
+    server, env, _tool, _args = stdio_runner.calls[0]
+    assert (server.args, env) == (
+        ("-y", "edited-server"),
+        {"API_TOKEN": "edited-secret"},
+    )
+
+
+def test_stdio_env_never_appears_in_repr() -> None:
+    """Credentials held for a call stay out of reprs, and so out of logs."""
+    env = {"API_TOKEN": "repr-secret"}
+    snapshot = StdioMCPIntegrationSnapshot(
+        config={"type": "stdio", "name": "files", "command": "npx"},
+        tools={},
+        env=env,
+    )
+    target = trusted_server._StdioMCPTarget(
+        server=StdioMCPServer(
+            workspace_id=_STDIO_WORKSPACE_ID,
+            mcp_integration_id=_STDIO_INTEGRATION_ID,
+            name="files",
+            command="npx",
+        ),
+        tools={},
+        env=env,
+    )
+
+    assert "repr-secret" not in repr(snapshot)
+    assert "repr-secret" not in repr(target)
+    assert target.env == env

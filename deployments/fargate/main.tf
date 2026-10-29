@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.0.0"
+  required_version = ">= 1.2.0"
 }
 
 locals {
@@ -87,6 +87,7 @@ module "ecs" {
   collection_manifests_enabled                  = var.collection_manifests_enabled
   result_externalization_threshold_bytes        = var.result_externalization_threshold_bytes
   platform_admin_ip_allowlist_bypass            = var.platform_admin_ip_allowlist_bypass
+  platform_admin_mfa_bypass                     = var.platform_admin_mfa_bypass
   unsafe_disable_secret_error_withholding       = var.unsafe_disable_secret_error_withholding
   workflow_artifact_retention_days              = var.workflow_artifact_retention_days
 
@@ -149,37 +150,42 @@ module "ecs" {
   temporal_api_key_arn = var.temporal_api_key_arn
 
   # Compute / memory
-  api_cpu                                  = var.api_cpu
-  api_memory                               = var.api_memory
-  api_desired_count                        = var.api_desired_count
-  worker_cpu                               = var.worker_cpu
-  worker_memory                            = var.worker_memory
-  worker_desired_count                     = var.worker_desired_count
-  worker_threadpool_max_workers            = var.worker_threadpool_max_workers
-  worker_max_concurrent_activities         = var.worker_max_concurrent_activities
-  worker_max_concurrent_workflow_tasks     = var.worker_max_concurrent_workflow_tasks
-  agent_worker_cpu                         = var.agent_worker_cpu
-  agent_worker_memory                      = var.agent_worker_memory
-  agent_worker_desired_count               = var.agent_worker_desired_count
-  agent_worker_max_concurrent_activities   = var.agent_worker_max_concurrent_activities
-  agent_queue                              = var.agent_queue
-  executor_cpu                             = var.executor_cpu
-  executor_memory                          = var.executor_memory
-  executor_desired_count                   = var.executor_desired_count
-  executor_client_timeout                  = var.executor_client_timeout
-  agent_sandbox_timeout                    = var.agent_sandbox_timeout
-  executor_queue                           = var.executor_queue
-  executor_registry_cache_max_entries      = var.executor_registry_cache_max_entries
-  executor_registry_cache_max_bytes        = var.executor_registry_cache_max_bytes
-  executor_max_concurrent_activities       = var.executor_max_concurrent_activities
-  executor_threadpool_max_workers          = var.executor_threadpool_max_workers
-  executor_for_each_max_concurrency        = var.executor_for_each_max_concurrency
-  agent_executor_cpu                       = var.agent_executor_cpu
-  agent_executor_memory                    = var.agent_executor_memory
-  agent_executor_desired_count             = var.agent_executor_desired_count
-  agent_executor_queue                     = var.agent_executor_queue
-  agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
-  llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
+  api_cpu                                     = var.api_cpu
+  api_memory                                  = var.api_memory
+  api_desired_count                           = var.api_desired_count
+  background_queue                            = var.background_queue
+  background_worker_cpu                       = var.background_worker_cpu
+  background_worker_memory                    = var.background_worker_memory
+  background_worker_desired_count             = var.background_worker_desired_count
+  background_worker_max_concurrent_activities = var.background_worker_max_concurrent_activities
+  worker_cpu                                  = var.worker_cpu
+  worker_memory                               = var.worker_memory
+  worker_desired_count                        = var.worker_desired_count
+  worker_threadpool_max_workers               = var.worker_threadpool_max_workers
+  worker_max_concurrent_activities            = var.worker_max_concurrent_activities
+  worker_max_concurrent_workflow_tasks        = var.worker_max_concurrent_workflow_tasks
+  agent_worker_cpu                            = var.agent_worker_cpu
+  agent_worker_memory                         = var.agent_worker_memory
+  agent_worker_desired_count                  = var.agent_worker_desired_count
+  agent_worker_max_concurrent_activities      = var.agent_worker_max_concurrent_activities
+  agent_queue                                 = var.agent_queue
+  executor_cpu                                = var.executor_cpu
+  executor_memory                             = var.executor_memory
+  executor_desired_count                      = var.executor_desired_count
+  executor_client_timeout                     = var.executor_client_timeout
+  agent_sandbox_timeout                       = var.agent_sandbox_timeout
+  executor_queue                              = var.executor_queue
+  executor_registry_cache_max_entries         = var.executor_registry_cache_max_entries
+  executor_registry_cache_max_bytes           = var.executor_registry_cache_max_bytes
+  executor_max_concurrent_activities          = var.executor_max_concurrent_activities
+  executor_threadpool_max_workers             = var.executor_threadpool_max_workers
+  executor_for_each_max_concurrency           = var.executor_for_each_max_concurrency
+  agent_executor_cpu                          = var.agent_executor_cpu
+  agent_executor_memory                       = var.agent_executor_memory
+  agent_executor_desired_count                = var.agent_executor_desired_count
+  agent_executor_queue                        = var.agent_executor_queue
+  agent_executor_max_concurrent_activities    = var.agent_executor_max_concurrent_activities
+  llm_proxy_read_timeout                      = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds
   llm_gateway_healthcheck_interval_seconds        = var.llm_gateway_healthcheck_interval_seconds

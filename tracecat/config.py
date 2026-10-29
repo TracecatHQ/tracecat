@@ -1,3 +1,5 @@
+import base64
+import binascii
 import logging
 import os
 import uuid
@@ -86,6 +88,13 @@ class RLSMode(StrEnum):
     OFF = "off"
     SHADOW = "shadow"
     ENFORCE = "enforce"
+
+
+class DBEncryptionAlgorithm(StrEnum):
+    """Cipher used to encrypt new database values."""
+
+    FERNET = "fernet"
+    AES256GCM = "aes256gcm"
 
 
 # === Internal Services === #
@@ -421,6 +430,40 @@ OAUTH_CLIENT_ID = OIDC_CLIENT_ID
 OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
+_db_encryption_algorithm_raw = (
+    os.environ.get("TRACECAT__DB_ENCRYPTION_ALGORITHM") or DBEncryptionAlgorithm.FERNET
+)
+try:
+    TRACECAT__DB_ENCRYPTION_ALGORITHM = DBEncryptionAlgorithm(
+        _db_encryption_algorithm_raw.strip().lower()
+    )
+except ValueError as e:
+    raise ValueError(
+        "TRACECAT__DB_ENCRYPTION_ALGORITHM must be one of "
+        f"{', '.join(DBEncryptionAlgorithm)} (got {_db_encryption_algorithm_raw!r})"
+    ) from e
+"""Cipher for new database writes (fernet|aes256gcm). Reads accept both."""
+
+
+def _parse_db_encryption_previous_keys() -> tuple[str, ...]:
+    raw = os.environ.get("TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS") or ""
+    keys = tuple(key for part in raw.split(",") if (key := part.strip()))
+    for index, key in enumerate(keys):
+        try:
+            decoded = base64.urlsafe_b64decode(key)
+        except (binascii.Error, ValueError):
+            decoded = b""
+        if len(decoded) != 32:
+            # Never echo the key itself; name its position instead.
+            raise ValueError(
+                f"TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS entry {index} is not "
+                "32 url-safe base64-encoded bytes"
+            )
+    return keys
+
+
+TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS = _parse_db_encryption_previous_keys()
+"""Comma-separated retired DB encryption keys, used for reads only during rotation."""
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
 TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
     "TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID"
@@ -480,6 +523,16 @@ TEMPORAL__CLUSTER_NAMESPACE = os.environ.get(
 TEMPORAL__CLUSTER_QUEUE = os.environ.get(
     "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
 )
+TRACECAT__BACKGROUND_QUEUE = (
+    os.environ.get("TRACECAT__BACKGROUND_QUEUE") or "shared-background-queue"
+)
+TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES = int(
+    os.environ.get("TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES") or 4
+)
+if TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES < 1:
+    raise ValueError(
+        "TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES must be at least 1"
+    )
 TEMPORAL__API_KEY__ARN = os.environ.get("TEMPORAL__API_KEY__ARN")
 TEMPORAL__API_KEY = os.environ.get("TEMPORAL__API_KEY")
 TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT") or "900"
@@ -830,6 +883,21 @@ Lets operators recover platform admin access after a lockout. Organization IP
 allowlists are unaffected.
 """
 
+TRACECAT__PLATFORM_ADMIN_MFA_BYPASS = env_bool(
+    "TRACECAT__PLATFORM_ADMIN_MFA_BYPASS", default=False
+)
+"""Break-glass override that skips security key (MFA) checks for platform admins.
+
+Skips both the sign-in challenge and step-up verification for platform
+superusers so operators can recover access after losing every security key.
+Organization members are unaffected.
+"""
+
+TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS = bound_env(
+    "TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS", 300, lower=30, upper=3600
+)
+"""How long a security key verification satisfies step-up checks (30 s to 1 h)."""
+
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
     default=(
@@ -1087,6 +1155,14 @@ TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
 This queue is reserved for `run_agent_activity` so agent runtime capacity can be
 provisioned independently from agent workflow/control-plane work."""
 
+TRACECAT__AGENT_CHAT_BACKEND = os.environ.get("TRACECAT__AGENT_CHAT_BACKEND") or "oss"
+"""Agent backend for new sessions whose caller does not choose one.
+
+Applies to workspace, agent preset, case and external channel (Slack) sessions,
+including case-comment and MCP preset runs, for organizations entitled to
+non-default backends. Workflow runs and the preset builder keep the built-in
+backend."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = env_bool("TRACECAT__RATE_LIMIT_ENABLED", default=True)
 """Whether rate limiting is enabled for the executor service."""
@@ -1219,6 +1295,17 @@ TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
     upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
 )
 """PostgreSQL statement timeout for aggregation queries, in milliseconds."""
+
+TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS = bound_env(
+    "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS",
+    30_000,
+    lower=1,
+    upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
+)
+"""PostgreSQL statement timeout for case text search, in milliseconds.
+
+A slow search holds a pooled database connection for up to this long.
+"""
 
 TRACECAT__LIMIT_DEFAULT = 20
 """Default list/search page size."""

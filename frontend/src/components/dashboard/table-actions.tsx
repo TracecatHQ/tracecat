@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/context-menu"
 import { toast } from "@/components/ui/use-toast"
 import { exportWorkflow, handleExportError } from "@/lib/export"
-import { useOrgAppSettings, useWorkflowManager } from "@/lib/hooks"
+import { useFolders, useOrgAppSettings, useWorkflowManager } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowActions({
@@ -289,6 +289,8 @@ export function FolderActions({
   setActiveDialog: (activeDialog: ActiveDialog | null) => void
   setSelectedFolder: (folder: FolderDirectoryItem | null) => void
 }) {
+  const workspaceId = useWorkspaceId()
+  const { deleteFolder } = useFolders(workspaceId, { enabled: false })
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -332,12 +334,19 @@ export function FolderActions({
         onClick={(e) => e.stopPropagation()}
         onSelect={(e) => {
           e.stopPropagation() // Prevent row click
+          if (item.num_items === 0) {
+            // Empty folders are deleted without a confirmation gate.
+            void deleteFolder({ folderId: item.id }).catch(() => {
+              // The mutation hook reports failures.
+            })
+            return
+          }
           setSelectedFolder(item)
           setActiveDialog(ActiveDialog.FolderDelete)
         }}
       >
         <Trash2 className="mr-2 size-3.5" />
-        Delete folder
+        Delete
       </ContextMenuItem>
     </ContextMenuGroup>
   )

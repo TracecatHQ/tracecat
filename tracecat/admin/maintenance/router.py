@@ -15,7 +15,7 @@ from tracecat.admin.maintenance.schemas import (
     CaseAgentSessionInteractionBackfillStartResponse,
     CaseAgentSessionInteractionBackfillStatusResponse,
 )
-from tracecat.auth.credentials import SuperuserRole
+from tracecat.auth.credentials import SuperuserRole, SuperuserStepUpRole
 from tracecat.cases.agent_sessions.workflow import (
     CaseAgentSessionBackfillWorkflow,
 )
@@ -31,7 +31,7 @@ _BACKFILL_WORKFLOW_ID = "case-agent-session-interactions-backfill"
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def start_case_agent_session_interaction_backfill(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
 ) -> CaseAgentSessionInteractionBackfillStartResponse:
     """Start or join the durable historical case-mutation backfill."""
     client = await get_temporal_client()

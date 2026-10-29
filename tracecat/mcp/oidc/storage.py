@@ -13,7 +13,11 @@ from redis.asyncio import Redis as AsyncRedis
 from tracecat.config import REDIS_URL, TRACECAT__DB_ENCRYPTION_KEY
 from tracecat.logger import logger
 from tracecat.mcp.oidc import config as oidc_config
-from tracecat.mcp.oidc.schemas import AuthCodeData, ResumeTransaction
+from tracecat.mcp.oidc.schemas import (
+    AuthCodeData,
+    OrganizationSelectionTransaction,
+    ResumeTransaction,
+)
 
 _KEY_PREFIX = "mcp-oidc"
 
@@ -156,6 +160,45 @@ async def load_and_delete_resume_transaction(
     if raw is None:
         return None
     return ResumeTransaction.model_validate_json(raw)
+
+
+# --- Organization selection operations ---
+
+
+def _org_selection_key(txn_id: str) -> str:
+    return f"{_KEY_PREFIX}:org-select:{txn_id}"
+
+
+async def store_org_selection_transaction(
+    txn: OrganizationSelectionTransaction,
+) -> None:
+    """Store a pending organization selection with automatic TTL."""
+    store = _get_store()
+    key = _org_selection_key(txn.transaction_id)
+    payload = orjson.dumps(txn.model_dump(mode="json"))
+    await store.set(key, payload, ttl=oidc_config.RESUME_TRANSACTION_LIFETIME_SECONDS)
+
+
+async def load_org_selection_transaction(
+    txn_id: str,
+) -> OrganizationSelectionTransaction | None:
+    """Load a pending organization selection without consuming it."""
+    store = _get_store()
+    raw = await store.get(_org_selection_key(txn_id))
+    if raw is None:
+        return None
+    return OrganizationSelectionTransaction.model_validate_json(raw)
+
+
+async def load_and_delete_org_selection_transaction(
+    txn_id: str,
+) -> OrganizationSelectionTransaction | None:
+    """Atomically load and delete a pending organization selection (one-time use)."""
+    store = _get_store()
+    raw = await store.getdel(_org_selection_key(txn_id))
+    if raw is None:
+        return None
+    return OrganizationSelectionTransaction.model_validate_json(raw)
 
 
 # --- JTI tracking ---
