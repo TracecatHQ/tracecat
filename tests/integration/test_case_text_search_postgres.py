@@ -827,6 +827,8 @@ async def test_extension_outside_public_is_used_in_place(
     search_database: Engine,
 ) -> None:
     """IBM Cloud keeps extensions in its read-only ibm_extension schema."""
+    # The vocabulary's trigram index and word-list helper also use pg_trgm.
+    apply_word_migration(search_database, downgrade=True)
     apply_search_migration(search_database, downgrade=True)
     # Relocation touches extension objects owned by the bootstrap superuser,
     # so it is an operator task even when a normal role installed pg_trgm.
@@ -839,6 +841,7 @@ async def test_extension_outside_public_is_used_in_place(
             conn.execute(sa.text("GRANT USAGE ON SCHEMA ibm_extension TO PUBLIC"))
             conn.execute(sa.text("ALTER EXTENSION pg_trgm SET SCHEMA ibm_extension"))
         apply_search_migration(search_database)
+        apply_word_migration(search_database)
         with operator.begin() as conn:
             opclass_schemas = set(
                 conn.execute(
@@ -846,10 +849,16 @@ async def test_extension_outside_public_is_used_in_place(
                     JOIN pg_opclass o ON o.oid = i.indclass[0]
                     JOIN pg_namespace n ON n.oid = o.opcnamespace
                     WHERE i.indexrelid IN ('public.ix_case_summary_trgm'::regclass,
-                        'public.ix_case_description_trgm'::regclass)""")
+                        'public.ix_case_description_trgm'::regclass,
+                        'public.ix_case_search_word_word_trgm'::regclass)""")
                 ).scalars()
             )
             assert opclass_schemas == {"ibm_extension"}
+            assert "ibm_extension.show_trgm(" in conn.scalar(
+                sa.text(
+                    "SELECT prosrc FROM pg_proc WHERE oid = 'public.tracecat_case_words_v1(text)'::regprocedure"
+                )
+            )
             assert (
                 conn.scalar(
                     sa.text(

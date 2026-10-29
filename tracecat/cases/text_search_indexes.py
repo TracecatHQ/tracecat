@@ -45,10 +45,12 @@ _BEFORE_ROW_INSERT_UPDATE = 23
 
 async def ensure_case_text_indexes(session: AsyncSession) -> None:
     """Verify extension/index readiness without installing or scanning sources."""
-    extension = await session.scalar(
-        sa.text("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')")
+    trgm_schema: str | None = await session.scalar(
+        sa.text(
+            "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'"
+        )
     )
-    if not extension:
+    if trgm_schema is None:
         raise LexicalSearchError(LexicalSearchErrorCode.UNAVAILABLE)
     # Search calls pg_trgm unqualified because its schema varies (public, or
     # ibm_extension on IBM Cloud). Verify that search_path resolves each name
@@ -187,19 +189,25 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
         CASE_SEARCH_TRIGGER_FUNCTION,
         CASE_SEARCH_TRIGGER_BODY_HASH,
     )
-    await _ensure_indexes(session, CASE_SEARCH_VECTOR_INDEXES)
-    await _ensure_stored_words(session)
+    await _ensure_indexes(session, CASE_SEARCH_VECTOR_INDEXES, trgm_schema)
+    await _ensure_stored_words(session, trgm_schema)
 
 
-async def _ensure_stored_words(session: AsyncSession) -> None:
+async def _ensure_stored_words(session: AsyncSession, trgm_schema: str) -> None:
     """Verify the word-list helper, its trigger, vocabulary, and indexes.
 
     Search reads the vocabulary but never calls the helper; only case writes do,
     through the trigger, so the helper's execute privilege is not checked here.
+    The migration points the helper's show_trgm call at pg_trgm's schema; the
+    hash covers the canonical body, which names public.
     """
     words_function = await session.scalar(
         sa.text("""
-        SELECT md5(regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g')) = :body_hash
+        SELECT md5(replace(
+                regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g'),
+                :show_trgm, 'public.show_trgm('
+            )) = :body_hash
+            AND strpos(p.prosrc, :show_trgm) > 0
             AND p.prorettype = 'text[]'::regtype AND l.lanname = 'sql'
             AND p.provolatile = 'i' AND p.proisstrict
             AND NOT p.prosecdef AND p.prokind = 'f'
@@ -210,6 +218,7 @@ async def _ensure_stored_words(session: AsyncSession) -> None:
         {
             "function": f"public.{CASE_WORDS_FUNCTION}(text)",
             "body_hash": CASE_WORDS_BODY_HASH,
+            "show_trgm": f"{trgm_schema}.show_trgm(",
         },
     )
     if words_function is None:
@@ -234,7 +243,7 @@ async def _ensure_stored_words(session: AsyncSession) -> None:
         CASE_SEARCH_WORDS_TRIGGER_FUNCTION,
         CASE_SEARCH_WORDS_TRIGGER_BODY_HASH,
     )
-    await _ensure_indexes(session, CASE_SEARCH_WORD_INDEXES)
+    await _ensure_indexes(session, CASE_SEARCH_WORD_INDEXES, trgm_schema)
 
 
 async def _ensure_trigger(
@@ -273,7 +282,9 @@ async def _ensure_trigger(
         raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
 
 
-async def _ensure_indexes(session: AsyncSession, indexes: dict[str, str]) -> None:
+async def _ensure_indexes(
+    session: AsyncSession, indexes: dict[str, str], trgm_schema: str
+) -> None:
     """Verify each named index exists, is ready, and has its exact definition."""
     rows = (
         (
@@ -291,12 +302,10 @@ async def _ensure_indexes(session: AsyncSession, indexes: dict[str, str]) -> Non
         .all()
     )
     for name, definition, ready in rows:
-        # pg_get_indexdef() schema-qualifies the operator class when public is
-        # not on the connection's search_path.
-        if (
-            definition.replace(" public.gin_trgm_ops)", " gin_trgm_ops)")
-            != (indexes[name])
-        ):
+        # pg_get_indexdef() schema-qualifies the operator class when pg_trgm's
+        # schema is not on the connection's search_path.
+        qualified = f" {trgm_schema}.gin_trgm_ops)"
+        if definition.replace(qualified, " gin_trgm_ops)") != indexes[name]:
             raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
         if ready is not True:
             raise LexicalSearchError(LexicalSearchErrorCode.INDEXING)
