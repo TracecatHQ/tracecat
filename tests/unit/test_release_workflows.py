@@ -190,23 +190,43 @@ def test_manifest_publishes_exactly_the_validated_tags(
     ]
 
 
-@pytest.mark.parametrize("version", ["1.2.1", "1.3.0"])
-@pytest.mark.parametrize("fail_api", [False, True])
-def test_promotion_updates_both_images_from_the_same_stable_tag(
-    tmp_path: Path, version: str, fail_api: bool
-) -> None:
+def _run_promotion(
+    tmp_path: Path, version: str, latest: str, *, fail_api: bool = False
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run the promote step with a Docker stub.
+
+    `inspect` of latest prints `latest` as its version label. `-` means the
+    latest tag doesn't exist yet, `!` means the registry call fails, and `?`
+    means the tag exists but its child content is missing.
+    """
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     step = workflow["jobs"]["promote-latest"]["steps"][-1]
     assert step["env"]["VERSION"] == "${{ needs.validate.outputs.tag }}"
     docker = tmp_path / "docker"
     docker.write_text(
-        '#!/bin/bash\nprintf "%s\\n" "$@" >> "$CAPTURE_ARGS"\n'
+        "#!/bin/bash\n"
+        'if [[ "$3" == inspect ]]; then\n'
+        '  case "$LATEST" in\n'
+        '    -) echo "ERROR: ${@: -1}: not found" >&2; exit 1 ;;\n'
+        '    !) echo "ERROR: unexpected status 503" >&2; exit 1 ;;\n'
+        "  esac\n"
+        '  if [[ "$4" == --raw ]]; then\n'
+        "    echo '{}'\n"
+        '  elif [[ "$LATEST" == "?" ]]; then\n'
+        '    echo "ERROR: sha256:abc: not found" >&2; exit 1\n'
+        "  else\n"
+        '    echo "$LATEST"\n'
+        "  fi\n"
+        "  exit 0\n"
+        "fi\n"
+        'printf "%s\\n" "$@" >> "$CAPTURE_ARGS"\n'
         'if [[ "$FAIL_API" == true && "$*" == *"/tracecat:latest"* ]]; then\n'
         "  exit 1\n"
         "fi\n"
     )
     docker.chmod(0o755)
     args_file = tmp_path / "args"
+    args_file.touch()
     result = subprocess.run(
         ["bash", "-euo", "pipefail", "-c", step["run"]],
         env={
@@ -214,15 +234,18 @@ def test_promotion_updates_both_images_from_the_same_stable_tag(
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "CAPTURE_ARGS": str(args_file),
             "VERSION": version,
+            "LATEST": latest,
             "FAIL_API": str(fail_api).lower(),
         },
         capture_output=True,
         text=True,
         check=False,
     )
-    assert (result.returncode != 0) == fail_api, result.stderr
-    images = ["tracecat"] if fail_api else ["tracecat", "tracecat-ui"]
-    assert args_file.read_text().splitlines() == [
+    return result, args_file.read_text().splitlines()
+
+
+def _create_args(version: str, images: list[str]) -> list[str]:
+    return [
         arg
         for image in images
         for arg in (
@@ -234,3 +257,50 @@ def test_promotion_updates_both_images_from_the_same_stable_tag(
             f"ghcr.io/tracecathq/{image}:{version}",
         )
     ]
+
+
+ALL_IMAGES = ["tracecat", "tracecat-ui"]
+
+
+@pytest.mark.parametrize("version", ["1.2.1", "1.3.0"])
+@pytest.mark.parametrize("fail_api", [False, True])
+def test_promotion_updates_both_images_from_the_same_stable_tag(
+    tmp_path: Path, version: str, fail_api: bool
+) -> None:
+    result, created = _run_promotion(tmp_path, version, "1.2.0", fail_api=fail_api)
+    assert (result.returncode != 0) == fail_api, result.stderr
+    images = ["tracecat"] if fail_api else ALL_IMAGES
+    assert created == _create_args(version, images)
+
+
+@pytest.mark.parametrize(
+    ("version", "latest", "promotes"),
+    [
+        # An older train's patch never moves latest back.
+        ("1.1.4", "1.2.3", False),
+        ("1.2.3", "1.3.0", False),
+        # Same version re-promotes (rebuild), and patches compare numerically.
+        ("1.2.3", "1.2.3", True),
+        ("1.2.10", "1.2.9", True),
+        ("2.0.0", "1.9.9", True),
+        # No latest manifest yet: the first stable release bootstraps it.
+        ("1.0.0", "-", True),
+    ],
+)
+def test_promotion_only_moves_latest_forward(
+    tmp_path: Path, version: str, latest: str, promotes: bool
+) -> None:
+    result, created = _run_promotion(tmp_path, version, latest)
+    assert result.returncode == 0, result.stderr
+    assert created == (_create_args(version, ALL_IMAGES) if promotes else [])
+
+
+@pytest.mark.parametrize("latest", ["!", "?", ""])
+def test_promotion_stops_when_latest_version_is_unreadable(
+    tmp_path: Path, latest: str
+) -> None:
+    # A registry error, missing child content or a missing label must not be
+    # read as "no latest".
+    result, created = _run_promotion(tmp_path, "1.2.4", latest)
+    assert result.returncode != 0
+    assert created == []
