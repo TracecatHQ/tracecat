@@ -2,7 +2,7 @@ import base64
 import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
 
 import pytest
@@ -42,6 +42,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import MASK_VALUE
 from tracecat.secrets.masking import SecretMaskCollector
+from tracecat.secrets.types import ActionSecrets
 
 
 def test_flatten_secrets_supports_runtime_scalar_entries() -> None:
@@ -185,6 +186,10 @@ _OAUTH_TOKENS = {
     OAuthGrantType.AUTHORIZATION_CODE: "user-token",
     OAuthGrantType.CLIENT_CREDENTIALS: "service-token",
 }
+_OAUTH_EXPIRIES = {
+    OAuthGrantType.AUTHORIZATION_CODE: datetime(2030, 1, 1, 1, tzinfo=UTC),
+    OAuthGrantType.CLIENT_CREDENTIALS: datetime(2030, 1, 1, 0, 30, tzinfo=UTC),
+}
 
 
 def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]) -> None:
@@ -204,6 +209,7 @@ def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]) -> None:
         integration = mocker.MagicMock()
         integration.provider_id = "azure_log_analytics"
         integration.grant_type = grant_type
+        integration.expires_at = _OAUTH_EXPIRIES[grant_type]
         integrations.append(integration)
 
     service = mocker.AsyncMock()
@@ -252,6 +258,20 @@ async def test_get_action_secrets_resolves_oauth_tokens(
     )
 
     assert secrets["azure_log_analytics_oauth"] == expected
+
+
+@pytest.mark.anyio
+async def test_resolve_action_secrets_reports_earliest_oauth_expiry(mocker):
+    """The earliest token expiry bounds how long a loop may reuse the tokens."""
+    _patch_oauth_secret_env(
+        mocker, [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS]
+    )
+
+    resolved = await secrets_manager.resolve_action_secrets(
+        secret_exprs=set(), action_secrets=_AZURE_OAUTH_SECRETS
+    )
+
+    assert resolved.expires_at == _OAUTH_EXPIRIES[OAuthGrantType.CLIENT_CREDENTIALS]
 
 
 @pytest.mark.anyio
@@ -384,8 +404,8 @@ def _patch_expression_policy_resolution(
     )
     get_action_secrets = mocker.patch.object(
         executor_service.secrets_manager,
-        "get_action_secrets",
-        new=mocker.AsyncMock(return_value=fetched_secrets),
+        "resolve_action_secrets",
+        new=mocker.AsyncMock(return_value=ActionSecrets(values=fetched_secrets)),
     )
     get_workspace_variables = mocker.patch.object(
         executor_service,
@@ -1459,7 +1479,13 @@ async def test_template_expects_validation_leaves_no_plaintext_in_chain(mocker):
 _LOOP_ROLE_ARN = "arn:aws:iam::123456789012:role/loop-role"
 
 
-def _patch_loop_resolution(mocker, *, sts_expires_in: timedelta, role_arn: bool):
+def _patch_loop_resolution(
+    mocker,
+    *,
+    sts_expires_in: timedelta,
+    role_arn: bool,
+    oauth_expires_at: datetime | None = None,
+):
     """Stub registry and secret IO; each STS call mints distinct credentials."""
     mocker.patch.object(
         executor_service.registry_resolver,
@@ -1480,12 +1506,15 @@ def _patch_loop_resolution(mocker, *, sts_expires_in: timedelta, role_arn: bool)
         aws_secret["AWS_ROLE_ARN"] = _LOOP_ROLE_ARN
     get_action_secrets = mocker.patch.object(
         executor_service.secrets_manager,
-        "get_action_secrets",
+        "resolve_action_secrets",
         new=mocker.AsyncMock(
-            return_value={
-                "amazon_s3": aws_secret,
-                "TRACECAT_AWS_EXTERNAL_ID": "1" * 32,
-            }
+            return_value=ActionSecrets(
+                values={
+                    "amazon_s3": aws_secret,
+                    "TRACECAT_AWS_EXTERNAL_ID": "1" * 32,
+                },
+                expires_at=oauth_expires_at,
+            )
         ),
     )
     mocker.patch.object(
@@ -1595,3 +1624,64 @@ async def test_loop_context_re_resolves_after_max_age(mocker, monkeypatch) -> No
 
     assert get_action_secrets.await_count == 3
     assert assume_role.await_count == 0
+
+
+class _Clock:
+    """Stands in for the executor's `datetime` so a test can advance time."""
+
+    fromisoformat = staticmethod(datetime.fromisoformat)
+
+    def __init__(self, current: datetime) -> None:
+        self.current = current
+
+    def now(self, tz: tzinfo | None = None) -> datetime:
+        return self.current
+
+
+@pytest.mark.anyio
+async def test_loop_context_refreshes_oauth_token_before_it_expires(
+    mocker, monkeypatch
+) -> None:
+    """Items stop reusing an OAuth token 5 minutes before it expires."""
+    start = datetime(2030, 1, 1, tzinfo=UTC)
+    clock = _Clock(start)
+    monkeypatch.setattr(executor_service, "datetime", clock)
+    monkeypatch.setattr(executor_service, "_LOOP_CONTEXT_MAX_AGE", timedelta(hours=1))
+    get_action_secrets, _ = _patch_loop_resolution(
+        mocker,
+        sts_expires_in=timedelta(hours=1),
+        role_arn=False,
+        oauth_expires_at=start + timedelta(minutes=6),
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await loop.prepare(_loop_item_input(0))
+    clock.current = start + timedelta(seconds=59)
+    await loop.prepare(_loop_item_input(1))
+    assert get_action_secrets.await_count == 1
+
+    clock.current = start + timedelta(minutes=1)
+    await loop.prepare(_loop_item_input(2))
+    assert get_action_secrets.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_loop_context_fetches_short_lived_oauth_token_per_item(
+    mocker,
+) -> None:
+    """A token already inside the expiry margin is never shared across items."""
+    get_action_secrets, _ = _patch_loop_resolution(
+        mocker,
+        sts_expires_in=timedelta(hours=1),
+        role_arn=False,
+        oauth_expires_at=datetime.now(UTC) + timedelta(seconds=30),
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await _prepare_loop_items(loop, 3)
+
+    assert get_action_secrets.await_count == 3

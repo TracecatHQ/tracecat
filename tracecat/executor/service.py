@@ -717,13 +717,12 @@ class PreparedContext:
     provenance: ProvenanceMap | None = None
 
 
-# A for_each loop re-resolves its shared context at least this often. OAuth
-# tokens are refreshed once under 5 minutes remain (OAuthIntegration.needs_refresh),
-# so every item still starts with at least 4 minutes left on its token. This
-# also bounds how long a loop runs on a secret or variable edited mid-loop.
+# A for_each loop re-resolves its shared context at least this often, which
+# bounds how long a loop runs on a secret or variable edited mid-loop.
 _LOOP_CONTEXT_MAX_AGE = timedelta(minutes=1)
-# Re-resolve this long before a projected temporary credential (e.g. an STS
-# session) expires, so an item never starts with one about to lapse.
+# Re-resolve this long before an OAuth token or STS session expires. It matches
+# the OAuth refresh threshold (OAuthIntegration.needs_refresh), so the
+# re-resolution refreshes the token instead of returning the same one.
 _CREDENTIAL_EXPIRY_MARGIN = timedelta(minutes=5)
 
 
@@ -734,6 +733,8 @@ class SharedActionContext:
     Covers the action implementation, argument plan, secrets (including OAuth
     tokens), workspace variables, the secret projection (including STS
     credentials) and the tunnel route. None of these read the loop variables.
+    `refresh_at` is the earlier of the max age and 5 minutes before any OAuth
+    token or STS session in it expires.
     """
 
     action_impl: ActionImplementation
@@ -783,9 +784,10 @@ async def resolve_shared_action_context(
     collected = collect_expressions(argument_plan.evaluable)
 
     # Fetch secrets and variables
-    secrets = await secrets_manager.get_action_secrets(
+    resolved_secrets = await secrets_manager.resolve_action_secrets(
         secret_exprs=collected.secrets, action_secrets=action_secrets
     )
+    secrets = resolved_secrets.values
     workspace_variables = await get_workspace_variables(
         variable_exprs=collected.variables,
         environment=input.run_context.environment,
@@ -838,8 +840,9 @@ async def resolve_shared_action_context(
         )
 
     refresh_at = datetime.now(UTC) + _LOOP_CONTEXT_MAX_AGE
-    if (expires_at := secret_projection.expires_at) is not None:
-        refresh_at = min(refresh_at, expires_at - _CREDENTIAL_EXPIRY_MARGIN)
+    for expires_at in (resolved_secrets.expires_at, secret_projection.expires_at):
+        if expires_at is not None:
+            refresh_at = min(refresh_at, expires_at - _CREDENTIAL_EXPIRY_MARGIN)
 
     return SharedActionContext(
         action_impl=action_impl,
