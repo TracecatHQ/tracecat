@@ -12,7 +12,11 @@ from tracecat.contexts import ctx_role, ctx_run
 from tracecat.db.models import WorkspaceVariable
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import VariableID
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import (
+    ensure_unmanaged,
+    hold_for_customer_write,
+    refresh_for_customer_write,
+)
 from tracecat.managed_resources.values import (
     changed_fields,
     ensure_values_only_update,
@@ -157,6 +161,7 @@ class VariablesService(BaseWorkspaceService):
     @require_scope("variable:create")
     @audit_log(resource_type="workspace_variable", action="create")
     async def create_variable(self, params: VariableCreate) -> WorkspaceVariable:
+        await hold_for_customer_write(self.session, self.workspace_id)
         variable = WorkspaceVariable(
             workspace_id=self.workspace_id,
             name=params.name,
@@ -175,6 +180,9 @@ class VariablesService(BaseWorkspaceService):
     async def update_variable(
         self, variable: WorkspaceVariable, params: VariableUpdate
     ) -> WorkspaceVariable:
+        # Compare against the variable as it is once no rollout can be
+        # changing it, not as the caller loaded it.
+        await refresh_for_customer_write(self.session, self.workspace_id, variable)
         await ensure_values_only_update(
             self.session,
             workspace_id=self.workspace_id,

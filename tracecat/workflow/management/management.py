@@ -62,7 +62,7 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
     exec_id_to_parts,
 )
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -894,6 +894,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
     @audit_log(resource_type="workflow", action="create", resource_id_attr="id")
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
+        await hold_for_customer_write(self.session, self.workspace_id)
         now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
         title = params.title or now
         description = params.description or f"New workflow created {now}"

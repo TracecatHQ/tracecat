@@ -28,7 +28,11 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import (
+    ensure_unmanaged,
+    hold_for_customer_write,
+    refresh_for_customer_write,
+)
 from tracecat.managed_resources.values import (
     changed_fields,
     ensure_values_only_update,
@@ -360,6 +364,7 @@ class SecretsService(BaseOrgService):
     async def create_secret(self, params: SecretCreate) -> Secret:
         """Create a workspace secret."""
         workspace_id = self._require_workspace_id()
+        await hold_for_customer_write(self.session, workspace_id)
         if params.type == SecretType.SSH_KEY:
             validate_ssh_key_values(params.keys)
         elif params.type == SecretType.MTLS:
@@ -386,6 +391,9 @@ class SecretsService(BaseOrgService):
 
         A managed secret only accepts new values for its existing keys.
         """
+        # Compare against the secret as it is once no rollout can be changing
+        # it, not as the caller loaded it.
+        await refresh_for_customer_write(self.session, self.role.workspace_id, secret)
         await ensure_values_only_update(
             self.session,
             workspace_id=self.role.workspace_id,

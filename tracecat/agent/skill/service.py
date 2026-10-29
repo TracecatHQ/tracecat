@@ -98,7 +98,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -2035,6 +2035,7 @@ class SkillService(SkillBindingService):
         Returns:
             The created skill summary.
         """
+        await hold_for_customer_write(self.session, self.workspace_id)
 
         async def default_draft_blob_map(
             published: list[PublishedBlobObject],

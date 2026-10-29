@@ -151,7 +151,7 @@ from tracecat.expressions.expectations import (
     create_expectation_model,
 )
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID, generate_exec_id
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
@@ -1393,6 +1393,7 @@ class CaseFieldsService(CustomFieldsService):
         Extends the parent to persist the optional ``kind`` metadata
         (e.g. LONG_TEXT, URL) that controls UI rendering.
         """
+        await hold_for_customer_write(self.session, self.workspace_id)
         await self._ensure_schema_ready()
         params.nullable = True
         await self.editor.create_column(params)

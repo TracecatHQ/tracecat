@@ -58,7 +58,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import coerce_to_utc_datetime
 from tracecat.tiers.enums import Entitlement
@@ -108,6 +108,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         self, params: CaseDurationDefinitionCreate
     ) -> CaseDurationDefinitionRead:
         """Create a new case duration definition."""
+        await hold_for_customer_write(self.session, self.workspace_id)
 
         await self._ensure_unique_name(params.name)
 

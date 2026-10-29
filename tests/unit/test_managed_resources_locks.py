@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
@@ -71,7 +71,7 @@ from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.tags.schemas import TagUpdate
-from tracecat.variables.schemas import VariableUpdate
+from tracecat.variables.schemas import VariableCreate, VariableUpdate
 from tracecat.variables.service import VariablesService
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookUpdate
@@ -536,6 +536,54 @@ async def test_managed_variable_takes_values_for_its_keys_only(
     )
     with pytest.raises(ManagedResourceLockedError):
         await service.update_variable(variable, VariableUpdate(name="renamed"))
+
+
+@pytest.mark.anyio
+async def test_managed_variable_update_checks_keys_against_the_current_row(
+    session: AsyncSession, seeded: Role
+) -> None:
+    # A rollout replaced the variable's keys after the caller loaded it. The
+    # update must compare against the new keys, not the stale object.
+    variable = await session.scalar(
+        select(WorkspaceVariable).where(
+            WorkspaceVariable.workspace_id == seeded.workspace_id,
+            WorkspaceVariable.name == "qa_config",
+        )
+    )
+    assert variable is not None
+    await mark_managed(session, seeded, SyncResourceType.VARIABLE, variable.id)
+    stale_keys = list((variable.values or {}).keys())
+    await session.execute(
+        update(WorkspaceVariable)
+        .where(WorkspaceVariable.id == variable.id)
+        .values(values={"package_key": "x"})
+        .execution_options(synchronize_session=False)
+    )
+
+    with pytest.raises(ManagedResourceLockedError):
+        await VariablesService(session, role=seeded).update_variable(
+            variable, VariableUpdate(values=dict.fromkeys(stale_keys, "set"))
+        )
+
+
+@pytest.mark.anyio
+async def test_creating_a_resource_takes_the_shared_ownership_lock(
+    session: AsyncSession, seeded: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A rollout adopts an existing resource by name, so a create must not land
+    # between its conflict check and its import.
+    calls: list[bool] = []
+
+    async def record(session, workspace_id, *, shared: bool) -> None:
+        calls.append(shared)
+
+    monkeypatch.setattr("tracecat.managed_resources.guard.hold_ownership_lock", record)
+
+    await VariablesService(session, role=seeded).create_variable(
+        VariableCreate(name="new_customer_var", values={"k": "v"})
+    )
+
+    assert calls == [True]
 
 
 def test_customer_skill_bindings_are_kept_and_package_wins_duplicates() -> None:

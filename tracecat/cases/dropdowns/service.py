@@ -28,7 +28,7 @@ from tracecat.db.models import (
     CaseDropdownValue,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -112,6 +112,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         self, params: CaseDropdownDefinitionCreate
     ) -> CaseDropdownDefinition:
         """Create a dropdown definition with initial options."""
+        await hold_for_customer_write(self.session, self.workspace_id)
         definition = CaseDropdownDefinition(
             workspace_id=self.workspace_id,
             name=params.name,

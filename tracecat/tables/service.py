@@ -46,7 +46,7 @@ from tracecat.exceptions import (
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.logger import logger
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -655,6 +655,7 @@ class BaseTablesService(BaseWorkspaceService):
         """
         schema_name = self._get_schema_name(self.ws_uuid)
         table_name = validate_identifier(params.name)
+        await hold_for_customer_write(self.session, self.workspace_id)
 
         # Create schema if it doesn't exist
         conn = await self.session.connection()

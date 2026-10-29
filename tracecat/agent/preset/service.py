@@ -115,6 +115,7 @@ from tracecat.logger import logger
 from tracecat.managed_resources.guard import (
     bypass_active,
     ensure_unmanaged,
+    hold_for_customer_write,
     is_managed,
 )
 from tracecat.managed_resources.presets import (
@@ -594,6 +595,7 @@ class AgentPresetService(BaseWorkspaceService):
     @audit_log(resource_type="agent_preset", action="create")
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
+        await hold_for_customer_write(self.session, self.workspace_id)
         try:
             return await self._create_preset(params)
         except IntegrityError as exc:

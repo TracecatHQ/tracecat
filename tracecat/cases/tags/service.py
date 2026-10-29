@@ -11,7 +11,7 @@ from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseTag, CaseTagLink, CaseTrigger
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -147,6 +147,7 @@ class CaseTagsService(BaseWorkspaceService):
         workspace_id = self.role.workspace_id
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
+        await hold_for_customer_write(self.session, workspace_id)
 
         ref = slugify(params.name)
 

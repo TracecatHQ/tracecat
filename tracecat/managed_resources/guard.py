@@ -95,6 +95,36 @@ async def hold_ownership_lock(
     )
 
 
+async def hold_for_customer_write(
+    session: AsyncSession, workspace_id: uuid.UUID | None
+) -> None:
+    """Take the shared ownership lock for a customer write with no guard check.
+
+    Creating a resource checks no ownership, but a rollout adopts an existing
+    resource by name. Holding the lock keeps a create from landing between a
+    rollout's conflict check and its import. Skipped inside a rollout, which
+    holds the lock exclusively.
+    """
+    if workspace_id is None or bypass_active():
+        return
+    await hold_ownership_lock(session, workspace_id, shared=True)
+
+
+async def refresh_for_customer_write(
+    session: AsyncSession, workspace_id: uuid.UUID | None, obj: object
+) -> None:
+    """Take the shared ownership lock, then re-read ``obj``.
+
+    An update compares the request with the resource's current state. The
+    caller may have loaded it before a rollout changed it, so read it again
+    once no rollout can be writing.
+    """
+    if workspace_id is None or bypass_active():
+        return
+    await hold_ownership_lock(session, workspace_id, shared=True)
+    await session.refresh(obj)
+
+
 async def is_managed(
     session: AsyncSession,
     *,
