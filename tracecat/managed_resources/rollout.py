@@ -253,6 +253,17 @@ class ManagedRolloutEngine:
         A newer preview of the same target marks this one STALE while it is
         still being computed. Writing the result back would revive it.
         """
+        # Target before rollout, the order the admin service uses when it
+        # supersedes previews, so the two cannot deadlock.
+        target_id = await self.session.scalar(
+            select(ManagedRollout.target_id).where(ManagedRollout.id == rollout_id)
+        )
+        if target_id is not None:
+            await self.session.execute(
+                select(ManagedTarget.id)
+                .where(ManagedTarget.id == target_id)
+                .with_for_update()
+            )
         rollout = await self.session.scalar(
             select(ManagedRollout)
             .where(ManagedRollout.id == rollout_id)
@@ -273,6 +284,10 @@ class ManagedRolloutEngine:
         rollout = await self._rollout(rollout_id)
         if rollout.status != ManagedRolloutStatus.APPLYING:
             return rollout
+        # Hold the ownership lock exclusively from before the target state is
+        # read: a customer rename that lands after the read but before the
+        # import would otherwise pass the conflict and fingerprint checks.
+        await hold_ownership_lock(self.session, rollout.workspace_id, shared=False)
         try:
             if rollout.kind == ManagedRolloutKind.UNASSIGN:
                 plan = await self._plan_unassign(rollout)
