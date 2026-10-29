@@ -40,7 +40,9 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
                 JOIN extension e ON e.oid = d.refobjid
             WHERE o.oid = to_regoperator('%>>(text,text)')
         )
-        SELECT has_schema_privilege((SELECT extnamespace FROM extension), 'USAGE')
+        -- Search also calls the public.tracecat_case_* helpers.
+        SELECT has_schema_privilege('public', 'USAGE')
+            AND has_schema_privilege((SELECT extnamespace FROM extension), 'USAGE')
             AND count(*) = 2
             AND coalesce(bool_and(has_function_privilege(r.oid, 'EXECUTE')), false)
         FROM required r JOIN pg_depend d ON d.classid = 'pg_proc'::regclass AND d.objid = r.oid

@@ -112,9 +112,10 @@ AUDITED_REWRITES: Mapping[str, tuple[tuple[bytes, bytes], ...]] = {
         ),
     ),
     # IBM Cloud Databases for PostgreSQL only allows extensions in its
-    # read-only ibm_extension schema. These rewrites install pg_trgm and
-    # pgvector there when that schema exists, keep an existing extension in its
-    # schema, and look up pg_trgm's schema instead of assuming public.
+    # read-only ibm_extension schema. These rewrites install pg_trgm there when
+    # that schema exists (the 9680c861644a pairs above do the same for
+    # pgvector), keep an existing extension in its schema, and look up
+    # pg_trgm's schema instead of assuming public.
     "3e54217aadda": (
         (
             (
