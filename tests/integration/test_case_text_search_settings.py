@@ -7,11 +7,14 @@ import uuid
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from tests.integration.test_case_text_search_postgres import (
+    WORKSPACE,
     apply_search_migration,
+    apply_word_migration,
 )
 from tests.integration.test_case_text_search_postgres import (
     search_database as _search_database,
@@ -30,13 +33,15 @@ search_database = _search_database
 async def test_separate_runtime_role_needs_explicit_helper_grants(
     search_database: Engine,
 ) -> None:
-    """A hardened migration owner succeeds; the runtime role needs both grants."""
+    """A hardened migration owner succeeds; the runtime role needs every grant."""
+    apply_word_migration(search_database, downgrade=True)
     apply_search_migration(search_database, downgrade=True)
     with search_database.begin() as conn:
         conn.execute(
             sa.text("ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC")
         )
     apply_search_migration(search_database)
+    apply_word_migration(search_database)
 
     role = f"case_text_runtime_{uuid.uuid4().hex}"
     operator = sa.create_engine(search_database.url, poolclass=NullPool)
@@ -72,6 +77,15 @@ async def test_separate_runtime_role_needs_explicit_helper_grants(
                 )
             )
         async with AsyncSession(runtime) as session:
+            with pytest.raises(LexicalSearchError) as error:
+                await ensure_case_text_indexes(session)
+            assert error.value.code == LexicalSearchErrorCode.UNAVAILABLE
+
+        with operator.begin() as conn:
+            conn.execute(
+                sa.text(f'GRANT SELECT ON public.case_search_word TO "{role}"')
+            )
+        async with AsyncSession(runtime) as session:
             await ensure_case_text_indexes(session)
             assert await session.scalar(
                 sa.text(
@@ -86,6 +100,34 @@ async def test_separate_runtime_role_needs_explicit_helper_grants(
                 )
                 is not None
             )
+
+        # Search readiness does not cover writes: the word-list trigger runs as
+        # the writing role, which needs the helper and vocabulary grants too.
+        write = sa.text(
+            'INSERT INTO public."case" (id, workspace_id, case_number, summary, description) '
+            "VALUES (:id, :workspace, 900, 'synthetic runtime write', '')"
+        )
+        values = {"id": uuid.uuid4(), "workspace": WORKSPACE}
+        # The vocabulary's workspace RLS policy applies to the trigger insert.
+        scope = sa.text("SELECT set_config('app.current_workspace_id', :ws, true)")
+        with operator.begin() as conn:
+            conn.execute(sa.text(f'GRANT INSERT ON public."case" TO "{role}"'))
+        with pytest.raises(DBAPIError, match="permission denied"):
+            async with runtime.begin() as conn:
+                await conn.execute(scope, {"ws": str(WORKSPACE)})
+                await conn.execute(write, values)
+        with operator.begin() as conn:
+            conn.execute(
+                sa.text(
+                    f'GRANT EXECUTE ON FUNCTION public.tracecat_case_words_v1(text) TO "{role}"'
+                )
+            )
+            conn.execute(
+                sa.text(f'GRANT INSERT ON public.case_search_word TO "{role}"')
+            )
+        async with runtime.begin() as conn:
+            await conn.execute(scope, {"ws": str(WORKSPACE)})
+            await conn.execute(write, values)
     finally:
         await runtime.dispose()
         with operator.begin() as conn:

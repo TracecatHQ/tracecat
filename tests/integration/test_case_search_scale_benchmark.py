@@ -1,7 +1,8 @@
-"""Opt-in measurement: case search latency and vector migration cost at scale.
+"""Opt-in measurement: case search latency and stored-column migration cost.
 
-Seeds two workspaces in a disposable database, applies the stored-vector
-migration (backfill plus concurrent index builds) and times it, then runs the
+Seeds two workspaces in a disposable database, applies the stored-vector and
+stored word-list migrations (backfill plus concurrent index builds) and times
+each, then runs the
 production search expressions for broad, typo-matched, and rare terms over all
 time and a 30-day window. Each search times the relevance-ordered first page
 and the exact count the UI's status totals use. Run against an isolated test
@@ -39,6 +40,7 @@ from tests.integration.test_case_text_search_postgres import (
     WORKSPACE,
     apply_search_migration,
     apply_vector_migration,
+    apply_word_migration,
 )
 from tracecat.cases.text_search import (
     build_case_text_expressions,
@@ -119,6 +121,7 @@ class ScaleReport:
     cases_per_workspace: int
     workspaces: int
     vector_migration_seconds: float
+    word_migration_seconds: float
     timeout_ms: int
     measurements: list[Measurement]
 
@@ -127,7 +130,7 @@ def _statements(
     term: str, cutoff: datetime | None
 ) -> tuple[tuple[QueryKind, sa.Select[tuple]], ...]:
     """Build the page and count queries from the production expression builder."""
-    expressions = build_case_text_expressions(parse_case_text_query(term))
+    expressions = build_case_text_expressions(parse_case_text_query(term), WORKSPACE)
     scope: list[sa.ColumnElement[bool]] = [
         Case.workspace_id == WORKSPACE,
         expressions.predicate,
@@ -180,8 +183,9 @@ def _measure(
     return round(elapsed_ms, 1), rows, plan
 
 
-def _seed(engine: Engine, count: int) -> float:
-    """Load cases as old-version writes, then time the stored-vector migration."""
+def _seed(engine: Engine, count: int) -> tuple[float, float]:
+    """Load cases as old-version writes, then time both stored-column migrations."""
+    apply_word_migration(engine, downgrade=True)
     apply_vector_migration(engine, downgrade=True)
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         for name in sorted(INDEX_NAMES):
@@ -204,13 +208,18 @@ def _seed(engine: Engine, count: int) -> float:
     apply_search_migration(engine)
     started = time.perf_counter()
     apply_vector_migration(engine)
-    return round(time.perf_counter() - started, 1)
+    vectors_done = time.perf_counter()
+    apply_word_migration(engine)
+    return (
+        round(vectors_done - started, 1),
+        round(time.perf_counter() - vectors_done, 1),
+    )
 
 
 def test_case_search_at_scale(search_database: Engine) -> None:
     count = int(os.environ.get("TRACECAT_CASE_SEARCH_SCALE_CASES") or 100_000)
     timeout_ms = int(os.environ.get("TRACECAT_CASE_SEARCH_SCALE_TIMEOUT_MS") or 30_000)
-    migration_s = _seed(search_database, count)
+    vector_migration_s, word_migration_s = _seed(search_database, count)
     cutoff_now = datetime.now(UTC)
     with search_database.begin() as conn:
         postgres_version = str(conn.scalar(sa.text("SELECT version()")))
@@ -252,7 +261,8 @@ def test_case_search_at_scale(search_database: Engine) -> None:
         postgres_version=postgres_version,
         cases_per_workspace=count,
         workspaces=2,
-        vector_migration_seconds=migration_s,
+        vector_migration_seconds=vector_migration_s,
+        word_migration_seconds=word_migration_s,
         timeout_ms=timeout_ms,
         measurements=measurements,
     )
@@ -260,5 +270,6 @@ def test_case_search_at_scale(search_database: Engine) -> None:
         orjson.dumps(report, option=orjson.OPT_INDENT_2)
     )
     (OUTPUT_DIR / "plans.txt").write_text("\n\n".join(plans))
-    print(f"\nvector migration on {2 * count} cases: {migration_s}s")
+    print(f"\nvector migration on {2 * count} cases: {vector_migration_s}s")
+    print(f"word migration on {2 * count} cases: {word_migration_s}s")
     print(f"wrote {OUTPUT_DIR}/results.json and plans.txt")

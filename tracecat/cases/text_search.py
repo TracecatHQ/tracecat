@@ -29,7 +29,7 @@ from tracecat.cases.text_search_indexes import (
     CASE_TEXT_MATCH_FUNCTION,
     ensure_case_text_indexes,
 )
-from tracecat.db.models import Case
+from tracecat.db.models import Case, CaseSearchWord
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.query.execution import query_execution_context
 from tracecat.query.lexical import (
@@ -82,21 +82,29 @@ class CaseTextQuery:
 
 @dataclass(frozen=True, slots=True)
 class _SearchField:
-    """A searchable source column and its stored safe vector.
+    """A searchable source column with its stored safe vector and word list.
 
     The vector is trigger-maintained (revision 5ca140c06ec2), so search reads it
     instead of recomputing the safe vector for every candidate row. NULL marks
     an over-budget or unsafe source that needs a complete-source recheck.
+
+    The word list holds the source's distinct lowercase words (revision
+    e4fd31674ae9). NULL marks an over-budget source. It omits words that cannot
+    reach FUZZY_THRESHOLD with a fuzzy term of at most 32 letters; see that
+    revision before changing either bound.
     """
 
     name: CaseTextField
     source: sa.SQLColumnExpression[str]
     vector: ColumnElement[Any]
+    words: ColumnElement[Sequence[str]]
 
 
 _SEARCH_FIELDS = (
-    _SearchField("summary", Case.summary, Case.summary_tsv),
-    _SearchField("description", Case.description, Case.description_tsv),
+    _SearchField("summary", Case.summary, Case.summary_tsv, Case.summary_words),
+    _SearchField(
+        "description", Case.description, Case.description_tsv, Case.description_words
+    ),
 )
 
 
@@ -262,7 +270,7 @@ def _literal_pattern(value: str) -> str:
 
 
 def _field_clause(
-    field: _SearchField, clause: SearchClause
+    field: _SearchField, clause: SearchClause, workspace_id: uuid.UUID
 ) -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[float]]:
     if clause.kind == "literal":
         exact = _literal_match(field, clause.value)
@@ -298,45 +306,59 @@ def _field_clause(
     rank = sa.case((exact, sa.case((native_exact, native_rank), else_=0.5)), else_=0.0)
     if not clause.fuzzy:
         return exact, exact, rank
-    # This is the indexable commutator of ``term <<% lower(coalesce(field,''))``.
-    # A scalar strict_word_similarity predicate alone would scan source rows.
-    indexed_candidates = _normalized(source).bool_op("%>>")(clause.value.lower())
-    fallback_document = vector.is_(None)
-    candidates = sa.or_(
-        indexed_candidates,
-        sa.and_(
-            fallback_document,
-            sa.case(
-                (
-                    fallback_document,
-                    _full_normalized(source).bool_op("%>>")(clause.value.lower()),
-                ),
-                else_=sa.false(),
-            ),
-        ),
+    term = clause.value.lower()
+    # Vocabulary words within typo distance of the term, found once per query
+    # through the vocabulary's trigram index. The explicit similarity check
+    # keeps the result independent of the session's pg_trgm threshold.
+    typo_words = sa.func.array(
+        sa.select(CaseSearchWord.word)
+        .where(
+            CaseSearchWord.workspace_id == workspace_id,
+            CaseSearchWord.word.bool_op("%>>")(term),
+            sa.func.strict_word_similarity(term, CaseSearchWord.word)
+            >= FUZZY_THRESHOLD,
+        )
+        .scalar_subquery(),
+        type_=ARRAY(sa.Text()),
     )
-    words = (
+    # A case matches when one of its complete words is a typo word. Its stored
+    # list holds every such word, and the vocabulary holds every listed word.
+    indexed_fuzzy = field.words.bool_op("&&")(typo_words)
+    split_words = (
         sa.func.regexp_split_to_table(_full_normalized(source), "[^[:alnum:]]+")
         .table_valued(sa.column("word", sa.Text()))
         .render_derived(name="case_search_words")
     )
     complete_word = sa.exists(
         sa.select(1)
-        .select_from(words)
+        .select_from(split_words)
         .where(
-            sa.func.strict_word_similarity(clause.value.lower(), words.c.word)
-            >= FUZZY_THRESHOLD
+            sa.func.strict_word_similarity(term, split_words.c.word) >= FUZZY_THRESHOLD
         )
         .correlate(Case)
     )
-    # pg_trgm can match an extent spanning several words. Recheck complete
-    # native words so result attribution and excerpts share the same semantics.
-    # Keep the outer operator indexable, while CASE prevents the planner from
-    # moving regex/token work ahead of a rejected candidate during rechecks.
-    fuzzy = sa.and_(candidates, sa.case((candidates, complete_word), else_=sa.false()))
-    similarity = sa.func.strict_word_similarity(
-        clause.value.lower(), _full_normalized(source)
+    # Over-budget sources have no stored list: split their complete text per
+    # row. The full-text operator rejects most rows before the split, and CASE
+    # keeps the planner from evaluating either for rows that have a list.
+    full_candidates = _full_normalized(source).bool_op("%>>")(term)
+    fallback_words = field.words.is_(None)
+    fuzzy = sa.or_(
+        indexed_fuzzy,
+        sa.and_(
+            fallback_words,
+            sa.case(
+                (
+                    fallback_words,
+                    sa.and_(
+                        full_candidates,
+                        sa.case((full_candidates, complete_word), else_=sa.false()),
+                    ),
+                ),
+                else_=sa.false(),
+            ),
+        ),
     )
+    similarity = sa.func.strict_word_similarity(term, _full_normalized(source))
     return (
         exact,
         sa.or_(exact, fuzzy),
@@ -344,8 +366,13 @@ def _field_clause(
     )
 
 
-def build_case_text_expressions(query: CaseTextQuery) -> CaseTextExpressions:
+def build_case_text_expressions(
+    query: CaseTextQuery, workspace_id: uuid.UUID
+) -> CaseTextExpressions:
     """Build indexed matching and a deterministic integer relevance score.
+
+    ``workspace_id`` selects the typo vocabulary; callers still scope the cases
+    to that workspace themselves.
 
     Rank tiers prefer exact identifier, whole summary, contiguous text, all
     exact clauses, then fuzzy clauses. Native per-clause cover-density ranks
@@ -367,7 +394,7 @@ def build_case_text_expressions(query: CaseTextQuery) -> CaseTextExpressions:
     ranks: list[ColumnElement[float]] = []
     for clause in query.clauses:
         field_matches = {
-            field.name: _field_clause(field, clause)
+            field.name: _field_clause(field, clause, workspace_id)
             for field in _SEARCH_FIELDS
             if field.name in query.columns
         }
