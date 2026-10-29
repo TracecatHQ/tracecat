@@ -15,7 +15,7 @@ from sqlalchemy.sql import Select
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.backends.registry import find_agent_backend
+from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_backend
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.chat.enums import MessageKind
@@ -95,7 +95,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
     """Provides agent run items for the inbox.
 
     Lists root sessions for inbox-eligible harnesses (see
-    ``INBOX_HARNESS_TYPES``), plus any legacy sessions with approvals, and
+    ``INBOX_HARNESS_TYPES``) and installed backends, plus any legacy sessions
+    with approvals, and
     enriches them with approval and workflow metadata.
     """
 
@@ -190,9 +191,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         server fill a page with rows the client discards, making groups look
         short/empty and tying ``has_more`` to the unfiltered page.
         """
-        # Root sessions only: runs of any inbox-eligible harness, plus legacy
-        # sessions that already have approvals so existing inbox items don't
-        # disappear.
+        # Root sessions only: runs of any inbox-eligible harness or installed
+        # backend, plus legacy sessions that already have approvals so existing
+        # inbox items don't disappear.
         has_approvals = (
             select(Approval.id).where(Approval.session_id == AgentSession.id).exists()
         )
@@ -203,6 +204,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             AgentSession.entity_type != "approval",
             or_(
                 AgentSession.harness_type.in_(INBOX_HARNESS_TYPES),
+                # Installed backends run durable turns too, on their own harness.
+                AgentSession.backend_id != DEFAULT_AGENT_BACKEND,
                 has_approvals,
             ),
         )

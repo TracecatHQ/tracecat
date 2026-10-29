@@ -9,7 +9,7 @@ Tracecat's security design rests on seven control areas:
 - Identity: SSO, SCIM provisioning, security key and passkey MFA, role-based access control at organization and workspace level, and per-organization IP allowlists.
 - Data security: row-level tenant isolation, encrypted credentials, and encrypted workflow payloads.
 - AI agent security: default-deny tool policy, durable human approval, and token budgets.
-- Sandboxed execution: nsjail isolation for custom Python, agent-generated code, and local MCP servers.
+- Sandboxed execution: nsjail isolation for custom Python, agent-generated code, and local MCP servers run by the built-in runner.
 - Auditability: platform and organization audit webhooks, agent telemetry, and workspace MCP access records.
 - Change management: roll back custom integrations to any commit, and review and revert workspace configuration — workflows, agents, skills, tables, and case fields — in your own Git repository.
 - Dependencies: lockfile-pinned core registry dependencies, per-commit builds of custom registry dependencies, and sandboxed execution for both.
@@ -267,7 +267,7 @@ Tracecat enforces tenant scope in the application layer, and PostgreSQL row-leve
 
 Tracecat presents stored credentials to external systems at execution time, so credential storage has to be reversible. Where Tracecat never replays a value, it hashes instead.
 
-Reversible encryption uses Fernet — AES-128-CBC with an HMAC-SHA256 authentication tag — keyed by `TRACECAT__DB_ENCRYPTION_KEY`. The tag authenticates the ciphertext, so tampering fails the decrypt instead of yielding altered plaintext. It covers:
+Reversible encryption is keyed by `TRACECAT__DB_ENCRYPTION_KEY` and uses Fernet (AES-128-CBC with an HMAC-SHA256 tag) by default, or AES-256-GCM when you set `TRACECAT__DB_ENCRYPTION_ALGORITHM=aes256gcm`. Both formats authenticate the ciphertext, so tampering fails the decrypt instead of yielding altered plaintext. See [Database encryption](/self-hosting/security#database-encryption) for the setting and key rotation. It covers:
 
 - Workspace, organization, and platform secrets.
 - OAuth and integration credentials, including access tokens, refresh tokens, and client secrets.
@@ -303,7 +303,7 @@ Two limits apply. Masking is literal substring replacement, so it misses an enco
 
 ### Encryption keys
 
-Tracecat generates no key material of its own. You provision two things and supply them to the deployment: `TRACECAT__DB_ENCRYPTION_KEY`, the Fernet key behind credential encryption, and `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING`, the keyring behind workflow history encryption.
+Tracecat generates no key material of its own. You provision two things and supply them to the deployment: `TRACECAT__DB_ENCRYPTION_KEY`, the key behind credential encryption, and `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING`, the keyring behind workflow history encryption.
 
 Store both in the secret manager your platform already provides, and keep them out of application configuration and version control. On Kubernetes, the recommended production deployment, use a Kubernetes Secret synced from your own secret manager by External Secrets Operator rather than one created by hand.
 
@@ -312,12 +312,10 @@ On AWS Fargate, use AWS Secrets Manager: ECS injects the core secrets into the c
 On Docker Compose, treat the `.env` file as the sensitive artifact: restrict it to the service account that runs Tracecat and keep it out of version control. Move to Kubernetes for a managed secret store and the full sandbox boundary.
 
 <Warning>
-  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
-
-  Tracecat encrypts under a single Fernet key and has no re-encryption path.
-  Changing or losing the key makes every stored credential unrecoverable. Back
-  it up, and restrict access to it at least as tightly as the credentials it
-  protects.
+  Losing `TRACECAT__DB_ENCRYPTION_KEY` makes every stored credential
+  unrecoverable. Back it up, and restrict access to it at least as tightly as
+  the credentials it protects. To replace it, follow
+  [Rotate the database key](/self-hosting/security#rotate-the-database-key).
 </Warning>
 
 See [Platform secrets](/self-hosting/security#platform-secrets) for per-deployment storage and rotation, and [Secrets management](/self-hosting/kubernetes#secrets-management) for the Helm wiring.
@@ -436,6 +434,8 @@ A third-party MCP server is untrusted code with a tool description attached. Whe
 Remote MCP servers run outside the agent sandbox, and the trusted proxy authenticates each call and returns the result. `stdio` MCP servers run as child processes inside the agent sandbox and inherit its filesystem, network, time, resource, and identity boundaries.
 
 Local MCP is a containment boundary, not a policy boundary. Agent-generated code inside the sandbox can invoke a local server's executable directly. Use remote HTTP MCP when you need the trusted proxy to recheck every call.
+
+The nsjail boundary above applies to `stdio` servers started inside the agent sandbox and to the built-in runner's connection probes. A deployment can install a replacement `stdio` MCP runner. It then runs every workspace's connection probes, and any calls an agent routes through the trusted MCP server, instead of nsjail. Those calls still pass the trusted server's token, workspace, and current tool-policy checks. The replacement runner's own isolation decides what its servers can reach, so review it as you would the executor.
 
 <Info>
   **`stdio` MCP limitations**

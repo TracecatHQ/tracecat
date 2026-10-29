@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Get host
-  description: Get full details for a single host by its numeric Fleet ID.
+  description: Get full details for a single host by its numeric Fleet ID, including inventoried users and per-host policy responses.
   display_group: Fleet
   doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-host
   namespace: tools.fleetdm
@@ -25,16 +25,6 @@ definition:
       description: If true, omit Fleet-maintained policies from the host's policy list.
       default: null
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          params:
-            exclude_software: ${{ inputs.exclude_software }}
-            exclude_fleet_maintained_policies: ${{ inputs.exclude_fleet_maintained_policies }}
-        script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
     - ref: get_host
       action: core.http_request
       args:
@@ -42,5 +32,7 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          exclude_software: ${{ inputs.exclude_software }}
+          exclude_fleet_maintained_policies: ${{ inputs.exclude_fleet_maintained_policies }}
   returns: ${{ steps.get_host.result.data }}

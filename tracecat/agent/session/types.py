@@ -104,3 +104,5 @@ class PreparedAgentTurn:
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
+    backend_id: str
+    harness_type: str | None

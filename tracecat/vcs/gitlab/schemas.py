@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 
 class GitLabTokenCredentials(BaseModel):
     """GitLab REST API credentials for organization-level workspace sync."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     base_url: str = Field(
         default="https://gitlab.com",
@@ -14,7 +16,10 @@ class GitLabTokenCredentials(BaseModel):
     )
     token: SecretStr = Field(
         ...,
-        description="GitLab personal/project/group access token with api scope.",
+        description=(
+            "GitLab access token with api scope. Project and group tokens also "
+            "require write_repository for Git sync pushes."
+        ),
     )
 
     @field_validator("base_url")

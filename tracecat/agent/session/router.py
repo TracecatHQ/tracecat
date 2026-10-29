@@ -15,6 +15,7 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
+from tracecat.agent.backends.access import can_use_backend
 from tracecat.agent.backends.registry import (
     get_agent_backends,
 )
@@ -58,7 +59,7 @@ from tracecat.chat.schemas import (
     ChatRequest,
     ContinueRunRequest,
 )
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSession, ReleaseRequestSession
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
@@ -71,16 +72,6 @@ from tracecat.logger import logger
 from tracecat.observability.otel import set_current_span_attributes
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
-
-# Chats that take the configured backend when the request omits one. The preset
-# builder and external channels depend on the built-in backend's workflow.
-CHAT_BACKEND_ENTITIES = frozenset(
-    {
-        AgentSessionEntity.WORKSPACE_CHAT,
-        AgentSessionEntity.AGENT_PRESET,
-        AgentSessionEntity.CASE,
-    }
-)
 
 SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
@@ -177,16 +168,26 @@ async def _build_session_read_with_entitlement(
     return build_session_read(agent_session, role, readonly=readonly)
 
 
+async def _can_use_backend(
+    *, session: AsyncDBSession, role: WorkspaceActorRouteRole, backend_id: str
+) -> bool:
+    if role.organization_id is None:
+        return False
+    return await can_use_backend(session, role.organization_id, backend_id)
+
+
 @router.get("/backends")
 @require_scope("agent:read")
 async def list_agent_backends(
     role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
 ) -> list[AgentBackendRead]:
-    """List enabled installed backends available to new sessions."""
+    """List enabled installed backends this organization may start sessions on."""
     return [
         AgentBackendRead(id=key, name=backend.name)
         for key, backend in get_agent_backends().items()
         if backend.is_enabled()
+        and await _can_use_backend(session=session, role=role, backend_id=key)
     ]
 
 
@@ -194,7 +195,7 @@ async def list_agent_backends(
     "",
     responses={
         403: {
-            "description": "Workspace Chat entitlement or parent session write access required"
+            "description": "Workspace Chat or agent backend entitlement, or parent session write access required"
         },
         404: {"description": "Parent session not found in this workspace"},
     },
@@ -206,13 +207,6 @@ async def create_session(
     session: AsyncDBSession,
 ) -> AgentSessionRead:
     """Create a new agent session associated with an entity."""
-    if (
-        "backend_id" not in request.model_fields_set
-        and request.entity_type in CHAT_BACKEND_ENTITIES
-    ):
-        request = request.model_copy(
-            update={"backend_id": config.TRACECAT__AGENT_CHAT_BACKEND}
-        )
     await require_workspace_chat_entitlement_for_entity(
         session=session,
         role=role,
@@ -551,7 +545,7 @@ async def delete_session(
     await svc.delete_session(agent_session)
 
 
-@router.post("/{session_id}/messages")
+@router.post("/{session_id}/messages", dependencies=[ReleaseRequestSession])
 @require_scope("agent:execute")
 async def send_message(
     session_id: uuid.UUID,
@@ -758,7 +752,7 @@ async def send_message(
         ) from e
 
 
-@router.get("/{session_id}/stream")
+@router.get("/{session_id}/stream", dependencies=[ReleaseRequestSession])
 @require_scope("agent:read")
 async def stream_session_events(
     role: WorkspaceActorRouteRole,

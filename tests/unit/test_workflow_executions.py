@@ -20,6 +20,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import orjson
 import pytest
 from pydantic import BaseModel
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
 from temporalio.api.failure.v1 import Failure
 from temporalio.api.history.v1 import (
@@ -2094,6 +2096,31 @@ class TestTimeoutResolution:
         assert result == expected
         if workspace is None:
             mock_ws_service.assert_not_called()
+
+    @pytest.mark.anyio
+    @pytest.mark.usefixtures("db")
+    async def test_resolve_execution_timeout_loads_workspace_once(
+        self, mock_client: Mock, svc_role: Role
+    ) -> None:
+        """Batched dispatches (NDJSON webhooks) read workspace settings once."""
+        statements: list[str] = []
+
+        def record(*args: object) -> None:
+            statements.append(str(args[2]))
+
+        service = WorkflowExecutionsService(client=mock_client, role=svc_role)
+        event.listen(Engine, "before_cursor_execute", record)
+        try:
+            await service._resolve_execution_timeout(seconds=300)
+            first = len(statements)
+            for _ in range(7):
+                await service._resolve_execution_timeout(seconds=300)
+        finally:
+            event.remove(Engine, "before_cursor_execute", record)
+
+        # RLS set_config twice, then the workspace SELECT; later calls reuse it.
+        assert first == 3
+        assert len(statements) == first
 
 
 def test_event_failure_extract_root_cause_message_returns_deepest_message() -> None:

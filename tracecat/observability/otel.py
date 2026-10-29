@@ -276,7 +276,10 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
         name: str,
         *,
         attributes: Attributes,
-        input: _TemporalInputWithHeaders | None = None,
+        input_with_headers: _TemporalInputWithHeaders | None = None,
+        # Only the SDK's Nexus handler interceptor passes this; Tracecat
+        # registers no Nexus services, so there is no context to propagate.
+        input_with_ctx: object | None = None,
         kind: SpanKind,
         context: otel_context.Context | None = None,
     ) -> Iterator[None]:
@@ -291,8 +294,10 @@ class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
                 record_exception=False,
                 set_status_on_exception=False,
             ) as span:
-                if input:
-                    input.headers = self._context_to_headers(input.headers)
+                if input_with_headers:
+                    input_with_headers.headers = self._context_to_headers(
+                        input_with_headers.headers
+                    )
                 try:
                     yield None
                 except Exception as exc:

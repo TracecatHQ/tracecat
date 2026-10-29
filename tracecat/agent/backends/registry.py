@@ -10,10 +10,10 @@ from typing import Any
 from temporalio import workflow
 
 from tracecat.agent.backends.base import AgentBackend
+from tracecat.agent.backends.constants import AGENT_BACKEND_ENTRY_POINT_GROUP
 from tracecat.agent.backends.types import SessionHistoryAdapter
 from tracecat.exceptions import TracecatValidationError
 
-AGENT_BACKEND_ENTRY_POINT_GROUP = "tracecat.agent_backends"
 DEFAULT_AGENT_BACKEND = "oss"
 
 
@@ -46,7 +46,13 @@ def _validate_backend(identifier: str, backend: AgentBackend[Any, Any]) -> None:
             raise ValueError(
                 f"Invalid harness identifier for agent backend: {identifier}"
             )
-    for flag in ("subagent_approvals", "steering", "withdrawing", "listing_pending"):
+    for flag in (
+        "subagent_approvals",
+        "steering",
+        "withdrawing",
+        "listing_pending",
+        "caller_owned_turns",
+    ):
         if not isinstance(getattr(backend, flag, None), bool):
             raise TypeError(f"Agent backend {identifier}: {flag} must be a bool")
     if backend.steering and type(backend).steer is AgentBackend.steer:
@@ -61,6 +67,13 @@ def _validate_backend(identifier: str, backend: AgentBackend[Any, Any]) -> None:
     ):
         raise TypeError(
             f"Agent backend {identifier}: listing_pending requires a list_pending method"
+        )
+    if (
+        backend.caller_owned_turns
+        and type(backend).parse_turn_result is AgentBackend.parse_turn_result
+    ):
+        raise TypeError(
+            f"Agent backend {identifier}: caller_owned_turns requires a parse_turn_result method"
         )
 
     # Inspect the workflow dynamically for the same missing-attribute boundary.
@@ -164,6 +177,19 @@ def get_agent_backend(
     if harness_type is not None and harness_type not in backend.supported_harnesses:
         raise TracecatValidationError("Session harness is unsupported by its backend")
     return backend
+
+
+def get_workflow_type(backend: AgentBackend[Any, Any]) -> str:
+    """Return the registered Temporal workflow type of a backend's turn workflow.
+
+    Callers that start a turn as their own child use the type name, so they
+    never import another backend's workflow class. Discovery already rejected
+    workflows without a named definition.
+    """
+    name = workflow._Definition.must_from_class(backend.workflow).name
+    if name is None:
+        raise TypeError("Agent backend workflow requires a named @workflow.defn")
+    return name
 
 
 def agent_backend_available(identifier: str | None, harness_type: str | None) -> bool:

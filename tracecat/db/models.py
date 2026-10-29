@@ -23,6 +23,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Column,
     Enum,
     FetchedValue,
     Float,
@@ -50,7 +51,7 @@ from sqlalchemy import (
     type_coerce,
     union_all,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
@@ -90,6 +91,7 @@ from tracecat.identifiers import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.managed_resources.enums import ManagedReferenceKind, ManagedTargetStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.tiers.types import EntitlementsDict
 from tracecat.workspaces.schemas import WorkspaceSettings
@@ -130,6 +132,24 @@ SCIM_CONNECTION_STATUS_ENUM = Enum(
     native_enum=False,
     length=32,
     values_callable=lambda enum: [status.value for status in enum],
+    validate_strings=True,
+)
+# Managed resource enums store lowercase VARCHAR values, so new members need no
+# migration.
+MANAGED_TARGET_STATUS_ENUM = Enum(
+    ManagedTargetStatus,
+    name="managedtargetstatus",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+MANAGED_REFERENCE_KIND_ENUM = Enum(
+    ManagedReferenceKind,
+    name="managedreferencekind",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
     validate_strings=True,
 )
 # Naming convention for constraints so Alembic can generate deterministic names
@@ -566,6 +586,37 @@ class Workspace(OrganizationModel):
     )
 
 
+class WorkspaceSyncOperation(WorkspaceModel):
+    """Durable Git sync state; large prepared artifacts live in object storage."""
+
+    __tablename__ = "workspace_sync_operation"
+    __table_args__ = (
+        Index(
+            "ix_workspace_sync_operation_workspace_created",
+            "workspace_id",
+            "actor_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, unique=True, index=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    direction: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(32))
+    stage: Mapped[str] = mapped_column(String(32))
+    # Pydantic contracts validate these JSON documents at every read/write boundary.
+    inputs: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    actor: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    summary: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
+    result: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
+    artifact_key: Mapped[str | None] = mapped_column(Text)
+    commit_sha: Mapped[str | None] = mapped_column(String(64))
+    error: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class WorkspaceSyncResourceMapping(WorkspaceModel):
     """Maps portable sync source identities to workspace-local resource UUIDs."""
 
@@ -599,6 +650,102 @@ class WorkspaceSyncResourceMapping(WorkspaceModel):
     local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
 
     workspace: Mapped[Workspace] = relationship(back_populates="sync_resource_mappings")
+
+
+class ManagedResource(WorkspaceModel):
+    """A resource in a target workspace that a managed rollout owns.
+
+    This does not reuse ``workspace_sync_resource_mapping``. That table is keyed
+    per workspace and provider and is shared with the customer's own Git sync.
+    Managed rollouts keep their own rows so neither flow adopts the other's.
+    """
+
+    __tablename__ = "managed_resource"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "resource_type",
+            "local_id",
+            name="uq_managed_resource_local",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "resource_type",
+            "source_id",
+            name="uq_managed_resource_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    source_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_path: Mapped[str] = mapped_column(String, nullable=False)
+    deployed_tag: Mapped[str] = mapped_column(String(255), nullable=False)
+    deployed_commit_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    deployed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ManagedTarget(WorkspaceModel):
+    """A customer workspace assigned to receive the managed resource package."""
+
+    __tablename__ = "managed_target"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_managed_target_workspace_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    pinned_tag: Mapped[str] = mapped_column(String(255), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    assigned_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    last_rollout_status: Mapped[ManagedTargetStatus] = mapped_column(
+        MANAGED_TARGET_STATUS_ENUM,
+        default=ManagedTargetStatus.PENDING,
+        server_default=text("'pending'"),
+        nullable=False,
+    )
+    last_applied_tag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_rollout_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class ManagedReferenceMatch(WorkspaceModel):
+    """Maps a source-side reference to its resolution in a target workspace."""
+
+    __tablename__ = "managed_reference_match"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "reference_kind",
+            "source_key",
+            name="uq_managed_reference_match_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    reference_kind: Mapped[ManagedReferenceKind] = mapped_column(
+        MANAGED_REFERENCE_KIND_ENUM, nullable=False
+    )
+    # Source model catalog entry UUID or MCP integration UUID as text, or a
+    # source secret store name.
+    source_key: Mapped[str] = mapped_column(String, nullable=False)
+    # Target workspace's model catalog entry, MCP integration or secret store id.
+    # No FK because the referenced table depends on reference_kind. NULL leaves
+    # the reference unlinked.
+    resolved_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
 
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
@@ -1115,6 +1262,7 @@ class WorkflowTagLink(Base):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
 
@@ -1555,6 +1703,7 @@ class Webhook(WorkspaceModel):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=True,
+        index=True,
     )
     allowlisted_cidrs: Mapped[list[str]] = mapped_column(
         JSONB,
@@ -1854,6 +2003,7 @@ class Schedule(WorkspaceModel):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=True,
+        index=True,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="schedules")
@@ -1934,6 +2084,7 @@ class Action(WorkspaceModel):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="actions")
@@ -2754,10 +2905,36 @@ class CaseTableRow(WorkspaceModel):
     )
 
 
+class CaseSearchWord(Base):
+    """A word seen in a workspace's case text, for typo-tolerant search.
+
+    Written only by the trg_case_search_words trigger. Rows are insert-only and
+    may repeat a word; there is no unique constraint so concurrent case writes
+    never wait on each other. Like the case search indexes, its indexes are
+    owned by revision e4fd31674ae9 because one needs pg_trgm.
+    """
+
+    __tablename__ = "case_search_word"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    word: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class Case(WorkspaceModel):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
     __tablename__ = "case"
+    __mapper_args__ = {
+        "exclude_properties": [
+            "summary_tsv",
+            "description_tsv",
+            "summary_words",
+            "description_words",
+        ]
+    }
     __table_args__ = (
         UniqueConstraint(
             "workspace_id",
@@ -2797,6 +2974,16 @@ class Case(WorkspaceModel):
     )
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(5000), nullable=False)
+    # Search vectors are maintained by the trg_case_search_vectors trigger and
+    # read only by search SQL. They are table columns, not mapped attributes
+    # (see __mapper_args__), so loading or serializing a Case never fetches them
+    # and ORM writes never name them: the trigger is their only writer.
+    summary_tsv = Column(TSVECTOR, nullable=True)
+    description_tsv = Column(TSVECTOR, nullable=True)
+    # Distinct lowercase words for typo search, maintained the same way by the
+    # trg_case_search_words trigger.
+    summary_words = Column(ARRAY(Text), nullable=True)
+    description_words = Column(ARRAY(Text), nullable=True)
     priority: Mapped[CasePriority] = mapped_column(
         CASE_PRIORITY_ENUM,
         nullable=False,
@@ -3209,6 +3396,7 @@ class CaseTask(WorkspaceModel):
         UUID,
         ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000), nullable=True)

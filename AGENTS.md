@@ -35,6 +35,10 @@ keep using `docker compose` against it or use `just cluster` for this worktree.
 - Prefer `just cluster` (`up -d`, `up -d --seed`, `ps`, `logs -f api`,
   `restart api`, `attach api`, `db`, `ports`) over raw `docker compose` for
   Tracecat services, logs, and restarts.
+- `just cluster` starts the lite stack: no agent services, MCP server, or
+  workspace-sync worker, and Temporal as the dev server. Add
+  `--with agents,mcp,workspace-sync` for the parts a task needs, or `--full`
+  for every service.
 - Never remove volumes with `docker compose down -v`, `docker volume rm`,
   `just cluster rm`, or similar unless the user explicitly asks for it and
   confirms data loss is acceptable.

@@ -65,6 +65,19 @@ class WithdrawResult:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnResult:
+    """A finished turn as seen by a caller that ran its workflow as a child.
+
+    ``error`` is set when the turn ended without a usable output, for example
+    when it failed or was cancelled; ``output`` is then ignored. A result with
+    neither an output nor an error is invalid.
+    """
+
+    output: Any
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SessionForkContext:
     """Authorized parent and new session for backend-specific fork preparation."""
 

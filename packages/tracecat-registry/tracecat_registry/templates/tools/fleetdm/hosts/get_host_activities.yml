@@ -22,8 +22,23 @@ definition:
       default: 0
     per_page:
       type: int
-      description: Activities per page (Fleet caps at 200).
+      description: Activities per page. Maximum is 10,000 records.
       default: 50
+    order_key:
+      type: str | None
+      description: What to order results by. Allowed fields are `id`, `created_at`, `user_id`, `activity_type`,
+        `user_name`, `user_email`, and `fleet_initiated`.
+      default: null
+    order_direction:
+      type: str | None
+      description: '**Requires `order_key`**. The direction of the order given the order key. Options
+        include `"asc"` and `"desc"`. Default is `"asc"`.'
+      default: null
+    after:
+      type: str | None
+      description: The value to get results after. This needs `order_key` defined, as that's the column
+        that would be used.
+      default: null
   steps:
     - ref: host_activities
       action: core.http_request
@@ -35,4 +50,7 @@ definition:
         params:
           page: ${{ inputs.page }}
           per_page: ${{ inputs.per_page }}
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
+          after: ${{ inputs.after }}
   returns: ${{ steps.host_activities.result.data }}

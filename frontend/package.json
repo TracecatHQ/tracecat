@@ -234,7 +234,8 @@
       "emblor>tailwind-merge": "3.5.0",
       "streamdown>tailwind-merge": "3.3.1",
       "defu": "6.1.5",
-      "follow-redirects": "1.16.1"
+      "follow-redirects": "1.16.1",
+      "undici": "7.30.1"
     }
   }
 }

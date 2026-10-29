@@ -3,11 +3,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
-from typing import Any, cast, get_args
+from typing import Annotated, Any, cast, get_args
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -39,6 +39,7 @@ from tracecat.agent.session.router import (
     fork_session,
     get_session,
     get_session_vercel,
+    list_agent_backends,
     list_sessions,
     remove_session_artifact,
     router,
@@ -68,6 +69,7 @@ from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
+    ScopeDeniedError,
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatServiceError,
@@ -1501,6 +1503,10 @@ async def test_create_session_rejects_unavailable_backend_with_bad_request(
             return_value={} if backend_state == "missing" else {"external": provider},
         ),
         patch.object(provider, "is_enabled", return_value=False),
+        patch(
+            "tracecat.agent.backends.access.is_org_entitled",
+            AsyncMock(return_value=True),
+        ),
         pytest.raises(HTTPException) as exc_info,
     ):
         await cast(Any, create_session).__wrapped__(
@@ -1519,50 +1525,25 @@ async def test_create_session_rejects_unavailable_backend_with_bad_request(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("entity_type", "backend_id", "expected"),
-    [
-        # Chats without a choice take the configured backend.
-        (AgentSessionEntity.WORKSPACE_CHAT, None, "external"),
-        (AgentSessionEntity.AGENT_PRESET, None, "external"),
-        (AgentSessionEntity.CASE, None, "external"),
-        # An explicit choice wins over the configured backend.
-        (AgentSessionEntity.AGENT_PRESET, "oss", "oss"),
-        # Surfaces that need the built-in workflow keep it.
-        (AgentSessionEntity.AGENT_PRESET_BUILDER, None, "oss"),
-        (AgentSessionEntity.EXTERNAL_CHANNEL, None, "oss"),
-        (AgentSessionEntity.WORKFLOW, None, "oss"),
-    ],
+    ("entitled", "expected"), [(False, ["oss"]), (True, ["oss", "external"])]
 )
-async def test_create_session_applies_configured_chat_backend(
-    entity_type: AgentSessionEntity, backend_id: str | None, expected: str
+async def test_list_agent_backends_hides_non_default_without_entitlement(
+    entitled: bool, expected: list[str]
 ) -> None:
-    session_stub = _agent_session_stub(backend_id=expected)
-    fake_svc = SimpleNamespace(create_session=AsyncMock(return_value=session_stub))
-    request = AgentSessionCreate(entity_type=entity_type, entity_id=uuid.uuid4())
-    if backend_id is not None:
-        request = AgentSessionCreate(
-            entity_type=entity_type, entity_id=uuid.uuid4(), backend_id=backend_id
-        )
     with (
         patch(
-            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+            "tracecat.agent.session.router.get_agent_backends",
+            return_value={"oss": DefaultBackend(), "external": DefaultBackend()},
         ),
         patch(
-            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
-            AsyncMock(),
-        ),
-        patch(
-            "tracecat.agent.session.router.config.TRACECAT__AGENT_CHAT_BACKEND",
-            "external",
+            "tracecat.agent.backends.access.is_org_entitled",
+            AsyncMock(return_value=entitled),
         ),
     ):
-        await cast(Any, create_session).__wrapped__(
-            request=request,
-            role=_read_role(session_stub.workspace_id),
-            session=AsyncMock(),
+        backends = await cast(Any, list_agent_backends).__wrapped__(
+            role=_read_role(uuid.uuid4()), session=AsyncMock()
         )
-    sent = fake_svc.create_session.await_args.args[0]
-    assert sent.backend_id == expected
+    assert [backend.id for backend in backends] == expected
 
 
 @pytest.mark.anyio
@@ -1865,3 +1846,174 @@ def test_session_read_reports_backend_controls(
     # A disabled backend controls nothing.
     assert read.capabilities.steering is (enabled and steering)
     assert read.capabilities.withdrawing is (enabled and withdrawing)
+
+
+class _TrackedSession:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _session_release_app(
+    tracked: _TrackedSession, role: Role
+) -> tuple[FastAPI, list[bool]]:
+    """App whose auth dependency shares the request session, as in production."""
+    app = FastAPI()
+    app.include_router(router)
+
+    async def tracked_session() -> AsyncIterator[_TrackedSession]:
+        yield tracked
+
+    async def role_with_session(
+        session: Annotated[Any, Depends(get_async_session)],
+    ) -> Role:
+        assert session is tracked
+        return role
+
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[get_async_session] = tracked_session
+    app.dependency_overrides[role_dependency] = role_with_session
+    released_at_first_chunk: list[bool] = []
+    return app, released_at_first_chunk
+
+
+def _released_event_stream(
+    tracked: _TrackedSession, released_at_first_chunk: list[bool]
+) -> AsyncIterator[str]:
+    async def events() -> AsyncIterator[str]:
+        released_at_first_chunk.append(tracked.closed)
+        yield "data: {}\n\n"
+
+    return events()
+
+
+def _vercel_chat_request() -> VercelChatRequest:
+    return VercelChatRequest(
+        message=UIMessage(
+            id="msg-1", role="user", parts=[{"type": "text", "text": "hello"}]
+        ),
+        model="gpt-4o-mini",
+        model_provider="openai",
+    )
+
+
+def test_stream_session_events_releases_request_session_before_streaming() -> None:
+    """The live stream reads only Redis, so it must not pin a DB connection."""
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    tracked = _TrackedSession()
+    app, released_at_first_chunk = _session_release_app(
+        tracked, _make_stream_role(workspace_id)
+    )
+    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session),
+        get_stream_resume_state=AsyncMock(
+            return_value=_stream_state(
+                lifecycle=TurnLifecycle.RUNNING,
+                curr_run_id=uuid.uuid4(),
+                active_stream_id=uuid.uuid4(),
+                has_live_stream=True,
+            )
+        ),
+    )
+    fake_stream = SimpleNamespace(
+        sse=Mock(
+            side_effect=lambda *_a, **_kw: _released_event_stream(
+                tracked, released_at_first_chunk
+            )
+        )
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.get(f"/agent/sessions/{session_id}/stream")
+
+    assert response.status_code == 200
+    assert response.text == "data: {}\n\n"
+    assert released_at_first_chunk == [True]
+
+
+def test_send_message_releases_request_session_before_streaming() -> None:
+    """Sending a message streams the turn without pinning a DB connection."""
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    tracked = _TrackedSession()
+    app, released_at_first_chunk = _session_release_app(
+        tracked, _execute_role(workspace_id)
+    )
+    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
+    fake_svc = SimpleNamespace(
+        session=AsyncMock(),
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=agent_session),
+        run_turn=AsyncMock(
+            return_value=ChatResponse(
+                stream_url="/stream",
+                chat_id=session_id,
+                curr_run_id=uuid.uuid4(),
+            )
+        ),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
+    )
+    fake_stream = _fake_stream()
+    fake_stream.sse = Mock(
+        side_effect=lambda *_a, **_kw: _released_event_stream(
+            tracked, released_at_first_chunk
+        )
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            f"/agent/sessions/{session_id}/messages",
+            json=_vercel_chat_request().model_dump(mode="json"),
+        )
+
+    assert response.status_code == 200
+    assert response.text == "data: {}\n\n"
+    fake_svc.run_turn.assert_awaited_once()
+    assert released_at_first_chunk == [True]
+
+
+def test_send_message_still_requires_execute_scope() -> None:
+    """Releasing the session early leaves route authorization in place."""
+    session_id = uuid.uuid4()
+    tracked = _TrackedSession()
+    app, _ = _session_release_app(tracked, _read_role(uuid.uuid4()))
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session"
+        ) as with_session_mock,
+        TestClient(app) as client,
+        pytest.raises(ScopeDeniedError),
+    ):
+        client.post(
+            f"/agent/sessions/{session_id}/messages",
+            json=_vercel_chat_request().model_dump(mode="json"),
+        )
+
+    with_session_mock.assert_not_called()
+    assert tracked.closed

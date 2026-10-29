@@ -228,6 +228,20 @@ describe("Proofpoint registry icon mappings", () => {
   })
 })
 
+describe("Spur registry icon mappings", () => {
+  it.each(["tools.spur", "tools.spur.lookup_ip"])(
+    "renders the Spur mark for %s",
+    (key) => {
+      expect(svgTitle(getIcon(key))).toBe("Spur")
+    }
+  )
+
+  it("renders the Spur mark for the spur secret", () => {
+    const Icon = secretIcons.spur
+    expect(svgTitle(<Icon />)).toBe("Spur")
+  })
+})
+
 describe("Palo Alto Networks registry icon mappings", () => {
   it.each([
     "tools.pan_os",

@@ -4991,6 +4991,10 @@ export type EffectiveEntitlements = {
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
+  /**
+   * Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions
+   */
+  agent_runtime_preview?: boolean
 }
 
 /**
@@ -5124,6 +5128,10 @@ export type EntitlementsDict = {
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
+  /**
+   * Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions
+   */
+  agent_runtime_preview?: boolean
 }
 
 export type ErrorModel = {
@@ -5299,7 +5307,6 @@ export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
   | "agent-fs-persistence"
-  | "agent-runtime"
   | "workspace-sync-github-archive"
   | "forms"
 
@@ -6153,7 +6160,7 @@ export type GitLabTokenCredentialsRequest = {
    */
   base_url?: string
   /**
-   * GitLab personal/project/group access token with api scope.
+   * GitLab access token with api scope. Project and group tokens also require write_repository for Git sync pushes.
    */
   token: string
 }
@@ -6190,6 +6197,24 @@ export type GitSettingsUpdate = {
   git_allowed_domains?: Array<string>
   git_repo_url?: string | null
   git_repo_package_name?: string | null
+}
+
+/**
+ * Git tag information for repository management.
+ */
+export type GitTagInfo = {
+  /**
+   * Tag name
+   */
+  name: string
+  /**
+   * SHA of the commit the tag points to (SHA-1 or SHA-256)
+   */
+  commit_sha: string
+  /**
+   * Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.
+   */
+  date: string
 }
 
 /**
@@ -7382,6 +7407,9 @@ export type MCPToolSummary = {
   enabled?: boolean
   requires_approval?: boolean
   status?: "available" | "missing"
+  input_schema?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -7398,6 +7426,33 @@ export type status6 =
   | "succeeded"
   | "failed"
   | "superseded"
+
+/**
+ * The workspace managed resources are published from, and its Git binding.
+ */
+export type ManagedSourceRead = {
+  workspace_id: string
+  organization_id: string
+  git_provider: VcsProvider
+  git_repo_url: string
+}
+
+/**
+ * The managed resources source setting; ``source`` is null when unset.
+ */
+export type ManagedSourceSettingRead = {
+  source?: ManagedSourceRead | null
+}
+
+/**
+ * Set the managed resources source.
+ *
+ * The workspace must have a Git sync provider and repository URL; both are
+ * pinned with the setting.
+ */
+export type ManagedSourceUpdate = {
+  workspace_id: string
+}
 
 /**
  * Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.
@@ -7930,8 +7985,32 @@ export type Page_ExternalGroupRead_ = {
   prev_cursor?: string | null
 }
 
+export type Page_GitTagInfo_ = {
+  items: Array<GitTagInfo>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 export type Page_SecretStoreRead_ = {
   items: Array<SecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_SyncOperationRead_ = {
+  items: Array<SyncOperationRead>
   /**
    * Next-page cursor
    */
@@ -9513,6 +9592,23 @@ export type ScopeCreate = {
 }
 
 /**
+ * Structured explanation of an authorization scope denial.
+ */
+export type ScopeDeniedErrorDetail = {
+  code: "insufficient_scope"
+  message: string
+  required_scopes: Array<string>
+  missing_scopes: Array<string>
+}
+
+/**
+ * HTTP 403 response emitted by the scope-denial exception handler.
+ */
+export type ScopeDeniedResponse = {
+  error: ScopeDeniedErrorDetail
+}
+
+/**
  * Response schema for listing scopes.
  */
 export type ScopeList = {
@@ -10554,11 +10650,88 @@ export type SubCasesRemovedEventRead = {
   created_at: string
 }
 
+/**
+ * A stable page of diff metadata; file text is fetched separately.
+ */
+export type SyncDiffPage = {
+  items: Array<PullResourceDiff>
+  next_cursor?: string | null
+}
+
+export type SyncDirection = "push" | "pull"
+
+/**
+ * Repeat the same command ID and reviewed revisions after a lost response.
+ */
+export type SyncOperationCommand = {
+  command_id: string
+  preview_revision: number
+  state_revision: number
+}
+
+/**
+ * Start a preview; reuse the client-generated ID after a lost response.
+ */
+export type SyncOperationCreate_Input = {
+  id: string
+  direction: SyncDirection
+  push?: WorkspaceSyncExportRequest_Input | null
+  pull?: WorkflowSyncPullRequest | null
+  compare_ref?: string | null
+}
+
+/**
+ * Start a preview; reuse the client-generated ID after a lost response.
+ */
+export type SyncOperationCreate_Output = {
+  id: string
+  direction: SyncDirection
+  push?: WorkspaceSyncExportRequest_Output | null
+  pull?: WorkflowSyncPullRequest | null
+  compare_ref?: string | null
+}
+
+/**
+ * Expected operation conflict and diff lookup failures.
+ */
+export type SyncOperationError = {
+  detail: string
+}
+
+/**
+ * Small polling response, independent of the number of synced files.
+ */
+export type SyncOperationRead = {
+  id: string
+  direction: SyncDirection
+  status: SyncStatus
+  stage: SyncStage
+  created_at: string
+  expires_at: string
+  commit_sha?: string | null
+  error?: string | null
+  preview?: WorkspaceSyncExportPreview | PullResult | null
+  result?: SyncPushResult | PullResult | null
+  diff_count?: number
+  can_retry?: boolean
+  data_applied?: boolean
+  inputs: SyncOperationCreate_Output
+  preview_revision?: number
+  state_revision?: number
+}
+
 export type SyncPreviewResource = {
   resource_type: string
   source_id: string
   name: string
   path: string
+}
+
+/**
+ * Compact durable push receipt; file details stay in paginated artifacts.
+ */
+export type SyncPushResult = {
+  commit: CommitInfo
 }
 
 /**
@@ -10578,6 +10751,23 @@ export type SyncResourceType =
   | "case_duration"
   | "variable"
   | "secret_metadata"
+
+export type SyncStage =
+  | "fetching"
+  | "preparing"
+  | "awaiting_confirmation"
+  | "applying"
+  | "finishing"
+  | "finished"
+
+export type SyncStatus =
+  | "queued"
+  | "running"
+  | "ready"
+  | "applying"
+  | "completed"
+  | "failed"
+  | "expired"
 
 export type SyntaxToken = {
   type: string
@@ -13475,7 +13665,37 @@ export type WorkspaceSyncExportPreviewRequest = {
 /**
  * Request to commit selected workspace resources to a Git branch.
  */
-export type WorkspaceSyncExportRequest = {
+export type WorkspaceSyncExportRequest_Input = {
+  /**
+   * Commit message for the export.
+   */
+  message: string
+  /**
+   * Target branch to commit to.
+   */
+  branch: string
+  /**
+   * Whether to open a pull request for the commit.
+   */
+  create_pr?: boolean
+  /**
+   * Base branch for the pull request, if created.
+   */
+  pr_base_branch?: string | null
+  /**
+   * Specific resources to export, or ``None`` to export all.
+   */
+  resources?: Array<ResourceRef> | null
+  /**
+   * Whether to include workflow schedules in the export.
+   */
+  include_schedules?: boolean
+}
+
+/**
+ * Request to commit selected workspace resources to a Git branch.
+ */
+export type WorkspaceSyncExportRequest_Output = {
   /**
    * Commit message for the export.
    */
@@ -14439,7 +14659,7 @@ export type WorkflowsListWorkflowBranchesData = {
 export type WorkflowsListWorkflowBranchesResponse = Array<GitBranchInfo>
 
 export type WorkflowsExportWorkspaceSyncData = {
-  requestBody: WorkspaceSyncExportRequest
+  requestBody: WorkspaceSyncExportRequest_Input
   workspaceId: string
 }
 
@@ -14459,6 +14679,60 @@ export type WorkflowsPullWorkflowsData = {
 }
 
 export type WorkflowsPullWorkflowsResponse = PullResult
+
+export type WorkflowsCreateSyncOperationData = {
+  requestBody: SyncOperationCreate_Input
+  workspaceId: string
+}
+
+export type WorkflowsCreateSyncOperationResponse = SyncOperationRead
+
+export type WorkflowsListSyncOperationsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowsListSyncOperationsResponse = Page_SyncOperationRead_
+
+export type WorkflowsGetSyncOperationData = {
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsGetSyncOperationResponse = SyncOperationRead
+
+export type WorkflowsApplySyncOperationData = {
+  operationId: string
+  requestBody: SyncOperationCommand
+  workspaceId: string
+}
+
+export type WorkflowsApplySyncOperationResponse = SyncOperationRead
+
+export type WorkflowsRetrySyncOperationData = {
+  operationId: string
+  requestBody: SyncOperationCommand
+  workspaceId: string
+}
+
+export type WorkflowsRetrySyncOperationResponse = SyncOperationRead
+
+export type WorkflowsListSyncDiffsData = {
+  cursor?: string | null
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsListSyncDiffsResponse = SyncDiffPage
+
+export type WorkflowsGetSyncDiffData = {
+  index: number
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsGetSyncDiffResponse = PullResourceDiff
 
 export type SecretsCreateAwsSecretReferenceData = {
   requestBody: AwsSecretReferenceCreate
@@ -15951,6 +16225,23 @@ export type WatchtowerEnableWatchtowerAgentData = {
 }
 
 export type WatchtowerEnableWatchtowerAgentResponse = void
+
+export type AdminGetSourceResponse = ManagedSourceSettingRead
+
+export type AdminSetSourceData = {
+  requestBody: ManagedSourceUpdate
+}
+
+export type AdminSetSourceResponse = ManagedSourceRead
+
+export type AdminClearSourceResponse = void
+
+export type AdminListSourceTagsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type AdminListSourceTagsResponse = Page_GitTagInfo_
 
 export type AdminListOrganizationsResponse =
   Array<tracecat_ee__admin__organizations__schemas__OrgRead>
@@ -20002,6 +20293,213 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/workflows/sync/operations": {
+    post: {
+      req: WorkflowsCreateSyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+    get: {
+      req: WorkflowsListSyncOperationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_SyncOperationRead_
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}": {
+    get: {
+      req: WorkflowsGetSyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/apply": {
+    post: {
+      req: WorkflowsApplySyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/retry": {
+    post: {
+      req: WorkflowsRetrySyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/diffs": {
+    get: {
+      req: WorkflowsListSyncDiffsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SyncDiffPage
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Gone
+         */
+        410: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/diffs/{index}": {
+    get: {
+      req: WorkflowsGetSyncDiffData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PullResourceDiff
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Gone
+         */
+        410: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/secrets/aws": {
     post: {
       req: SecretsCreateAwsSecretReferenceData
@@ -22525,7 +23023,7 @@ export type $OpenApiTs = {
          */
         200: AgentSessionRead
         /**
-         * Workspace Chat entitlement or parent session write access required
+         * Workspace Chat or agent backend entitlement, or parent session write access required
          */
         403: unknown
         /**
@@ -22828,6 +23326,52 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/source": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedSourceSettingRead
+      }
+    }
+    put: {
+      req: AdminSetSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/admin/managed-resources/source/tags": {
+    get: {
+      req: AdminListSourceTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_GitTagInfo_
         /**
          * Validation Error
          */
@@ -27037,6 +27581,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ScimConnectionTokenRead
+        /**
+         * Only organization owners can issue or rotate the token.
+         */
+        403: unknown
       }
     }
   }

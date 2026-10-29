@@ -22,6 +22,7 @@ import type {
   AdminAgentListPlatformCatalogResponse,
   AdminCheckIpAllowlistData,
   AdminCheckIpAllowlistResponse,
+  AdminClearSourceResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
@@ -52,6 +53,7 @@ import type {
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
   AdminGetSecuritySettingsResponse,
+  AdminGetSourceResponse,
   AdminGetTierData,
   AdminGetTierResponse,
   AdminGetUserData,
@@ -67,6 +69,8 @@ import type {
   AdminListOrgRepositoryVersionsResponse,
   AdminListOrgTiersData,
   AdminListOrgTiersResponse,
+  AdminListSourceTagsData,
+  AdminListSourceTagsResponse,
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
@@ -99,6 +103,8 @@ import type {
   AdminResetUserMfaResponse,
   AdminRevokeOrganizationInvitationData,
   AdminRevokeOrganizationInvitationResponse,
+  AdminSetSourceData,
+  AdminSetSourceResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminTestAuditWebhookData,
@@ -1134,8 +1140,12 @@ import type {
   WorkflowExecutionsTerminateWorkflowExecutionResponse,
   WorkflowsAddTagData,
   WorkflowsAddTagResponse,
+  WorkflowsApplySyncOperationData,
+  WorkflowsApplySyncOperationResponse,
   WorkflowsCommitWorkflowData,
   WorkflowsCommitWorkflowResponse,
+  WorkflowsCreateSyncOperationData,
+  WorkflowsCreateSyncOperationResponse,
   WorkflowsCreateWorkflowData,
   WorkflowsCreateWorkflowResponse,
   WorkflowsDeleteWorkflowData,
@@ -1144,12 +1154,20 @@ import type {
   WorkflowsExportWorkflowResponse,
   WorkflowsExportWorkspaceSyncData,
   WorkflowsExportWorkspaceSyncResponse,
+  WorkflowsGetSyncDiffData,
+  WorkflowsGetSyncDiffResponse,
+  WorkflowsGetSyncOperationData,
+  WorkflowsGetSyncOperationResponse,
   WorkflowsGetWorkflowData,
   WorkflowsGetWorkflowDefinitionData,
   WorkflowsGetWorkflowDefinitionResponse,
   WorkflowsGetWorkflowDraftData,
   WorkflowsGetWorkflowDraftResponse,
   WorkflowsGetWorkflowResponse,
+  WorkflowsListSyncDiffsData,
+  WorkflowsListSyncDiffsResponse,
+  WorkflowsListSyncOperationsData,
+  WorkflowsListSyncOperationsResponse,
   WorkflowsListTagsData,
   WorkflowsListTagsResponse,
   WorkflowsListWorkflowBranchesData,
@@ -1176,6 +1194,8 @@ import type {
   WorkflowsReplaceWorkflowDraftResponse,
   WorkflowsRestoreWorkflowDefinitionData,
   WorkflowsRestoreWorkflowDefinitionResponse,
+  WorkflowsRetrySyncOperationData,
+  WorkflowsRetrySyncOperationResponse,
   WorkflowsUpdateWorkflowData,
   WorkflowsUpdateWorkflowResponse,
   WorkflowsValidateWorkflowEntrypointData,
@@ -3713,6 +3733,224 @@ export const workflowsPullWorkflows = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Sync Operation
+ * Accept a preview and return before any Git or resource work begins.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SyncOperationRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsCreateSyncOperation = (
+  data: WorkflowsCreateSyncOperationData
+): CancelablePromise<WorkflowsCreateSyncOperationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/operations",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "Bad Request",
+      403: "Forbidden",
+      404: "Not Found",
+      409: "Conflict",
+      422: "Validation Error",
+      503: "Service Unavailable",
+    },
+  })
+}
+
+/**
+ * List Sync Operations
+ * Recover the initiating actor's operations after a reload or reconnect.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_SyncOperationRead_ Successful Response
+ * @throws ApiError
+ */
+export const workflowsListSyncOperations = (
+  data: WorkflowsListSyncOperationsData
+): CancelablePromise<WorkflowsListSyncOperationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/operations",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      400: "Bad Request",
+      403: "Forbidden",
+      404: "Not Found",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Sync Operation
+ * Poll durable progress without starting or mutating the operation.
+ * @param data The data for the request.
+ * @param data.operationId
+ * @param data.workspaceId
+ * @returns SyncOperationRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsGetSyncOperation = (
+  data: WorkflowsGetSyncOperationData
+): CancelablePromise<WorkflowsGetSyncOperationResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}",
+    path: {
+      operation_id: data.operationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      403: "Forbidden",
+      404: "Not Found",
+      422: "Validation Error",
+      503: "Service Unavailable",
+    },
+  })
+}
+
+/**
+ * Apply Sync Operation
+ * Send a stable apply command to the existing lifecycle workflow.
+ * @param data The data for the request.
+ * @param data.operationId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SyncOperationRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsApplySyncOperation = (
+  data: WorkflowsApplySyncOperationData
+): CancelablePromise<WorkflowsApplySyncOperationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/apply",
+    path: {
+      operation_id: data.operationId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      403: "Forbidden",
+      404: "Not Found",
+      409: "Conflict",
+      422: "Validation Error",
+      503: "Service Unavailable",
+    },
+  })
+}
+
+/**
+ * Retry Sync Operation
+ * Send a stable retry command to the existing lifecycle workflow.
+ * @param data The data for the request.
+ * @param data.operationId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SyncOperationRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsRetrySyncOperation = (
+  data: WorkflowsRetrySyncOperationData
+): CancelablePromise<WorkflowsRetrySyncOperationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/retry",
+    path: {
+      operation_id: data.operationId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      403: "Forbidden",
+      404: "Not Found",
+      409: "Conflict",
+      422: "Validation Error",
+      503: "Service Unavailable",
+    },
+  })
+}
+
+/**
+ * List Sync Diffs
+ * Read one bounded page of diff metadata, without loading file contents.
+ * @param data The data for the request.
+ * @param data.operationId
+ * @param data.workspaceId
+ * @param data.cursor
+ * @returns SyncDiffPage Successful Response
+ * @throws ApiError
+ */
+export const workflowsListSyncDiffs = (
+  data: WorkflowsListSyncDiffsData
+): CancelablePromise<WorkflowsListSyncDiffsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/diffs",
+    path: {
+      operation_id: data.operationId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      cursor: data.cursor,
+    },
+    errors: {
+      400: "Bad Request",
+      403: "Forbidden",
+      404: "Not Found",
+      410: "Gone",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Sync Diff
+ * Load one selected file diff on demand.
+ * @param data The data for the request.
+ * @param data.operationId
+ * @param data.index
+ * @param data.workspaceId
+ * @returns PullResourceDiff Successful Response
+ * @throws ApiError
+ */
+export const workflowsGetSyncDiff = (
+  data: WorkflowsGetSyncDiffData
+): CancelablePromise<WorkflowsGetSyncDiffResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/diffs/{index}",
+    path: {
+      operation_id: data.operationId,
+      index: data.index,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      403: "Forbidden",
+      404: "Not Found",
+      410: "Gone",
       422: "Validation Error",
     },
   })
@@ -8052,7 +8290,7 @@ export const agentSkillsRemoveSkillTag = (
 
 /**
  * List Agent Backends
- * List enabled installed backends available to new sessions.
+ * List enabled installed backends this organization may start sessions on.
  * @param data The data for the request.
  * @param data.workspaceId
  * @returns AgentBackendRead Successful Response
@@ -8094,7 +8332,7 @@ export const agentSessionsCreateSession = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
-      403: "Workspace Chat entitlement or parent session write access required",
+      403: "Workspace Chat or agent backend entitlement, or parent session write access required",
       404: "Parent session not found in this workspace",
       422: "Validation Error",
     },
@@ -8700,6 +8938,80 @@ export const watchtowerEnableWatchtowerAgent = (
     url: "/watchtower/monitor/agents/{agent_id}/enable",
     path: {
       agent_id: data.agentId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Source
+ * Get the workspace managed resources are published from.
+ * @returns ManagedSourceSettingRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetSource = (): CancelablePromise<AdminGetSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/source",
+  })
+}
+
+/**
+ * Set Source
+ * Set the managed resources source and pin its Git binding.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ManagedSourceRead Successful Response
+ * @throws ApiError
+ */
+export const adminSetSource = (
+  data: AdminSetSourceData
+): CancelablePromise<AdminSetSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/admin/managed-resources/source",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Clear Source
+ * Remove the managed resources source setting.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminClearSource =
+  (): CancelablePromise<AdminClearSourceResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/admin/managed-resources/source",
+    })
+  }
+
+/**
+ * List Source Tags
+ * List tags in the managed resources source repository, newest first.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_GitTagInfo_ Successful Response
+ * @throws ApiError
+ */
+export const adminListSourceTags = (
+  data: AdminListSourceTagsData = {}
+): CancelablePromise<AdminListSourceTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/source/tags",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
     },
     errors: {
       422: "Validation Error",
@@ -16206,7 +16518,7 @@ export const scimGetScimConnection =
 
 /**
  * Issue Scim Token
- * Create or rotate the SCIM connection token.
+ * Create or rotate the SCIM connection token. Owners only.
  *
  * The raw token is returned only in this response.
  * @returns ScimConnectionTokenRead Successful Response
@@ -16217,6 +16529,9 @@ export const scimIssueScimToken =
     return __request(OpenAPI, {
       method: "POST",
       url: "/scim/connection",
+      errors: {
+        403: "Only organization owners can issue or rotate the token.",
+      },
     })
   }
 

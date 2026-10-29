@@ -41,12 +41,14 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
+from tracecat.agent.backends.access import require_backend_entitlement
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
     find_agent_backend,
     get_agent_backend,
 )
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
+from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     SessionForkContext,
@@ -542,7 +544,20 @@ class AgentSessionService(BaseWorkspaceService):
 
         Returns:
             The created AgentSession model.
+
+        Raises:
+            EntitlementRequired: If the backend needs an entitlement the
+                organization lacks.
         """
+        # Callers that do not pin a backend get the one selected for the surface.
+        if "backend_id" not in args.model_fields_set:
+            backend_id = await select_backend_id(
+                self.session, self.organization_id, args.entity_type
+            )
+            args = args.model_copy(update={"backend_id": backend_id})
+        await require_backend_entitlement(
+            self.session, self.organization_id, args.backend_id
+        )
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
         if args.spawned_by_session_id is not None:
             if await self.get_session(args.spawned_by_session_id) is None:
@@ -2044,15 +2059,14 @@ class AgentSessionService(BaseWorkspaceService):
             session_id,
             BasicChatRequest(message=prompt),
         )
-        # This caller constructs the built-in workflow's arguments directly.
-        # Keep that integration restriction explicit until it uses the contract.
-        if agent_session.backend_id != "oss":
+        backend = get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
+        # The caller runs the turn as its own child and reads the result.
+        if not backend.caller_owned_turns:
             raise TracecatValidationError(
                 "This backend does not support caller-owned workflows"
             )
-        get_agent_backend(
-            agent_session.backend_id, harness_type=agent_session.harness_type
-        )
         async with self._build_agent_config(agent_session) as agent_config:
             run_id = agent_session.curr_run_id or uuid.uuid4()
             stream_id = agent_session.active_stream_id or uuid.uuid4()
@@ -2068,6 +2082,8 @@ class AgentSessionService(BaseWorkspaceService):
                 tools=agent_session.tools,
                 agent_preset_id=agent_session.agent_preset_id,
                 agent_preset_version_id=agent_session.agent_preset_version_id,
+                backend_id=agent_session.backend_id,
+                harness_type=agent_session.harness_type,
             )
 
             agent_session.curr_run_id = run_id
@@ -3705,6 +3721,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         Raises:
             TracecatNotFoundError: If the parent session is not found.
+            EntitlementRequired: If the source session's backend needs an
+                entitlement the organization lacks.
         """
         history_boundary = (
             select(func.max(AgentSessionHistory.surrogate_id))
@@ -3733,6 +3751,9 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
 
+        await require_backend_entitlement(
+            self.session, self.organization_id, source.backend_id
+        )
         backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 
         # Forked sessions are read-only "reviewer" sessions.
