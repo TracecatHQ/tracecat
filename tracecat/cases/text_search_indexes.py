@@ -290,7 +290,16 @@ async def _ensure_indexes(
         (
             await session.execute(
                 sa.text("""
-        SELECT c.relname, pg_get_indexdef(c.oid), i.indisvalid AND i.indisready
+        SELECT c.relname, pg_get_indexdef(c.oid), i.indisvalid AND i.indisready,
+            -- The definition omits a visible opclass's schema, so a same-named
+            -- lookalike earlier on search_path would render identically.
+            NOT EXISTS (
+                SELECT 1 FROM unnest(i.indclass::oid[]) AS k(opclass)
+                JOIN pg_opclass o ON o.oid = k.opclass
+                WHERE o.opcname = 'gin_trgm_ops' AND o.opcnamespace IS DISTINCT FROM (
+                    SELECT extnamespace FROM pg_extension WHERE extname = 'pg_trgm'
+                )
+            )
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         JOIN pg_index i ON i.indexrelid = c.oid
         WHERE n.nspname = 'public' AND c.relname = ANY(:names)
@@ -301,11 +310,14 @@ async def _ensure_indexes(
         .tuples()
         .all()
     )
-    for name, definition, ready in rows:
+    for name, definition, ready, trgm_owned in rows:
         # pg_get_indexdef() schema-qualifies the operator class when pg_trgm's
         # schema is not on the connection's search_path.
         qualified = f" {trgm_schema}.gin_trgm_ops)"
-        if definition.replace(qualified, " gin_trgm_ops)") != indexes[name]:
+        if (
+            definition.replace(qualified, " gin_trgm_ops)") != indexes[name]
+            or trgm_owned is not True
+        ):
             raise LexicalSearchError(LexicalSearchErrorCode.CONFIGURATION_CHANGED)
         if ready is not True:
             raise LexicalSearchError(LexicalSearchErrorCode.INDEXING)
