@@ -2016,3 +2016,4 @@ def test_send_message_still_requires_execute_scope() -> None:
         )
 
     with_session_mock.assert_not_called()
+    assert tracked.closed

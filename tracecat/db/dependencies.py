@@ -16,8 +16,10 @@ AsyncDBSessionBypass = Annotated[AsyncSession, Depends(get_async_session_bypass_
 async def _release_request_session(
     session: AsyncDBSession,
 ) -> AsyncGenerator[None, None]:
-    yield
-    await session.close()
+    try:
+        yield
+    finally:
+        await session.close()
 
 
 ReleaseRequestSession = Depends(_release_request_session, scope="function")
