@@ -92,6 +92,8 @@ class RuntimeErrorKind(StrEnum):
     AGENT_LLM_RATE_LIMITED = "agent.llm.rate_limited"
     AGENT_LLM_READ_TIMEOUT = "agent.llm.read_timeout"
     AGENT_LLM_STREAM_INTERRUPTED = "agent.llm.stream_interrupted"
+    AGENT_LLM_PROVIDER_UNAVAILABLE = "agent.llm.provider_unavailable"
+    AGENT_LLM_GATEWAY_UNAVAILABLE = "agent.llm.gateway_unavailable"
     AGENT_MCP_AUTH_FAILED = "agent.mcp.auth_failed"
     AGENT_MCP_UNAVAILABLE = "agent.mcp.unavailable"
     AGENT_EXECUTION_FAILED = "agent.execution.failed"
