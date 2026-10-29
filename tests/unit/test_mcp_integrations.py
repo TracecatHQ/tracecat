@@ -7899,11 +7899,15 @@ class TestMCPConnectionVerification:
             role=integration_service.role,
         )
 
+        row = await integration_service.get_mcp_integration(
+            mcp_integration_id=mcp_integration.id
+        )
+        assert row is not None
         without_env = await preset_service.resolve_stdio_mcp_integration(
-            mcp_integration.id, resolve_env=False
+            row, resolve_env=False
         )
         with_env = await preset_service.resolve_stdio_mcp_integration(
-            mcp_integration.id, resolve_env=True
+            row, resolve_env=True
         )
 
         assert without_env is not None and with_env is not None
@@ -7912,12 +7916,6 @@ class TestMCPConnectionVerification:
         assert with_env.tools["read"].input_schema == {"type": "object"}
         assert without_env.env is None
         assert with_env.env == {"EXAMPLE_TOKEN": "token"}
-        assert (
-            await preset_service.resolve_stdio_mcp_integration(
-                uuid.uuid4(), resolve_env=True
-            )
-            is None
-        )
 
     @pytest.mark.parametrize(
         ("stored_env", "expected_env"),
@@ -7961,13 +7959,13 @@ class TestMCPConnectionVerification:
         if expected_env is None:
             with pytest.raises(TracecatValidationError) as exc_info:
                 await preset_service.resolve_stdio_mcp_integration(
-                    mcp_integration.id, resolve_env=True
+                    mcp_integration, resolve_env=True
                 )
             assert exc_info.value.__cause__ is None
             assert exc_info.value.__context__ is None
             return
         snapshot = await preset_service.resolve_stdio_mcp_integration(
-            mcp_integration.id, resolve_env=True
+            mcp_integration, resolve_env=True
         )
         assert snapshot is not None
         assert snapshot.env == expected_env

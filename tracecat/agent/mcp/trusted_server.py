@@ -442,15 +442,18 @@ async def _resolve_user_mcp_config(
 
     try:
         async with AgentPresetService.with_session(role=role) as svc:
-            refs = await svc.resolve_mcp_integration_refs([str(ref.id)])
-            if not refs:
-                raise ToolError(f"MCP integration {ref.id} not found")
-            metadata = refs[0]
+            # One workspace-scoped row read gives the address, the command,
+            # the tool policy and the credentials together.
+            integration = (await svc.load_mcp_integrations([ref.id])).get(ref.id)
+            if integration is None:
+                raise ToolError(
+                    f"MCP integration {ref.id} is unavailable: "
+                    "not found in this workspace"
+                )
+            metadata = svc.mcp_integration_refs([str(ref.id)], {ref.id: integration})[0]
             if is_stdio_mcp_server(metadata):
-                # Run only what the snapshot holds: one row read gives the
-                # command, tool policy and env together.
                 snapshot = await svc.resolve_stdio_mcp_integration(
-                    ref.id, resolve_env=resolve_stdio_env
+                    integration, resolve_env=resolve_stdio_env
                 )
                 if snapshot is None or role.workspace_id is None:
                     raise ToolError(f"MCP integration {ref.id} not found")
@@ -468,7 +471,7 @@ async def _resolve_user_mcp_config(
                 )
             if not is_http_mcp_server(metadata):
                 raise ToolError(f"User MCP server '{ref.name}' is not an HTTP server")
-            secrets = await svc.resolve_mcp_integration_secrets(ref.id)
+            secrets = await svc.resolve_loaded_mcp_integration_secrets(integration)
     except ToolError:
         raise
     except MCPSecretResolutionError as e:
