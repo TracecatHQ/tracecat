@@ -2763,10 +2763,12 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
     async def _data_center_commit_dates(
         self, client: httpx.AsyncClient, path: str, shas: set[str]
     ) -> dict[str, str | None]:
-        """Return each commit's author date, or ``None`` if it could not be read.
+        """Return each commit's author date, or ``None`` if that commit is bad.
 
-        One unreadable commit leaves its tags undated, so they are skipped
-        instead of failing the whole page.
+        A commit that is missing (404) or malformed leaves its tags undated, so
+        they are skipped instead of failing the whole page. Any other failure
+        (auth, rate limit, server error) is about the request, not the tag, and
+        is raised so the page is not silently incomplete.
         """
         semaphore = asyncio.Semaphore(_DATA_CENTER_TAG_COMMIT_CONCURRENCY)
 
@@ -2779,6 +2781,9 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                         DataCenterCommit,
                     )
             except BitbucketError as e:
+                # Validation failures carry no status; 404 means this commit.
+                if e.status_code not in (None, 404):
+                    raise
                 self.logger.warning(
                     "Could not read a tagged commit's date",
                     commit_sha=sha,

@@ -274,6 +274,8 @@ class _TagServer:
         """Tag payloads in ``orderBy=MODIFICATION`` order."""
         self.tag_requests: list[httpx.Request] = []
         self.commit_reads: list[str] = []
+        self.commit_status: dict[str, int] = {}
+        """Error status to return for a commit read, by SHA."""
 
     def respond(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -291,6 +293,8 @@ class _TagServer:
             )
         sha = path.removeprefix(f"{DC_REPO_PATH}/commits/")
         self.commit_reads.append(sha)
+        if sha in self.commit_status:
+            return httpx.Response(self.commit_status[sha])
         if sha not in TIMESTAMPS:
             return httpx.Response(404)
         return httpx.Response(
@@ -376,6 +380,20 @@ async def test_list_tags_pages_by_start_and_dates_each_commit_once():
         with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
             await transport.list_tags(url=DC_URL, cursor=cursor)
     assert len(server.tag_requests) == requests_before
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [401, 429, 503])
+async def test_list_tags_raises_when_a_commit_read_fails_for_the_request(
+    status_code: int,
+):
+    """Auth, rate-limit and server errors are not about one tag: never skip."""
+    server = _TagServer([_dc_tag("v3", SHA_A), _dc_tag("v2", SHA_B)])
+    server.commit_status[SHA_A] = status_code
+
+    with pytest.raises(BitbucketError) as exc:
+        await _MockDataCenterTransport(server.respond).list_tags(url=DC_URL)
+    assert exc.value.status_code == status_code
 
 
 @pytest.mark.anyio
