@@ -12,7 +12,7 @@ from temporalio.client import WorkflowExecution
 import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.schemas import AgentOutput
-from tracecat.agent.types import get_claude_sdk_message_ta
+from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
@@ -754,10 +754,8 @@ async def get_workflow_execution_compact(
                         if chat_msg.message is not None and isinstance(
                             chat_msg.message, dict
                         ):
-                            chat_msg.message = (
-                                get_claude_sdk_message_ta().validate_python(
-                                    chat_msg.message
-                                )
+                            chat_msg.message = ClaudeSDKMessageTA.validate_python(
+                                chat_msg.message
                             )
                     event.session.events = (
                         tracecat.agent.adapter.vercel.convert_chat_messages_to_ui(

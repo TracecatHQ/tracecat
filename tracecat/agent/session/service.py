@@ -112,9 +112,9 @@ from tracecat.agent.subagents import (
 )
 from tracecat.agent.types import (
     AgentConfig,
+    ClaudeSDKMessageTA,
     ToolApproved,
     ToolDenied,
-    get_claude_sdk_message_ta,
 )
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
@@ -3285,7 +3285,7 @@ class AgentSessionService(BaseWorkspaceService):
 
             inner_message = content.get("message") or content
             sanitized_message = sanitize_message_tool_inputs(inner_message)
-            message = get_claude_sdk_message_ta().validate_python(sanitized_message)
+            message = ClaudeSDKMessageTA.validate_python(sanitized_message)
             messages.append(
                 ChatMessage(
                     id=str(entry.id),

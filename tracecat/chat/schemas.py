@@ -15,7 +15,7 @@ from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.types import ToolApproved, ToolDenied, get_claude_sdk_message_ta
+from tracecat.agent.types import ClaudeSDKMessageTA, ToolApproved, ToolDenied
 from tracecat.chat.enums import MessageKind
 
 if TYPE_CHECKING:
@@ -276,7 +276,7 @@ class ChatMessage(BaseModel):
         """Deserialize a supported database message."""
         sanitized_data = sanitize_message_tool_inputs(db_msg.data)
         try:
-            message = get_claude_sdk_message_ta().validate_python(sanitized_data)
+            message = ClaudeSDKMessageTA.validate_python(sanitized_data)
         except ValidationError:
             # Legacy harness rows are unsupported; a bad Claude row is corruption.
             if db_msg.harness == HarnessType.CLAUDE_CODE.value:

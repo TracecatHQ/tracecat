@@ -5,8 +5,6 @@ https://developers.openai.com/api/reference/resources/embeddings/methods/create.
 Our call limits are deliberately smaller than the provider's batch limits.
 """
 
-from __future__ import annotations
-
 import base64
 import gzip
 import hashlib
@@ -14,9 +12,9 @@ import re
 from dataclasses import asdict, replace
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import orjson
+import tiktoken
 
 from tracecat.search.embeddings.self_hosted import SELF_HOSTED_MODELS
 from tracecat.search.embeddings.types import (
@@ -25,9 +23,6 @@ from tracecat.search.embeddings.types import (
     EmbeddingProvider,
     ModelSpec,
 )
-
-if TYPE_CHECKING:
-    import tiktoken
 
 MODELS = (
     ModelSpec(model="text-embedding-3-small", dimensions=1536),
@@ -60,10 +55,6 @@ MODELS = (
 @cache
 def _load_encoding() -> tiktoken.Encoding:
     """Load the pinned vocabulary locally; never download on a request thread."""
-    # Deferred: the workflow worker imports this module for the search
-    # schedule but only tokenizes inside embedding activities.
-    import tiktoken
-
     path = Path(__file__).with_name("data") / "cl100k_base.tiktoken.gz"
     contents = gzip.decompress(path.read_bytes())
     if hashlib.sha256(contents).hexdigest() != (
