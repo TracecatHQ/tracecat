@@ -7,8 +7,6 @@ from fastapi.exception_handlers import http_exception_handler as default_http_ha
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic_core import to_jsonable_python
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
@@ -184,33 +182,6 @@ def bootstrap_role(organization_id: OrganizationID | None = None) -> Role:
         is_platform_superuser=True,
         scopes=frozenset({"*"}),
     )
-
-
-async def get_default_organization_id(session: AsyncSession) -> OrganizationID:
-    """Get the default (first) organization ID.
-
-    This is used by auth modules that need to read platform-level settings
-    before user authentication provides an org context.
-
-    Args:
-        session: Database session.
-
-    Returns:
-        OrganizationID: The ID of the first organization.
-
-    Raises:
-        ValueError: If no organizations exist.
-    """
-    # Import here to avoid circular imports
-    from tracecat.db.models import Organization
-
-    result = await session.execute(
-        select(Organization).order_by(Organization.created_at).limit(1)
-    )
-    org = result.scalar_one_or_none()
-    if org is None:
-        raise ValueError("No organizations exist. Run bootstrap first.")
-    return org.id
 
 
 def tracecat_exception_handler(request: Request, exc: Exception) -> Response:

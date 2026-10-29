@@ -57,7 +57,7 @@ from saml2.saml import Assertion
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.api.common import bootstrap_role, get_default_organization_id
+from tracecat.api.common import bootstrap_role
 from tracecat.auth.dependencies import ServiceRole, verify_auth_type
 from tracecat.auth.domain_policy import (
     is_domain_allowed_for_org,
@@ -99,6 +99,7 @@ from tracecat.invitations.service import (
 )
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
+from tracecat.organization.lookup import get_default_organization_id
 from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])

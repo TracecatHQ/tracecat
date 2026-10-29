@@ -11,7 +11,6 @@ from pydantic import EmailStr
 from sqlalchemy import select
 
 from tracecat import config
-from tracecat.api.common import get_default_organization_id
 from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSessionBypass
@@ -20,6 +19,7 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
+from tracecat.organization.lookup import get_default_organization_id
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_from_bypass_session
 

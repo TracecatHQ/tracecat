@@ -5,10 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.api.common import get_default_organization_id
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Organization
 from tracecat.identifiers import OrganizationID
+from tracecat.organization.lookup import get_default_organization_id
 
 
 async def _resolve_by_slug(

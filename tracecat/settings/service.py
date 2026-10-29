@@ -12,7 +12,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.api.common import get_default_organization_id
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import clear_audit_setting_cache
 from tracecat.auth.secrets import get_db_encryption_key
@@ -31,6 +30,7 @@ from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
+from tracecat.organization.lookup import get_default_organization_id
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
