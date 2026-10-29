@@ -17,13 +17,15 @@
 # runs from the full stack's Temporal are not visible here and vice versa.
 # Tracecat data in Postgres, MinIO, and Redis is shared between modes.
 
+x-temporal-image: &temporal-image temporalio/temporal:1.8.0
+
 x-python-env: &python-env
   MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-2}
 
 services:
   # The dev server runs as uid 1000, but a fresh named volume is root-owned.
   temporal-lite-init:
-    image: temporalio/temporal:1.8.0
+    image: *temporal-image
     user: "0:0"
     entrypoint: ["chown", "-R", "1000:1000", "/data"]
     volumes:
@@ -33,7 +35,9 @@ services:
     attach: false
 
   temporal:
-    image: temporalio/temporal:1.8.0
+    image: *temporal-image
+    # Pin the image's non-root user; temporal-lite-init chowns /data to match.
+    user: "1000:1000"
     command:
       - server
       - start-dev
@@ -108,7 +112,9 @@ services:
 
   executor:
     environment: *python-env
-    mem_limit: 1536m
+    # Above one sandbox's default budget (TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+    # 2048) plus the executor process, so one action cannot OOM the executor.
+    mem_limit: 3g
 
   migrations:
     environment: *python-env
