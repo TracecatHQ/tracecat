@@ -20,6 +20,10 @@ import type {
   ActionsUpdateActionResponse,
   AdminAgentListPlatformCatalogData,
   AdminAgentListPlatformCatalogResponse,
+  AdminApplyRolloutsData,
+  AdminApplyRolloutsResponse,
+  AdminAssignTargetData,
+  AdminAssignTargetResponse,
   AdminCheckIpAllowlistData,
   AdminCheckIpAllowlistResponse,
   AdminClearSourceResponse,
@@ -33,6 +37,8 @@ import type {
   AdminCreateTierResponse,
   AdminCreateUserData,
   AdminCreateUserResponse,
+  AdminCutReleaseData,
+  AdminCutReleaseResponse,
   AdminDeleteOrganizationData,
   AdminDeleteOrganizationDomainData,
   AdminDeleteOrganizationDomainResponse,
@@ -52,6 +58,8 @@ import type {
   AdminGetOrgTierData,
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
+  AdminGetRolloutData,
+  AdminGetRolloutResponse,
   AdminGetSecuritySettingsResponse,
   AdminGetSourceResponse,
   AdminGetTierData,
@@ -69,14 +77,24 @@ import type {
   AdminListOrgRepositoryVersionsResponse,
   AdminListOrgTiersData,
   AdminListOrgTiersResponse,
+  AdminListReferenceMatchesData,
+  AdminListReferenceMatchesResponse,
+  AdminListRolloutsData,
+  AdminListRolloutsResponse,
   AdminListSourceTagsData,
   AdminListSourceTagsResponse,
+  AdminListTargetCandidatesData,
+  AdminListTargetCandidatesResponse,
+  AdminListTargetsData,
+  AdminListTargetsResponse,
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
   AdminMaintenanceGetCaseAgentSessionInteractionBackfillData,
   AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse,
   AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse,
+  AdminPreviewRolloutsData,
+  AdminPreviewRolloutsResponse,
   AdminPromoteOrgRepositoryVersionData,
   AdminPromoteOrgRepositoryVersionResponse,
   AdminPromoteToSuperuserData,
@@ -103,12 +121,16 @@ import type {
   AdminResetUserMfaResponse,
   AdminRevokeOrganizationInvitationData,
   AdminRevokeOrganizationInvitationResponse,
+  AdminSaveReferenceMatchesData,
+  AdminSaveReferenceMatchesResponse,
   AdminSetSourceData,
   AdminSetSourceResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminTestAuditWebhookData,
   AdminTestAuditWebhookResponse,
+  AdminUnassignTargetData,
+  AdminUnassignTargetResponse,
   AdminUpdateAuditSettingsData,
   AdminUpdateAuditSettingsResponse,
   AdminUpdateMfaSettingsData,
@@ -123,6 +145,8 @@ import type {
   AdminUpdateRegistrySettingsResponse,
   AdminUpdateSecuritySettingsData,
   AdminUpdateSecuritySettingsResponse,
+  AdminUpdateTargetData,
+  AdminUpdateTargetResponse,
   AdminUpdateTierData,
   AdminUpdateTierResponse,
   AgentChannelsCreateChannelTokenData,
@@ -9133,6 +9157,294 @@ export const adminListSourceTags = (
     query: {
       limit: data.limit,
       cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Cut Release
+ * Tag the source repository's base branch HEAD as a new release.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns GitTagInfo Successful Response
+ * @throws ApiError
+ */
+export const adminCutRelease = (
+  data: AdminCutReleaseData
+): CancelablePromise<AdminCutReleaseResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/managed-resources/source/releases",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Target Candidates
+ * List workspaces in every organization, marking targets and the source.
+ * @param data The data for the request.
+ * @param data.organizationId
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ManagedWorkspaceRead_ Successful Response
+ * @throws ApiError
+ */
+export const adminListTargetCandidates = (
+  data: AdminListTargetCandidatesData = {}
+): CancelablePromise<AdminListTargetCandidatesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/workspaces",
+    query: {
+      organization_id: data.organizationId,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Targets
+ * List target workspaces with their pinned tag and last rollout.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ManagedTargetRead_ Successful Response
+ * @throws ApiError
+ */
+export const adminListTargets = (
+  data: AdminListTargetsData = {}
+): CancelablePromise<AdminListTargetsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/targets",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Assign Target
+ * Assign a workspace as a target pinned to a tag; a rollout applies it.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ManagedTargetRead Successful Response
+ * @throws ApiError
+ */
+export const adminAssignTarget = (
+  data: AdminAssignTargetData
+): CancelablePromise<AdminAssignTargetResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/managed-resources/targets",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Target
+ * Move a target's pinned tag.
+ * @param data The data for the request.
+ * @param data.targetId
+ * @param data.requestBody
+ * @returns ManagedTargetRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateTarget = (
+  data: AdminUpdateTargetData
+): CancelablePromise<AdminUpdateTargetResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/managed-resources/targets/{target_id}",
+    path: {
+      target_id: data.targetId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unassign Target
+ * Preview unassigning a target; applying it deletes its managed resources.
+ * @param data The data for the request.
+ * @param data.targetId
+ * @returns ManagedRolloutRead Successful Response
+ * @throws ApiError
+ */
+export const adminUnassignTarget = (
+  data: AdminUnassignTargetData
+): CancelablePromise<AdminUnassignTargetResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/managed-resources/targets/{target_id}/unassign",
+    path: {
+      target_id: data.targetId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Reference Matches
+ * List a target's saved model, MCP integration and secret store matches.
+ * @param data The data for the request.
+ * @param data.targetId
+ * @returns ManagedReferenceMatchItem Successful Response
+ * @throws ApiError
+ */
+export const adminListReferenceMatches = (
+  data: AdminListReferenceMatchesData
+): CancelablePromise<AdminListReferenceMatchesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/targets/{target_id}/references",
+    path: {
+      target_id: data.targetId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Save Reference Matches
+ * Save reference matches; later version bumps reuse them.
+ * @param data The data for the request.
+ * @param data.targetId
+ * @param data.requestBody
+ * @returns ManagedReferenceMatchItem Successful Response
+ * @throws ApiError
+ */
+export const adminSaveReferenceMatches = (
+  data: AdminSaveReferenceMatchesData
+): CancelablePromise<AdminSaveReferenceMatchesResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/admin/managed-resources/targets/{target_id}/references",
+    path: {
+      target_id: data.targetId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Preview Rollouts
+ * Start a preview of a tag for each target; poll the rollouts for results.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ManagedRolloutRead Successful Response
+ * @throws ApiError
+ */
+export const adminPreviewRollouts = (
+  data: AdminPreviewRolloutsData
+): CancelablePromise<AdminPreviewRolloutsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/managed-resources/rollouts/preview",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Apply Rollouts
+ * Apply the ready rollouts among those given; the rest are left as they are.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ManagedRolloutRead Successful Response
+ * @throws ApiError
+ */
+export const adminApplyRollouts = (
+  data: AdminApplyRolloutsData
+): CancelablePromise<AdminApplyRolloutsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/managed-resources/rollouts/apply",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Rollouts
+ * List rollout records, newest first.
+ * @param data The data for the request.
+ * @param data.targetId
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ManagedRolloutRead_ Successful Response
+ * @throws ApiError
+ */
+export const adminListRollouts = (
+  data: AdminListRolloutsData = {}
+): CancelablePromise<AdminListRolloutsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/rollouts",
+    query: {
+      target_id: data.targetId,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Rollout
+ * Get one rollout record with its preview.
+ * @param data The data for the request.
+ * @param data.rolloutId
+ * @returns ManagedRolloutRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetRollout = (
+  data: AdminGetRolloutData
+): CancelablePromise<AdminGetRolloutResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/managed-resources/rollouts/{rollout_id}",
+    path: {
+      rollout_id: data.rolloutId,
     },
     errors: {
       422: "Validation Error",

@@ -7449,6 +7449,37 @@ export type status6 =
   | "superseded"
 
 /**
+ * Kind of source-side reference a target workspace must resolve locally.
+ */
+export type ManagedReferenceKind = "model" | "mcp_integration" | "secret_store"
+
+/**
+ * The target's equivalent of one source model, MCP integration or store.
+ */
+export type ManagedReferenceMatchItem = {
+  reference_kind: ManagedReferenceKind
+  source_key: string
+  /**
+   * Target resource id. Null leaves a secret store unlinked.
+   */
+  resolved_id?: string | null
+}
+
+/**
+ * Replace a target's saved reference matches.
+ */
+export type ManagedReferenceMatchesUpdate = {
+  matches?: Array<ManagedReferenceMatchItem>
+}
+
+/**
+ * Cut a release tag at the HEAD of the source repository's base branch.
+ */
+export type ManagedReleaseCreate = {
+  tag: string
+}
+
+/**
  * Detach a managed resource into an editable copy named ``new_name``.
  */
 export type ManagedResourceDetach = {
@@ -7474,6 +7505,60 @@ export type ManagedResourceRead = {
    */
   deployed_at: string
 }
+
+/**
+ * Apply previewed rollouts; only ready ones are applied.
+ */
+export type ManagedRolloutApplyRequest = {
+  rollout_ids: Array<string>
+}
+
+/**
+ * What a rollout record does to its target workspace.
+ */
+export type ManagedRolloutKind = "apply" | "unassign"
+
+/**
+ * Preview a tag for several targets at once.
+ */
+export type ManagedRolloutPreviewRequest = {
+  target_ids: Array<string>
+  /**
+   * Tag to preview. ``None`` uses each target's pinned tag.
+   */
+  tag?: string | null
+}
+
+/**
+ * One rollout record for one target.
+ */
+export type ManagedRolloutRead = {
+  id: string
+  target_id: string | null
+  workspace_id: string
+  kind: ManagedRolloutKind
+  status: ManagedRolloutStatus
+  tag: string | null
+  commit_sha: string | null
+  preview: RolloutPreview | null
+  error: string | null
+  created_at: string
+  applied_at: string | null
+}
+
+/**
+ * Lifecycle of one rollout record for one target workspace.
+ */
+export type ManagedRolloutStatus =
+  | "previewing"
+  | "ready"
+  | "no_changes"
+  | "blocked"
+  | "needs_references"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "stale"
 
 /**
  * The workspace managed resources are published from, and its Git binding.
@@ -7503,6 +7588,47 @@ export type ManagedSourceUpdate = {
 }
 
 /**
+ * Assign a workspace as a target, pinned to a tag.
+ */
+export type ManagedTargetCreate = {
+  workspace_id: string
+  pinned_tag: string
+}
+
+/**
+ * A customer workspace that receives the package.
+ */
+export type ManagedTargetRead = {
+  id: string
+  workspace_id: string
+  workspace_name: string
+  organization_id: string
+  organization_name: string
+  pinned_tag: string
+  last_applied_tag: string | null
+  last_rollout_status: ManagedTargetStatus
+  last_rollout_at: string | null
+  assigned_at: string
+}
+
+/**
+ * Outcome of the most recent rollout to a managed target workspace.
+ */
+export type ManagedTargetStatus =
+  | "pending"
+  | "up_to_date"
+  | "blocked"
+  | "needs_references"
+  | "failed"
+
+/**
+ * Move a target's pin to another tag; a rollout applies it.
+ */
+export type ManagedTargetUpdate = {
+  pinned_tag: string
+}
+
+/**
  * Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.
  */
 export type ManagedTunnelCreate = {
@@ -7520,6 +7646,21 @@ export type ManagedTunnelCreated = {
   site_secret: string
   site_endpoint: string
   site_install_command: string
+}
+
+/**
+ * A workspace an FDE can assign as a target.
+ */
+export type ManagedWorkspaceRead = {
+  workspace_id: string
+  workspace_name: string
+  organization_id: string
+  organization_name: string
+  is_source: boolean
+  /**
+   * Set when the workspace is already a target.
+   */
+  target_id?: string | null
 }
 
 export type McpIntegrationMappingAffectedPreset = {
@@ -8061,6 +8202,42 @@ export type Page_GitTagInfo_ = {
 
 export type Page_ManagedResourceRead_ = {
   items: Array<ManagedResourceRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedRolloutRead_ = {
+  items: Array<ManagedRolloutRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedTargetRead_ = {
+  items: Array<ManagedTargetRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedWorkspaceRead_ = {
+  items: Array<ManagedWorkspaceRead>
   /**
    * Next-page cursor
    */
@@ -8806,6 +8983,8 @@ export type RegistryArtifactsBackfillStartResponse = {
   requested_count: number
 }
 
+export type RegistryInstallAction = "install" | "present" | "blocked"
+
 /**
  * Registry version lock with action-level bindings for O(1) resolution.
  *
@@ -9183,6 +9362,105 @@ export type RoleUpdate = {
    * List of scope IDs to assign to the role (replaces existing)
    */
   scope_ids?: Array<string> | null
+}
+
+/**
+ * One resource a rollout adds, modifies or deletes in the target.
+ */
+export type RolloutChange = {
+  change: RolloutChangeKind
+  resource_type: SyncResourceType
+  source_id: string
+  name: string
+}
+
+export type RolloutChangeKind = "added" | "modified" | "deleted"
+
+/**
+ * An incoming managed resource whose name a customer resource already uses.
+ */
+export type RolloutConflict = {
+  resource_type: SyncResourceType
+  source_id: string
+  /**
+   * The name both resources share.
+   */
+  name: string
+  /**
+   * The customer's resource.
+   */
+  existing_local_id: string
+}
+
+/**
+ * Customer data a delete destroys, shown before the FDE applies.
+ */
+export type RolloutDeleteWarning = {
+  resource_type: SyncResourceType
+  source_id: string
+  name: string
+  /**
+   * Rows in a deleted table.
+   */
+  table_rows?: number | null
+  /**
+   * Cases using a deleted case tag or dropdown. For a deleted case field, the number of cases in the workspace whose value is erased.
+   */
+  cases_using?: number | null
+  /**
+   * A deleted secret or variable holds values.
+   */
+  has_customer_values?: boolean
+  /**
+   * Customer workflows and presets that mention it by name.
+   */
+  referenced_by?: Array<string>
+}
+
+/**
+ * A customer skill binding dropped because the package now binds it.
+ */
+export type RolloutDroppedSkill = {
+  preset: string
+  skill: string
+}
+
+/**
+ * Everything an FDE reviews before applying a tag to one target.
+ */
+export type RolloutPreview = {
+  changes?: Array<RolloutChange>
+  conflicts?: Array<RolloutConflict>
+  references?: Array<RolloutReference>
+  delete_warnings?: Array<RolloutDeleteWarning>
+  registry?: Array<RolloutRegistryPlan>
+  dropped_customer_skills?: Array<RolloutDroppedSkill>
+  diagnostics?: Array<string>
+}
+
+/**
+ * A model, MCP integration or secret store the target must match.
+ */
+export type RolloutReference = {
+  kind: ManagedReferenceKind
+  /**
+   * Source catalog id, integration id or store.
+   */
+  source_key: string
+  /**
+   * What the source calls it.
+   */
+  label: string
+}
+
+/**
+ * What a rollout does with one custom registry repository.
+ */
+export type RolloutRegistryPlan = {
+  origin: string
+  version: string
+  action: RegistryInstallAction
+  reason?: string | null
 }
 
 /**
@@ -16426,6 +16704,85 @@ export type AdminListSourceTagsData = {
 
 export type AdminListSourceTagsResponse = Page_GitTagInfo_
 
+export type AdminCutReleaseData = {
+  requestBody: ManagedReleaseCreate
+}
+
+export type AdminCutReleaseResponse = GitTagInfo
+
+export type AdminListTargetCandidatesData = {
+  cursor?: string | null
+  limit?: number
+  organizationId?: string | null
+}
+
+export type AdminListTargetCandidatesResponse = Page_ManagedWorkspaceRead_
+
+export type AdminListTargetsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type AdminListTargetsResponse = Page_ManagedTargetRead_
+
+export type AdminAssignTargetData = {
+  requestBody: ManagedTargetCreate
+}
+
+export type AdminAssignTargetResponse = ManagedTargetRead
+
+export type AdminUpdateTargetData = {
+  requestBody: ManagedTargetUpdate
+  targetId: string
+}
+
+export type AdminUpdateTargetResponse = ManagedTargetRead
+
+export type AdminUnassignTargetData = {
+  targetId: string
+}
+
+export type AdminUnassignTargetResponse = ManagedRolloutRead
+
+export type AdminListReferenceMatchesData = {
+  targetId: string
+}
+
+export type AdminListReferenceMatchesResponse = Array<ManagedReferenceMatchItem>
+
+export type AdminSaveReferenceMatchesData = {
+  requestBody: ManagedReferenceMatchesUpdate
+  targetId: string
+}
+
+export type AdminSaveReferenceMatchesResponse = Array<ManagedReferenceMatchItem>
+
+export type AdminPreviewRolloutsData = {
+  requestBody: ManagedRolloutPreviewRequest
+}
+
+export type AdminPreviewRolloutsResponse = Array<ManagedRolloutRead>
+
+export type AdminApplyRolloutsData = {
+  requestBody: ManagedRolloutApplyRequest
+}
+
+export type AdminApplyRolloutsResponse = Array<ManagedRolloutRead>
+
+export type AdminListRolloutsData = {
+  cursor?: string | null
+  limit?: number
+  targetId?: string | null
+}
+
+export type AdminListRolloutsResponse = Page_ManagedRolloutRead_
+
+export type AdminGetRolloutData = {
+  rolloutId: string
+}
+
+export type AdminGetRolloutResponse = ManagedRolloutRead
+
 export type AdminListOrganizationsResponse =
   Array<tracecat_ee__admin__organizations__schemas__OrgRead>
 
@@ -23615,6 +23972,182 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Page_GitTagInfo_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/source/releases": {
+    post: {
+      req: AdminCutReleaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: GitTagInfo
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/workspaces": {
+    get: {
+      req: AdminListTargetCandidatesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedWorkspaceRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/targets": {
+    get: {
+      req: AdminListTargetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedTargetRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AdminAssignTargetData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ManagedTargetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/targets/{target_id}": {
+    patch: {
+      req: AdminUpdateTargetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedTargetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/targets/{target_id}/unassign": {
+    post: {
+      req: AdminUnassignTargetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedRolloutRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/targets/{target_id}/references": {
+    get: {
+      req: AdminListReferenceMatchesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ManagedReferenceMatchItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AdminSaveReferenceMatchesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ManagedReferenceMatchItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/rollouts/preview": {
+    post: {
+      req: AdminPreviewRolloutsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ManagedRolloutRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/rollouts/apply": {
+    post: {
+      req: AdminApplyRolloutsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ManagedRolloutRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/rollouts": {
+    get: {
+      req: AdminListRolloutsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedRolloutRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/rollouts/{rollout_id}": {
+    get: {
+      req: AdminGetRolloutData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedRolloutRead
         /**
          * Validation Error
          */

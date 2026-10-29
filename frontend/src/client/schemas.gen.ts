@@ -24307,6 +24307,77 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $ManagedReferenceKind = {
+  type: "string",
+  enum: ["model", "mcp_integration", "secret_store"],
+  title: "ManagedReferenceKind",
+  description:
+    "Kind of source-side reference a target workspace must resolve locally.",
+} as const
+
+export const $ManagedReferenceMatchItem = {
+  properties: {
+    reference_kind: {
+      $ref: "#/components/schemas/ManagedReferenceKind",
+    },
+    source_key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Source Key",
+    },
+    resolved_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resolved Id",
+      description: "Target resource id. Null leaves a secret store unlinked.",
+    },
+  },
+  type: "object",
+  required: ["reference_kind", "source_key"],
+  title: "ManagedReferenceMatchItem",
+  description:
+    "The target's equivalent of one source model, MCP integration or store.",
+} as const
+
+export const $ManagedReferenceMatchesUpdate = {
+  properties: {
+    matches: {
+      items: {
+        $ref: "#/components/schemas/ManagedReferenceMatchItem",
+      },
+      type: "array",
+      title: "Matches",
+    },
+  },
+  type: "object",
+  title: "ManagedReferenceMatchesUpdate",
+  description: "Replace a target's saved reference matches.",
+} as const
+
+export const $ManagedReleaseCreate = {
+  properties: {
+    tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Tag",
+    },
+  },
+  type: "object",
+  required: ["tag"],
+  title: "ManagedReleaseCreate",
+  description:
+    "Cut a release tag at the HEAD of the source repository's base branch.",
+} as const
+
 export const $ManagedResourceDetach = {
   properties: {
     resource_type: {
@@ -24374,6 +24445,189 @@ export const $ManagedResourceRead = {
   description: 'One managed resource, for the "Managed by Tracecat" badge.',
 } as const
 
+export const $ManagedRolloutApplyRequest = {
+  properties: {
+    rollout_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Rollout Ids",
+    },
+  },
+  type: "object",
+  required: ["rollout_ids"],
+  title: "ManagedRolloutApplyRequest",
+  description: "Apply previewed rollouts; only ready ones are applied.",
+} as const
+
+export const $ManagedRolloutKind = {
+  type: "string",
+  enum: ["apply", "unassign"],
+  title: "ManagedRolloutKind",
+  description: "What a rollout record does to its target workspace.",
+} as const
+
+export const $ManagedRolloutPreviewRequest = {
+  properties: {
+    target_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Target Ids",
+    },
+    tag: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tag",
+      description: "Tag to preview. ``None`` uses each target's pinned tag.",
+    },
+  },
+  type: "object",
+  required: ["target_ids"],
+  title: "ManagedRolloutPreviewRequest",
+  description: "Preview a tag for several targets at once.",
+} as const
+
+export const $ManagedRolloutRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    target_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    kind: {
+      $ref: "#/components/schemas/ManagedRolloutKind",
+    },
+    status: {
+      $ref: "#/components/schemas/ManagedRolloutStatus",
+    },
+    tag: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tag",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    preview: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RolloutPreview",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    applied_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Applied At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "target_id",
+    "workspace_id",
+    "kind",
+    "status",
+    "tag",
+    "commit_sha",
+    "preview",
+    "error",
+    "created_at",
+    "applied_at",
+  ],
+  title: "ManagedRolloutRead",
+  description: "One rollout record for one target.",
+} as const
+
+export const $ManagedRolloutStatus = {
+  type: "string",
+  enum: [
+    "previewing",
+    "ready",
+    "no_changes",
+    "blocked",
+    "needs_references",
+    "applying",
+    "applied",
+    "failed",
+    "stale",
+  ],
+  title: "ManagedRolloutStatus",
+  description: "Lifecycle of one rollout record for one target workspace.",
+} as const
+
 export const $ManagedSourceRead = {
   properties: {
     workspace_id: {
@@ -24435,6 +24689,127 @@ export const $ManagedSourceUpdate = {
 
 The workspace must have a Git sync provider and repository URL; both are
 pinned with the setting.`,
+} as const
+
+export const $ManagedTargetCreate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    pinned_tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Pinned Tag",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "pinned_tag"],
+  title: "ManagedTargetCreate",
+  description: "Assign a workspace as a target, pinned to a tag.",
+} as const
+
+export const $ManagedTargetRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    pinned_tag: {
+      type: "string",
+      title: "Pinned Tag",
+    },
+    last_applied_tag: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Applied Tag",
+    },
+    last_rollout_status: {
+      $ref: "#/components/schemas/ManagedTargetStatus",
+    },
+    last_rollout_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Rollout At",
+    },
+    assigned_at: {
+      type: "string",
+      format: "date-time",
+      title: "Assigned At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "workspace_name",
+    "organization_id",
+    "organization_name",
+    "pinned_tag",
+    "last_applied_tag",
+    "last_rollout_status",
+    "last_rollout_at",
+    "assigned_at",
+  ],
+  title: "ManagedTargetRead",
+  description: "A customer workspace that receives the package.",
+} as const
+
+export const $ManagedTargetStatus = {
+  type: "string",
+  enum: ["pending", "up_to_date", "blocked", "needs_references", "failed"],
+  title: "ManagedTargetStatus",
+  description:
+    "Outcome of the most recent rollout to a managed target workspace.",
+} as const
+
+export const $ManagedTargetUpdate = {
+  properties: {
+    pinned_tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Pinned Tag",
+    },
+  },
+  type: "object",
+  required: ["pinned_tag"],
+  title: "ManagedTargetUpdate",
+  description: "Move a target's pin to another tag; a rollout applies it.",
 } as const
 
 export const $ManagedTunnelCreate = {
@@ -24509,6 +24884,56 @@ export const $ManagedTunnelCreated = {
   title: "ManagedTunnelCreated",
   description:
     "A new managed tunnel. The site credentials are only returned once.",
+} as const
+
+export const $ManagedWorkspaceRead = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    is_source: {
+      type: "boolean",
+      title: "Is Source",
+    },
+    target_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Id",
+      description: "Set when the workspace is already a target.",
+    },
+  },
+  type: "object",
+  required: [
+    "workspace_id",
+    "workspace_name",
+    "organization_id",
+    "organization_name",
+    "is_source",
+  ],
+  title: "ManagedWorkspaceRead",
+  description: "A workspace an FDE can assign as a target.",
 } as const
 
 export const $McpIntegrationMappingAffectedPreset = {
@@ -26516,6 +26941,123 @@ export const $Page_ManagedResourceRead_ = {
   type: "object",
   required: ["items"],
   title: "Page[ManagedResourceRead]",
+} as const
+
+export const $Page_ManagedRolloutRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedRolloutRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedRolloutRead]",
+} as const
+
+export const $Page_ManagedTargetRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedTargetRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedTargetRead]",
+} as const
+
+export const $Page_ManagedWorkspaceRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedWorkspaceRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedWorkspaceRead]",
 } as const
 
 export const $Page_SecretStoreRead_ = {
@@ -28722,6 +29264,11 @@ export const $RegistryArtifactsBackfillStartResponse = {
   description: "Response after scheduling an artifact backfill workflow.",
 } as const
 
+export const $RegistryInstallAction = {
+  type: "string",
+  enum: ["install", "present", "blocked"],
+} as const
+
 export const $RegistryLock = {
   properties: {
     origins: {
@@ -30023,6 +30570,251 @@ export const $RoleUpdate = {
   type: "object",
   title: "RoleUpdate",
   description: "Update schema for a role.",
+} as const
+
+export const $RolloutChange = {
+  properties: {
+    change: {
+      $ref: "#/components/schemas/RolloutChangeKind",
+    },
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["change", "resource_type", "source_id", "name"],
+  title: "RolloutChange",
+  description:
+    "One resource a rollout adds, modifies or deletes in the target.",
+} as const
+
+export const $RolloutChangeKind = {
+  type: "string",
+  enum: ["added", "modified", "deleted"],
+} as const
+
+export const $RolloutConflict = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "The name both resources share.",
+    },
+    existing_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Existing Local Id",
+      description: "The customer's resource.",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name", "existing_local_id"],
+  title: "RolloutConflict",
+  description:
+    "An incoming managed resource whose name a customer resource already uses.",
+} as const
+
+export const $RolloutDeleteWarning = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    table_rows: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Rows",
+      description: "Rows in a deleted table.",
+    },
+    cases_using: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cases Using",
+      description:
+        "Cases using a deleted case tag or dropdown. For a deleted case field, the number of cases in the workspace whose value is erased.",
+    },
+    has_customer_values: {
+      type: "boolean",
+      title: "Has Customer Values",
+      description: "A deleted secret or variable holds values.",
+      default: false,
+    },
+    referenced_by: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Referenced By",
+      description: "Customer workflows and presets that mention it by name.",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name"],
+  title: "RolloutDeleteWarning",
+  description: "Customer data a delete destroys, shown before the FDE applies.",
+} as const
+
+export const $RolloutDroppedSkill = {
+  properties: {
+    preset: {
+      type: "string",
+      title: "Preset",
+    },
+    skill: {
+      type: "string",
+      title: "Skill",
+    },
+  },
+  type: "object",
+  required: ["preset", "skill"],
+  title: "RolloutDroppedSkill",
+  description:
+    "A customer skill binding dropped because the package now binds it.",
+} as const
+
+export const $RolloutPreview = {
+  properties: {
+    changes: {
+      items: {
+        $ref: "#/components/schemas/RolloutChange",
+      },
+      type: "array",
+      title: "Changes",
+    },
+    conflicts: {
+      items: {
+        $ref: "#/components/schemas/RolloutConflict",
+      },
+      type: "array",
+      title: "Conflicts",
+    },
+    references: {
+      items: {
+        $ref: "#/components/schemas/RolloutReference",
+      },
+      type: "array",
+      title: "References",
+    },
+    delete_warnings: {
+      items: {
+        $ref: "#/components/schemas/RolloutDeleteWarning",
+      },
+      type: "array",
+      title: "Delete Warnings",
+    },
+    registry: {
+      items: {
+        $ref: "#/components/schemas/RolloutRegistryPlan",
+      },
+      type: "array",
+      title: "Registry",
+    },
+    dropped_customer_skills: {
+      items: {
+        $ref: "#/components/schemas/RolloutDroppedSkill",
+      },
+      type: "array",
+      title: "Dropped Customer Skills",
+    },
+    diagnostics: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+  },
+  type: "object",
+  title: "RolloutPreview",
+  description: "Everything an FDE reviews before applying a tag to one target.",
+} as const
+
+export const $RolloutReference = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/ManagedReferenceKind",
+    },
+    source_key: {
+      type: "string",
+      title: "Source Key",
+      description: "Source catalog id, integration id or store.",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+      description: "What the source calls it.",
+    },
+  },
+  type: "object",
+  required: ["kind", "source_key", "label"],
+  title: "RolloutReference",
+  description:
+    "A model, MCP integration or secret store the target must match.",
+} as const
+
+export const $RolloutRegistryPlan = {
+  properties: {
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    action: {
+      $ref: "#/components/schemas/RegistryInstallAction",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["origin", "version", "action"],
+  title: "RolloutRegistryPlan",
+  description: "What a rollout does with one custom registry repository.",
 } as const
 
 export const $RunActionInput = {

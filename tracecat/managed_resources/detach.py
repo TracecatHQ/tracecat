@@ -33,6 +33,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.managed_resources.identities import spec_identity, workspace_identities
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters import RESOURCE_ADAPTERS_BY_TYPE
 from tracecat.workspace_sync.adapters.base import path_segment
@@ -114,7 +115,7 @@ class ManagedDetachService(BaseWorkspaceService):
             raise TracecatNotFoundError("Managed resource not found")
         original = adapter.specs(projection.spec)[source_id]
         original_name = adapter.display_name(original) or source_id
-        await self._ensure_name_free(sync, resource_type, original, new_name)
+        await self._ensure_name_free(resource_type, original, new_name)
 
         copy_source_id = path_segment(new_name)
         copy = _renamed(resource_type, original, new_name, copy_source_id)
@@ -166,7 +167,6 @@ class ManagedDetachService(BaseWorkspaceService):
 
     async def _ensure_name_free(
         self,
-        sync: WorkspaceSyncService,
         resource_type: SyncResourceType,
         original: BaseModel,
         new_name: str,
@@ -176,29 +176,16 @@ class ManagedDetachService(BaseWorkspaceService):
         The importer adopts an existing resource with the same name, so a
         taken name would overwrite that resource instead of copying.
         """
-        adapter = RESOURCE_ADAPTERS_BY_TYPE[resource_type]
-        existing = await sync.project_workspace(
-            resource_ids={resource_type: set()}, create_missing_mappings=False
-        )
-        wanted = _identity(
+        wanted = spec_identity(
             resource_type, _renamed(resource_type, original, new_name, "probe")
         )
-        for spec in adapter.specs(existing.spec).values():
-            if _identity(resource_type, spec) == wanted:
-                raise TracecatConflictError(
-                    f"{new_name!r} is already used by another {resource_type.value}"
-                )
-
-
-def _identity(resource_type: SyncResourceType, spec: BaseModel) -> tuple[str, ...]:
-    if isinstance(spec, WorkflowResourceSpec):
-        return (spec.alias or "",)
-    data = spec.model_dump()
-    if resource_type in _SLUG_TYPES:
-        return (data["slug"],)
-    if "environment" in data:
-        return (data["environment"], data["name"])
-    return (data["name"],)
+        identities = await workspace_identities(
+            self.session, self.workspace_id, resource_types=[resource_type]
+        )
+        if wanted is not None and (resource_type.value, wanted) in identities:
+            raise TracecatConflictError(
+                f"{new_name!r} is already used by another {resource_type.value}"
+            )
 
 
 def _renamed(

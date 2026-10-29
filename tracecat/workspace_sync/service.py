@@ -833,6 +833,7 @@ class WorkspaceSyncService(SyncMappingService):
         create_missing_mappings: bool = True,
         workflow_dsl_overrides: Mapping[uuid.UUID, DSLInput] | None = None,
         validate_export: bool = False,
+        skip_unpublished: bool = False,
     ) -> WorkspaceProjection:
         """Project the workspace into a manifest, spec, and serialized files.
 
@@ -858,6 +859,7 @@ class WorkspaceSyncService(SyncMappingService):
             selection,
             dsl_by_id=workflow_dsl_overrides,
             validate_export=validate_export,
+            skip_unpublished=skip_unpublished,
         )
         workflows = workflow_closure.workflows
         dsl_by_id = workflow_closure.dsl_by_id
@@ -903,6 +905,8 @@ class WorkspaceSyncService(SyncMappingService):
                     form=forms_by_workflow_id.get(workflow.id),
                 )
             except (ValidationError, TracecatValidationError) as exc:
+                if skip_unpublished:
+                    continue
                 failure = diagnostics_service.validation_error(
                     workflow,
                     error=exc,
@@ -913,7 +917,7 @@ class WorkspaceSyncService(SyncMappingService):
         if projection_errors:
             raise await diagnostics_service.with_mappings(
                 WorkflowExportValidationError(projection_errors),
-                provider=VcsProvider(self._mapping_provider_value),
+                provider=self._mapping_provider,
             )
         specs = {
             source_id: workflow_spec_with_source_workflow_ids(
@@ -1192,6 +1196,10 @@ class WorkspaceSyncService(SyncMappingService):
         transport = self._transport_for_provider()
         return await transport.list_tags(url=url, limit=limit, cursor=cursor)
 
+    def transport(self) -> VcsSyncTransport:
+        """Return the VCS transport this service reads and writes through."""
+        return self._transport_for_provider()
+
     def _transport_for_provider(self) -> VcsSyncTransport:
         """Build the VCS transport for the workspace provider using the factory."""
         factory = self._transport_factory or vcs_transport_for_provider
@@ -1409,7 +1417,7 @@ class WorkspaceSyncService(SyncMappingService):
         if failures:
             raise await diagnostics_service.with_mappings(
                 WorkflowExportValidationError(failures),
-                provider=VcsProvider(self._mapping_provider_value),
+                provider=self._mapping_provider,
             )
 
     def _validate_projected_workspace_dependencies(self, spec: WorkspaceSpec) -> None:
@@ -1829,6 +1837,9 @@ class WorkspaceSyncService(SyncMappingService):
             resource_ids=_resource_type_selection_from_spec(target_spec),
             include_schedules=sync_schedules,
             create_missing_mappings=False,
+            # A rollout target's own unpublished workflows are not part of
+            # the package and must not block its preview.
+            skip_unpublished=self.is_managed_rollout,
         )
         target_presets = dict(target_spec.agent_presets)
         for source_id, preset in target_presets.items():
@@ -2019,8 +2030,12 @@ class WorkspaceSyncService(SyncMappingService):
         *,
         dsl_by_id: Mapping[uuid.UUID, DSLInput] | None = None,
         validate_export: bool = True,
+        skip_unpublished: bool = False,
     ) -> ProjectableWorkflowClosure:
         """Resolve the workflows to project, expanding child-workflow references.
+
+        ``skip_unpublished`` leaves out workflows with no exportable definition
+        instead of failing; managed rollouts read customer workspaces this way.
 
         A ``None`` selection projects every workflow. Otherwise the selected
         workflows are expanded transitively over their ``execute`` references
@@ -2066,6 +2081,9 @@ class WorkspaceSyncService(SyncMappingService):
                     workflow_dsls[workflow.id] = await self._get_workflow_dsl(workflow)
                 dsl = workflow_dsls[workflow.id]
             except WorkflowExportValidationError as exc:
+                if skip_unpublished:
+                    included.discard(workflow_id)
+                    continue
                 diagnostics.extend(exc.diagnostics)
                 continue
             references = workflow_references(dsl)
@@ -2110,7 +2128,7 @@ class WorkspaceSyncService(SyncMappingService):
         if diagnostics:
             raise await diagnostics_service.with_mappings(
                 WorkflowExportValidationError(diagnostics),
-                provider=VcsProvider(self._mapping_provider_value),
+                provider=self._mapping_provider,
             )
 
         # Return the closure in the original global creation order.

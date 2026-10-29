@@ -618,6 +618,14 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Table '{table_name}' not found")
         return table
 
+    async def count_rows(self, table: Table) -> int:
+        """Return the number of rows in a table."""
+        conn = await self.session.connection()
+        result = await conn.execute(
+            sa.text(f"SELECT count(*) FROM {self._full_table_name(table.name)}")
+        )
+        return int(result.scalar_one())
+
     async def _ensure_schema_unmanaged(self, table_id: UUID) -> None:
         """Refuse a schema change to a managed table; rows stay writable.
 
