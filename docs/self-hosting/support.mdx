@@ -18,7 +18,7 @@ curl -s https://<your-domain>/api/info | jq -r .version
 
 You can also read it from your deployment configuration:
 
-- Docker Compose: check `TRACECAT__IMAGE_TAG` in your `.env` file. If it is unset, Compose runs the `latest` tag, so use the `/api/info` command above.
+- Docker Compose: use the `/api/info` command above, or run `docker compose images api ui`.
 - Kubernetes: run the command below. `image.tag` and `uiImage.tag` override the chart's `appVersion`, so check the running images rather than the `APP VERSION` column in `helm list`.
 
   ```bash

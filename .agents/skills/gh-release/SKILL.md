@@ -106,6 +106,8 @@ Before mutation, show:
 - Whether the GitHub release is marked latest: only when the tag is the
   highest stable version, because the Compose docs download
   `releases/latest/download/<file>`.
+- The Compose install files attached at publication, with `docker-compose.yml`
+  pinned to the tag's image.
 
 Wait for explicit confirmation unless the user already approved this exact
 release plan. Approval to merge or fix a PR is not release authorization.
@@ -221,22 +223,52 @@ notes for the same commits.
 ## Publish and report
 
 Write the categorized Markdown and a `PREV_TAG...<tag>` comparison link to a
-temporary notes file. Publish the existing tag using `--verify-tag`, so a typo
-cannot create a tag on the default branch:
+temporary notes file.
+
+Releases are immutable once published, so attach the Docker Compose install
+files in the same `gh release create` call; they cannot be added later. Stage
+them from the tag's tree, not the working tree:
 
 ```sh
-# Stable release: mark it latest only when it is the highest stable tag, so an
-# older train's patch never takes over the docs' releases/latest download links.
-git fetch --tags origin
-HIGHEST_STABLE=$(git tag -l | rg '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+ASSET_DIR=$(mktemp -d)
+for f in docker-compose.sandbox.yml env.sh env-migration.sh Caddyfile; do
+  git show "<tag>:$f" > "$ASSET_DIR/$f"
+done
+# GitHub renames leading-dot assets, so publish the template as env.example.
+git show '<tag>:.env.example' > "$ASSET_DIR/env.example"
+# Pin the release's Compose file to its own image, so it never pairs with
+# another train's `latest` image. Release branches may already carry the tag.
+git show '<tag>:docker-compose.yml' |
+  sed 's/${TRACECAT__IMAGE_TAG:-latest}/${TRACECAT__IMAGE_TAG:-<tag>}/g' \
+  > "$ASSET_DIR/docker-compose.yml"
+rg -oN --no-filename 'TRACECAT__IMAGE_TAG:-[^}]*' "$ASSET_DIR/docker-compose.yml" | sort -u
+```
+
+Stop unless the last command prints exactly `TRACECAT__IMAGE_TAG:-<tag>`, or
+if any `git show` failed. All six files exist at every release tag since 1.1.0.
+
+Publish the existing tag using `--verify-tag`, so a typo cannot create a tag on
+the default branch. `gh` uploads the files to a draft and then publishes it:
+
+```sh
+# Stable release: mark it latest only when it is the highest stable tag on
+# origin, so an older train's patch never takes over the docs' releases/latest
+# download links.
+HIGHEST_STABLE=$(git ls-remote --tags --refs origin | sed 's#.*refs/tags/##' |
+  rg '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+echo "highest stable: ${HIGHEST_STABLE:?ls-remote listed no stable tags; stop}"
 if [ "$HIGHEST_STABLE" = '<tag>' ]; then LATEST_FLAG=--latest; else LATEST_FLAG=--latest=false; fi
-gh release create '<tag>' --verify-tag "$LATEST_FLAG" \
+gh release create '<tag>' "$ASSET_DIR"/* --verify-tag "$LATEST_FLAG" \
   --title 'Tracecat <tag>' --notes-file "$BODY_FILE"
 
 # Prerelease:
-gh release create '<tag>' --verify-tag --prerelease --latest=false \
+gh release create '<tag>' "$ASSET_DIR"/* --verify-tag --prerelease --latest=false \
   --title 'Tracecat <tag>' --notes-file "$BODY_FILE"
 ```
+
+If the stable `echo` fails, stop: an empty `HIGHEST_STABLE` means `ls-remote`
+failed. After publishing, confirm with `gh release view '<tag>' --json assets`
+that all six assets are attached.
 
 Run only the command for the approved release type. If the range contains no
 changes, state `No changes since <PREV_TAG>.` rather than reusing older notes.
