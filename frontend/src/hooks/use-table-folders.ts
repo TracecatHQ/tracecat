@@ -202,7 +202,7 @@ export function useTableDirectoryItems(
 ) {
   const enabled = options.enabled ?? true
   const query = useQuery<TableDirectoryEntry[], TracecatApiError>({
-    queryKey: ["table-directory-items", workspaceId, path],
+    queryKey: ["tables", workspaceId, "directory", path],
     queryFn: async () =>
       await tableFoldersGetDirectory({
         workspaceId: workspaceId ?? "",
@@ -264,7 +264,7 @@ function invalidateTableOrganizationQueries(
   void Promise.all([
     queryClient.invalidateQueries({ queryKey: ["tables", workspaceId] }),
     queryClient.invalidateQueries({
-      queryKey: ["table-directory-items", workspaceId],
+      queryKey: ["tables", workspaceId, "directory"],
     }),
     queryClient.invalidateQueries({ queryKey: ["table-folders", workspaceId] }),
   ])
