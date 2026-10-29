@@ -99,8 +99,8 @@ Use `just cluster up -d --full` for the complete stack, the same services the
 production compose file runs. Lite mode keeps Temporal history in its own
 volume, so workflow runs from a full stack do not appear in lite mode and vice
 versa; Postgres, MinIO, and Redis data is shared. When switching an existing
-stack between modes, run `just cluster down` first so services that the new
-mode leaves off are stopped.
+stack between modes, or dropping a `--with` profile, run `just cluster down`
+first: `up` does not stop services that the new command leaves off.
 
 > [!IMPORTANT]
 > `--seed` creates a test user only. Superadmin is determined by `TRACECAT__AUTH_SUPERADMIN_EMAIL` in `.env` set via `./env.sh`, and the first signup or login with that email becomes the organization owner.

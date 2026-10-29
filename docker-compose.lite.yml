@@ -21,10 +21,19 @@ x-python-env: &python-env
   MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-2}
 
 services:
+  # The dev server runs as uid 1000, but a fresh named volume is root-owned.
+  temporal-lite-init:
+    image: temporalio/temporal:1.8.0
+    user: "0:0"
+    entrypoint: ["chown", "-R", "1000:1000", "/data"]
+    volumes:
+      - temporal-lite-data:/data
+    network_mode: none
+    restart: "no"
+    attach: false
+
   temporal:
     image: temporalio/temporal:1.8.0
-    # The image runs as uid 1000 but a fresh named volume is root-owned.
-    user: "0:0"
     command:
       - server
       - start-dev
@@ -38,7 +47,9 @@ services:
       - ${TEMPORAL_UI_PORT:-8081}:8080
     volumes:
       - temporal-lite-data:/data
-    depends_on: !reset []
+    depends_on: !override
+      temporal-lite-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
       interval: 30s
@@ -53,6 +64,9 @@ services:
 
   temporal_ui:
     profiles: [lite-disabled]
+    # The dev server serves the UI on this port; avoid a clash if every
+    # profile is enabled (COMPOSE_PROFILES='*').
+    ports: !reset []
 
   litellm:
     profiles: [agents]
@@ -107,8 +121,6 @@ services:
       - postgres
       - -c
       - shared_buffers=64MB
-      - -c
-      - synchronous_commit=off
     healthcheck:
       interval: 30s
       start_interval: 2s

@@ -529,6 +529,27 @@ add_lite_profiles() {
     done
 }
 
+# Teardown must reach services from every profile: a stack started with
+# --full or --with keeps containers that plain lite mode leaves off.
+# Otherwise append --with profiles to any COMPOSE_PROFILES from the shell or
+# .env. Called again after .env is re-sourced so the CLI selection wins.
+apply_compose_profiles() {
+    case "$COMMAND" in
+        down|stop|kill|rm|nuke)
+            export COMPOSE_PROFILES='*'
+            return
+            ;;
+    esac
+    [[ ${#CLUSTER_WITH_PROFILES[@]} -eq 0 ]] && return
+    if [[ -n "${CLUSTER_APPLIED_PROFILES:-}" && "${COMPOSE_PROFILES:-}" == "$CLUSTER_APPLIED_PROFILES" ]]; then
+        return
+    fi
+    local with_profiles
+    with_profiles=$(IFS=','; echo "${CLUSTER_WITH_PROFILES[*]}")
+    export COMPOSE_PROFILES="${COMPOSE_PROFILES:+${COMPOSE_PROFILES},}${with_profiles}"
+    CLUSTER_APPLIED_PROFILES=$COMPOSE_PROFILES
+}
+
 usage() {
     cat <<EOF
 Usage: ./cluster [cluster_num] [-p profile] [tenant mode] <command> [args...]
@@ -1169,10 +1190,7 @@ if [[ "$PROFILE" == "dev" && "$CLUSTER_FULL" != "true" && "$LOADTEST_OVERRIDE" !
     CLUSTER_LITE=true
     COMPOSE_FILES+=(-f "$LITE_COMPOSE_FILE")
 fi
-if [[ ${#CLUSTER_WITH_PROFILES[@]} -gt 0 ]]; then
-    with_profiles=$(IFS=','; echo "${CLUSTER_WITH_PROFILES[*]}")
-    export COMPOSE_PROFILES="${COMPOSE_PROFILES:+${COMPOSE_PROFILES},}${with_profiles}"
-fi
+apply_compose_profiles
 for compose_override in ${CLUSTER_COMPOSE_OVERRIDES[@]+"${CLUSTER_COMPOSE_OVERRIDES[@]}"}; do
     COMPOSE_FILES+=(-f "$compose_override")
 done
@@ -1448,6 +1466,7 @@ fi
 source_loadtest_env_file
 # Re-apply computed cluster overrides after both environment layers.
 build_env "$CLUSTER_NUM"
+apply_compose_profiles
 
 if [[ "$COMMAND" == "up" ]]; then
     echo "EE multi-tenant: ${TRACECAT__EE_MULTI_TENANT}"

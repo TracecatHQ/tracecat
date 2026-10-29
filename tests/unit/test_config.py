@@ -18,10 +18,11 @@ SANDBOX_POLICY_COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
 )
-# The sandbox Compose file is an override and inherits policy variables from a base.
+# The sandbox and lite Compose files are overrides and inherit policy variables from a base.
 COMPOSE_ENV_FILES = (
     *SANDBOX_POLICY_COMPOSE_ENV_FILES,
     REPO_ROOT / "docker-compose.sandbox.yml",
+    REPO_ROOT / "docker-compose.lite.yml",
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
