@@ -18,6 +18,7 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.managed_resources.guard import hold_for_customer_write
 from tracecat.managed_resources.values import (
     changed_fields,
     ensure_values_only_update,
@@ -148,6 +149,10 @@ class SecretReferencesService(SecretsService):
         encrypted empty key list so the column contract is unchanged.
         """
         workspace_id = self._require_workspace_id()
+        # Before the store lock, as rollouts order it: a rollout adopts a
+        # secret by (environment, name), so this create must not land between
+        # its conflict check and its import.
+        await hold_for_customer_write(self.session, workspace_id)
         store = await self._get_authorized_store(params.store_id)
         self.validate_reference(store, params.remote_reference)
         secret = Secret(
