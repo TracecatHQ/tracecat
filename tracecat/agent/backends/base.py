@@ -143,7 +143,7 @@ class AgentBackend[InputT, OutputT](ABC):
                 AgentSession.id == context.session.id,
                 AgentSession.workspace_id == context.role.workspace_id,
             )
-            .with_for_update()
+            .with_for_update(key_share=True)
             .execution_options(populate_existing=True)
         )
         session = await context.db.scalar(locked_session)

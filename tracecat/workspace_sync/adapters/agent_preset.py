@@ -1446,7 +1446,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     Workspace.id == workspace_service.workspace_id,
                     Workspace.organization_id == workspace_service.organization_id,
                 )
-                .with_for_update()
+                .with_for_update(key_share=True)
                 .execution_options(populate_existing=True)
             )
         ).one()

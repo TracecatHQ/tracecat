@@ -828,7 +828,7 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
             )
-            .with_for_update()
+            .with_for_update(key_share=True)
         )
         result = await self.session.execute(stmt)
         agent_session = result.scalar_one_or_none()
@@ -861,7 +861,7 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
             )
-            .with_for_update()
+            .with_for_update(key_share=True)
         )
         result = await self.session.execute(stmt)
         agent_session = result.scalar_one_or_none()
