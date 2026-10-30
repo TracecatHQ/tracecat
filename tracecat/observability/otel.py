@@ -537,6 +537,42 @@ def platform_span(
             raise
 
 
+def record_platform_span(
+    name: str,
+    *,
+    start_time_ns: int,
+    end_time_ns: int,
+    parent: Span | None = None,
+    attributes: Mapping[str, str] | None = None,
+) -> None:
+    """Record a finished span from timestamps measured elsewhere.
+
+    For work timed where no span can be open while it runs, such as phases in
+    a sandboxed runner, or cleanup that must not depend on tracing. The span
+    is a child of ``parent``, or of the active span when none is given.
+
+    Callers record after the work has finished, so a tracing fault is logged
+    and never raised: it must not turn finished work into a failure or replace
+    an error already propagating.
+    """
+    runtime = get_platform_tracing()
+    if runtime is None:
+        return
+
+    try:
+        span = runtime.tracer(_PLATFORM_INSTRUMENTATION_NAME).start_span(
+            name,
+            context=trace.set_span_in_context(parent) if parent is not None else None,
+            start_time=start_time_ns,
+            attributes=attributes,
+            record_exception=False,
+            set_status_on_exception=False,
+        )
+        span.end(end_time=end_time_ns)
+    except Exception:
+        logger.warning("Failed to record platform span %s", name, exc_info=True)
+
+
 def current_trace_id() -> str | None:
     """Return the active trace ID, or ``None`` when no valid span is active."""
     span_context = trace.get_current_span().get_span_context()

@@ -223,6 +223,26 @@ class SandboxConfig:
     action_gateway_socket: Path | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RunnerPhaseMarks:
+    """Wall-clock nanosecond marks a sandboxed action runner reports.
+
+    Written by jailed code, so they are untrusted: use them only for timing
+    telemetry, after checking them against host-measured bounds.
+
+    Attributes:
+        main: The runner's entry point started.
+        input_loaded: The job input was read and decoded.
+        imported: The action's module was imported.
+        called: The action function returned or raised.
+    """
+
+    main: int | None = None
+    input_loaded: int | None = None
+    imported: int | None = None
+    called: int | None = None
+
+
 @dataclass
 class SandboxResult:
     """Result of sandbox execution.
@@ -236,6 +256,7 @@ class SandboxResult:
         error_code: Machine-readable failure reason.
         exit_code: Process exit code.
         execution_time_ms: Execution time in milliseconds.
+        phase_marks: Untrusted runner timing marks, when the runner reported them.
     """
 
     success: bool
@@ -249,3 +270,4 @@ class SandboxResult:
     error_code: SandboxErrorCode | None = None
     exit_code: int | None = None
     execution_time_ms: float | None = None
+    phase_marks: RunnerPhaseMarks | None = None
