@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock
 import orjson
 import pytest
 import tracecat_registry
+from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.sdk.trace import ReadableSpan, Tracer
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
@@ -63,6 +64,9 @@ _RUNNER_PHASES = (
 def tracing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[tuple[PlatformTracing, InMemorySpanExporter]]:
+    """Fresh process-global tracing with an in-memory exporter, restored after."""
+    propagator = get_global_textmap()
+    shutdown_platform_tracing()
     exporter = InMemorySpanExporter()
     monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
     runtime = initialize_platform_tracing("tracecat-executor", exporter=exporter)
@@ -71,6 +75,7 @@ def tracing(
         yield runtime, exporter
     finally:
         shutdown_platform_tracing()
+        set_global_textmap(propagator)
 
 
 def _spans_by_name(exporter: InMemorySpanExporter) -> dict[str, ReadableSpan]:
