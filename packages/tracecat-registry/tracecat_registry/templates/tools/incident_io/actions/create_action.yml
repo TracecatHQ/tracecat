@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Create action
+  description: >-
+    Create a new incident action. Calls POST /v3/actions directly. Requires API key scope:
+    actions.create.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/actions-v3/create
+  namespace: tools.incident_io
+  name: create_action
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    assignee_id:
+      type: str | None
+      description: ID of the user this action is assigned to
+      default: null
+    description:
+      type: str
+      description: Description of the action. Supports Markdown.
+    incident_id:
+      type: str
+      description: Unique identifier of the incident the action belongs to
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/actions
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          assignee_id: ${{ inputs.assignee_id }}
+          description: ${{ inputs.description }}
+          incident_id: ${{ inputs.incident_id }}
+  returns: ${{ steps.request.result }}

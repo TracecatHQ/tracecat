@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: List severities
+  description: >-
+    List all incident severities for an organisation. Calls GET /v1/severities directly. Requires
+    API key scope: severities.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/severities-v1/list
+  namespace: tools.incident_io
+  name: list_severities
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v1/severities
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Edit incident
+  description: Edit an existing incident. Calls POST /v2/incidents/{id}/actions/edit directly.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incidents-v2/edit
+  namespace: tools.incident_io
+  name: edit_incident
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: The unique identifier of the incident that you want to edit
+    incident:
+      type: dict[str, Any]
+      description: >-
+        `incident` object. Fields: call_url, custom_field_entries, incident_role_assignments,
+        incident_status_id, incident_timestamp_values, name, severity_id,
+        slack_channel_name_override, summary.
+    notify_incident_channel:
+      type: bool
+      description: >-
+        Should we send Slack channel notifications to inform responders of this update? Note that
+        this won't work if the Slack channel has already been archived.
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incidents/${{ FN.url_encode(inputs.id) }}/actions/edit
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          incident: ${{ inputs.incident }}
+          notify_incident_channel: ${{ inputs.notify_incident_channel }}
+  returns: ${{ steps.request.result }}
