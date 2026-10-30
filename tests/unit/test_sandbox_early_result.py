@@ -26,6 +26,7 @@ from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox import executor as executor_module
+from tracecat.sandbox import nsjail_protocol
 from tracecat.sandbox.executor import (
     _WORKLOAD_DONE_MARKER,
     _WORKLOAD_STARTED_MARKER,
@@ -106,6 +107,34 @@ async def test_jail_that_lingers_after_done_is_killed_after_the_grace(
 
     assert time.monotonic() - started < 2
     assert final.returncode is not None and final.returncode != 0
+
+
+@pytest.mark.anyio
+async def test_done_marker_hands_the_jail_to_finish_without_waiting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing the caller could be cancelled at sits between the marker and finish.
+
+    The early record skips the NsJail log scan, so a slow scan cannot hold the
+    hand-off open; the finish task still scans before it completes.
+    """
+    scans: list[float] = []
+
+    def slow_scan(log_file: object) -> nsjail_protocol.NsjailLogScan:
+        time.sleep(0.5)
+        scans.append(time.monotonic())
+        return nsjail_protocol.NsjailLogScan(tail=b"", nsjail_signaled=False)
+
+    monkeypatch.setattr(nsjail_protocol, "scan_nsjail_log", slow_scan)
+    script = f"printf '{_marker(_WORKLOAD_DONE_MARKER)}' >&2\nsleep 0.1"
+    started = time.monotonic()
+    completed = await _invoke(tmp_path, script)
+
+    assert time.monotonic() - started < 0.4
+    assert completed.finish is not None
+    assert scans == []
+    await completed.finish
+    assert len(scans) == 1
 
 
 @pytest.mark.anyio

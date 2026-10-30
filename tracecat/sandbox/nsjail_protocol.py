@@ -42,10 +42,11 @@ class NsjailCompletedProcess:
     finish: asyncio.Task[NsjailCompletedProcess] | None = None
     """Set when the workload reported done before NsJail exited.
 
-    This record then holds the output so far, ``returncode`` is None and
-    ``exited_ns`` is when the done marker arrived. The task waits for the exit,
-    reaps the process group and cleans up, and returns the complete record. The
-    caller must await it before releasing anything the jail still uses.
+    This record then holds the output so far and no NsJail log, ``returncode``
+    is None and ``exited_ns`` is when the done marker arrived. The task waits
+    for the exit, reaps the process group and cleans up, and returns the
+    complete record. The caller must await it before releasing anything the
+    jail still uses.
     """
 
 
@@ -197,9 +198,6 @@ async def _communicate_until_done(
     if process.returncode is not None:
         return record(process.returncode, time.time_ns(), await scan_log())
 
-    done_ns = time.time_ns()
-    partial = record(None, done_ns, await scan_log())
-
     async def finish() -> NsjailCompletedProcess:
         try:
             loop = asyncio.get_running_loop()
@@ -216,6 +214,11 @@ async def _communicate_until_done(
         finally:
             files.cleanup()
 
+    # Hand the running jail to its finish task with no await in between, so a
+    # cancellation cannot leave it unowned. Only a valid result returns early,
+    # and nothing reads the NsJail log for one.
+    no_log = NsjailLogScan(tail=b"", nsjail_signaled=False)
+    partial = record(None, time.time_ns(), no_log)
     return dataclasses.replace(partial, finish=asyncio.create_task(finish()))
 
 

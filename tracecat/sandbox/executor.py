@@ -1191,6 +1191,10 @@ class NsjailExecutor:
                     _record_runner_phase_spans(
                         process_span, outcome.result.phase_marks, completed
                     )
+                    # Everything the workload wrote came before its marker.
+                    early_stderr = completed.stderr.decode("utf-8", errors="replace")
+                    if early_result is not None and early_stderr.strip():
+                        logger.info("Subprocess output", output=early_stderr[:2000])
             except BaseException:
                 # Never leave a running jail without an owner.
                 await rejoin_future_through_cancellation(completed.finish)
