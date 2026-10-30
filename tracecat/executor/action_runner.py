@@ -65,6 +65,7 @@ from tracecat.sandbox.executor import (
     workload_stderr_tail,
 )
 from tracecat.sandbox.networking import gateway_only_network_policy
+from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxErrorCode,
@@ -179,6 +180,57 @@ def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
     ]
 
 
+# Cleanups for jails that returned their result before NsJail exited. Held here
+# so the tasks are not collected, and drained at worker shutdown.
+_deferred_sandbox_cleanups: set[asyncio.Task[None]] = set()
+
+
+def _remove_job_dir(job_dir: Path) -> None:
+    """Delete a job dir, then trace it.
+
+    Delete before tracing: input.json holds resolved secrets, so its removal
+    must never depend on the telemetry path.
+    """
+    cleanup_started_ns = time.time_ns()
+    shutil.rmtree(job_dir, ignore_errors=True)
+    record_platform_span(
+        "tracecat.action.sandbox.cleanup",
+        start_time_ns=cleanup_started_ns,
+        end_time_ns=time.time_ns(),
+    )
+
+
+def _defer_sandbox_cleanup(
+    finish: asyncio.Task[NsjailCompletedProcess],
+    job_dir: Path,
+    held: contextlib.AsyncExitStack,
+) -> asyncio.Task[None]:
+    """Remove the job dir and release ``held`` once NsJail has exited."""
+
+    async def cleanup() -> None:
+        try:
+            await finish
+        except Exception as exc:
+            logger.warning("Sandbox teardown failed", error=str(exc))
+        finally:
+            _remove_job_dir(job_dir)
+            try:
+                await held.aclose()
+            except Exception as exc:
+                logger.warning("Releasing sandbox leases failed", error=str(exc))
+
+    task = asyncio.create_task(cleanup())
+    _deferred_sandbox_cleanups.add(task)
+    task.add_done_callback(_deferred_sandbox_cleanups.discard)
+    return task
+
+
+async def drain_deferred_sandbox_cleanups() -> None:
+    """Wait for every jail that outlived its activity to exit and be cleaned up."""
+    while _deferred_sandbox_cleanups:
+        await asyncio.gather(*_deferred_sandbox_cleanups, return_exceptions=True)
+
+
 class ActionRunner:
     """Runs registry actions in subprocesses with registry artifact caching.
 
@@ -258,6 +310,7 @@ class ActionRunner:
                     env_vars=env_vars,
                     timeout=timeout,
                     resolved_context=resolved_context,
+                    lease_scope=lease_scope,
                 )
             return await self._execute_direct(
                 input=input,
@@ -278,6 +331,7 @@ class ActionRunner:
         resolved_context: ResolvedContext,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
+        lease_scope: contextlib.AsyncExitStack | None = None,
     ) -> ExecutionResult:
         """Execute an action in an nsjail sandbox (untrusted mode).
 
@@ -291,11 +345,15 @@ class ActionRunner:
             resolved_context: Pre-resolved secrets, variables, and action impl
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
+            lease_scope: The caller's registry leases. When the result arrives
+                before the jail has exited, they are released only after it has.
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Create temporary directory for file-based IPC
         job_dir = Path(tempfile.mkdtemp(prefix="tracecat_action_"))
+        # Set when the jail outlives this call; it then owns the job dir.
+        deferred_cleanup: asyncio.Task[None] | None = None
 
         try:
             with platform_span("tracecat.action.sandbox.prepare"):
@@ -397,6 +455,15 @@ class ActionRunner:
             start_time = time.monotonic()
             executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
             result = await executor.execute_action(job_dir, sandbox_config)
+            if executor.pending_finish is not None:
+                # The result arrived before NsJail exited. The jail keeps its
+                # registry mounts and job dir until it has.
+                held = contextlib.AsyncExitStack()
+                if lease_scope is not None:
+                    held.push_async_exit(lease_scope.pop_all())
+                deferred_cleanup = _defer_sandbox_cleanup(
+                    executor.pending_finish, job_dir, held
+                )
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.info(
                 "Sandbox execution completed",
@@ -444,15 +511,8 @@ class ActionRunner:
             )
 
         finally:
-            # Delete before tracing: input.json holds resolved secrets, so its
-            # removal must never depend on the telemetry path.
-            cleanup_started_ns = time.time_ns()
-            shutil.rmtree(job_dir, ignore_errors=True)
-            record_platform_span(
-                "tracecat.action.sandbox.cleanup",
-                start_time_ns=cleanup_started_ns,
-                end_time_ns=time.time_ns(),
-            )
+            if deferred_cleanup is None:
+                _remove_job_dir(job_dir)
 
     async def _execute_direct(
         self,
