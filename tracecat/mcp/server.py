@@ -48,7 +48,7 @@ from pydantic import (
 from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
 from sqlalchemy import select
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
@@ -167,6 +167,7 @@ from tracecat.db.models import (
     Table,
     Workflow,
     WorkflowDefinition,
+    WorkspaceVariable,
 )
 from tracecat.dsl.common import DSLInput, build_action_statements_from_actions
 from tracecat.dsl.schemas import ActionStatement
@@ -290,6 +291,7 @@ from tracecat.validation.schemas import (
     ValidationResult,
 )
 from tracecat.validation.service import validate_dsl
+from tracecat.variables.schemas import VariableCreate, VariableUpdate
 from tracecat.variables.service import VariablesService
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookMethod, WebhookRead, WebhookUpdate
@@ -9306,6 +9308,19 @@ async def list_variables(
         raise ToolError(f"Failed to list variables: {e}") from None
 
 
+def _variable_response(
+    variable: WorkspaceVariable, *, include_values: bool = True
+) -> VariableResponse:
+    return VariableResponse(
+        id=variable.id,
+        name=variable.name,
+        description=variable.description,
+        environment=variable.environment,
+        keys=sorted(variable.values.keys()),
+        values=variable.values if include_values else {},
+    )
+
+
 @mcp.tool()
 async def get_variable(
     workspace_id: uuid.UUID,
@@ -9321,14 +9336,7 @@ async def get_variable(
             variable = await svc.get_variable_by_name(
                 variable_name, environment=environment
             )
-            return VariableResponse(
-                id=variable.id,
-                name=variable.name,
-                description=variable.description,
-                environment=variable.environment,
-                keys=sorted(variable.values.keys()),
-                values=variable.values,
-            )
+            return _variable_response(variable)
     except ScopeDeniedError as e:
         required = ", ".join(e.required_scopes)
         raise ToolError(f"Missing required scope: {required}") from e
@@ -9337,6 +9345,177 @@ async def get_variable(
     except Exception as e:
         logger.error("Failed to get variable", error=str(e))
         raise ToolError(f"Failed to get variable: {e}") from None
+
+
+@mcp.tool()
+async def create_variable(
+    workspace_id: uuid.UUID,
+    name: str,
+    values: dict[str, Any],
+    description: str | None = None,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+    tags: dict[str, str] | None = None,
+) -> VariableResponse:
+    """Create a workspace variable.
+
+    Variable values are not encrypted. Do not put credentials or other
+    sensitive values in variables; use workspace secrets instead.
+
+    Args:
+        workspace_id: The workspace ID.
+        name: Variable name, referenced in workflows as `${{ VARS.<name>.<key> }}`.
+        values: Key/value pairs for the variable. Must contain at least one key.
+        description: Optional description.
+        environment: Variable environment.
+        tags: Optional string tags.
+
+    Returns the created variable. `values` is empty unless the caller has
+    `variable:read`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "variable:create")
+        params = VariableCreate(
+            name=name,
+            description=description,
+            values=values,
+            tags=tags,
+            environment=environment,
+        )
+        async with VariablesService.with_session(role=role) as svc:
+            variable = await svc.create_variable(params)
+            return _variable_response(
+                variable,
+                include_values=has_scope(role.scopes or frozenset(), "variable:read"),
+            )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except IntegrityError:
+        raise ToolError(
+            f"Variable {name!r} already exists in environment {environment!r}"
+        ) from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create variable", error=str(e))
+        raise ToolError(f"Failed to create variable: {e}") from None
+
+
+@mcp.tool()
+async def update_variable(
+    workspace_id: uuid.UUID,
+    variable_name: str,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+    new_name: str | None = None,
+    description: str | None = None,
+    values: dict[str, Any] | None = None,
+    tags: dict[str, str] | None = None,
+    new_environment: str | None = None,
+) -> VariableResponse:
+    """Update a workspace variable.
+
+    Omitted fields are left unchanged. `values` replaces the full key set, so
+    call `get_variable` first and send every key you want to keep.
+
+    Args:
+        workspace_id: The workspace ID.
+        variable_name: Current variable name.
+        environment: Current variable environment.
+        new_name: Optional new name.
+        description: Optional new description.
+        values: Optional replacement key/value pairs. Must contain at least one key.
+        tags: Optional replacement string tags.
+        new_environment: Optional new environment.
+
+    Returns the updated variable, including its values.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "variable:update")
+        updates: dict[str, Any] = {
+            "name": new_name,
+            "description": description,
+            "values": values,
+            "tags": tags,
+            "environment": new_environment,
+        }
+        params = VariableUpdate(
+            **{key: value for key, value in updates.items() if value is not None}
+        )
+        if not params.model_fields_set:
+            raise ToolError("No fields to update")
+        async with VariablesService.with_session(role=role) as svc:
+            variable = await svc.get_variable_by_name(
+                variable_name, environment=environment
+            )
+            updated = await svc.update_variable(variable, params)
+            # `variable:update` implies `variable:read` (`tracecat.authz.controls`).
+            return _variable_response(updated)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except TracecatNotFoundError:
+        raise ToolError(
+            f"Variable {variable_name!r} not found in environment {environment!r}"
+        ) from None
+    except IntegrityError:
+        raise ToolError(
+            "A variable with that name already exists in the target environment"
+        ) from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update variable", error=str(e))
+        raise ToolError(f"Failed to update variable: {e}") from None
+
+
+@mcp.tool()
+async def delete_variable(
+    workspace_id: uuid.UUID,
+    variable_name: str,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+) -> MCPMessageResponse:
+    """Delete a workspace variable.
+
+    Workflows that still reference `${{ VARS.<name>... }}` will fail to
+    resolve it after deletion.
+
+    Args:
+        workspace_id: The workspace ID.
+        variable_name: Variable name.
+        environment: Variable environment.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "variable:delete")
+        async with VariablesService.with_session(role=role) as svc:
+            variable = await svc.get_variable_by_name(
+                variable_name, environment=environment
+            )
+            await svc.delete_variable(variable)
+            return MCPMessageResponse(
+                message=f"Variable {variable_name!r} deleted successfully"
+            )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except TracecatNotFoundError:
+        raise ToolError(
+            f"Variable {variable_name!r} not found in environment {environment!r}"
+        ) from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete variable", error=str(e))
+        raise ToolError(f"Failed to delete variable: {e}") from None
 
 
 @mcp.tool()

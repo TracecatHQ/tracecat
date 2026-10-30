@@ -483,6 +483,24 @@
   Get a workspace variable.
 </ResponseField>
 
+<ResponseField name="create_variable" type="tool">
+  Create a workspace variable.
+
+  Variable values are not encrypted. Do not put credentials or other sensitive values in variables; use workspace secrets instead.
+</ResponseField>
+
+<ResponseField name="update_variable" type="tool">
+  Update a workspace variable.
+
+  Omitted fields are left unchanged. `values` replaces the full key set, so call `get_variable` first and send every key you want to keep.
+</ResponseField>
+
+<ResponseField name="delete_variable" type="tool">
+  Delete a workspace variable.
+
+  Workflows that still reference `${{ VARS.<name>... }}` will fail to resolve it after deletion.
+</ResponseField>
+
 <ResponseField name="list_secrets_metadata" type="tool">
   List secret metadata without secret values.
 </ResponseField>
