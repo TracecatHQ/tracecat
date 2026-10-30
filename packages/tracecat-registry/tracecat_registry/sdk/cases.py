@@ -726,6 +726,7 @@ class CasesClient:
         fields: dict[str, Any] | None | Unset = UNSET,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
         create_missing_tags: bool = False,
+        parent_id: str | None | Unset = UNSET,
     ) -> types.Case:
         """Create a new case and return simple dict format.
 
@@ -742,6 +743,7 @@ class CasesClient:
             tags: List of tag names or IDs to attach.
             fields: Custom field values.
             dropdown_values: Dropdown selections to set on the case.
+            parent_id: Parent case UUID or short ID to create a sub-case under.
 
         Returns:
             Created case data (CaseDict format).
@@ -767,8 +769,40 @@ class CasesClient:
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
         if create_missing_tags:
             data["create_missing_tags"] = create_missing_tags
+        if is_set(parent_id):
+            data["parent_id"] = parent_id
 
         return await self._client.post("/cases/simple", json=data)
+
+    async def set_case_parent(
+        self, case_ids: list[str], *, parent_id: str
+    ) -> types.CaseBatchResponse:
+        """Group cases as sub-cases of a top-level parent case.
+
+        Args:
+            case_ids: Case UUIDs or short IDs to group (1-1000).
+            parent_id: Parent case UUID or short ID.
+
+        Returns:
+            Per-case results and aggregate counts.
+        """
+        return await self._client.post(
+            "/cases/batch-set-parent",
+            json={"case_ids": case_ids, "parent_id": parent_id},
+        )
+
+    async def clear_case_parent(self, case_ids: list[str]) -> types.CaseBatchResponse:
+        """Remove cases from their parent case.
+
+        Args:
+            case_ids: Case UUIDs or short IDs to ungroup (1-1000).
+
+        Returns:
+            Per-case results and aggregate counts.
+        """
+        return await self._client.post(
+            "/cases/batch-clear-parent", json={"case_ids": case_ids}
+        )
 
     async def update_case_simple(
         self,

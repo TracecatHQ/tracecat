@@ -79,6 +79,19 @@ The [Tracecat MCP server](/automations/tracecat-mcp) supports sub-cases:
 
 `get_case`, `list_cases`, and `search_cases` return `parent` and `num_sub_cases` for each case.
 
+## Use sub-cases from workflows
+
+The [Cases actions](/automations/core-actions/case-actions/cases) support sub-cases:
+
+| Action | Use |
+| --- | --- |
+| `core.cases.search_cases` | Pass `parent_id` to list a parent's sub-cases. |
+| `core.cases.create_case` | Pass `parent_id` to create the case as a sub-case. |
+| `core.cases.set_case_parent` | Group up to 1000 cases under a top-level parent. |
+| `core.cases.clear_case_parent` | Return up to 1000 sub-cases to the top level. |
+
+Each action accepts case UUIDs or short IDs such as `CASE-0042`.
+
 ## Related pages
 
 - See [Case management](/automations/cases) for an overview of case features.

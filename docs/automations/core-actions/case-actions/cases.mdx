@@ -46,6 +46,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="parent_id" type="string | null">
+
+The ID or short ID (e.g. CASE-0042) of a top-level case to create this case under as a sub-case. Requires the case add-ons entitlement.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="payload" type="object | null">
 
 Payload for the case.
@@ -246,6 +254,71 @@ Default: `null`.
     description: |
       Analyst note:
       - Escalated after credential theft indicators were confirmed.
+```
+
+## `core.cases.set_case_parent`
+
+Group cases as sub-cases of a top-level parent case. Cases already under another parent are moved.
+
+Sub-cases are one level deep: the parent must be a top-level case, and
+a case that has its own sub-cases cannot be grouped. Requires the case
+add-ons entitlement.
+
+Use `ACTIONS.group_phishing_cases.result.results` to read each case's
+`success` and `error`.
+
+### Inputs
+
+<ParamField path="case_ids" type="array[string]" required>
+
+The IDs or short IDs (e.g. CASE-0042) of the cases to group (1-1000).
+
+</ParamField>
+
+<ParamField path="parent_id" type="string" required>
+
+The ID or short ID (e.g. CASE-0042) of the top-level parent case.
+
+</ParamField>
+
+### Examples
+
+**Group cases under a parent case**
+
+```yaml
+- ref: group_phishing_cases
+  action: core.cases.set_case_parent
+  args:
+    parent_id: CASE-0042
+    case_ids:
+      - CASE-0043
+      - CASE-0044
+      - ${{ TRIGGER.case_id }}
+```
+
+## `core.cases.clear_case_parent`
+
+Remove sub-cases from their parent case, returning them to the top level.
+
+### Inputs
+
+<ParamField path="case_ids" type="array[string]" required>
+
+The IDs or short IDs (e.g. CASE-0042) of the sub-cases to ungroup (1-1000).
+
+</ParamField>
+
+### Examples
+
+**Ungroup sub-cases**
+
+```yaml
+- ref: ungroup_cases
+  action: core.cases.clear_case_parent
+  args:
+    case_ids:
+      - CASE-0043
+      - CASE-0044
 ```
 
 ## `core.cases.list_cases`
