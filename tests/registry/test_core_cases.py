@@ -21,6 +21,7 @@ from tracecat_registry.core.cases import (
     create_case,
     create_comment,
     delete_case,
+    delete_comment,
     download_attachment,
     get_attachment,
     get_attachment_download_url,
@@ -601,6 +602,24 @@ class TestCoreUpdateComment:
             content="Updated Comment",
         )
         assert result == updated_comment
+
+
+@pytest.mark.anyio
+class TestCoreDeleteComment:
+    """Test cases for the delete_comment UDF."""
+
+    async def test_delete_comment_success(
+        self, mock_cases_client: AsyncMock, mock_comment_dict
+    ):
+        """Test successful comment deletion."""
+        mock_cases_client.delete_comment.return_value = None
+
+        case_id = "CASE-0042"
+        comment_id = mock_comment_dict["id"]
+        result = await delete_comment(case_id=case_id, comment_id=comment_id)
+
+        mock_cases_client.delete_comment.assert_called_once_with(case_id, comment_id)
+        assert result is None
 
 
 @pytest.mark.anyio

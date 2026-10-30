@@ -390,6 +390,7 @@ describe("Core and AI action icon mappings", () => {
     ["core.cases.update_case", "square-pen", "bg-rose-500/10"],
     ["core.cases.create_comment", "message-circle-plus", "bg-rose-500/10"],
     ["core.cases.update_comment", "message-circle-more", "bg-rose-500/10"],
+    ["core.cases.delete_comment", "message-circle-x", "bg-rose-500/10"],
     ["unknown.namespace.action", "box", "bg-muted"],
   ])("renders %s with the %s icon", (action, icon, fill) => {
     const container = renderIcon(getIcon(action))

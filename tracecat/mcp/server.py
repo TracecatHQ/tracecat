@@ -2844,7 +2844,7 @@ Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assi
 `core.cases.assign_user_by_email`, `core.cases.create_case`,
 `core.cases.create_comment`, `core.cases.create_task`,
 `core.cases.delete_attachment`, `core.cases.delete_case`,
-`core.cases.delete_task`, `core.cases.download_attachment`,
+`core.cases.delete_comment`, `core.cases.delete_task`, `core.cases.download_attachment`,
 `core.cases.get_attachment`, `core.cases.get_attachment_download_url`,
 `core.cases.get_case`, `core.cases.get_case_metrics`,
 `core.cases.get_comment_thread`, `core.cases.get_linked_case_rows`,

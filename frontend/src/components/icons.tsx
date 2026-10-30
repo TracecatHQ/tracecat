@@ -49,6 +49,7 @@ import {
   MergeIcon,
   MessageCircleMore,
   MessageCirclePlus,
+  MessageCircleX,
   Microscope,
   MonitorX,
   MousePointerClick,
@@ -473,6 +474,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     ),
     "core.cases.update_comment": createColoredLucideRenderer(
       MessageCircleMore,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+    ),
+    "core.cases.delete_comment": createColoredLucideRenderer(
+      MessageCircleX,
       "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
     "core.send_email_smtp": ({ className, ...rest }) => (

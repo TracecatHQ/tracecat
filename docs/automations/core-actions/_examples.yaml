@@ -565,6 +565,16 @@ examples:
           comment_id: ${{ TRIGGER.comment_id }}
           content: "Initial triage started. Waiting on endpoint data."
 
+  cases-delete-comment:
+    title: Delete a comment
+    language: yaml
+    code: |
+      - ref: delete_comment
+        action: core.cases.delete_comment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          comment_id: ${{ TRIGGER.comment_id }}
+
   cases-list-comments:
     title: List comments
     language: yaml
