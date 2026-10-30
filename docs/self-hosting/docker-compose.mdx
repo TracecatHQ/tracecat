@@ -144,7 +144,7 @@ docker compose pull
 docker compose up -d
 ```
 
-With nsjail, run both commands in step 6 as `TRACECAT__EXECUTOR_BACKEND=nsjail docker compose -f docker-compose.yml -f docker-compose.sandbox.yml …`, the same as the start command. The overlay pins both executors to `nsjail` itself, so it never runs the `direct` backend in its privileged containers.
+With nsjail, run both commands in step 6 as `TRACECAT__EXECUTOR_BACKEND=nsjail docker compose -f docker-compose.yml -f docker-compose.sandbox.yml …`, the same as the start command. Without the inline variable, Compose reads `TRACECAT__EXECUTOR_BACKEND=direct` from `.env`, which overrides the overlay's `nsjail` default, so the executor runs the `direct` backend inside the privileged overlay.
 The migration script offers to back up your existing `.env` before rewriting it; answer `y`.
 It keeps only keys that exist in the new template, so add `TRACECAT__IMAGE_TAG` back to `.env` after step 2 if you set it.
 After the stack starts, verify that your containers are healthy and that you can sign in successfully.
