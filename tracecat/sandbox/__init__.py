@@ -31,7 +31,12 @@ from tracecat.sandbox.exceptions import (
 )
 from tracecat.sandbox.safe_lambda import SafeLambdaValidator, build_safe_lambda
 from tracecat.sandbox.service import SandboxService, validate_run_python_script
-from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
+from tracecat.sandbox.types import (
+    PackageIndex,
+    ResourceLimits,
+    SandboxConfig,
+    SandboxResult,
+)
 from tracecat.sandbox.unsafe_pid_executor import (
     UnsafePidExecutor,
 )
@@ -42,6 +47,7 @@ __all__ = [
     "UnsafePidExecutor",
     # Types
     "ResourceLimits",
+    "PackageIndex",
     "SandboxConfig",
     "SandboxResult",
     # Exceptions

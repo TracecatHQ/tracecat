@@ -30,6 +30,7 @@ from tracecat.sandbox.result_envelope import (
 )
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
+    PackageIndex,
     ResourceLimits,
     SandboxConfig,
     SandboxErrorCode,
@@ -594,12 +595,16 @@ class NsjailExecutor:
             # Keep uv's mutable cache inside this job's private bind mount. A
             # global writable cache would let one sandbox tamper with another.
             env_map["UV_CACHE_DIR"] = "/cache/uv-cache"
-            # Pass PyPI index URLs to uv for package installation
-            env_map["UV_INDEX_URL"] = TRACECAT__SANDBOX_PYPI_INDEX_URL
-            if TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS:
-                env_map["UV_EXTRA_INDEX_URL"] = ",".join(
-                    TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
-                )
+            if config.package_index is not None:
+                # An org index replaces the deployment indexes entirely, so
+                # packages resolve from a single source (no dependency confusion).
+                env_map.update(config.package_index.install_env())
+            else:
+                env_map["UV_INDEX_URL"] = TRACECAT__SANDBOX_PYPI_INDEX_URL
+                if TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS:
+                    env_map["UV_EXTRA_INDEX_URL"] = ",".join(
+                        TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
+                    )
         else:
             pythonpath_parts = []
             if cache_key:
@@ -762,6 +767,7 @@ class NsjailExecutor:
         job_dir: Path,
         cache_key: str,
         timeout_seconds: int = 300,
+        package_index: PackageIndex | None = None,
     ) -> SandboxResult:
         """Execute package installation inside the nsjail sandbox.
 
@@ -769,6 +775,7 @@ class NsjailExecutor:
             job_dir: Directory containing the install script.
             cache_key: Cache key for the packages being installed.
             timeout_seconds: Maximum time for installation.
+            package_index: Optional org package index replacing the deployment index.
 
         Returns:
             SandboxResult with installation outcome.
@@ -781,6 +788,7 @@ class NsjailExecutor:
                 memory_mb=TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
                 address_space_mb=TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
             ),
+            package_index=package_index,
         )
 
         # Generate nsjail config for install phase with install.py script

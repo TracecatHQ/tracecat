@@ -5,6 +5,7 @@ from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlsplit, urlunsplit
 
 
 class SandboxErrorCode(StrEnum):
@@ -199,6 +200,48 @@ class SandboxBindMount:
     writable: bool = False
 
 
+@dataclass(frozen=True)
+class PackageIndex:
+    """Organization-configured Python package index for the install phase.
+
+    Attributes:
+        url: HTTPS simple-index URL without embedded credentials.
+        username: Optional index username.
+        password: Optional index password or token. Never part of the cache
+            fingerprint or repr.
+    """
+
+    url: str
+    username: str | None = None
+    password: str | None = field(default=None, repr=False)
+
+    @property
+    def cache_fingerprint(self) -> str:
+        """Credential-free identity of the index for package cache keys."""
+        return f"{self.url}\n{self.username or ''}"
+
+    def install_env(self) -> dict[str, str]:
+        """uv environment for installing from this index.
+
+        Credentials travel in the environment, never in host-visible argv.
+        With credentials, source builds are disabled so untrusted build
+        backends never run in a process holding the index token.
+        """
+        env = {"UV_INDEX_URL": self._authenticated_url()}
+        if self.password:
+            env["UV_NO_BUILD"] = "1"
+        return env
+
+    def _authenticated_url(self) -> str:
+        if not self.username and not self.password:
+            return self.url
+        parts = urlsplit(self.url)
+        userinfo = quote(self.username or "", safe="")
+        if self.password:
+            userinfo += ":" + quote(self.password, safe="")
+        return urlunsplit(parts._replace(netloc=f"{userinfo}@{parts.netloc}"))
+
+
 @dataclass
 class SandboxConfig:
     """Configuration for sandbox execution.
@@ -212,6 +255,7 @@ class SandboxConfig:
         bind_mounts: Additional explicit bind mounts for phase-scoped capabilities.
         action_gateway_socket: Optional host-side action gateway Unix socket to
             bind into nsjail for internal Tracecat SDK calls.
+        package_index: Optional org package index, used by the install phase only.
     """
 
     network: SandboxNetworkRequest | None = None
@@ -221,6 +265,7 @@ class SandboxConfig:
     python_path_dirs: list[Path] = field(default_factory=list)
     bind_mounts: list[SandboxBindMount] = field(default_factory=list)
     action_gateway_socket: Path | None = None
+    package_index: PackageIndex | None = None
 
 
 @dataclass

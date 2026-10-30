@@ -27865,6 +27865,88 @@ export const $PushStatus = {
   description: "Status of a push/commit operation.",
 } as const
 
+export const $PythonPackageSettingsRead = {
+  properties: {
+    python_package_index_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Python Package Index Url",
+    },
+    python_package_index_username: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Python Package Index Username",
+    },
+    python_package_index_password_configured: {
+      type: "boolean",
+      title: "Python Package Index Password Configured",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "PythonPackageSettingsRead",
+} as const
+
+export const $PythonPackageSettingsUpdate = {
+  properties: {
+    python_package_index_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Python Package Index Url",
+      description:
+        "HTTPS URL of a PEP 503 simple index (e.g. a JFrog Artifactory PyPI repository) used instead of PyPI to install run_python dependencies. Null restores the deployment default.",
+    },
+    python_package_index_username: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 256,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Python Package Index Username",
+      description: "Username for the package index.",
+    },
+    python_package_index_password: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 4096,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Python Package Index Password",
+      description:
+        "Encrypted, write-only password or access token for the package index. Omit to keep the saved value; null clears it. Changing the URL clears the saved password unless a new one is sent in the same request.",
+    },
+  },
+  type: "object",
+  title: "PythonPackageSettingsUpdate",
+} as const
+
 export const $RateLimitEvent = {
   properties: {
     rate_limit_info: {
