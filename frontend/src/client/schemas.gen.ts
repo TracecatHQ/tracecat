@@ -15440,6 +15440,69 @@ export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
   title: "CursorPaginatedResponse[SkillVersionReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_TableFolderRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TableFolderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[TableFolderRead]",
+} as const
+
 export const $CursorPaginatedResponse_TableRowRead_ = {
   properties: {
     items: {
@@ -35733,11 +35796,224 @@ export const $TableCreate = {
       title: "Columns",
       description: "The columns of the table",
     },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+      description:
+        "Folder to create the table in. Defaults to the workspace root.",
+    },
   },
   type: "object",
   required: ["name"],
   title: "TableCreate",
   description: "Create model for a table.",
+} as const
+
+export const $TableDirectoryItem = {
+  properties: {
+    type: {
+      type: "string",
+      const: "table",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["type", "id", "name", "folder_id", "created_at", "updated_at"],
+  title: "TableDirectoryItem",
+  description: "Table as a directory item.",
+} as const
+
+export const $TableFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "TableFolderCreate",
+} as const
+
+export const $TableFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "TableFolderDelete",
+} as const
+
+export const $TableFolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "TableFolderDirectoryItem",
+} as const
+
+export const $TableFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "TableFolderMove",
+} as const
+
+export const $TableFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
+  title: "TableFolderRead",
+} as const
+
+export const $TableFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "TableFolderUpdate",
 } as const
 
 export const $TableImportResponse = {
@@ -35761,6 +36037,26 @@ export const $TableImportResponse = {
   required: ["table", "rows_inserted", "column_mapping"],
   title: "TableImportResponse",
   description: "Response model for importing a table from CSV.",
+} as const
+
+export const $TableMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "TableMoveToFolder",
+  description:
+    "Payload for moving a table into a folder or the workspace root.",
 } as const
 
 export const $TableRead = {
@@ -35798,6 +36094,18 @@ export const $TableReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
     },
     created_at: {
       type: "string",

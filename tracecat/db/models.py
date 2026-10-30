@@ -539,6 +539,11 @@ class Workspace(OrganizationModel):
         back_populates="workspace",
         cascade="all, delete",
     )
+    table_folders: Mapped[list[TableFolder]] = relationship(
+        "TableFolder",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
     skill_tags: Mapped[list[SkillTag]] = relationship(
         "SkillTag",
         back_populates="workspace",
@@ -2490,7 +2495,10 @@ class Table(WorkspaceModel):
     """Metadata for lookup tables."""
 
     __tablename__ = "tables"
-    __table_args__ = (UniqueConstraint("workspace_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name"),
+        Index("ix_tables_workspace_folder", "workspace_id", "folder_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -2500,6 +2508,13 @@ class Table(WorkspaceModel):
         index=True,
     )
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("table_folder.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Folder used only to organize the table; table names stay workspace-unique",
+    )
+    folder: Mapped[TableFolder | None] = relationship(back_populates="tables")
 
     columns: Mapped[list[TableColumn]] = relationship(
         "TableColumn",
@@ -2507,6 +2522,30 @@ class Table(WorkspaceModel):
         cascade="all, delete",
         lazy="selectin",
     )
+
+
+class TableFolder(WorkspaceModel):
+    """Folder for organizing workspace tables.
+
+    Uses materialized path pattern for hierarchical structure.
+    Path format: "/parent/child/" where each segment is the folder name.
+    """
+
+    __tablename__ = "table_folder"
+    __table_args__ = (
+        UniqueConstraint("path", "workspace_id", name="uq_table_folder_path_workspace"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    path: Mapped[str] = mapped_column(
+        String, index=True, nullable=False, doc="Full materialized path: /parent/child/"
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="table_folders")
+    tables: Mapped[list[Table]] = relationship("Table", back_populates="folder")
 
 
 class TableColumn(TimestampMixin, Base):

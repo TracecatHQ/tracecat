@@ -1,0 +1,668 @@
+"""Service for managing table folders using the materialized path pattern."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+from datetime import datetime
+from enum import StrEnum
+from typing import Literal
+
+import sqlalchemy as sa
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+
+from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
+from tracecat.db.models import Table, TableFolder
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
+from tracecat.service import BaseWorkspaceService
+from tracecat.tables.folders.schemas import (
+    DirectoryItem,
+    TableDirectoryItem,
+    TableFolderDirectoryItem,
+)
+
+
+class TableFolderErrorCode(StrEnum):
+    """Machine-readable table folder validation error codes."""
+
+    CONFLICT = "table_folder_conflict"
+    NOT_FOUND = "table_folder_not_found"
+    PARENT_NOT_FOUND = "table_folder_parent_not_found"
+    INVALID = "table_folder_invalid"
+
+
+class TableFolderService(BaseWorkspaceService):
+    """Service for managing table folders using the materialized path pattern."""
+
+    service_name = "table_folders"
+
+    @staticmethod
+    def _normalize_folder_path(path: str) -> str:
+        """Normalize folder paths to materialized-path format."""
+        if not path or path == "/":
+            return "/"
+        return path if path.endswith("/") else f"{path}/"
+
+    @staticmethod
+    def _folder_validation_error(
+        message: str,
+        *,
+        code: TableFolderErrorCode,
+    ) -> TracecatValidationError:
+        return TracecatValidationError(message, detail={"code": code.value})
+
+    @staticmethod
+    def _normalize_folder_name(name: str) -> str:
+        """Trim folder names and reject blank values."""
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise TableFolderService._folder_validation_error(
+                "Folder name cannot be empty",
+                code=TableFolderErrorCode.INVALID,
+            )
+        if "/" in normalized_name:
+            raise TableFolderService._folder_validation_error(
+                "Folder name cannot contain slashes",
+                code=TableFolderErrorCode.INVALID,
+            )
+        return normalized_name
+
+    @classmethod
+    def _get_parent_path(cls, path: str) -> str:
+        """Return the immediate parent path for a normalized folder path."""
+        path = cls._normalize_folder_path(path)
+        if path == "/":
+            return "/"
+
+        parent_path, _, _ = path.rstrip("/").rpartition("/")
+        return f"{parent_path}/" if parent_path else "/"
+
+    async def _write_folder_change(
+        self,
+        *,
+        conflict_path: str,
+        commit: bool,
+        old_path: str | None = None,
+    ) -> None:
+        """Persist a folder write and translate unique conflicts cleanly."""
+        try:
+            if old_path is not None and old_path != conflict_path:
+                await self._update_descendant_paths(old_path, conflict_path)
+            if commit:
+                await self.session.commit()
+            else:
+                await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(exc, "uq_table_folder_path_workspace"):
+                raise
+            raise self._folder_validation_error(
+                f"Folder {conflict_path} already exists",
+                code=TableFolderErrorCode.CONFLICT,
+            ) from exc
+
+    @require_scope("table:create")
+    async def create_folder(
+        self, name: str, parent_path: str = "/", commit: bool = True
+    ) -> TableFolder:
+        """Create a new table folder."""
+        normalized_name = self._normalize_folder_name(name)
+
+        parent_path = self._normalize_folder_path(parent_path)
+
+        if parent_path != "/":
+            parent_exists = await self._folder_path_exists(parent_path)
+            if not parent_exists:
+                raise self._folder_validation_error(
+                    f"Parent path {parent_path} not found",
+                    code=TableFolderErrorCode.PARENT_NOT_FOUND,
+                )
+
+        full_path = (
+            f"{parent_path}{normalized_name}/"
+            if parent_path != "/"
+            else f"/{normalized_name}/"
+        )
+
+        path_exists = await self._folder_path_exists(full_path)
+        if path_exists:
+            raise self._folder_validation_error(
+                f"Folder {full_path} already exists",
+                code=TableFolderErrorCode.CONFLICT,
+            )
+
+        folder = TableFolder(
+            name=normalized_name,
+            path=full_path,
+            workspace_id=self.workspace_id,
+        )
+        self.session.add(folder)
+        await self._write_folder_change(conflict_path=full_path, commit=commit)
+        await self.session.refresh(folder)
+        return folder
+
+    async def _get_folder(self, folder_id: uuid.UUID) -> TableFolder | None:
+        statement = select(TableFolder).where(
+            TableFolder.workspace_id == self.workspace_id,
+            TableFolder.id == folder_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def _get_folder_by_path(self, path: str) -> TableFolder | None:
+        path = self._normalize_folder_path(path)
+
+        statement = select(TableFolder).where(
+            TableFolder.workspace_id == self.workspace_id,
+            TableFolder.path == path,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
+    @require_scope("table:read")
+    async def get_folder(self, folder_id: uuid.UUID) -> TableFolder | None:
+        """Get a folder by ID."""
+        return await self._get_folder(folder_id)
+
+    @require_scope("table:read")
+    async def get_folder_by_path(self, path: str) -> TableFolder | None:
+        """Get a folder by its path."""
+        return await self._get_folder_by_path(path)
+
+    async def _require_existing_parent_path(self, parent_path: str) -> str:
+        parent_path = self._normalize_folder_path(parent_path)
+        if parent_path != "/":
+            parent_exists = await self._folder_path_exists(parent_path)
+            if not parent_exists:
+                raise self._folder_validation_error(
+                    f"Parent path {parent_path} not found",
+                    code=TableFolderErrorCode.PARENT_NOT_FOUND,
+                )
+        return parent_path
+
+    @require_scope("table:read")
+    async def list_folders(self, parent_path: str = "/") -> Sequence[TableFolder]:
+        """List all folders within the specified parent path subtree."""
+        parent_path = await self._require_existing_parent_path(parent_path)
+
+        statement = select(TableFolder).where(
+            TableFolder.workspace_id == self.workspace_id,
+            TableFolder.path.startswith(parent_path, autoescape=True),
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
+    @require_scope("table:read")
+    async def list_folders_paginated(
+        self,
+        parent_path: str = "/",
+        params: CursorPaginationParams | None = None,
+    ) -> CursorPaginatedResponse[TableFolder]:
+        """List folders within a parent path subtree with cursor pagination."""
+        params = params or CursorPaginationParams()
+        parent_path = await self._require_existing_parent_path(parent_path)
+        paginator = BaseCursorPaginator(self.session)
+        statement = select(TableFolder).where(
+            TableFolder.workspace_id == self.workspace_id,
+            TableFolder.path.startswith(parent_path, autoescape=True),
+            TableFolder.path != parent_path,
+        )
+
+        if params.cursor:
+            try:
+                cursor_data = paginator.decode_cursor(params.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as err:
+                raise TracecatValidationError(
+                    "Invalid cursor for table folders"
+                ) from err
+
+            cursor_created_at = cursor_data.sort_value
+            if not isinstance(cursor_created_at, datetime):
+                raise TracecatValidationError("Invalid cursor for table folders")
+
+            predicate = sa.or_(
+                TableFolder.created_at < cursor_created_at,
+                sa.and_(
+                    TableFolder.created_at == cursor_created_at,
+                    TableFolder.id < cursor_id,
+                ),
+            )
+            if params.reverse:
+                predicate = sa.or_(
+                    TableFolder.created_at > cursor_created_at,
+                    sa.and_(
+                        TableFolder.created_at == cursor_created_at,
+                        TableFolder.id > cursor_id,
+                    ),
+                )
+            statement = statement.where(predicate)
+
+        if params.reverse:
+            statement = statement.order_by(
+                TableFolder.created_at.asc(), TableFolder.id.asc()
+            )
+        else:
+            statement = statement.order_by(
+                TableFolder.created_at.desc(), TableFolder.id.desc()
+            )
+        statement = statement.limit(params.limit + 1)
+
+        folders = (await self.session.execute(statement)).scalars().all()
+        has_more = len(folders) > params.limit
+        items = list(folders[: params.limit])
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = paginator.encode_cursor(
+                last.id,
+                sort_column="created_at",
+                sort_value=last.created_at,
+            )
+
+        prev_cursor = None
+        if params.cursor and items:
+            first = items[0]
+            prev_cursor = paginator.encode_cursor(
+                first.id,
+                sort_column="created_at",
+                sort_value=first.created_at,
+            )
+
+        if params.reverse:
+            items.reverse()
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = params.cursor is not None, has_more
+        else:
+            has_previous = params.cursor is not None
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=has_previous,
+        )
+
+    @require_scope("table:update")
+    async def move_table(
+        self, table_id: uuid.UUID, folder: TableFolder | None = None
+    ) -> Table:
+        """Move a table to a different folder."""
+        statement = select(Table).where(
+            Table.workspace_id == self.workspace_id,
+            Table.id == table_id,
+        )
+        result = await self.session.execute(statement)
+        table = result.scalar_one_or_none()
+        if not table:
+            raise TracecatNotFoundError("Table not found")
+
+        if folder is not None:
+            # Key-share lock keeps the folder from being deleted before commit.
+            folder_id = await self.session.scalar(
+                select(TableFolder.id)
+                .where(
+                    TableFolder.workspace_id == self.workspace_id,
+                    TableFolder.id == folder.id,
+                )
+                .with_for_update(read=True, key_share=True)
+            )
+            if folder_id is None:
+                raise TracecatNotFoundError("Table folder not found")
+        table.folder_id = folder.id if folder else None
+        self.session.add(table)
+        await self.session.commit()
+        await self.session.refresh(table)
+        return table
+
+    @require_scope("table:update")
+    async def rename_folder(self, folder_id: uuid.UUID, new_name: str) -> TableFolder:
+        """Rename a folder. Updates the folder name and path."""
+        normalized_name = self._normalize_folder_name(new_name)
+
+        folder = await self.get_folder(folder_id)
+        if not folder:
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=TableFolderErrorCode.NOT_FOUND,
+            )
+
+        old_path = folder.path
+        parent_path = self._get_parent_path(folder.path)
+        new_path = (
+            f"{parent_path}{normalized_name}/"
+            if parent_path != "/"
+            else f"/{normalized_name}/"
+        )
+
+        if new_path != old_path:
+            path_exists = await self._folder_path_exists(new_path)
+            if path_exists:
+                raise self._folder_validation_error(
+                    f"Folder {new_path} already exists",
+                    code=TableFolderErrorCode.CONFLICT,
+                )
+
+        folder.name = normalized_name
+        folder.path = new_path
+        self.session.add(folder)
+
+        await self._write_folder_change(
+            conflict_path=new_path, commit=True, old_path=old_path
+        )
+        await self.session.refresh(folder)
+        return folder
+
+    @require_scope("table:update")
+    async def move_folder(
+        self, folder_id: uuid.UUID, new_parent_id: uuid.UUID | None
+    ) -> TableFolder:
+        """Move a folder to a different parent."""
+        folder = await self.get_folder(folder_id)
+        if not folder:
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=TableFolderErrorCode.NOT_FOUND,
+            )
+
+        new_parent_path = "/"
+        if new_parent_id is not None:
+            new_parent = await self.get_folder(new_parent_id)
+            if not new_parent:
+                raise self._folder_validation_error(
+                    f"Parent folder {new_parent_id} not found",
+                    code=TableFolderErrorCode.PARENT_NOT_FOUND,
+                )
+            new_parent_path = new_parent.path
+
+            if folder.path == new_parent_path:
+                raise self._folder_validation_error(
+                    "Cannot make a folder its own child",
+                    code=TableFolderErrorCode.INVALID,
+                )
+            if new_parent.path.startswith(folder.path):
+                raise self._folder_validation_error(
+                    "Cannot create cyclic folder structure",
+                    code=TableFolderErrorCode.INVALID,
+                )
+
+        old_path = folder.path
+        old_name = folder.name
+        new_path = (
+            f"{new_parent_path}{old_name}/"
+            if new_parent_path != "/"
+            else f"/{old_name}/"
+        )
+
+        if new_path != old_path:
+            path_exists = await self._folder_path_exists(new_path)
+            if path_exists:
+                raise self._folder_validation_error(
+                    f"Folder {new_path} already exists",
+                    code=TableFolderErrorCode.CONFLICT,
+                )
+
+        folder.path = new_path
+        self.session.add(folder)
+
+        await self._write_folder_change(
+            conflict_path=new_path, commit=True, old_path=old_path
+        )
+        await self.session.refresh(folder)
+        return folder
+
+    @require_scope("table:delete")
+    async def delete_folder(
+        self, folder_id: uuid.UUID, recursive: bool = False
+    ) -> None:
+        """Delete a folder."""
+        folder = await self._get_folder(folder_id)
+        if not folder:
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=TableFolderErrorCode.NOT_FOUND,
+            )
+
+        if folder.path == "/":
+            raise self._folder_validation_error(
+                "Cannot delete root folder",
+                code=TableFolderErrorCode.INVALID,
+            )
+
+        if not recursive:
+            has_children = await self._has_children(folder.path)
+            has_tables = await self._has_tables(folder_id)
+            if has_children or has_tables:
+                raise self._folder_validation_error(
+                    "Folder is not empty. Please move or delete its contents first.",
+                    code=TableFolderErrorCode.INVALID,
+                )
+        else:
+            folder_ids = select(TableFolder.id).where(
+                TableFolder.workspace_id == self.workspace_id,
+                TableFolder.path.startswith(folder.path, autoescape=True),
+            )
+            await self.session.execute(
+                sa.update(Table)
+                .where(
+                    Table.workspace_id == self.workspace_id,
+                    Table.folder_id.in_(folder_ids),
+                )
+                .values(folder_id=None)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.execute(
+                sa.delete(TableFolder)
+                .where(
+                    TableFolder.workspace_id == self.workspace_id,
+                    TableFolder.path.startswith(folder.path, autoescape=True),
+                    TableFolder.path != folder.path,
+                )
+                .execution_options(synchronize_session=False)
+            )
+
+        await self.session.delete(folder)
+        await self.session.commit()
+
+    @require_scope("table:read")
+    async def get_directory_items(
+        self, path: str = "/", *, order_by: Literal["asc", "desc"] = "asc"
+    ) -> Sequence[DirectoryItem]:
+        """Get all directory items (tables and folders) in the given path."""
+        path, folder_id = await self._get_directory_context(path)
+
+        table_statement = (
+            select(Table)
+            .where(
+                Table.workspace_id == self.workspace_id,
+                Table.folder_id == folder_id,
+            )
+            .order_by(Table.name.asc() if order_by == "asc" else Table.name.desc())
+        )
+        table_result = await self.session.execute(table_statement)
+        tables = table_result.scalars().all()
+
+        folder_statement = self._directory_folders_statement(path)
+        folder_result = await self.session.execute(folder_statement)
+        folders = folder_result.scalars().all()
+
+        return await self._build_directory_items(
+            folders=folders, tables=tables, path=path
+        )
+
+    async def _get_directory_context(self, path: str) -> tuple[str, uuid.UUID | None]:
+        path = self._normalize_folder_path(path)
+
+        if path != "/":
+            folder = await self._get_folder_by_path(path)
+            if not folder:
+                raise TracecatNotFoundError(f"Folder {path} not found")
+            return path, folder.id
+
+        return path, None
+
+    def _directory_folders_statement(self, path: str) -> sa.Select[tuple[TableFolder]]:
+        path_depth = path.count("/") + 1
+        return select(TableFolder).where(
+            TableFolder.workspace_id == self.workspace_id,
+            TableFolder.path.startswith(path, autoescape=True),
+            TableFolder.path != path,
+            func.length(TableFolder.path)
+            - func.length(func.replace(TableFolder.path, "/", ""))
+            == path_depth,
+        )
+
+    async def _build_directory_items(
+        self,
+        *,
+        folders: Sequence[TableFolder],
+        tables: Sequence[Table],
+        path: str,
+        preserve_order: Sequence[TableFolder | Table] | None = None,
+    ) -> list[DirectoryItem]:
+        directory_items: list[DirectoryItem] = []
+        path_depth = path.count("/") + 1
+        folder_ids = [folder.id for folder in folders]
+        folder_paths = {folder.path for folder in folders}
+        table_counts_by_folder_id: dict[uuid.UUID, int] = {}
+        child_folder_counts_by_path: dict[str, int] = {}
+
+        if folder_ids:
+            table_folder_result = await self.session.execute(
+                select(Table.folder_id, func.count(Table.id))
+                .where(
+                    Table.workspace_id == self.workspace_id,
+                    Table.folder_id.in_(folder_ids),
+                )
+                .group_by(Table.folder_id)
+            )
+            table_counts_by_folder_id = {
+                folder_id: table_count
+                for folder_id, table_count in table_folder_result.tuples().all()
+                if folder_id is not None
+            }
+
+            child_depth = path_depth + 1
+            child_path_result = await self.session.execute(
+                select(TableFolder.path).where(
+                    TableFolder.workspace_id == self.workspace_id,
+                    TableFolder.path.startswith(path, autoescape=True),
+                    TableFolder.path != path,
+                    func.length(TableFolder.path)
+                    - func.length(func.replace(TableFolder.path, "/", ""))
+                    == child_depth,
+                )
+            )
+            for child_path in child_path_result.scalars().all():
+                parent_path = self._get_parent_path(child_path)
+                if parent_path in folder_paths:
+                    child_folder_counts_by_path[parent_path] = (
+                        child_folder_counts_by_path.get(parent_path, 0) + 1
+                    )
+
+        items_by_id: dict[uuid.UUID, DirectoryItem] = {}
+        for f in folders:
+            num_items = child_folder_counts_by_path.get(
+                f.path, 0
+            ) + table_counts_by_folder_id.get(f.id, 0)
+            items_by_id[f.id] = TableFolderDirectoryItem(
+                type="folder",
+                num_items=num_items,
+                id=f.id,
+                name=f.name,
+                path=f.path,
+                workspace_id=f.workspace_id,
+                created_at=f.created_at,
+                updated_at=f.updated_at,
+            )
+
+        for table in tables:
+            items_by_id[table.id] = TableDirectoryItem(
+                type="table",
+                id=table.id,
+                name=table.name,
+                folder_id=table.folder_id,
+                created_at=table.created_at,
+                updated_at=table.updated_at,
+            )
+
+        if preserve_order is not None:
+            return [items_by_id[row.id] for row in preserve_order]
+
+        for f in folders:
+            directory_items.append(items_by_id[f.id])
+
+        for table in tables:
+            directory_items.append(items_by_id[table.id])
+
+        return directory_items
+
+    @require_scope("table:read")
+    async def get_folder_tree(self, root_path: str = "/") -> Sequence[TableFolder]:
+        """Get the full folder tree starting from the given root path."""
+        root_path = self._normalize_folder_path(root_path)
+
+        statement = (
+            select(TableFolder)
+            .where(
+                TableFolder.workspace_id == self.workspace_id,
+                TableFolder.path.startswith(root_path, autoescape=True),
+            )
+            .order_by(TableFolder.path)
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
+    # Private helpers
+
+    async def _folder_path_exists(self, path: str) -> bool:
+        path = self._normalize_folder_path(path)
+        exists_clause = sa.exists().where(
+            TableFolder.workspace_id == self.workspace_id,
+            TableFolder.path == path,
+        )
+        return bool(await self.session.scalar(select(exists_clause)))
+
+    async def _update_descendant_paths(self, old_path: str, new_path: str) -> None:
+        old_path = self._normalize_folder_path(old_path)
+        new_path = self._normalize_folder_path(new_path)
+        await self.session.execute(
+            sa.update(TableFolder)
+            .where(
+                TableFolder.workspace_id == self.workspace_id,
+                TableFolder.path.startswith(old_path, autoescape=True),
+                TableFolder.path != old_path,
+            )
+            .values(
+                path=func.concat(
+                    new_path,
+                    func.substring(TableFolder.path, len(old_path) + 1),
+                )
+            )
+            .execution_options(synchronize_session=False)
+        )
+
+    async def _has_children(self, path: str) -> bool:
+        path = self._normalize_folder_path(path)
+        exists_clause = sa.exists().where(
+            TableFolder.workspace_id == self.workspace_id,
+            TableFolder.path.startswith(path, autoescape=True),
+            TableFolder.path != path,
+        )
+        return bool(await self.session.scalar(select(exists_clause)))
+
+    async def _has_tables(self, folder_id: uuid.UUID) -> bool:
+        exists_clause = sa.exists().where(
+            Table.workspace_id == self.workspace_id,
+            Table.folder_id == folder_id,
+        )
+        return bool(await self.session.scalar(select(exists_clause)))
