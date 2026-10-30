@@ -48,8 +48,7 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
     response_model=WorkflowDslPublishResult,
     responses={400: {"model": WorkspaceSyncExportError}},
 )
-@require_scope("workflow:update")
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workflow:update", "workspace_sync:push")
 async def publish_workflow(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -145,7 +144,7 @@ async def list_workflow_repositories(
 
 
 @router.get("/sync/commits", response_model=list[GitCommitInfo])
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def list_workflow_commits(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -210,7 +209,7 @@ async def list_workflow_commits(
 
 
 @router.get("/sync/branches", response_model=list[GitBranchInfo])
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def list_workflow_branches(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -266,7 +265,7 @@ async def list_workflow_branches(
     response_model=WorkspaceSyncExportResult,
     responses={400: {"model": WorkspaceSyncExportError}},
 )
-@require_scope("workspace_sync:sync")
+@require_scope("workspace_sync:push")
 async def export_workspace_sync(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -306,7 +305,7 @@ async def export_workspace_sync(
     response_model=WorkspaceSyncExportPreview,
     responses={400: {"model": WorkspaceSyncExportError}},
 )
-@require_scope("workspace_sync:sync")
+@require_scope("workspace_sync:push")
 async def preview_export_workspace_sync(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -342,7 +341,7 @@ async def preview_export_workspace_sync(
 
 
 @router.post("/sync/pull", response_model=PullResult)
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:pull")
 async def pull_workflows(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,

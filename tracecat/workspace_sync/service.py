@@ -230,7 +230,7 @@ class WorkspaceSyncService(SyncMappingService):
         params: WorkspaceSyncExportRequest,
     ) -> WorkspaceSyncExportResult:
         """Export selected or all syncable resources to a branch and optional PR."""
-        self._require_workspace_sync_scope()
+        self._require_push_scope()
         self._validate_export_params(params)
         url = await self._workspace_git_url()
         resource_ids = await self._local_ids_from_resource_refs(params.resources)
@@ -277,7 +277,7 @@ class WorkspaceSyncService(SyncMappingService):
         include_schedules: bool,
     ) -> WorkspaceProjection:
         """Project and authorize an export without creating sync mappings."""
-        self._require_workspace_sync_scope()
+        self._require_push_scope()
         projection = await self.project_workspace(
             resource_ids=resource_ids,
             include_schedules=include_schedules,
@@ -299,7 +299,7 @@ class WorkspaceSyncService(SyncMappingService):
         preview never mutates sync mappings. The returned counts include any
         resources pulled in transitively by the dependency closure.
         """
-        self._require_workspace_sync_scope()
+        self._require_push_scope()
         resource_ids = await self._local_ids_from_resource_refs(params.resources)
         projection = await self.project_export_preview(
             resource_ids=resource_ids,
@@ -386,7 +386,7 @@ class WorkspaceSyncService(SyncMappingService):
         Schedules are intentionally opt-in so imports do not mutate or activate
         environment-specific schedule configuration unless an admin asks for it.
         """
-        self._require_sync_operation_scope()
+        self._require_pull_scope()
         # A pull always targets an explicit commit so the import is reproducible.
         if not options.commit_sha:
             return PullResult(
@@ -896,18 +896,21 @@ class WorkspaceSyncService(SyncMappingService):
             role=self.role,
         )
 
-    def _require_workspace_sync_scope(self) -> None:
-        """Require the feature-level workspace sync RBAC scope."""
-        self._enforce_required_scopes(["workspace_sync:sync"])
+    def _require_push_scope(self) -> None:
+        """Require the scope that writes workspace resources to Git."""
+        self._enforce_required_scopes(["workspace_sync:push"])
+
+    def _require_pull_scope(self) -> None:
+        """Require the scope that imports Git contents into the workspace."""
+        self._enforce_required_scopes(["workspace_sync:pull"])
 
     def _require_sync_operation_scope(self) -> None:
-        """Require either the legacy workflow sync or workspace sync grant."""
-        self._enforce_any_required_scope(["workflow:sync", "workspace_sync:sync"])
+        """Require either Git sync direction, for reads shared by push and pull."""
+        self._enforce_any_required_scope(["workspace_sync:push", "workspace_sync:pull"])
 
     def _require_workflow_export_scope(self) -> None:
         """Require grants that can publish one workflow to Git."""
-        self._enforce_required_scopes(["workflow:update"])
-        self._enforce_any_required_scope(["workflow:sync", "workspace_sync:sync"])
+        self._enforce_required_scopes(["workflow:update", "workspace_sync:push"])
 
     def _validate_export_params(self, params: WorkspaceSyncExportRequest) -> None:
         """Validate the export branch names, raising :class:`TracecatValidationError`."""

@@ -64,13 +64,15 @@ async def _respond(request: Awaitable[SyncOperationRead]) -> SyncOperationRead:
     status_code=202,
     responses={code: {"model": SyncOperationError} for code in (400, 409, 503)},
 )
-@require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def create_sync_operation(
     role: WorkspaceActorRouteRole, session: AsyncDBSession, params: SyncOperationCreate
 ) -> SyncOperationRead:
     """Accept a preview and return before any Git or resource work begins."""
-    if params.direction == "push":
-        check_scopes(role, "workspace_sync:sync")
+    check_scopes(
+        role,
+        "workspace_sync:push" if params.direction == "push" else "workspace_sync:pull",
+    )
     if params.pull is not None and params.pull.dry_run:
         raise HTTPException(
             400,
@@ -80,7 +82,7 @@ async def create_sync_operation(
 
 
 @router.get("", responses={400: {"model": SyncOperationError}})
-@require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def list_sync_operations(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -99,7 +101,7 @@ async def list_sync_operations(
 
 
 @router.get("/{operation_id}", responses={503: {"model": SyncOperationError}})
-@require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def get_sync_operation(
     role: WorkspaceActorRouteRole, session: AsyncDBSession, operation_id: uuid.UUID
 ) -> SyncOperationRead:
@@ -112,7 +114,7 @@ async def get_sync_operation(
     status_code=202,
     responses={code: {"model": SyncOperationError} for code in (409, 503)},
 )
-@require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def apply_sync_operation(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -130,7 +132,7 @@ async def apply_sync_operation(
     status_code=202,
     responses={code: {"model": SyncOperationError} for code in (409, 503)},
 )
-@require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def retry_sync_operation(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -147,7 +149,7 @@ async def retry_sync_operation(
     "/{operation_id}/diffs",
     responses={code: {"model": SyncOperationError} for code in (400, 410)},
 )
-@require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def list_sync_diffs(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -180,7 +182,7 @@ async def list_sync_diffs(
     "/{operation_id}/diffs/{index}",
     responses={code: {"model": SyncOperationError} for code in (404, 410)},
 )
-@require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def get_sync_diff(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,

@@ -287,6 +287,15 @@ class TestOrgRoleScopes:
         assert "agent:execute" in EDITOR_SCOPES
         assert "agent:execute" in ADMIN_SCOPES
 
+    def test_editors_push_but_only_admins_pull_git_sync(self):
+        """Pulling overwrites workspace resources, so editors can only push."""
+        assert "workspace_sync:push" in EDITOR_SCOPES
+        assert "workspace_sync:pull" not in EDITOR_SCOPES
+        for scopes in (ADMIN_SCOPES, ORG_ADMIN_SCOPES, ORG_OWNER_SCOPES):
+            assert {"workspace_sync:push", "workspace_sync:pull"} <= scopes
+        for scopes in PRESET_ROLE_SCOPES.values():
+            assert not {"workflow:sync", "workspace_sync:sync"} & scopes
+
 
 _BOTH = ("workflow:read", "workflow:execute")
 

@@ -224,7 +224,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewTunnels = useScopeCheck("tunnel:read")
   // Sync users push/pull; workspace admins manage the repository connection.
   const canOpenGitSync = useScopeCheck(undefined, [
-    "workspace_sync:sync",
+    "workspace_sync:push",
+    "workspace_sync:pull",
     "workspace:update",
   ])
   const canAccessMissionControl =

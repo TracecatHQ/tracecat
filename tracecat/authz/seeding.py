@@ -258,16 +258,16 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "workflow:read", "workflow", "read", "View workflows and their details"
     ),
     ScopeDefinition(
-        "workflow:sync",
-        "workflow",
-        "sync",
-        "Sync workflows with the configured Git repository",
+        "workspace_sync:push",
+        "workspace_sync",
+        "push",
+        "Push workspace resources to the configured Git repository",
     ),
     ScopeDefinition(
-        "workspace_sync:sync",
+        "workspace_sync:pull",
         "workspace_sync",
-        "sync",
-        "Sync workspace resources with the configured Git repository",
+        "pull",
+        "Pull workspace resources from the configured Git repository",
     ),
     ScopeDefinition("workflow:create", "workflow", "create", "Create new workflows"),
     ScopeDefinition(
