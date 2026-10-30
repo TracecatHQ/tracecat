@@ -252,13 +252,26 @@ async def test_remove_artifact_admits_runtime_history_write(
 async def test_start_turn_admission_lock_admits_runtime_history_write(
     seeded: Seeded, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Turn admission holds the session lock across dispatch; history still lands."""
+    """Turn admission admits history inserts but still excludes other admissions."""
     write = history_write(seeded)
+
+    async def competing_admission() -> None:
+        async with seeded.sessions() as other:
+            await other.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{RUNTIME_LOCK_TIMEOUT}'")
+            )
+            await other.execute(
+                sa.select(AgentSession)
+                .where(AgentSession.id == seeded.session_id)
+                .with_for_update(key_share=True)
+            )
 
     async def write_while_admitted(
         self: DefaultBackend, context: SessionTurnContext, client: object
     ) -> None:
         await write()
+        # One active turn per session still holds: a second admission waits.
+        await assert_write_outcome(competing_admission, admitted=False)
 
     monkeypatch.setattr(
         "tracecat.agent.backends.base.get_temporal_client",
