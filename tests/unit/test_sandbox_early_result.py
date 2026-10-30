@@ -97,7 +97,7 @@ async def test_done_marker_returns_before_nsjail_exits(tmp_path: Path) -> None:
 async def test_jail_that_lingers_after_done_is_killed_after_the_grace(
     tmp_path: Path,
 ) -> None:
-    """A forged early marker cannot keep a jail running outside its slot."""
+    """A jail still running after its marker is killed once the grace ends."""
     script = f"printf '{_marker(_WORKLOAD_DONE_MARKER)}' >&2\nsleep 30"
     completed = await _invoke(tmp_path, script, grace=0.2)
     assert completed.finish is not None
@@ -353,19 +353,19 @@ def _run_input() -> RunActionInput:
     )
 
 
-@pytest.mark.anyio
-async def test_job_dir_and_leases_outlive_the_call_until_the_jail_exits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The jail still mounts its job dir until NsJail exits; then it goes first."""
+async def _execute_sandboxed_with_pending_finish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    exited: asyncio.Event,
+    job_dirs: list[Path],
+    order: list[str],
+) -> object:
+    """Run ActionRunner._execute_sandboxed with a jail that exits on ``exited``."""
     cgroup = tmp_path / "cgroup"
     cgroup.mkdir()
     (cgroup / "cgroup.subtree_control").write_text("memory")
     (cgroup / "cgroup.procs").touch()
     monkeypatch.setenv("TRACECAT__SANDBOX_CGROUP_PATH", str(cgroup))
-    exited = asyncio.Event()
-    job_dirs: list[Path] = []
-    order: list[str] = []
 
     async def wait_for_exit() -> NsjailCompletedProcess:
         await exited.wait()
@@ -393,7 +393,7 @@ async def test_job_dir_and_leases_outlive_the_call_until_the_jail_exits(
     run_input = _run_input()
     async with action_runner.contextlib.AsyncExitStack() as lease_scope:
         await lease_scope.enter_async_context(RegistryLease())
-        result = await ActionRunner(cache_dir=tmp_path / "cache")._execute_sandboxed(
+        return await ActionRunner(cache_dir=tmp_path / "cache")._execute_sandboxed(
             input=run_input,
             role=role,
             registry_paths=[],
@@ -414,6 +414,20 @@ async def test_job_dir_and_leases_outlive_the_call_until_the_jail_exits(
             lease_scope=lease_scope,
         )
 
+
+@pytest.mark.anyio
+async def test_job_dir_and_leases_outlive_the_call_until_the_jail_exits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The jail still mounts its job dir until NsJail exits; then it goes first."""
+    exited = asyncio.Event()
+    job_dirs: list[Path] = []
+    order: list[str] = []
+
+    result = await _execute_sandboxed_with_pending_finish(
+        tmp_path, monkeypatch, exited, job_dirs, order
+    )
+
     assert result == "ok"
     assert job_dirs[0].exists()
     assert order == []
@@ -421,5 +435,31 @@ async def test_job_dir_and_leases_outlive_the_call_until_the_jail_exits(
     exited.set()
     await drain_deferred_sandbox_cleanups()
 
+    assert not job_dirs[0].exists()
+    assert order == ["registry lease released, job dir exists=False"]
+
+
+@pytest.mark.anyio
+async def test_call_waits_for_the_exit_once_teardowns_fill_the_slots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Jails tearing down past their activities never outnumber the slots."""
+    monkeypatch.setattr(
+        action_runner.config, "TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES", 0
+    )
+    exited = asyncio.Event()
+    job_dirs: list[Path] = []
+    order: list[str] = []
+
+    call = asyncio.create_task(
+        _execute_sandboxed_with_pending_finish(
+            tmp_path, monkeypatch, exited, job_dirs, order
+        )
+    )
+    await asyncio.sleep(0.05)
+
+    assert not call.done()
+    exited.set()
+    assert await call == "ok"
     assert not job_dirs[0].exists()
     assert order == ["registry lease released, job dir exists=False"]

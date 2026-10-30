@@ -457,7 +457,18 @@ class ActionRunner:
             start_time = time.monotonic()
             executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
             result = await executor.execute_action(job_dir, sandbox_config)
-            if executor.pending_finish is not None:
+            if executor.pending_finish is not None and (
+                len(_deferred_sandbox_cleanups)
+                >= config.TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES
+            ):
+                # Activity slots bound how many jails run at once. With this
+                # many already tearing down past their activities, wait for the
+                # exit here instead of adding another.
+                try:
+                    await rejoin_future_through_cancellation(executor.pending_finish)
+                except Exception as exc:
+                    logger.warning("Sandbox teardown failed", error=str(exc))
+            elif executor.pending_finish is not None:
                 # The result arrived before NsJail exited. The jail keeps its
                 # registry mounts and job dir until it has.
                 held = contextlib.AsyncExitStack()

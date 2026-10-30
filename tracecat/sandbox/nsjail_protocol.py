@@ -59,8 +59,7 @@ _NSJAIL_LOG_TAIL_BYTES = 1024 * 1024
 _PIPE_READ_CHUNK_BYTES = 64 * 1024
 _EXIT_POLL_INTERVAL_SECONDS = 0.01
 # After the done marker, a well-behaved jail exits within its teardown time
-# (~120 ms with a TUN device). Past this, the process group is killed, so a
-# forged early marker cannot keep a jail running outside the activity's slot.
+# (~120 ms with a TUN device). Past this, NsJail's process group is killed.
 DONE_EXIT_GRACE_SECONDS = 5.0
 
 
