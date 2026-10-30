@@ -47,7 +47,6 @@ class AgentSessionCreate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="Extra tools added to this session alongside entity defaults",
-        max_length=50,
     )
     mcp_integrations: list[str] | None = Field(
         default=None,
@@ -91,7 +90,6 @@ class AgentSessionUpdate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="Extra tools added to this session alongside entity defaults",
-        max_length=50,
     )
     mcp_integrations: list[str] | None = Field(
         default=None,
