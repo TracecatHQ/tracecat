@@ -8,7 +8,7 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -232,11 +232,17 @@ async def invoke_nsjail(
     workload_started_marker: bytes | None = None,
     workload_done_marker: bytes | None = None,
     done_exit_grace_seconds: float = DONE_EXIT_GRACE_SECONDS,
+    command_prefix: Sequence[str] = (),
+    extra_pass_fds: Sequence[int] = (),
 ) -> NsjailCompletedProcess:
     """Prepare, launch, await, and clean up one nsjail process.
 
     Filesystem and process-launch failures occur before workload code can run,
     so this boundary normalizes them as typed platform infrastructure failures.
+
+    ``command_prefix`` runs nsjail through a launcher such as nsenter, which
+    receives ``extra_pass_fds``. NsJail marks every inherited descriptor except
+    stdio close-on-exec, so none reaches the workload.
 
     With ``workload_done_marker``, the call may return when the workload writes
     that marker, before NsJail exits; see ``NsjailCompletedProcess.finish``.
@@ -268,6 +274,7 @@ async def invoke_nsjail(
         env_args = [arg for key in env for arg in ("--env", key)]
         spawned_ns = time.time_ns()
         process = await asyncio.create_subprocess_exec(
+            *command_prefix,
             str(nsjail_path),
             "--config",
             str(config_path),
@@ -276,7 +283,7 @@ async def invoke_nsjail(
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
             env=env,
-            pass_fds=(log_file.fileno(),),
+            pass_fds=(log_file.fileno(), *extra_pass_fds),
             start_new_session=True,
         )
         if workload_done_marker is not None:

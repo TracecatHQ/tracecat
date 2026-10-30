@@ -782,6 +782,17 @@ TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
 if TRACECAT__SANDBOX_DEFAULT_MEMORY_MB <= 0:
     raise ValueError("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB must be positive")
 
+TRACECAT__SANDBOX_ACTION_NETNS_POOL_SIZE = int(
+    os.environ.get("TRACECAT__SANDBOX_ACTION_NETNS_POOL_SIZE")
+    or TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES
+)
+"""Long-lived network namespaces action sandboxes lease per executor; 0 disables.
+
+Defaults to the executor's activity concurrency, so every concurrent action can
+hold one. Actions beyond this many concurrent leases get a fresh per-jail
+namespace.
+"""
+
 _sandbox_address_space_mb = os.environ.get(
     "TRACECAT__SANDBOX_ADDRESS_SPACE_MB", ""
 ).strip()

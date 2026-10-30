@@ -64,6 +64,7 @@ from tracecat.sandbox.executor import (
     NsjailExecutor,
     workload_stderr_tail,
 )
+from tracecat.sandbox.netns_pool import get_action_netns_pool
 from tracecat.sandbox.networking import gateway_only_network_policy
 from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess
 from tracecat.sandbox.types import (
@@ -451,19 +452,33 @@ class ActionRunner:
                     registry_paths_count=len(registry_paths),
                 )
 
-            # Execute in sandbox
+            # Execute in sandbox. Pooled namespaces carry the default action
+            # policy only; a tunnel route needs its own gateway-only namespace.
             start_time = time.monotonic()
             executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
-            result = await executor.execute_action(job_dir, sandbox_config)
-            if executor.pending_finish is not None:
-                # The result arrived before NsJail exited. The jail keeps its
-                # registry mounts and job dir until it has.
-                held = contextlib.AsyncExitStack()
-                if lease_scope is not None:
-                    held.push_async_exit(lease_scope.pop_all())
-                deferred_cleanup = _defer_sandbox_cleanup(
-                    executor.pending_finish, job_dir, held
-                )
+            netns_pool = get_action_netns_pool() if network.policy is None else None
+            async with contextlib.AsyncExitStack() as jail_scope:
+                shared_netns = None
+                if netns_pool is not None:
+                    shared_netns = await jail_scope.enter_async_context(
+                        netns_pool.lease()
+                    )
+                if shared_netns is None:
+                    result = await executor.execute_action(job_dir, sandbox_config)
+                else:
+                    result = await executor.execute_action(
+                        job_dir, sandbox_config, shared_netns
+                    )
+                if executor.pending_finish is not None:
+                    # The result arrived before NsJail exited. The jail keeps its
+                    # netns lease, registry mounts and job dir until it has.
+                    held = contextlib.AsyncExitStack()
+                    if lease_scope is not None:
+                        held.push_async_exit(lease_scope.pop_all())
+                    held.push_async_exit(jail_scope.pop_all())
+                    deferred_cleanup = _defer_sandbox_cleanup(
+                        executor.pending_finish, job_dir, held
+                    )
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.info(
                 "Sandbox execution completed",

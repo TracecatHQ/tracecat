@@ -291,6 +291,7 @@ async def test_job_dir_and_leases_outlive_the_call_until_the_jail_exits(
     (cgroup / "cgroup.subtree_control").write_text("memory")
     (cgroup / "cgroup.procs").touch()
     monkeypatch.setenv("TRACECAT__SANDBOX_CGROUP_PATH", str(cgroup))
+    monkeypatch.setattr(action_runner, "get_action_netns_pool", lambda: None)
     exited = asyncio.Event()
     job_dirs: list[Path] = []
     order: list[str] = []

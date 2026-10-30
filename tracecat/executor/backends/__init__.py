@@ -22,6 +22,7 @@ from tracecat.executor.action_runner import drain_deferred_sandbox_cleanups
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.logger import logger
+from tracecat.sandbox.netns_pool import close_action_netns_pool
 
 __all__ = [
     "ExecutorBackend",
@@ -118,5 +119,6 @@ async def shutdown_executor_backend() -> None:
         )
         await _backend.shutdown()
         _backend = None
-    # Jails that returned early still hold their leases until they exit.
+    # Jails that returned early still hold netns leases until they exit.
     await drain_deferred_sandbox_cleanups()
+    await close_action_netns_pool()
