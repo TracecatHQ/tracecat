@@ -9,11 +9,20 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.mcp.schemas import WorkflowEditDocument
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.management import management
+from tracecat.workflow.management.draft import (
+    WorkflowEditError,
+    build_workflow_edit_document,
+    validate_workflow_edit_document,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
@@ -485,11 +494,7 @@ async def test_persist_edit_document_wraps_case_trigger_validation_error(
     from tracecat.exceptions import TracecatValidationError
     from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
     from tracecat.workflow.management import draft as draft_module
-    from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        persist_workflow_edit_document,
-    )
+    from tracecat.workflow.management.draft import persist_workflow_edit_document
 
     role = _role()
     source = _edit_document_workflow_source()
@@ -728,9 +733,6 @@ async def test_validate_edit_document_runs_case_trigger_check_on_dry_run(
     from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
     from tracecat.workflow.management import draft as draft_module
     from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        validate_workflow_edit_document,
         workflow_edit_document_changed_sections,
     )
 
@@ -790,9 +792,6 @@ async def test_validate_edit_document_alias_uniqueness(alias_taken: bool) -> Non
     alias passes validation.
     """
     from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        validate_workflow_edit_document,
         workflow_edit_document_changed_sections,
     )
 
@@ -848,11 +847,7 @@ async def test_persist_edit_document_maps_alias_integrity_error(
 
     from tests._db_error_utils import unique_violation
     from tracecat.db.common import DBConstraints
-    from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        persist_workflow_edit_document,
-    )
+    from tracecat.workflow.management.draft import persist_workflow_edit_document
 
     role = _role()
     source = _edit_document_workflow_source()
@@ -934,9 +929,7 @@ def test_normalize_persisted_revision_adds_missing_layout_entries() -> None:
     causing the next edit to 409. The normalizer now adds the default entry so the
     dry-run and post-persist revisions agree.
     """
-    from tracecat.mcp.schemas import WorkflowEditDocument
     from tracecat.workflow.management.draft import (
-        build_workflow_edit_document,
         compute_workflow_edit_revision,
         normalize_workflow_edit_document_for_persisted_revision,
     )
@@ -976,9 +969,7 @@ def test_normalize_persisted_revision_adds_missing_layout_entries() -> None:
 
 def test_normalize_persisted_revision_drops_orphan_layout_entries() -> None:
     """Layout entries for refs no longer in the definition are still dropped."""
-    from tracecat.mcp.schemas import WorkflowEditDocument
     from tracecat.workflow.management.draft import (
-        build_workflow_edit_document,
         normalize_workflow_edit_document_for_persisted_revision,
     )
 
@@ -1000,18 +991,19 @@ def test_normalize_persisted_revision_drops_orphan_layout_entries() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_dsl(expects: dict[str, Any] | None = None) -> DSLInput:
-    """Minimal valid DSL for run_workflow tests, with an optional expects schema."""
+def _run_dsl(**stmt: Any) -> DSLInput:
+    """Minimal valid DSL with optional action overrides."""
     return DSLInput(
         **{
             "title": "run workflow test",
             "description": "",
-            "entrypoint": {"ref": "start", "expects": expects or {}},
+            "entrypoint": {"ref": "start", "expects": {}},
             "actions": [
                 {
                     "ref": "start",
                     "action": "core.transform.reshape",
                     "args": {"value": "ok"},
+                    **stmt,
                 }
             ],
         }
@@ -1274,3 +1266,94 @@ async def test_create_actions_from_dsl_persists_action_environment() -> None:
     by_ref = {a.ref: a for a in actions}
     assert by_ref["a"].control_flow["environment"] == "prod"
     assert by_ref["b"].control_flow["environment"] is None
+
+
+_OVERLONG_EXPRESSION = "${{ " + " && ".join(["True"] * 250) + " }}"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("run_if", _OVERLONG_EXPRESSION, id="run_if"),
+        pytest.param("for_each", _OVERLONG_EXPRESSION, id="for_each"),
+        pytest.param("wait_until", "not a date", id="wait_until"),
+    ],
+)
+def test_control_flow_from_statement_raises_user_facing_error(
+    field: str, value: str
+) -> None:
+    stmt = _run_dsl(**{field: value}).actions[0]
+
+    with pytest.raises(TracecatValidationError) as exc:
+        ActionControlFlow.from_statement(stmt)
+
+    message = str(exc.value)
+    assert "'start'" in message
+    assert value not in message
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    assert [detail.loc for detail in exc.value.detail or []] == [(field,)]
+
+
+def test_control_flow_from_statement_copies_every_field() -> None:
+    stmt = ActionStatement(
+        ref="notify",
+        action="core.transform.reshape",
+        run_if="${{ True }}",
+        for_each="${{ for var.x in [1] }}",
+        retry_policy=ActionRetryPolicy(max_attempts=3),
+        start_delay=5.0,
+        wait_until="tomorrow",
+        join_strategy=JoinStrategy.ANY,
+        environment="prod",
+        tunnel="edge",
+        mask_output=True,
+        unsafe_disable_secret_error_withholding=True,
+    )
+
+    control_flow = ActionControlFlow.from_statement(stmt)
+
+    for name in ActionControlFlow.model_fields:
+        assert getattr(control_flow, name) == getattr(stmt, name), name
+
+
+@pytest.mark.anyio
+async def test_create_workflow_from_dsl_returns_control_flow_errors() -> None:
+    dsl = _run_dsl(run_if=_OVERLONG_EXPRESSION)
+
+    response = await _service(_role()).create_workflow_from_dsl(
+        dsl.model_dump(mode="json")
+    )
+
+    assert response.workflow is None
+    assert response.errors is not None
+    [error] = response.errors
+    assert error.root.model_dump(mode="json")["detail"][0]["loc"] == ["run_if"]
+
+
+@pytest.mark.anyio
+async def test_validate_edit_document_rejects_overlong_run_if() -> None:
+    """An overlong ``run_if`` fails validation instead of erroring during persist."""
+    source = _edit_document_workflow_source()
+    data = build_workflow_edit_document(cast(Any, source)).model_dump(mode="json")
+    data["definition"]["actions"] = [
+        {
+            "ref": "notify",
+            "action": "core.transform.reshape",
+            "args": {},
+            "run_if": _OVERLONG_EXPRESSION,
+        }
+    ]
+    data["definition"]["entrypoint"] = {"ref": "notify", "expects": {}}
+    document = WorkflowEditDocument.model_validate(data)
+
+    with pytest.raises(WorkflowEditError) as exc:
+        await validate_workflow_edit_document(
+            document, workflow_id=WorkflowUUID.new(source.id)
+        )
+
+    assert exc.value.code == "validation_error"
+    details = json.dumps(exc.value.details)
+    assert "run_if" in details
+    assert "1000 characters" in details
+    assert _OVERLONG_EXPRESSION not in details
