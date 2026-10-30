@@ -268,6 +268,7 @@ class _FakeClaudeOptions:
     agents: object = None
     settings: str | None = None
     plugins: list[SdkPluginConfig] = field(default_factory=list)
+    system_prompt: object = None
 
 
 def _agent_config(**kwargs: Any) -> AgentConfig:
@@ -3640,3 +3641,103 @@ async def test_broker_deadline_captures_source_before_stream_and_cancellation(
     assert result.terminal_stream_error_emitted is True
     assert result.sentry_capture == captures[0]
     assert len(broker.cancelled_session_ids) == 1
+
+
+def _make_system_prompt_transport(
+    tmp_path: Path, *, system_prompt: str | None, use_jailed_paths: bool
+) -> SandboxedCLITransport:
+    path_mapping = session_paths_module.AgentSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_work_dir=tmp_path / "project",
+        runtime_home_dir=tmp_path / "home",
+        runtime_work_dir=tmp_path / "project",
+    )
+    return SandboxedCLITransport(
+        options=ClaudeAgentOptions(
+            env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"},
+            system_prompt=system_prompt,
+        ),
+        session_id="session-1",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "sockets" / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=path_mapping,
+        enable_internet_access=False,
+        use_jailed_paths=use_jailed_paths,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("use_jailed_paths", [False, True])
+async def test_transport_passes_system_prompt_by_file(
+    tmp_path: Path, use_jailed_paths: bool
+) -> None:
+    system_prompt = "case data " * 20_000
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=system_prompt, use_jailed_paths=use_jailed_paths
+    )
+
+    options = await transport._options_with_system_prompt_file(transport._options)
+
+    host_path = tmp_path / transport_module._SYSTEM_PROMPT_FILE_NAME
+    expected_path = (
+        session_paths_module.JAILED_AGENT_JOB_DIR
+        / transport_module._SYSTEM_PROMPT_FILE_NAME
+        if use_jailed_paths
+        else host_path
+    )
+    assert options.system_prompt == {"type": "file", "path": str(expected_path)}
+    assert host_path.read_text(encoding="utf-8") == system_prompt
+    assert transport._options.system_prompt == system_prompt
+
+
+@pytest.mark.anyio
+async def test_transport_keeps_empty_system_prompt_inline(tmp_path: Path) -> None:
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=None, use_jailed_paths=False
+    )
+
+    options = await transport._options_with_system_prompt_file(transport._options)
+
+    assert options is transport._options
+    assert not (tmp_path / transport_module._SYSTEM_PROMPT_FILE_NAME).exists()
+
+
+@pytest.mark.anyio
+async def test_transport_large_system_prompt_stays_out_of_claude_argv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A prompt above Linux's 128 KiB per-argument limit must not reach argv."""
+    monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
+    system_prompt = "x" * (256 * 1024)
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=system_prompt, use_jailed_paths=False
+    )
+    (tmp_path / "sockets").mkdir()
+    captured: dict[str, Path] = {}
+
+    async def fake_spawn_jailed_runtime(**kwargs: object) -> object:
+        init_payload_path = kwargs["init_payload_path"]
+        assert isinstance(init_payload_path, Path)
+        captured["init_payload_path"] = init_payload_path
+        return nsjail_module.SpawnedRuntime(
+            process=cast(Any, _ConnectedFakeProcess()),
+            job_dir=None,
+        )
+
+    monkeypatch.setattr(
+        transport_module,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+
+    await transport.connect()
+    await transport.close()
+
+    command = orjson.loads(captured["init_payload_path"].read_bytes())["command"]
+    assert "--system-prompt" not in command
+    prompt_path = command[command.index("--system-prompt-file") + 1]
+    assert Path(prompt_path).read_text(encoding="utf-8") == system_prompt
+    assert max(len(arg.encode()) for arg in command) < 128 * 1024
+    assert transport._options.system_prompt == system_prompt
