@@ -828,7 +828,12 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
             )
+            # NO KEY UPDATE serializes artifact writers without blocking agent
+            # runtime FK checks on history inserts. Refresh a session the
+            # caller already loaded so the read-modify-write sees the latest
+            # artifacts.
             .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         agent_session = result.scalar_one_or_none()
@@ -861,7 +866,12 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
             )
+            # NO KEY UPDATE serializes artifact writers without blocking agent
+            # runtime FK checks on history inserts. Refresh a session the
+            # caller already loaded so the read-modify-write sees the latest
+            # artifacts.
             .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         agent_session = result.scalar_one_or_none()

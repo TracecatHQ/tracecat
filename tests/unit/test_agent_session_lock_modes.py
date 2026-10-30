@@ -249,6 +249,37 @@ async def test_remove_artifact_admits_runtime_history_write(
     assert await count_rows(seeded, AgentSessionHistory) == 1
 
 
+async def test_remove_artifact_keeps_artifact_written_after_caller_loaded_session(
+    seeded: Seeded,
+) -> None:
+    """The locked read refreshes a loaded session, so other writers' artifacts survive."""
+
+    async def upsert(db: AsyncSession, artifact_id: str) -> None:
+        artifact = CaseArtifact(
+            id=artifact_id,
+            title="Synthetic case",
+            severity=CaseSeverity.LOW,
+            status=CaseStatus.NEW,
+        )
+        await AgentSessionService(db, role=seeded.role).apply_artifact_side_effects(
+            seeded.session_id, [ArtifactSideEffect(op="upsert", artifact=artifact)]
+        )
+
+    async with seeded.sessions() as seed:
+        await upsert(seed, "case_1")
+    async with seeded.sessions() as db:
+        service = AgentSessionService(db, role=seeded.role)
+        # The router loads and holds the session before removing an artifact.
+        loaded = await service.get_session(seeded.session_id)
+        assert loaded is not None
+        async with seeded.sessions() as writer:
+            await upsert(writer, "case_2")
+        artifacts = await service.remove_artifact(
+            seeded.session_id, artifact_type="case", artifact_id="case_1"
+        )
+    assert [item.id for item in artifacts] == ["case_2"]
+
+
 async def test_start_turn_admission_lock_admits_runtime_history_write(
     seeded: Seeded, monkeypatch: pytest.MonkeyPatch
 ) -> None:
