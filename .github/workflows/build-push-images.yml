@@ -39,6 +39,7 @@ jobs:
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       latest: ${{ steps.release.outputs.latest }}
+      release: ${{ steps.release.outputs.release }}
     steps:
       - name: Validate image tag
         id: release
@@ -52,6 +53,7 @@ jobs:
           set -euo pipefail
           tag=''
           latest=false
+          release=false
           if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
             # Manual rebuilds must use the existing tag as their checkout ref.
             if [[ "$REF_TYPE" != 'tag' || "$INPUT_TAG" != "$REF_NAME" ]]; then
@@ -67,7 +69,10 @@ jobs:
             stable='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
             if [[ "$tag" =~ ^${stable}$ ]]; then
               latest=true
-            elif ! [[ "$tag" =~ ^${stable}-[0-9A-Za-z][0-9A-Za-z.-]*$ || "$tag" =~ ^nightly-[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+              release=true
+            elif [[ "$tag" =~ ^${stable}-[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+              release=true
+            elif ! [[ "$tag" =~ ^nightly-[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
               echo "Unsupported image tag: $tag" >&2
               exit 1
             fi
@@ -76,8 +81,11 @@ jobs:
               exit 1
             fi
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "latest=$latest"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
 
   build-and-push-api:
     timeout-minutes: 30
@@ -108,6 +116,54 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+          # The registry version stamp counts same-second ancestors.
+          fetch-depth: 100
+
+      # The platform registry keys sync rows and S3 artifacts on
+      # tracecat_registry.__version__, and reuses an existing artifact for a
+      # known version. Non-release builds keep the release line's version, so
+      # give each commit its own: .post<commit time><NN><commit id> sorts above
+      # the base (an upgrade, not a refused downgrade) and is the same on both
+      # platforms and on any rebuild of the commit. NN counts ancestors from
+      # the same second, since a merged PR stack lands several commits at
+      # once. The commit id (the SHA's first 5 hex digits in decimal) keeps
+      # same-second commits on different branches apart. uv caps each version
+      # number at 2^64 - 1, so the whole post number stays within 19 digits.
+      - name: Stamp registry version on non-release builds
+        if: needs.validate.outputs.release == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          init=packages/tracecat-registry/tracecat_registry/__init__.py
+          base=$(sed -nE 's/^__pep440_version__ = "([^"]+)"$/\1/p' "$init")
+          if [[ -z "$base" ]]; then
+            echo "Could not read __pep440_version__ from $init." >&2
+            exit 1
+          fi
+          # A stamped pre-release would sort above its own later hotfixes
+          # (1.2.0a1.post<N> > 1.2.0a1.post1), so only stamp X.Y.Z.
+          if ! [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Registry version $base is a pre-release; leaving it unchanged."
+            exit 0
+          fi
+          time=$(git log -1 --format=%ct)
+          # Count every same-second ancestor, merge parents included, so a
+          # commit always sorts above the same-second commits it contains.
+          same_second=$(git log --skip=1 -n 99 --format=%ct | grep -cxF "$time" || true)
+          if (( same_second >= 99 )); then
+            echo "Too many commits share commit time $time." >&2
+            exit 1
+          fi
+          commit=$(git rev-parse HEAD)
+          printf -v suffix '.post%s%02d%07d' "$time" "$same_second" "$((16#${commit:0:5}))"
+          sed -E "s/^(__(pep440_)?version__ = \"[^\"]+)\"$/\1${suffix}\"/" "$init" > "$init.stamped"
+          mv "$init.stamped" "$init"
+          stamped=$(grep -cF "${suffix}\"" "$init" || true)
+          if [[ "$stamped" != 2 ]]; then
+            echo "Expected 2 stamped version lines in $init, found $stamped." >&2
+            exit 1
+          fi
+          grep -E '^__(pep440_)?version__ = ' "$init"
 
       - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
         run: |
