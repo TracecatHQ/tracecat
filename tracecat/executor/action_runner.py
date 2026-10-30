@@ -52,7 +52,7 @@ from tracecat.executor.secret_preprocessors import (
     project_secret_env,
 )
 from tracecat.logger import logger
-from tracecat.observability.otel import platform_span
+from tracecat.observability.otel import platform_span, record_platform_span
 from tracecat.outbound import TUNNEL_PROXY_ENV
 from tracecat.sandbox.cgroup import sandbox_cgroup
 from tracecat.sandbox.exceptions import (
@@ -444,9 +444,15 @@ class ActionRunner:
             )
 
         finally:
-            # Cleanup job directory
-            with platform_span("tracecat.action.sandbox.cleanup"):
-                shutil.rmtree(job_dir, ignore_errors=True)
+            # Delete before tracing: input.json holds resolved secrets, so its
+            # removal must never depend on the telemetry path.
+            cleanup_started_ns = time.time_ns()
+            shutil.rmtree(job_dir, ignore_errors=True)
+            record_platform_span(
+                "tracecat.action.sandbox.cleanup",
+                start_time_ns=cleanup_started_ns,
+                end_time_ns=time.time_ns(),
+            )
 
     async def _execute_direct(
         self,

@@ -10,6 +10,7 @@ stay inside the process window it measured itself.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from collections.abc import Iterator
@@ -32,8 +33,11 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.executor import minimal_runner
+from tracecat.executor import action_runner, minimal_runner
+from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends import registry_helpers
+from tracecat.executor.schemas import ActionImplementation, ResolvedContext
+from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.observability.otel import (
     PlatformTracing,
@@ -44,7 +48,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess
 from tracecat.sandbox.result_envelope import decode_result_envelope
-from tracecat.sandbox.types import RunnerPhaseMarks
+from tracecat.sandbox.types import RunnerPhaseMarks, SandboxResult
 
 _RUNNER_PHASES = (
     "tracecat.action.runner.startup",
@@ -88,28 +92,39 @@ async def _run_jail(
     mocker: MockerFixture,
     runtime: PlatformTracing,
     phase_ns: Any,
-) -> Any:
+    *,
+    post_exit_delay: float = 0.0,
+) -> tuple[SandboxResult, NsjailCompletedProcess]:
     """Run NsjailExecutor.execute_action against a fake jail.
 
     ``phase_ns`` is either the literal marks to write, or a callable that
-    builds them while the fake jail "runs", so they land inside the host's
-    measured process window.
+    builds them while the fake jail "runs", so they land inside the measured
+    process window. ``post_exit_delay`` stands in for host work after the
+    process exits, such as a log scan waiting on a busy threadpool.
     """
     job_dir = tmp_path / "job"
     job_dir.mkdir()
+    completions: list[NsjailCompletedProcess] = []
 
     async def fake_invoke_nsjail(**_kwargs: Any) -> NsjailCompletedProcess:
+        spawned_ns = time.time_ns()
         marks = phase_ns() if callable(phase_ns) else phase_ns
         envelope = {"success": True, "result": {"ok": True}, "phase_ns": marks}
         (job_dir / "result.json").write_bytes(orjson.dumps(envelope))
-        return NsjailCompletedProcess(
+        exited_ns = time.time_ns()
+        await asyncio.sleep(post_exit_delay)
+        completed = NsjailCompletedProcess(
             returncode=0,
             stdout=b"",
             stderr=b"",
             workload_started=True,
             nsjail_log=b"",
             nsjail_signaled=False,
+            spawned_ns=spawned_ns,
+            exited_ns=exited_ns,
         )
+        completions.append(completed)
+        return completed
 
     mocker.patch("tracecat.sandbox.executor.invoke_nsjail", fake_invoke_nsjail)
     executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
@@ -121,7 +136,8 @@ async def _run_jail(
         site_packages_dir=None,
     )
     with runtime.tracer("test").start_as_current_span("tracecat.action.execute"):
-        return await executor.execute_action(job_dir, action_config)
+        result = await executor.execute_action(job_dir, action_config)
+    return result, completions[0]
 
 
 def _backwards_marks() -> dict[str, int]:
@@ -150,8 +166,8 @@ async def test_jailed_process_span_breaks_into_runner_phases(
     """Runner marks become contiguous child spans of the jailed process.
 
     Startup runs from the host's spawn to the runner's first mark, and the
-    finish phase from the last mark to the host seeing the process exit, so
-    the five phases tile the whole process span with no gaps.
+    finish phase from the last mark to the process exit, so the five phases
+    tile the jailed process's lifetime with no gaps.
     """
     runtime, exporter = tracing
     reported: dict[str, int] = {}
@@ -160,7 +176,7 @@ async def test_jailed_process_span_breaks_into_runner_phases(
         reported.update(_marks_in_window())
         return reported
 
-    result = await _run_jail(tmp_path, mocker, runtime, marks)
+    result, completed = await _run_jail(tmp_path, mocker, runtime, marks)
 
     assert result.success is True
     assert result.output == {"ok": True}
@@ -174,20 +190,55 @@ async def test_jailed_process_span_breaks_into_runner_phases(
     phases = [spans[name] for name in _RUNNER_PHASES]
     for phase in phases:
         assert _parent_id(phase) == _span_id(process)
-    assert process.start_time is not None
-    assert phases[0].start_time is not None
-    assert phases[0].start_time >= process.start_time
-    assert [phase.end_time for phase in phases[:-1]] == [
+        # Operators must be able to tell jail-reported timing from host-measured.
+        assert phase.attributes == {"tracecat.timing.source": "runner"}
+    assert [phase.start_time for phase in phases] == [
+        completed.spawned_ns,
         reported["main"],
         reported["input_loaded"],
         reported["imported"],
         reported["called"],
     ]
-    for earlier, later in zip(phases, phases[1:], strict=False):
-        assert earlier.end_time == later.start_time
+    assert [phase.end_time for phase in phases] == [
+        reported["main"],
+        reported["input_loaded"],
+        reported["imported"],
+        reported["called"],
+        completed.exited_ns,
+    ]
+    assert completed.spawned_ns is not None
+    assert completed.exited_ns is not None
+    assert process.start_time is not None
     assert process.end_time is not None
-    assert phases[-1].end_time is not None
-    assert phases[-1].end_time <= process.end_time
+    assert process.start_time <= completed.spawned_ns
+    assert completed.exited_ns <= process.end_time
+
+
+@pytest.mark.anyio
+async def test_host_work_after_exit_is_not_charged_to_the_runner(
+    tmp_path: Path,
+    mocker: MockerFixture,
+    tracing: tuple[PlatformTracing, InMemorySpanExporter],
+) -> None:
+    """Host post-processing after the jail exits stays out of ``runner.finish``.
+
+    The log scan runs on a threadpool after the process exits; under load it
+    can wait. That wait belongs to the host's process span, not to the jailed
+    interpreter's shutdown.
+    """
+    runtime, exporter = tracing
+
+    _result, completed = await _run_jail(
+        tmp_path, mocker, runtime, _marks_in_window, post_exit_delay=0.05
+    )
+
+    spans = _spans_by_name(exporter)
+    finish = spans["tracecat.action.runner.finish"]
+    process = spans["tracecat.action.sandbox.process"]
+    assert completed.exited_ns is not None
+    assert finish.end_time == completed.exited_ns
+    assert process.end_time is not None
+    assert process.end_time - completed.exited_ns >= 50_000_000
 
 
 @pytest.mark.anyio
@@ -208,7 +259,7 @@ async def test_forged_runner_marks_are_dropped_without_failing_the_action(
     """Jailed code cannot place spans outside what the host measured."""
     runtime, exporter = tracing
 
-    result = await _run_jail(tmp_path, mocker, runtime, phase_ns)
+    result, _completed = await _run_jail(tmp_path, mocker, runtime, phase_ns)
 
     assert result.success is True
     spans = _spans_by_name(exporter)
@@ -310,6 +361,16 @@ def test_runner_marks_the_import_and_call_bounds(
     assert marks["imported"] <= marks["called"]
 
 
+def _role() -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
+    )
+
+
 def _registry_input(version: str) -> RunActionInput:
     wf_id = WorkflowUUID.new_uuid4()
     return RunActionInput(
@@ -357,13 +418,7 @@ async def test_registry_resolution_span_records_the_builtin_source(
         "get_registry_artifacts_for_lock",
         new=AsyncMock(return_value=[]),
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-executor",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
-    )
+    role = _role()
 
     await registry_helpers.get_registry_artifact_uris(_registry_input(version), role)
 
@@ -374,3 +429,64 @@ async def test_registry_resolution_span_records_the_builtin_source(
         expected_lookups
     )
     assert lookup.await_count == expected_lookups
+
+
+@pytest.mark.anyio
+async def test_job_dir_is_deleted_before_cleanup_is_traced(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tracing: tuple[PlatformTracing, InMemorySpanExporter],
+) -> None:
+    """input.json holds resolved secrets, so its removal never waits on tracing.
+
+    A tracing fault while recording the cleanup span must not leave the job
+    directory behind.
+    """
+    _runtime, exporter = tracing
+    cgroup = tmp_path / "cgroup"
+    cgroup.mkdir()
+    (cgroup / "cgroup.subtree_control").write_text("memory")
+    (cgroup / "cgroup.procs").touch()
+    monkeypatch.setenv("TRACECAT__SANDBOX_CGROUP_PATH", str(cgroup))
+    job_dirs: list[Path] = []
+
+    async def execute_action(
+        _executor: action_runner.NsjailExecutor,
+        job_dir: Path,
+        _config: action_runner.ActionSandboxConfig,
+    ) -> SandboxResult:
+        job_dirs.append(job_dir)
+        return SandboxResult(success=True, output="ok")
+
+    def failing_record(*_args: Any, **_kwargs: Any) -> None:
+        assert not job_dirs[0].exists()
+        raise RuntimeError("exporter failed")
+
+    monkeypatch.setattr(action_runner.NsjailExecutor, "execute_action", execute_action)
+    monkeypatch.setattr(action_runner, "record_platform_span", failing_record)
+    run_input = _registry_input(tracecat_registry.__version__)
+    role = _role()
+
+    with pytest.raises(RuntimeError, match="exporter failed"):
+        await ActionRunner(cache_dir=tmp_path / "cache")._execute_sandboxed(
+            input=run_input,
+            role=role,
+            registry_paths=[],
+            secret_projection=SecretEnvProjection(env={}, mask_values=set()),
+            resolved_context=ResolvedContext(
+                action_impl=ActionImplementation(
+                    type="udf",
+                    action_name="core.transform.reshape",
+                    module="tracecat_registry.core.transform",
+                    name="reshape",
+                ),
+                evaluated_args={"value": 1},
+                workspace_id=str(role.workspace_id),
+                workflow_id=str(run_input.run_context.wf_id),
+                run_id=str(run_input.run_context.wf_run_id),
+                executor_token="token",
+            ),
+        )
+
+    assert not job_dirs[0].exists()
+    assert "tracecat.action.sandbox.prepare" in _spans_by_name(exporter)

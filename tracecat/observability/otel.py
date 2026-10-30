@@ -540,14 +540,16 @@ def platform_span(
 def record_platform_span(
     name: str,
     *,
-    parent: Span,
     start_time_ns: int,
     end_time_ns: int,
+    parent: Span | None = None,
+    attributes: Mapping[str, str] | None = None,
 ) -> None:
-    """Record a finished child span from timestamps measured elsewhere.
+    """Record a finished span from timestamps measured elsewhere.
 
-    For phases timed in another process, such as a sandboxed runner, where no
-    span can be open while the work runs.
+    For work timed where no span can be open while it runs, such as phases in
+    a sandboxed runner, or cleanup that must not depend on tracing. The span
+    is a child of ``parent``, or of the active span when none is given.
     """
     runtime = get_platform_tracing()
     if runtime is None:
@@ -555,8 +557,9 @@ def record_platform_span(
 
     span = runtime.tracer(_PLATFORM_INSTRUMENTATION_NAME).start_span(
         name,
-        context=trace.set_span_in_context(parent),
+        context=trace.set_span_in_context(parent) if parent is not None else None,
         start_time=start_time_ns,
+        attributes=attributes,
         record_exception=False,
         set_status_on_exception=False,
     )

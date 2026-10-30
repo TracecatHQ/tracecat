@@ -219,25 +219,29 @@ _RUNNER_PHASE_SPAN_NAMES = (
 def _record_runner_phase_spans(
     parent: Span | None,
     marks: RunnerPhaseMarks | None,
-    *,
-    spawn_ns: int,
-    exit_ns: int,
+    completed: NsjailCompletedProcess,
 ) -> None:
     """Break the jailed process span into the phases its runner reported.
 
     The marks come from jailed code, so a set that runs backwards or leaves
     the host-measured process window is dropped whole. A phase is recorded
-    only when the runner reached both of its bounds.
+    only when the runner reached both of its bounds, and every span says its
+    timing came from the runner rather than from the host.
     """
-    if parent is None or marks is None:
+    if (
+        parent is None
+        or marks is None
+        or completed.spawned_ns is None
+        or completed.exited_ns is None
+    ):
         return
     bounds = (
-        spawn_ns,
+        completed.spawned_ns,
         marks.main,
         marks.input_loaded,
         marks.imported,
         marks.called,
-        exit_ns,
+        completed.exited_ns,
     )
     reached = [bound for bound in bounds if bound is not None]
     if any(later < earlier for earlier, later in itertools.pairwise(reached)):
@@ -247,7 +251,11 @@ def _record_runner_phase_spans(
     ):
         if start is not None and end is not None:
             record_platform_span(
-                name, parent=parent, start_time_ns=start, end_time_ns=end
+                name,
+                parent=parent,
+                start_time_ns=start,
+                end_time_ns=end,
+                attributes={"tracecat.timing.source": "runner"},
             )
 
 
@@ -1125,7 +1133,6 @@ class NsjailExecutor:
             tracecat_app=str(config.tracecat_app_dir),
         )
         with platform_span("tracecat.action.sandbox.process") as process_span:
-            spawn_ns = time.time_ns()
             completed = await invoke_nsjail(
                 nsjail_path=self.nsjail_path,
                 job_dir=job_dir,
@@ -1139,7 +1146,6 @@ class NsjailExecutor:
                 workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
                 workload_started_marker=_WORKLOAD_STARTED_MARKER,
             )
-            exit_ns = time.time_ns()
         returncode = completed.returncode
 
         execution_time_ms = (time.time() - start_time) * 1000
@@ -1169,10 +1175,7 @@ class NsjailExecutor:
             )
         if outcome is not None:
             _record_runner_phase_spans(
-                process_span,
-                outcome.result.phase_marks,
-                spawn_ns=spawn_ns,
-                exit_ns=exit_ns,
+                process_span, outcome.result.phase_marks, completed
             )
         if (result := _usable_result(outcome, completed)) is not None:
             # NsJail logs to its private fd once its config parses, so this is

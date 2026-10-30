@@ -6,6 +6,7 @@ import asyncio
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -19,7 +20,12 @@ from tracecat.sandbox.utils import communicate_process_group
 
 @dataclass(frozen=True, slots=True)
 class NsjailCompletedProcess:
-    """Captured output and status from one nsjail invocation."""
+    """Captured output and status from one nsjail invocation.
+
+    ``spawned_ns`` and ``exited_ns`` are wall-clock times taken just before the
+    launch and as soon as the process has exited, before any host-side
+    post-processing, so they bound the process alone.
+    """
 
     returncode: int | None
     stdout: bytes
@@ -27,6 +33,8 @@ class NsjailCompletedProcess:
     workload_started: bool
     nsjail_log: bytes
     nsjail_signaled: bool
+    spawned_ns: int | None = None
+    exited_ns: int | None = None
 
 
 # NsJail logs this as it SIGKILLs the jail on SIGTERM/SIGINT. The workload can
@@ -102,6 +110,7 @@ async def invoke_nsjail(
         )
         config_path.chmod(0o600)
         env_args = [arg for key in env for arg in ("--env", key)]
+        spawned_ns = time.time_ns()
         process = await asyncio.create_subprocess_exec(
             str(nsjail_path),
             "--config",
@@ -121,6 +130,7 @@ async def invoke_nsjail(
             )
         except TimeoutError as error:
             raise SandboxTimeoutError(timeout_message) from error
+        exited_ns = time.time_ns()
         workload_started = False
         if workload_started_marker is not None and workload_started_marker in stderr:
             workload_started = True
@@ -133,6 +143,8 @@ async def invoke_nsjail(
             workload_started=workload_started,
             nsjail_log=log_scan.tail,
             nsjail_signaled=log_scan.nsjail_signaled,
+            spawned_ns=spawned_ns,
+            exited_ns=exited_ns,
         )
     except OSError as error:
         raise SandboxInfrastructureError(
