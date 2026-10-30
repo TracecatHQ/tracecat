@@ -925,7 +925,8 @@ if __name__ == "__main__":
     sys.stderr.flush()
     if use_file_io:
         # Lets the nsjail host return the result without waiting for the jail's
-        # teardown. Action code could forge it early; the host then finds no
-        # valid result and waits for the exit as before.
+        # teardown. The marker only signals timing: the host returns early for
+        # any valid result.json, which action code could write itself anyway,
+        # and otherwise waits for the exit as before.
         os.write(2, _WORKLOAD_DONE_MARKER)
     os._exit(0)

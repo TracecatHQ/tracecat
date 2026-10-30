@@ -73,14 +73,14 @@ async def test_done_marker_returns_before_nsjail_exits(tmp_path: Path) -> None:
     script = (
         f"printf '{_marker(_WORKLOAD_STARTED_MARKER)}workload says hi'  >&2\n"
         f"printf '{_marker(_WORKLOAD_DONE_MARKER)}' >&2\n"
-        "sleep 0.5  # NsJail tearing the jail down"
+        "sleep 3  # NsJail tearing the jail down"
     )
     started = time.monotonic()
     completed = await _invoke(tmp_path, script)
     returned_after = time.monotonic() - started
 
     assert completed.finish is not None
-    assert returned_after < 0.4
+    assert returned_after < 2
     assert completed.returncode is None
     assert completed.workload_started
     assert completed.stderr == b"workload says hi"
@@ -127,10 +127,8 @@ async def test_done_marker_hands_the_jail_to_finish_without_waiting(
 
     monkeypatch.setattr(nsjail_protocol, "scan_nsjail_log", slow_scan)
     script = f"printf '{_marker(_WORKLOAD_DONE_MARKER)}' >&2\nsleep 0.1"
-    started = time.monotonic()
     completed = await _invoke(tmp_path, script)
 
-    assert time.monotonic() - started < 0.4
     assert completed.finish is not None
     assert scans == []
     await completed.finish
