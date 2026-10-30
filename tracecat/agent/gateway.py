@@ -15,9 +15,13 @@ from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Request
 from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import (
+    APIConnectionError,
     AuthenticationError,
+    BadGatewayError,
+    InternalServerError,
     PermissionDeniedError,
     RateLimitError,
+    ServiceUnavailableError,
 )
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
@@ -432,6 +436,12 @@ class _GatewayUnavailableHTTPException(HTTPException):
     type = "tracecat_llm_deployment_unavailable"
 
 
+class _ProviderUnavailableHTTPException(HTTPException):
+    """Attribute an upstream provider 5xx or connection failure to the provider."""
+
+    type = "tracecat_llm_provider_unavailable"
+
+
 def _response_has_provider_quota_code(response: httpx.Response) -> bool:
     if response.status_code != 429:
         return False
@@ -545,6 +555,23 @@ class TracecatCallbackHandler(CustomLogger):
             replacement = _ProviderRateLimitHTTPException(
                 status_code=429,
                 detail="LLM provider rate limit exceeded; retry later",
+            )
+        elif isinstance(
+            original_exception,
+            APIConnectionError
+            | BadGatewayError
+            | InternalServerError
+            | ServiceUnavailableError,
+        ):
+            # Includes MidStreamFallbackError, a ServiceUnavailableError.
+            status_code = getattr(original_exception, "status_code", None)
+            replacement = _ProviderUnavailableHTTPException(
+                status_code=(
+                    status_code
+                    if isinstance(status_code, int) and status_code >= 500
+                    else 502
+                ),
+                detail="The LLM provider is temporarily unavailable; retry later",
             )
         else:
             return None
