@@ -1,5 +1,6 @@
 """nsjail executor for sandboxed Python execution."""
 
+import itertools
 import os
 import re
 import signal
@@ -7,6 +8,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+
+from opentelemetry.trace import Span
 
 from tracecat.config import (
     TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
@@ -19,6 +22,7 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span, record_platform_span
 from tracecat.sandbox.exceptions import (
     SandboxValidationError,
 )
@@ -31,6 +35,7 @@ from tracecat.sandbox.result_envelope import (
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
+    RunnerPhaseMarks,
     SandboxConfig,
     SandboxErrorCode,
     SandboxNetworkPurpose,
@@ -199,6 +204,51 @@ if _guard_raw:
 os.write(2, {_WORKLOAD_STARTED_MARKER!r})
 os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 """
+
+
+# Phases between consecutive bounds of spawn, the runner's marks and exit.
+_RUNNER_PHASE_SPAN_NAMES = (
+    "tracecat.action.runner.startup",
+    "tracecat.action.runner.load_input",
+    "tracecat.action.runner.import",
+    "tracecat.action.runner.call",
+    "tracecat.action.runner.finish",
+)
+
+
+def _record_runner_phase_spans(
+    parent: Span | None,
+    marks: RunnerPhaseMarks | None,
+    *,
+    spawn_ns: int,
+    exit_ns: int,
+) -> None:
+    """Break the jailed process span into the phases its runner reported.
+
+    The marks come from jailed code, so a set that runs backwards or leaves
+    the host-measured process window is dropped whole. A phase is recorded
+    only when the runner reached both of its bounds.
+    """
+    if parent is None or marks is None:
+        return
+    bounds = (
+        spawn_ns,
+        marks.main,
+        marks.input_loaded,
+        marks.imported,
+        marks.called,
+        exit_ns,
+    )
+    reached = [bound for bound in bounds if bound is not None]
+    if any(later < earlier for earlier, later in itertools.pairwise(reached)):
+        return
+    for name, (start, end) in zip(
+        _RUNNER_PHASE_SPAN_NAMES, itertools.pairwise(bounds), strict=True
+    ):
+        if start is not None and end is not None:
+            record_platform_span(
+                name, parent=parent, start_time_ns=start, end_time_ns=end
+            )
 
 
 def _usable_result(
@@ -1074,19 +1124,22 @@ class NsjailExecutor:
             registry_paths=config.registry_paths,
             tracecat_app=str(config.tracecat_app_dir),
         )
-        completed = await invoke_nsjail(
-            nsjail_path=self.nsjail_path,
-            job_dir=job_dir,
-            config_text=nsjail_config,
-            env=env_map,
-            timeout_seconds=config.timeout_seconds + 10,
-            timeout_message=(
-                f"Action execution timed out after {config.timeout_seconds}s"
-            ),
-            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
-            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
-            workload_started_marker=_WORKLOAD_STARTED_MARKER,
-        )
+        with platform_span("tracecat.action.sandbox.process") as process_span:
+            spawn_ns = time.time_ns()
+            completed = await invoke_nsjail(
+                nsjail_path=self.nsjail_path,
+                job_dir=job_dir,
+                config_text=nsjail_config,
+                env=env_map,
+                timeout_seconds=config.timeout_seconds + 10,
+                timeout_message=(
+                    f"Action execution timed out after {config.timeout_seconds}s"
+                ),
+                workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+                workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+                workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            )
+            exit_ns = time.time_ns()
         returncode = completed.returncode
 
         execution_time_ms = (time.time() - start_time) * 1000
@@ -1099,20 +1152,28 @@ class NsjailExecutor:
         result_path = job_dir / "result.json"
         result_file_exists = result_path.exists()
         workload_started = completed.workload_started
-        outcome = decode_result_envelope(
-            job_dir,
-            output_key="result",
-            stdout=stdout,
-            stderr=stderr,
-            stderr_limit=2000,
-            invalid_result_error="Action sandbox produced an invalid result file",
-            log_label="action",
-            exit_code=returncode,
-            execution_time_ms=execution_time_ms,
-            max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
-            stream_source="process",
-            include_error_code=True,
-        )
+        with platform_span("tracecat.action.sandbox.read_result"):
+            outcome = decode_result_envelope(
+                job_dir,
+                output_key="result",
+                stdout=stdout,
+                stderr=stderr,
+                stderr_limit=2000,
+                invalid_result_error="Action sandbox produced an invalid result file",
+                log_label="action",
+                exit_code=returncode,
+                execution_time_ms=execution_time_ms,
+                max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+                stream_source="process",
+                include_error_code=True,
+            )
+        if outcome is not None:
+            _record_runner_phase_spans(
+                process_span,
+                outcome.result.phase_marks,
+                spawn_ns=spawn_ns,
+                exit_ns=exit_ns,
+            )
         if (result := _usable_result(outcome, completed)) is not None:
             # NsJail logs to its private fd once its config parses, so this is
             # workload output only.

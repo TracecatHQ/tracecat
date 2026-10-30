@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Literal
 
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 from tracecat.sandbox.file_io import read_json_object_beneath
-from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
+from tracecat.sandbox.types import RunnerPhaseMarks, SandboxErrorCode, SandboxResult
 
 
 class _ResultEnvelope(BaseModel):
@@ -30,6 +30,21 @@ class _ResultEnvelope(BaseModel):
     # must pass through opaquely for the consumer to validate (action_runner).
     error: str | dict[str, Any] | None = Field(default=None)
     error_code: SandboxErrorCode | None = Field(default=None)
+    phase_ns: RunnerPhaseMarks | None = Field(default=None)
+
+    @field_validator("phase_ns", mode="before")
+    @classmethod
+    def drop_malformed_phase_marks(cls, value: object) -> RunnerPhaseMarks | None:
+        """Keep only integer marks; timing telemetry never rejects a result."""
+        if not isinstance(value, dict):
+            return None
+        marks: dict[str, int] = {}
+        for field in fields(RunnerPhaseMarks):
+            mark = value.get(field.name)
+            # bool is an int subclass; JSON true is not a timestamp.
+            if type(mark) is int:
+                marks[field.name] = mark
+        return RunnerPhaseMarks(**marks) if marks else None
 
     @field_validator("error_code", mode="before")
     @classmethod
@@ -182,6 +197,7 @@ def decode_result_envelope(
             error_code=envelope.error_code if include_error_code else None,
             exit_code=exit_code,
             execution_time_ms=execution_time_ms,
+            phase_marks=envelope.phase_ns,
         ),
         valid_envelope=True,
     )

@@ -537,6 +537,32 @@ def platform_span(
             raise
 
 
+def record_platform_span(
+    name: str,
+    *,
+    parent: Span,
+    start_time_ns: int,
+    end_time_ns: int,
+) -> None:
+    """Record a finished child span from timestamps measured elsewhere.
+
+    For phases timed in another process, such as a sandboxed runner, where no
+    span can be open while the work runs.
+    """
+    runtime = get_platform_tracing()
+    if runtime is None:
+        return
+
+    span = runtime.tracer(_PLATFORM_INSTRUMENTATION_NAME).start_span(
+        name,
+        context=trace.set_span_in_context(parent),
+        start_time=start_time_ns,
+        record_exception=False,
+        set_status_on_exception=False,
+    )
+    span.end(end_time=end_time_ns)
+
+
 def current_trace_id() -> str | None:
     """Return the active trace ID, or ``None`` when no valid span is active."""
     span_context = trace.get_current_span().get_span_context()
