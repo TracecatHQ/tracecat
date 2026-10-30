@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 from typing import Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
@@ -463,11 +464,49 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
     return False
 
 
-def _anthropic_error_message(error_type: str, message: str) -> str:
+# Bounds a provider-supplied wait hint; the LLM socket proxy applies its own cap.
+_MAX_RETRY_AFTER_SECONDS = 300
+
+
+def _numeric_seconds(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        return None
+    return seconds if math.isfinite(seconds) else None
+
+
+def _retry_after_seconds(error: Exception) -> int | None:
+    """Whole seconds to wait before retrying, from numeric wait hints only.
+
+    LiteLLM's ``/v1/messages`` error path drops upstream response headers, so
+    the hint is carried in the error body instead.
+    """
+    if isinstance(error, RouterRateLimitError):
+        seconds: float | None = float(error.cooldown_time)
+    else:
+        headers = getattr(getattr(error, "response", None), "headers", None)
+        if headers is None:
+            return None
+        if (millis := _numeric_seconds(headers.get("retry-after-ms"))) is not None:
+            seconds = millis / 1000
+        else:
+            seconds = _numeric_seconds(headers.get("retry-after"))
+    if seconds is None or not math.isfinite(seconds) or seconds <= 0:
+        return None
+    return min(math.ceil(seconds), _MAX_RETRY_AFTER_SECONDS)
+
+
+def _anthropic_error_message(
+    error_type: str, message: str, *, retry_after: int | None = None
+) -> str:
     """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
-    return orjson.dumps(
-        {"type": "error", "error": {"type": error_type, "message": message}}
-    ).decode()
+    error: dict[str, str | int] = {"type": error_type, "message": message}
+    if retry_after is not None:
+        error["retry_after"] = retry_after
+    return orjson.dumps({"type": "error", "error": error}).decode()
 
 
 def _trace_request_id(data: dict[str, Any]) -> str | None:
@@ -554,9 +593,19 @@ class TracecatCallbackHandler(CustomLogger):
         # so its status-based mapping cannot erase auth origin or quota codes.
         # RouterRateLimitError lacks these wire attributes; attach them for
         # LiteLLM's duck-typed endpoint serializer.
+        retry_after = (
+            _retry_after_seconds(original_exception)
+            if isinstance(
+                replacement,
+                _ProviderRateLimitHTTPException | _GatewayUnavailableHTTPException,
+            )
+            else None
+        )
         original_exception.__dict__.update(
             type=replacement.type,
-            message=_anthropic_error_message(replacement.type, str(replacement.detail)),
+            message=_anthropic_error_message(
+                replacement.type, str(replacement.detail), retry_after=retry_after
+            ),
             status_code=replacement.status_code,
         )
         return replacement
