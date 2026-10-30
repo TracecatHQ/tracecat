@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 from tracecat import config
+from tracecat.executor.action_runner import drain_deferred_sandbox_cleanups
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.logger import logger
@@ -117,3 +118,5 @@ async def shutdown_executor_backend() -> None:
         )
         await _backend.shutdown()
         _backend = None
+    # Jails that returned early still hold their leases until they exit.
+    await drain_deferred_sandbox_cleanups()

@@ -30,6 +30,9 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal, cast
 
+# Shared with tracecat.sandbox.executor, which this module must not import.
+_WORKLOAD_DONE_MARKER = b"\x00tracecat-workload-done\x00"
+
 # Only import what we absolutely need - no tracecat imports!
 # Prefer orjson for performance (4-12x faster), fall back to stdlib json
 try:
@@ -914,3 +917,16 @@ if __name__ == "__main__":
     else:
         sys.stdout.buffer.write(result_bytes)
         sys.stdout.buffer.flush()
+
+    # The result is out. Skip interpreter shutdown: module teardown, atexit
+    # hooks and non-daemon threads the action left behind would only delay the
+    # exit the host is waiting on.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if use_file_io:
+        # Lets the nsjail host return the result without waiting for the jail's
+        # teardown. The marker only signals timing: the host returns early for
+        # any valid result.json, which action code could write itself anyway,
+        # and otherwise waits for the exit as before.
+        os.write(2, _WORKLOAD_DONE_MARKER)
+    os._exit(0)
