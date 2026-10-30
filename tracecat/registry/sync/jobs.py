@@ -124,8 +124,8 @@ async def sync_platform_registry_on_startup() -> None:
     target_version = tracecat_registry.__version__
     logger.info("Attempting platform registry sync", target_version=target_version)
 
+    artifact_build: _ArtifactBuildRequest | None = None
     try:
-        artifact_build: _ArtifactBuildRequest | None = None
         # Leader election: try to acquire lock (non-blocking). The sync commits
         # several times, so the lock is held on its own connection.
         async with hold_pg_advisory_xact_lock(
@@ -153,10 +153,16 @@ async def sync_platform_registry_on_startup() -> None:
             )
 
     except Exception as e:
-        logger.warning(
+        # Nothing retries this; a failed build or promotion leaves executors on
+        # the previous registry version until the next API start.
+        logger.exception(
             "Platform registry sync failed",
             error=str(e),
+            error_type=type(e).__name__,
             target_version=target_version,
+            promote_version_id=str(artifact_build.promote_version_id)
+            if artifact_build and artifact_build.promote_version_id
+            else None,
         )
         # Don't re-raise - API should continue
 
@@ -322,26 +328,30 @@ async def _build_platform_registry_artifact(
     promote_version_id: UUID | None = None,
     expected_current_version_id: UUID | None = None,
 ) -> None:
+    # The build only uses blob storage and can take minutes. Give it an unbound
+    # session so no connection or transaction sits idle across it: a pooler or
+    # server timeout would close that connection and promotion would fail on it.
+    sync_service = PlatformRegistrySyncService(AsyncSession())
+    result = await sync_service._build_and_upload_artifacts(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version_string=target_version,
+        commit_sha=None,
+    )
+    logger.info(
+        "Platform registry artifact build completed",
+        target_version=target_version,
+        artifact_uri=result.artifact_uri,
+    )
+    if promote_version_id is None:
+        return
     async with get_async_session_bypass_rls_context_manager() as session:
-        sync_service = PlatformRegistrySyncService(session)
-        result = await sync_service._build_and_upload_artifacts(
-            origin=DEFAULT_REGISTRY_ORIGIN,
-            version_string=target_version,
-            commit_sha=None,
-        )
-        logger.info(
-            "Platform registry artifact build completed",
+        await _promote_platform_registry_version_after_artifact_build(
+            session,
             target_version=target_version,
+            version_id=promote_version_id,
             artifact_uri=result.artifact_uri,
+            expected_current_version_id=expected_current_version_id,
         )
-        if promote_version_id is not None:
-            await _promote_platform_registry_version_after_artifact_build(
-                session,
-                target_version=target_version,
-                version_id=promote_version_id,
-                artifact_uri=result.artifact_uri,
-                expected_current_version_id=expected_current_version_id,
-            )
 
 
 async def _promote_platform_registry_version_after_artifact_build(
