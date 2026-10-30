@@ -207,6 +207,9 @@ os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 
 
 # Phases between consecutive bounds of spawn, the runner's marks and exit.
+# "finish" runs from the action returning until the host has collected the
+# exited jail: result serialization and write, interpreter shutdown, jail
+# teardown, and the host's exit detection (see NsjailCompletedProcess).
 _RUNNER_PHASE_SPAN_NAMES = (
     "tracecat.action.runner.startup",
     "tracecat.action.runner.load_input",

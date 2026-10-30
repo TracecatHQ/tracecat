@@ -23,8 +23,9 @@ class NsjailCompletedProcess:
     """Captured output and status from one nsjail invocation.
 
     ``spawned_ns`` and ``exited_ns`` are wall-clock times taken just before the
-    launch and as soon as the process has exited, before any host-side
-    post-processing, so they bound the process alone.
+    launch and once the host has collected the exited process, before the log
+    scan. ``exited_ns`` therefore trails the real exit by the exit poll interval
+    (10 ms) plus process-group cleanup and any event-loop delay.
     """
 
     returncode: int | None

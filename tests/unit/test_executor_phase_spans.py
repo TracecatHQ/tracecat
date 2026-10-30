@@ -432,15 +432,16 @@ async def test_registry_resolution_span_records_the_builtin_source(
 
 
 @pytest.mark.anyio
-async def test_job_dir_is_deleted_before_cleanup_is_traced(
+async def test_cleanup_telemetry_never_keeps_secrets_or_changes_the_outcome(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     tracing: tuple[PlatformTracing, InMemorySpanExporter],
 ) -> None:
     """input.json holds resolved secrets, so its removal never waits on tracing.
 
-    A tracing fault while recording the cleanup span must not leave the job
-    directory behind.
+    The job directory is gone before the cleanup span is recorded, and a
+    tracing fault while recording it neither leaves the directory behind nor
+    turns a successful action into a failure.
     """
     _runtime, exporter = tracing
     cgroup = tmp_path / "cgroup"
@@ -458,8 +459,10 @@ async def test_job_dir_is_deleted_before_cleanup_is_traced(
         job_dirs.append(job_dir)
         return SandboxResult(success=True, output="ok")
 
+    dir_existed_when_traced: list[bool] = []
+
     def failing_record(*_args: Any, **_kwargs: Any) -> None:
-        assert not job_dirs[0].exists()
+        dir_existed_when_traced.append(job_dirs[0].exists())
         raise RuntimeError("exporter failed")
 
     monkeypatch.setattr(action_runner.NsjailExecutor, "execute_action", execute_action)
@@ -467,26 +470,27 @@ async def test_job_dir_is_deleted_before_cleanup_is_traced(
     run_input = _registry_input(tracecat_registry.__version__)
     role = _role()
 
-    with pytest.raises(RuntimeError, match="exporter failed"):
-        await ActionRunner(cache_dir=tmp_path / "cache")._execute_sandboxed(
-            input=run_input,
-            role=role,
-            registry_paths=[],
-            secret_projection=SecretEnvProjection(env={}, mask_values=set()),
-            resolved_context=ResolvedContext(
-                action_impl=ActionImplementation(
-                    type="udf",
-                    action_name="core.transform.reshape",
-                    module="tracecat_registry.core.transform",
-                    name="reshape",
-                ),
-                evaluated_args={"value": 1},
-                workspace_id=str(role.workspace_id),
-                workflow_id=str(run_input.run_context.wf_id),
-                run_id=str(run_input.run_context.wf_run_id),
-                executor_token="token",
+    result = await ActionRunner(cache_dir=tmp_path / "cache")._execute_sandboxed(
+        input=run_input,
+        role=role,
+        registry_paths=[],
+        secret_projection=SecretEnvProjection(env={}, mask_values=set()),
+        resolved_context=ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.transform.reshape",
+                module="tracecat_registry.core.transform",
+                name="reshape",
             ),
-        )
+            evaluated_args={"value": 1},
+            workspace_id=str(role.workspace_id),
+            workflow_id=str(run_input.run_context.wf_id),
+            run_id=str(run_input.run_context.wf_run_id),
+            executor_token="token",
+        ),
+    )
 
+    assert result == "ok"
+    assert dir_existed_when_traced == [False]
     assert not job_dirs[0].exists()
     assert "tracecat.action.sandbox.prepare" in _spans_by_name(exporter)
