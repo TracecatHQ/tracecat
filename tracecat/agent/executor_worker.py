@@ -31,7 +31,9 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.executor.startup import executor_lifecycle
 from tracecat.logger import logger
 from tracecat.observability.otel import (
+    initialize_platform_metrics,
     initialize_platform_tracing,
+    shutdown_platform_metrics,
     shutdown_platform_tracing,
 )
 from tracecat.observability.sentry import initialize_worker_sentry_from_environment
@@ -108,12 +110,14 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             max_concurrent_activities=max_concurrent,
         )
         initialize_platform_tracing("tracecat-agent-executor")
+        initialize_platform_metrics()
         initialize_worker_sentry_from_environment()
 
-        # LIFO teardown: storage cache, then runtime services, then tracing. The
-        # stack still runs later callbacks when an earlier one raises.
+        # LIFO teardown: storage cache, then runtime services, then metrics and
+        # tracing. The stack still runs later callbacks when an earlier one raises.
         async with AsyncExitStack() as cleanup:
             cleanup.callback(shutdown_platform_tracing)
+            cleanup.callback(shutdown_platform_metrics)
             cleanup.push_async_callback(_stop_runtime_services)
             cleanup.push_async_callback(close_storage_client_cache)
 
