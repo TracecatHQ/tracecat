@@ -15,10 +15,33 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 
 from tracecat.concurrency import rejoin_future_through_cancellation
+from tracecat.logger import logger
 
 _PID_NAMESPACE_AVAILABLE: bool | None = None
 _PID_NAMESPACE_PROBE_ERROR: str | None = None
 _PROCESS_EXIT_POLL_INTERVAL_SECONDS = 0.01
+# Bounds each teardown wait once everything has been sent SIGKILL: the leader's
+# exit, then the close of its output pipes.
+TEARDOWN_TIMEOUT_SECONDS = 5.0
+
+
+class ProcessTeardownError(RuntimeError):
+    """A killed process's output pipes stayed open past the teardown bound."""
+
+
+async def _wait_for_exit(process: asyncio.subprocess.Process, timeout: float) -> bool:
+    """Wait up to ``timeout`` seconds for the process itself to exit.
+
+    asyncio's ``wait()`` also waits for the output pipes to close, which a
+    surviving descendant can hold open indefinitely, so poll the exit instead.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while process.returncode is None:
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
+    return True
 
 
 async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
@@ -27,14 +50,18 @@ async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
     The subprocess must have been started with ``start_new_session=True``, which
     makes its PID the process-group ID. Calling this after normal completion is
     intentional: a subprocess can exit while leaving background descendants
-    alive.
+    alive. The wait for the leader's exit is bounded; past it, this logs and
+    returns.
     """
     with suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGKILL)
     if process.returncode is None:
         with suppress(ProcessLookupError):
             process.kill()
-    await process.wait()
+    if not await _wait_for_exit(process, TEARDOWN_TIMEOUT_SECONDS):
+        logger.warning(
+            "Process did not exit after SIGKILL; continuing teardown", pid=process.pid
+        )
 
 
 async def terminate_supervised_process(process: asyncio.subprocess.Process) -> None:
@@ -86,6 +113,9 @@ async def communicate_process_group(
     terminate the group immediately and close those pipes. Cancellation also
     terminates the group before it propagates. Callers with a stronger process
     supervisor can supply its cleanup function as ``terminate``.
+
+    Raises ``ProcessTeardownError`` if the pipes stay open for
+    ``TEARDOWN_TIMEOUT_SECONDS`` after termination.
     """
     terminator = terminate or terminate_process_group
     communicate_task = asyncio.create_task(process.communicate(input=input))
@@ -97,7 +127,16 @@ async def communicate_process_group(
                 await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
             termination_task = asyncio.ensure_future(terminator(process))
             await asyncio.shield(termination_task)
-            stdout, stderr = await communicate_task
+            # The terminator killed every known holder of the pipes; anything
+            # still holding them is out of reach, so stop waiting for EOF.
+            done, _ = await asyncio.wait(
+                {communicate_task}, timeout=TEARDOWN_TIMEOUT_SECONDS
+            )
+            if not done:
+                raise ProcessTeardownError(
+                    f"Output pipes stayed open after process {process.pid} was killed"
+                )
+            stdout, stderr = communicate_task.result()
     except BaseException as e:
         operation_error = e
         raise

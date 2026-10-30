@@ -3,19 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import errno
+import functools
 import os
 import re
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
+from tracecat.concurrency import rejoin_future_through_cancellation
+from tracecat.logger import logger
+from tracecat.sandbox.cgroup import kill_cgroup, remove_cgroup
 from tracecat.sandbox.exceptions import (
     SandboxInfrastructureError,
     SandboxTimeoutError,
 )
-from tracecat.sandbox.utils import communicate_process_group
+from tracecat.sandbox.utils import (
+    TEARDOWN_TIMEOUT_SECONDS,
+    ProcessTeardownError,
+    communicate_process_group,
+    terminate_process_group,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +55,7 @@ _NSJAIL_FATAL_SIGNAL_LINE = re.compile(
     rb"\[I\]\[[^\]]+\] Server stops due to fatal signal \(\d+\) caught"
 )
 _NSJAIL_LOG_TAIL_BYTES = 1024 * 1024
+_CGROUP_REMOVE_POLL_SECONDS = 0.01
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +83,46 @@ def _cleanup_executor_file(path: Path) -> None:
         pass
 
 
+async def _terminate_jail(
+    process: asyncio.subprocess.Process, *, jail_cgroup: Path | None
+) -> None:
+    """Kill NsJail's process group, then every process left in the jail.
+
+    A jailed process can outlive NsJail and keep its output pipes open; the
+    jail's cgroup is the one place that still lists it.
+    """
+    await terminate_process_group(process)
+    if jail_cgroup is None:
+        return
+    try:
+        kill_cgroup(jail_cgroup)
+    except OSError as error:
+        logger.warning(
+            "Could not kill the sandbox cgroup", cgroup=str(jail_cgroup), error=error
+        )
+
+
+async def _remove_jail_cgroup(jail_cgroup: Path) -> None:
+    """Remove the jail's cgroup once its killed processes have exited."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + TEARDOWN_TIMEOUT_SECONDS
+    while True:
+        try:
+            remove_cgroup(jail_cgroup)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            if error.errno != errno.EBUSY or loop.time() >= deadline:
+                logger.warning(
+                    "Could not remove the sandbox cgroup",
+                    cgroup=str(jail_cgroup),
+                    error=error,
+                )
+                return
+        await asyncio.sleep(_CGROUP_REMOVE_POLL_SECONDS)
+
+
 async def invoke_nsjail(
     *,
     nsjail_path: Path,
@@ -82,19 +134,32 @@ async def invoke_nsjail(
     workload_launcher_name: str | None = None,
     workload_launcher_script: str | None = None,
     workload_started_marker: bytes | None = None,
+    cgroup_mount: Path | None = None,
 ) -> NsjailCompletedProcess:
     """Prepare, launch, await, and clean up one nsjail process.
 
     Filesystem and process-launch failures occur before workload code can run,
     so this boundary normalizes them as typed platform infrastructure failures.
+
+    With ``cgroup_mount``, the jail runs in a cgroup created under it for this
+    call, and teardown kills every process in that cgroup.
     """
     config_path = job_dir / "nsjail.cfg"
     launcher_path: Path | None = None
+    jail_cgroup: Path | None = None
     # An unlinked file outside the jail. NsJail marks every descriptor except
     # stdio close-on-exec before starting the workload, so only NsJail writes it.
     log_file = None
     try:
         log_file = tempfile.TemporaryFile()
+        cgroup_args: list[str] = []
+        if cgroup_mount is not None:
+            # NsJail creates the jail's own cgroup inside this one, so killing
+            # this one reaches the whole jail. A flag after --config overrides
+            # the config's cgroupv2_mount.
+            jail_cgroup = cgroup_mount / f"tracecat-{uuid.uuid4().hex}"
+            jail_cgroup.mkdir()
+            cgroup_args = ["--cgroupv2_mount", str(jail_cgroup)]
         if workload_launcher_name is not None:
             if workload_launcher_script is None or workload_started_marker is None:
                 raise ValueError(
@@ -116,6 +181,7 @@ async def invoke_nsjail(
             str(nsjail_path),
             "--config",
             str(config_path),
+            *cgroup_args,
             *env_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -128,9 +194,14 @@ async def invoke_nsjail(
             stdout, stderr = await communicate_process_group(
                 process,
                 timeout=timeout_seconds,
+                terminate=functools.partial(_terminate_jail, jail_cgroup=jail_cgroup),
             )
         except TimeoutError as error:
             raise SandboxTimeoutError(timeout_message) from error
+        except ProcessTeardownError as error:
+            raise SandboxInfrastructureError(
+                "Sandbox output stayed open after NsJail was killed"
+            ) from error
         exited_ns = time.time_ns()
         workload_started = False
         if workload_started_marker is not None and workload_started_marker in stderr:
@@ -157,3 +228,7 @@ async def invoke_nsjail(
         _cleanup_executor_file(config_path)
         if launcher_path is not None:
             _cleanup_executor_file(launcher_path)
+        if jail_cgroup is not None:
+            await rejoin_future_through_cancellation(
+                asyncio.ensure_future(_remove_jail_cgroup(jail_cgroup))
+            )
