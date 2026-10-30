@@ -91,7 +91,6 @@ class RuntimeErrorKind(StrEnum):
     AGENT_LLM_BUDGET_EXCEEDED = "agent.llm.budget_exceeded"
     AGENT_LLM_RATE_LIMITED = "agent.llm.rate_limited"
     AGENT_LLM_READ_TIMEOUT = "agent.llm.read_timeout"
-    AGENT_LLM_STREAM_INTERRUPTED = "agent.llm.stream_interrupted"
     AGENT_MCP_AUTH_FAILED = "agent.mcp.auth_failed"
     AGENT_MCP_UNAVAILABLE = "agent.mcp.unavailable"
     AGENT_EXECUTION_FAILED = "agent.execution.failed"

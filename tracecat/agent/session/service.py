@@ -79,6 +79,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     DISPLAY_ONLY_SESSION_LINE_FLAG,
     is_approval_interrupt_tool_result,
     is_display_only_session_line,
+    is_meta_session_line,
     is_model_context_session_line,
     mark_hidden_continuation,
     session_line_uuid,
@@ -1396,17 +1397,43 @@ class AgentSessionService(BaseWorkspaceService):
         # Reconstruct JSONL from model-visible history entries. Internal rows are
         # stored for debugging/UI filtering but should not be fed back into Claude
         # on later resumes.
-        lines = []
+        lines: list[str] = []
         included_uuids: set[str] = set()
         # Internal and continuation rows left out of the rebuilt transcript.
         dropped_uuids: set[str] = set()
         last_visible_uuid: str | None = None
+        last_visible_type: object = None
+        # A hidden meta prompt right after an assistant row, held until the
+        # next visible row shows whether the model answered it.
+        held_meta: SessionHistoryContent | None = None
+
+        def append_line(content: dict[str, Any], raw_line: str | None) -> None:
+            nonlocal last_visible_uuid, last_visible_type
+            parent_uuid = content.get("parentUuid")
+            if (
+                isinstance(parent_uuid, str)
+                and parent_uuid not in included_uuids
+                and last_visible_uuid is not None
+            ):
+                content["parentUuid"] = last_visible_uuid
+                raw_line = None
+
+            if (line_uuid := session_line_uuid(content)) is not None:
+                included_uuids.add(line_uuid)
+                last_visible_uuid = line_uuid
+            last_visible_type = content.get("type")
+
+            lines.append(
+                raw_line
+                if raw_line is not None
+                else orjson.dumps(content).decode("utf-8")
+            )
+
         for entry in history_entries:
             history_content = _session_history_content(entry)
             if history_content is None:
                 continue
             content = history_content.content
-            raw_line = history_content.raw_line
 
             line_uuid = session_line_uuid(content)
             if is_display_only_session_line(content):
@@ -1414,6 +1441,18 @@ class AgentSessionService(BaseWorkspaceService):
             if entry.kind == MessageKind.INTERNAL.value and not (
                 is_model_context_session_line(content)
             ):
+                if (
+                    held_meta is None
+                    and last_visible_type == "assistant"
+                    and content.get("type") == "user"
+                    and is_meta_session_line(content)
+                ):
+                    # After a stream dies mid-response, Claude Code keeps the
+                    # completed blocks and asks the model to resume with a
+                    # hidden prompt. Dropping it would leave two adjacent
+                    # assistant messages, which the provider can reject.
+                    held_meta = history_content
+                    continue
                 if line_uuid is not None:
                     dropped_uuids.add(line_uuid)
                 continue
@@ -1426,25 +1465,14 @@ class AgentSessionService(BaseWorkspaceService):
             if mark_hidden_continuation(content, dropped_uuids, internal_row=False):
                 continue
 
-            parent_uuid = content.get("parentUuid")
-            if (
-                isinstance(parent_uuid, str)
-                and parent_uuid not in included_uuids
-                and last_visible_uuid is not None
-            ):
-                content["parentUuid"] = last_visible_uuid
-                raw_line = None
+            if held_meta is not None:
+                if content.get("type") == "assistant":
+                    append_line(held_meta.content, held_meta.raw_line)
+                elif (held_uuid := session_line_uuid(held_meta.content)) is not None:
+                    dropped_uuids.add(held_uuid)
+                held_meta = None
 
-            if line_uuid is not None:
-                included_uuids.add(line_uuid)
-                last_visible_uuid = line_uuid
-
-            line = (
-                raw_line
-                if raw_line is not None
-                else orjson.dumps(content).decode("utf-8")
-            )
-            lines.append(line)
+            append_line(content, history_content.raw_line)
 
         if not lines:
             logger.warning(
