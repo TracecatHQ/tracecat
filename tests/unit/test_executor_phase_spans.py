@@ -238,7 +238,10 @@ async def test_host_work_after_exit_is_not_charged_to_the_runner(
     assert completed.exited_ns is not None
     assert finish.end_time == completed.exited_ns
     assert process.end_time is not None
-    assert process.end_time - completed.exited_ns >= 50_000_000
+    # The host's post-exit wait lands after finish, inside the process span.
+    # The bound is loose: the delay sleeps on the monotonic clock, spans use
+    # wall time.
+    assert process.end_time - completed.exited_ns >= 25_000_000
 
 
 @pytest.mark.anyio
