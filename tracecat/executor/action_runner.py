@@ -448,14 +448,11 @@ class ActionRunner:
             # removal must never depend on the telemetry path.
             cleanup_started_ns = time.time_ns()
             shutil.rmtree(job_dir, ignore_errors=True)
-            # A telemetry fault here must not replace the action's outcome or
-            # an in-flight error.
-            with contextlib.suppress(Exception):
-                record_platform_span(
-                    "tracecat.action.sandbox.cleanup",
-                    start_time_ns=cleanup_started_ns,
-                    end_time_ns=time.time_ns(),
-                )
+            record_platform_span(
+                "tracecat.action.sandbox.cleanup",
+                start_time_ns=cleanup_started_ns,
+                end_time_ns=time.time_ns(),
+            )
 
     async def _execute_direct(
         self,

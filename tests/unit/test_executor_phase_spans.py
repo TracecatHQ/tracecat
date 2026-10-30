@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock
 import orjson
 import pytest
 import tracecat_registry
-from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.trace import ReadableSpan, Tracer
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
@@ -140,6 +140,24 @@ async def _run_jail(
     return result, completions[0]
 
 
+def _fail_spans_named(
+    monkeypatch: pytest.MonkeyPatch,
+    names: set[str],
+    *,
+    on_fail: Callable[[], None] = lambda: None,
+) -> None:
+    """Make the tracer raise when starting the named spans, as a broken exporter would."""
+    start_span = Tracer.start_span
+
+    def failing_start_span(self: Tracer, name: str, *args: Any, **kwargs: Any) -> Any:
+        if name in names:
+            on_fail()
+            raise RuntimeError("exporter failed")
+        return start_span(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(Tracer, "start_span", failing_start_span)
+
+
 def _backwards_marks() -> dict[str, int]:
     """Two in-window marks where the later phase claims the earlier time."""
     earlier = time.time_ns()
@@ -212,6 +230,25 @@ async def test_jailed_process_span_breaks_into_runner_phases(
     assert process.end_time is not None
     assert process.start_time <= completed.spawned_ns
     assert completed.exited_ns <= process.end_time
+
+
+@pytest.mark.anyio
+async def test_runner_span_fault_does_not_fail_a_finished_action(
+    tmp_path: Path,
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    tracing: tuple[PlatformTracing, InMemorySpanExporter],
+) -> None:
+    """The action has already run when its phases are recorded; a tracing
+    fault then must not report it as failed, or a retry would run it again."""
+    runtime, exporter = tracing
+    _fail_spans_named(monkeypatch, set(_RUNNER_PHASES))
+
+    result, _completed = await _run_jail(tmp_path, mocker, runtime, _marks_in_window)
+
+    assert result.success is True
+    assert result.output == {"ok": True}
+    assert "tracecat.action.sandbox.read_result" in _spans_by_name(exporter)
 
 
 @pytest.mark.anyio
@@ -463,13 +500,12 @@ async def test_cleanup_telemetry_never_keeps_secrets_or_changes_the_outcome(
         return SandboxResult(success=True, output="ok")
 
     dir_existed_when_traced: list[bool] = []
-
-    def failing_record(*_args: Any, **_kwargs: Any) -> None:
-        dir_existed_when_traced.append(job_dirs[0].exists())
-        raise RuntimeError("exporter failed")
-
+    _fail_spans_named(
+        monkeypatch,
+        {"tracecat.action.sandbox.cleanup"},
+        on_fail=lambda: dir_existed_when_traced.append(job_dirs[0].exists()),
+    )
     monkeypatch.setattr(action_runner.NsjailExecutor, "execute_action", execute_action)
-    monkeypatch.setattr(action_runner, "record_platform_span", failing_record)
     run_input = _registry_input(tracecat_registry.__version__)
     role = _role()
 
