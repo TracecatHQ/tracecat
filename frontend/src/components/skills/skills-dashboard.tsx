@@ -31,6 +31,7 @@ import {
 } from "@/components/dashboard/file-tree-command"
 import { FolderNotEmptyDialog } from "@/components/folder-not-empty-dialog"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { DeleteSkillDialog } from "@/components/skills/delete-skill-dialog"
 import {
   DEFAULT_SKILL_SORT,
@@ -78,6 +79,7 @@ import {
 } from "@/components/ui/popover"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import {
   type SkillDirectoryEntry,
   useMoveSkill,
@@ -597,8 +599,8 @@ function SkillContextActions({
   setSelectedItem,
   availableTags,
   areTagsLoading,
-  canUpdateSkill,
-  canDeleteSkill,
+  canUpdateSkill: canUpdateSkillScope,
+  canDeleteSkill: canDeleteSkillScope,
 }: {
   item: SkillDirectoryItem
   setActiveDialog: (dialog: SkillActiveDialog) => void
@@ -610,6 +612,11 @@ function SkillContextActions({
 }) {
   const workspaceId = useWorkspaceId()
   const { addSkillTag, removeSkillTag } = useSkillTagMutations(workspaceId)
+  // Managed skills cannot be moved, retagged or deleted.
+  const { isManaged } = useManagedResources()
+  const isLocked = isManaged("skill", item.id)
+  const canUpdateSkill = canUpdateSkillScope && !isLocked
+  const canDeleteSkill = canDeleteSkillScope && !isLocked
 
   return (
     <ContextMenuGroup>
@@ -818,6 +825,11 @@ function SkillCatalogRow({
             <Pyramid className="size-4 shrink-0 text-primary" />
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
+              <ManagedResourceStatus
+                resourceType="skill"
+                id={item.id}
+                name={item.slug}
+              />
               <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden">
                 <SkillMetadataBadges item={item} />
                 {organizationEnabled ? (

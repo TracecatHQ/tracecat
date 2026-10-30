@@ -7,6 +7,7 @@ import {
   LogOutIcon,
   LogsIcon,
   MousePointerClickIcon,
+  PackageIcon,
   ShieldCheckIcon,
   UsersIcon,
   WrenchIcon,
@@ -64,6 +65,12 @@ export function AdminSidebar({
       url: "/admin/agent",
       icon: MousePointerClickIcon,
       isActive: pathname?.includes("/admin/agent"),
+    },
+    {
+      title: "Managed package",
+      url: "/admin/managed-package",
+      icon: PackageIcon,
+      isActive: pathname?.includes("/admin/managed-package"),
     },
     {
       title: "Audit Logs",

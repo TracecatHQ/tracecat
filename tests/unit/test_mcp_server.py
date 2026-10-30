@@ -62,6 +62,10 @@ from tracecat.integrations.enums import (
     OAuthGrantType,
 )
 from tracecat.integrations.schemas import ProviderKey
+from tracecat.managed_resources.guard import (
+    LOCKED_MESSAGE,
+    ManagedResourceLockedError,
+)
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
@@ -85,6 +89,7 @@ from tracecat.workflow.executions.shaping import (
 )
 from tracecat.workflow.management import layout as layout_module
 from tracecat.workflow.schedules import bridge as schedules_bridge
+from tracecat.workspace_sync.enums import SyncResourceType
 
 _original_create_mcp_auth = mcp_auth.create_mcp_auth
 try:
@@ -181,6 +186,16 @@ def resolved_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
         return workspace_id, role
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+
+@pytest.fixture(autouse=True)
+def no_managed_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Workflow edit tests use fake service sessions with no database.
+
+    ``test_edit_workflow_refuses_a_managed_workflow`` overrides this to cover
+    the managed check itself.
+    """
+    monkeypatch.setattr(mcp_server, "ensure_unmanaged", AsyncMock(return_value=None))
 
 
 def _patch_workflow_service(monkeypatch: pytest.MonkeyPatch, workflow: Any) -> None:
@@ -2365,6 +2380,32 @@ async def test_edit_workflow_apply_returns_post_save_action_map(monkeypatch):
         {"index": 1, "ref": "classify"},
         {"index": 2, "ref": "fetch_events"},
     ]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_edit_workflow_refuses_a_managed_workflow(monkeypatch):
+    workflow = _workflow_stub()
+    _patch_workflow_service(monkeypatch, workflow)
+    monkeypatch.setattr(
+        mcp_server,
+        "ensure_unmanaged",
+        AsyncMock(
+            side_effect=ManagedResourceLockedError(
+                SyncResourceType.WORKFLOW, workflow.id
+            )
+        ),
+    )
+
+    with pytest.raises(ToolError, match=re.escape(LOCKED_MESSAGE)):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow.id),
+            base_revision="any",
+            patch_ops=[
+                {"op": "replace", "path": "/metadata/title", "value": "Updated flow"}
+            ],
+        )
 
 
 @pytest.mark.anyio

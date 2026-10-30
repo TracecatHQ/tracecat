@@ -68,6 +68,12 @@ def _existing_tables(conn: Connection) -> set[str]:
     return {table for table in TABLES if inspector.has_table(table)}
 
 
+# Added to managed_resource by revision 4a17af960e05, which tests them itself.
+_LATER_OBJECTS = frozenset(
+    {"rollout_id", "fk_managed_resource_rollout_id_managed_rollout"}
+)
+
+
 def _include_only_managed_tables(
     _object: object,
     name: str | None,
@@ -75,6 +81,8 @@ def _include_only_managed_tables(
     _reflected: bool,
     _compare_to: object,
 ) -> bool:
+    if name in _LATER_OBJECTS:
+        return False
     return type_ != "table" or name in TABLES
 
 

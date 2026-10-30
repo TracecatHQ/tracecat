@@ -85,6 +85,7 @@ import {
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import { SkillLibraryProviderIcon } from "@/components/skills/skill-library-provider-icon"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -163,6 +164,7 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkills } from "@/hooks/use-skills"
 import {
@@ -486,6 +488,8 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     presetIsLoading: selectedPresetIsLoading,
     presetError: selectedPresetError,
   } = useAgentPreset(workspaceId, activePresetId)
+  const { isManaged } = useManagedResources(workspaceId)
+  const presetIsManaged = isManaged("agent_preset", selectedPreset?.id)
 
   const enabledModelOptions = useMemo(
     () => buildEnabledModelOptions(models),
@@ -558,6 +562,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         }}
         initialTab={queryTab ?? "configuration"}
         onTabChange={handleTabChange}
+        readOnly={presetIsManaged}
       />
     </div>
   )
@@ -587,6 +592,9 @@ export function AgentPresetArtifactView({
     useListMcpIntegrations(workspaceId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
     useUpdateAgentPreset(workspaceId)
+  // Managed presets are locked here too, not only on the standalone route.
+  const { isManaged } = useManagedResources(workspaceId)
+  const presetIsManaged = isManaged("agent_preset", preset.id)
 
   const enabledModelOptions = useMemo(
     () => buildEnabledModelOptions(models),
@@ -620,6 +628,7 @@ export function AgentPresetArtifactView({
       layout="stacked"
       initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
       onTabChange={onTabChange}
+      readOnly={presetIsManaged}
     />
   )
 }
@@ -1495,6 +1504,11 @@ type AgentPresetFormProps = {
   layout?: "split" | "stacked"
   initialTab?: AgentPresetSideTab
   onTabChange?: (tab: AgentPresetSideTab) => void
+  /**
+   * The preset is managed by Tracecat: lock everything except the customer's
+   * own skill bindings, which can still be added, removed and saved.
+   */
+  readOnly?: boolean
 }
 
 function AgentPresetForm({
@@ -1515,6 +1529,7 @@ function AgentPresetForm({
   layout = "split",
   initialTab = "configuration",
   onTabChange,
+  readOnly = false,
 }: AgentPresetFormProps) {
   const [leftMode, setLeftMode] = useState<AgentPresetLeftMode>(() =>
     tabToLeftMode(initialTab)
@@ -1842,7 +1857,7 @@ function AgentPresetForm({
   const documentPanel = (
     <AgentPresetDocumentPanel
       form={form}
-      isSaving={isSaving}
+      isSaving={isSaving || readOnly}
       fullWidth={layout === "stacked"}
     />
   )
@@ -1992,6 +2007,7 @@ function AgentPresetForm({
       subagentFields={subagentFields}
       onAddSubagent={handleAddSubagent}
       onRemoveSubagent={removeSubagent}
+      readOnly={readOnly}
     />
   )
 
@@ -2266,6 +2282,7 @@ function AgentPresetRail({
   subagentFields,
   onAddSubagent,
   onRemoveSubagent,
+  readOnly = false,
 }: {
   tab: AgentPresetRailTab
   onTabChange: (tab: AgentPresetRailTab) => void
@@ -2290,8 +2307,16 @@ function AgentPresetRail({
   subagentFields: Array<{ id: string }>
   onAddSubagent: (subagent: SubagentFormValue) => void
   onRemoveSubagent: (index: number) => void
+  /** Lock every tab except Skills on a managed preset. */
+  readOnly?: boolean
 }) {
   const subagents = useWatch({ control: form.control, name: "subagents" })
+  const { getManaged } = useManagedResources(workspaceId)
+  // The package's own skills stay bound to a managed preset; only skills the
+  // customer added can be removed.
+  const packageSkillIds = readOnly
+    ? (getManaged("agent_preset", preset?.id)?.package_skill_ids ?? [])
+    : []
   const savedSkillIds = preset
     ? (preset.skills ?? []).map((skill) => skill.skill_id)
     : undefined
@@ -2369,38 +2394,43 @@ function AgentPresetRail({
                     {drillTitle}
                   </span>
                 </div>
-                {activeDrill.kind === "tools" ? (
-                  <AgentPresetRailToolGroup
-                    groupKey={activeDrill.groupKey}
-                    registryActions={registryActions}
-                    mcpIntegrations={mcpIntegrations}
-                    registryLoading={registryLoading}
-                    mcpLoading={mcpLoading}
-                    toolsLoadError={toolsLoadError}
-                    isSaving={isSaving}
-                    maxTools={toolPolicy.maxTools}
-                    skillActions={toolPolicy.skillActions}
-                    onEmptied={back}
-                  />
-                ) : (
-                  <AgentPresetSubagentDetail
-                    key={subagentFields[activeDrill.index]?.id}
-                    form={form}
-                    index={activeDrill.index}
-                    isSaving={isSaving}
-                    parentPreset={preset}
-                    agentPresets={agentPresets}
-                    onRemove={(index) => {
-                      onRemoveSubagent(index)
-                      back()
-                    }}
-                  />
-                )}
+                <ReadOnlyFieldset readOnly={readOnly}>
+                  {activeDrill.kind === "tools" ? (
+                    <AgentPresetRailToolGroup
+                      groupKey={activeDrill.groupKey}
+                      registryActions={registryActions}
+                      mcpIntegrations={mcpIntegrations}
+                      registryLoading={registryLoading}
+                      mcpLoading={mcpLoading}
+                      toolsLoadError={toolsLoadError}
+                      isSaving={isSaving}
+                      maxTools={toolPolicy.maxTools}
+                      skillActions={toolPolicy.skillActions}
+                      onEmptied={back}
+                    />
+                  ) : (
+                    <AgentPresetSubagentDetail
+                      key={subagentFields[activeDrill.index]?.id}
+                      form={form}
+                      index={activeDrill.index}
+                      isSaving={isSaving}
+                      parentPreset={preset}
+                      agentPresets={agentPresets}
+                      onRemove={(index) => {
+                        onRemoveSubagent(index)
+                        back()
+                      }}
+                    />
+                  )}
+                </ReadOnlyFieldset>
               </div>
             ) : (
               <>
                 <TabsContent value="tools" className="mt-0">
-                  <div className="flex flex-col gap-6">
+                  <ReadOnlyFieldset
+                    readOnly={readOnly}
+                    className="flex flex-col gap-6"
+                  >
                     <AgentPresetSettingsRows
                       form={form}
                       isSaving={isSaving}
@@ -2426,7 +2456,7 @@ function AgentPresetRail({
                         onDrillChange({ kind: "tools", groupKey, title })
                       }
                     />
-                  </div>
+                  </ReadOnlyFieldset>
                 </TabsContent>
                 <TabsContent value="skills" className="mt-0">
                   <AgentPresetSkillsPanel
@@ -2435,28 +2465,33 @@ function AgentPresetRail({
                     isSaving={isSaving}
                     skillFields={skillFields}
                     savedBindings={preset?.skills}
+                    lockedSkillIds={packageSkillIds}
                     onAddSkillBinding={onAddSkillBinding}
                     onRemoveSkillBinding={onRemoveSkillBinding}
                   />
                 </TabsContent>
                 <TabsContent value="subagents" className="mt-0">
-                  <AgentPresetSubagentsPanel
-                    form={form}
-                    isSaving={isSaving}
-                    parentPreset={preset}
-                    agentPresets={agentPresets}
-                    subagentFields={subagentFields}
-                    onAddSubagent={onAddSubagent}
-                    onOpenSubagent={(index) =>
-                      onDrillChange({ kind: "subagent", index })
-                    }
-                  />
+                  <ReadOnlyFieldset readOnly={readOnly}>
+                    <AgentPresetSubagentsPanel
+                      form={form}
+                      isSaving={isSaving}
+                      parentPreset={preset}
+                      agentPresets={agentPresets}
+                      subagentFields={subagentFields}
+                      onAddSubagent={onAddSubagent}
+                      onOpenSubagent={(index) =>
+                        onDrillChange({ kind: "subagent", index })
+                      }
+                    />
+                  </ReadOnlyFieldset>
                 </TabsContent>
                 <TabsContent value="output" className="mt-0">
-                  <AgentPresetStructuredOutputPanel
-                    form={form}
-                    isSaving={isSaving}
-                  />
+                  <ReadOnlyFieldset readOnly={readOnly}>
+                    <AgentPresetStructuredOutputPanel
+                      form={form}
+                      isSaving={isSaving}
+                    />
+                  </ReadOnlyFieldset>
                 </TabsContent>
               </>
             )}
@@ -3312,6 +3347,7 @@ export function AgentPresetSkillsPanel({
   isSaving,
   skillFields,
   savedBindings,
+  lockedSkillIds = [],
   onAddSkillBinding,
   onRemoveSkillBinding,
 }: {
@@ -3320,6 +3356,8 @@ export function AgentPresetSkillsPanel({
   isSaving: boolean
   skillFields: Array<{ id: string }>
   savedBindings?: AgentPresetRead["skills"]
+  /** Skills that cannot be removed: a managed preset's package skills. */
+  lockedSkillIds?: string[]
   onAddSkillBinding: (binding: SkillBindingFormValue) => void
   onRemoveSkillBinding: (index: number) => void
 }) {
@@ -3452,6 +3490,9 @@ export function AgentPresetSkillsPanel({
                 savedBinding={savedBindings?.find(
                   (binding) =>
                     binding.skill_id === selectedSkills[index]?.skillId
+                )}
+                locked={lockedSkillIds.includes(
+                  selectedSkills[index]?.skillId ?? ""
                 )}
                 onRemove={onRemoveSkillBinding}
               />
@@ -3608,6 +3649,7 @@ function AgentPresetSkillBindingRow({
   isSaving,
   availableSkills,
   savedBinding,
+  locked = false,
   onRemove,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
@@ -3616,6 +3658,8 @@ function AgentPresetSkillBindingRow({
   isSaving: boolean
   availableSkills: SkillReadMinimal[]
   savedBinding?: NonNullable<AgentPresetRead["skills"]>[number]
+  /** The package binds this skill to a managed preset, so it stays. */
+  locked?: boolean
   onRemove: (index: number) => void
 }) {
   const selectedSkillId = form.watch(`skills.${index}.skillId`)
@@ -3669,9 +3713,18 @@ function AgentPresetSkillBindingRow({
         variant="ghost"
         size="icon"
         className={RAIL_REMOVE_BUTTON}
-        onClick={() => onRemove(index)}
-        disabled={isSaving}
-        aria-label={`Remove ${displaySkillName}`}
+        onClick={() => {
+          if (!locked) {
+            onRemove(index)
+          }
+        }}
+        disabled={isSaving || locked}
+        aria-label={
+          locked
+            ? `${displaySkillName} comes from the package and cannot be removed`
+            : `Remove ${displaySkillName}`
+        }
+        title={locked ? "Comes from the package" : undefined}
       >
         <X className="size-3" />
       </Button>

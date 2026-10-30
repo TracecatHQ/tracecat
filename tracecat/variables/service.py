@@ -12,12 +12,22 @@ from tracecat.contexts import ctx_role, ctx_run
 from tracecat.db.models import WorkspaceVariable
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import VariableID
+from tracecat.managed_resources.guard import (
+    ensure_unmanaged,
+    hold_for_customer_write,
+    refresh_for_customer_write,
+)
+from tracecat.managed_resources.values import (
+    changed_fields,
+    ensure_values_only_update,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.variables.schemas import (
     VariableCreate,
     VariableSearch,
     VariableUpdate,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class VariablesService(BaseWorkspaceService):
@@ -151,6 +161,7 @@ class VariablesService(BaseWorkspaceService):
     @require_scope("variable:create")
     @audit_log(resource_type="workspace_variable", action="create")
     async def create_variable(self, params: VariableCreate) -> WorkspaceVariable:
+        await hold_for_customer_write(self.session, self.workspace_id)
         variable = WorkspaceVariable(
             workspace_id=self.workspace_id,
             name=params.name,
@@ -169,6 +180,27 @@ class VariablesService(BaseWorkspaceService):
     async def update_variable(
         self, variable: WorkspaceVariable, params: VariableUpdate
     ) -> WorkspaceVariable:
+        # Compare against the variable as it is once no rollout can be
+        # changing it, not as the caller loaded it.
+        await refresh_for_customer_write(self.session, self.workspace_id, variable)
+        await ensure_values_only_update(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.VARIABLE,
+            local_id=variable.id,
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True),
+                {
+                    "name": variable.name,
+                    "description": variable.description,
+                    "environment": variable.environment,
+                    "tags": variable.tags,
+                },
+            ),
+            allowed_fields={"values"},
+            current_keys=lambda: (variable.values or {}).keys(),
+            requested_keys=params.values.keys() if params.values is not None else None,
+        )
         update_fields = params.model_dump(exclude_unset=True)
         if values := update_fields.pop("values", None):
             variable.values = dict(values)
@@ -182,5 +214,11 @@ class VariablesService(BaseWorkspaceService):
     @require_scope("variable:delete")
     @audit_log(resource_type="workspace_variable", action="delete")
     async def delete_variable(self, variable: WorkspaceVariable) -> None:
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.VARIABLE,
+            local_id=variable.id,
+        )
         await self.session.delete(variable)
         await self.session.commit()

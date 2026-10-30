@@ -12,5 +12,11 @@ interface TagsTableProps {
 }
 
 export function TagsTable(props: TagsTableProps) {
-  return <TagCatalogTable {...props} resourceLabel="cases" />
+  return (
+    <TagCatalogTable
+      {...props}
+      resourceLabel="cases"
+      managedResourceType="case_tag"
+    />
+  )
 }

@@ -7,6 +7,7 @@ import {
   FileUpIcon,
   Plus,
 } from "lucide-react"
+import { useParams } from "next/navigation"
 import { useState } from "react"
 import { TableImportCsvDialog } from "@/components/tables/table-import-csv-dialog"
 import { TableInsertColumnDialog } from "@/components/tables/table-insert-column-dialog"
@@ -18,11 +19,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 
 type DialogType = "row" | "column" | "csv" | null
 
 export function TableInsertButton() {
   const [activeDialog, setActiveDialog] = useState<DialogType>(null)
+  const params = useParams<{ tableId?: string }>()
+  // A managed table keeps row inserts but not new columns. Stay locked until
+  // the managed lookup settles so a managed table never offers the action.
+  const { isManaged, isLoading: managedLoading } = useManagedResources()
+  const schemaLocked = managedLoading || isManaged("table", params?.tableId)
 
   return (
     <>
@@ -50,7 +57,10 @@ export function TableInsertButton() {
               </span>
             </div>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setActiveDialog("column")}>
+          <DropdownMenuItem
+            disabled={schemaLocked}
+            onSelect={() => setActiveDialog("column")}
+          >
             <BetweenVerticalStartIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
               <span>Create column</span>
@@ -77,7 +87,7 @@ export function TableInsertButton() {
       />
 
       <TableInsertColumnDialog
-        open={activeDialog === "column"}
+        open={activeDialog === "column" && !schemaLocked}
         onOpenChange={() => setActiveDialog(null)}
       />
 

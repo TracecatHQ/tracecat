@@ -23,6 +23,7 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import ensure_none_managed, ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
 from tracecat.workflow.management.folders.schemas import (
@@ -35,6 +36,7 @@ from tracecat.workflow.management.schemas import (
     WorkflowTriggerSummary,
 )
 from tracecat.workflow.management.types import build_workflow_trigger_summary
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class WorkflowFolderErrorCode(StrEnum):
@@ -256,6 +258,12 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             The updated workflow
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
         # Update the workflow
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,
@@ -445,8 +453,38 @@ class WorkflowFolderService(BaseWorkspaceService):
                 WorkflowFolder.workspace_id == self.workspace_id,
                 WorkflowFolder.path.startswith(folder.path, autoescape=True),
             )
+            # Moving or deleting the subtree's workflows edits each one, so
+            # a managed workflow anywhere in it blocks the delete.
+            await ensure_none_managed(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.WORKFLOW,
+                local_ids=list(
+                    await self.session.scalars(
+                        select(Workflow.id).where(
+                            Workflow.workspace_id == self.workspace_id,
+                            Workflow.folder_id.in_(folder_ids),
+                        )
+                    )
+                ),
+            )
             if delete_workflows:
                 await self._delete_workflows_in_folders(folder_ids)
+                # Those deletes commit, which releases the ownership lock the
+                # check above took. Check again so it is held through the move.
+                await ensure_none_managed(
+                    self.session,
+                    workspace_id=self.workspace_id,
+                    resource_type=SyncResourceType.WORKFLOW,
+                    local_ids=list(
+                        await self.session.scalars(
+                            select(Workflow.id).where(
+                                Workflow.workspace_id == self.workspace_id,
+                                Workflow.folder_id.in_(folder_ids),
+                            )
+                        )
+                    ),
+                )
             await self.session.execute(
                 sa.update(Workflow)
                 .where(

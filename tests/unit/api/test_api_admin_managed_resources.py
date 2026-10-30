@@ -193,3 +193,80 @@ def test_list_source_tags_maps_errors(
 
     assert response.status_code == expected
     assert response.json()["detail"] == str(error)
+
+
+BASE = "/admin/managed-resources"
+TARGET_ID = uuid.UUID("00000000-0000-4000-8000-000000000042")
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", f"{BASE}/source/releases"),
+        ("GET", f"{BASE}/workspaces"),
+        ("GET", f"{BASE}/targets"),
+        ("POST", f"{BASE}/targets"),
+        ("PATCH", f"{BASE}/targets/{TARGET_ID}"),
+        ("POST", f"{BASE}/targets/{TARGET_ID}/unassign"),
+        ("GET", f"{BASE}/targets/{TARGET_ID}/references"),
+        ("PUT", f"{BASE}/targets/{TARGET_ID}/references"),
+        ("POST", f"{BASE}/rollouts/preview"),
+        ("POST", f"{BASE}/rollouts/apply"),
+        ("GET", f"{BASE}/rollouts"),
+        ("GET", f"{BASE}/rollouts/{TARGET_ID}"),
+    ],
+)
+def test_rollout_routes_reject_non_superusers(
+    non_superuser_client: TestClient, method: str, path: str
+) -> None:
+    with patch.object(
+        managed_resources_router, "AdminManagedResourcesService"
+    ) as service_cls:
+        response = non_superuser_client.request(method, path, json={})
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    service_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (TracecatNotFoundError("Tag 'v9.9.9' not found"), status.HTTP_404_NOT_FOUND),
+        (
+            TracecatValidationError("The source workspace cannot be a target"),
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        ),
+        (ManagedSourceUnavailableError("no source"), status.HTTP_409_CONFLICT),
+    ],
+)
+def test_assign_target_maps_domain_errors(
+    superuser_client: TestClient,
+    service: AsyncMock,
+    error: Exception,
+    expected: int,
+) -> None:
+    service.assign_target = AsyncMock(side_effect=error)
+
+    response = superuser_client.post(
+        f"{BASE}/targets",
+        json={"workspace_id": str(uuid.uuid4()), "pinned_tag": "v9.9.9"},
+    )
+
+    assert response.status_code == expected
+    assert response.json()["detail"] == str(error)
+
+
+def test_cut_release_returns_the_new_tag(
+    superuser_client: TestClient, service: AsyncMock
+) -> None:
+    tag = GitTagInfo(name="v1.1.0", commit_sha="c" * 40, date="2026-10-29T00:00:00Z")
+    service.cut_release = AsyncMock(return_value=tag)
+
+    response = superuser_client.post(
+        f"{BASE}/source/releases", json={"tag": "v1.1.0", "commit_sha": "c" * 40}
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert GitTagInfo.model_validate(response.json()) == tag
+    [params] = service.cut_release.await_args.args
+    assert params.commit_sha == "c" * 40

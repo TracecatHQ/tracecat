@@ -8,6 +8,7 @@ import json
 import tarfile
 import uuid
 from collections import Counter
+from collections.abc import Iterator
 from math import ceil
 from types import SimpleNamespace
 from typing import Any, cast
@@ -86,6 +87,17 @@ from tracecat.workspace_sync.workflow import (
     workflow_spec_to_remote,
     workflow_spec_with_source_workflow_ids,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_managed_resources() -> Iterator[None]:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    with patch.object(
+        WorkspaceSyncService,
+        "_managed_ids_by_type",
+        AsyncMock(return_value={}),
+    ):
+        yield
 
 
 @pytest.fixture

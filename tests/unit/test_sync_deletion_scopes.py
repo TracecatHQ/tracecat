@@ -23,6 +23,15 @@ from tracecat.workspace_sync.schemas import (
 from tracecat.workspace_sync.transport import VcsTreeSnapshot
 
 
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.workspace_sync.service.WorkspaceSyncService._managed_ids_by_type",
+        AsyncMock(return_value={}),
+    )
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("blob_only", [False, True])
 async def test_deletion_only_type_requires_read_scope_before_prepare_and_apply(

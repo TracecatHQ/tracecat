@@ -62,7 +62,8 @@ export const YamlStyledEditor = React.forwardRef<
     control,
   })
   const workspaceId = useWorkspaceId()
-  const { workflow } = useWorkflow()
+  // Managed workflows are read-only.
+  const { workflow, isReadOnly } = useWorkflow()
   const [hasErrors, setHasErrors] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
@@ -329,6 +330,7 @@ export const YamlStyledEditor = React.forwardRef<
       <div className="relative rounded-md border-[0.5px] border-border shadow-sm">
         <CodeMirror
           value={buffer}
+          readOnly={isReadOnly}
           height="auto"
           extensions={allExtensions}
           onChange={handleChange}
