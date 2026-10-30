@@ -13,11 +13,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/nsjail/nstun-bounded-memory.patch /tmp/nstun-bounded-memory.patch
+# Clone each jail straight into its memory cgroup instead of moving it there,
+# which waits for an RCU grace period (~60 ms per action on busy hosts).
+COPY docker/nsjail/clone-into-cgroup.patch /tmp/clone-into-cgroup.patch
 
 RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
     cd /tmp/nsjail && git checkout "${NSJAIL_COMMIT}" && \
     git apply --check /tmp/nstun-bounded-memory.patch && \
     git apply /tmp/nstun-bounded-memory.patch && \
+    git apply --check /tmp/clone-into-cgroup.patch && \
+    git apply /tmp/clone-into-cgroup.patch && \
     git submodule update --init --recursive && \
     make -j"$(nproc)" && \
     install -m 0755 nsjail /usr/local/bin/nsjail && \
