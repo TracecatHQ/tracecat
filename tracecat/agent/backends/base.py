@@ -143,7 +143,9 @@ class AgentBackend[InputT, OutputT](ABC):
                 AgentSession.id == context.session.id,
                 AgentSession.workspace_id == context.role.workspace_id,
             )
-            .with_for_update()
+            # NO KEY UPDATE serializes admissions without blocking agent runtime
+            # FK checks on history inserts; admission writes no key columns.
+            .with_for_update(key_share=True)
             .execution_options(populate_existing=True)
         )
         session = await context.db.scalar(locked_session)
@@ -179,7 +181,7 @@ class AgentBackend[InputT, OutputT](ABC):
         Called only after Temporal confirms that the workflow for ``run_id`` is
         terminal or can never start, and before the shared lifecycle releases
         that turn's ownership.
-        ``context.session`` is the session row locked for update in
+        ``context.session`` is the session row locked FOR NO KEY UPDATE in
         ``context.db``. Return True when the backend's durable records show that
         the turn ended with an uncertain outcome that must be reconciled before
         another turn; the session then stays owned and the new turn is rejected
