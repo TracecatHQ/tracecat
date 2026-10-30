@@ -155,12 +155,61 @@ async def test_teardown_wait_is_bounded_without_a_cgroup(
         _kill_leftover(tmp_path)
 
 
+@pytest.mark.anyio
+async def test_abandoned_drain_closes_the_pipes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: giving up on the drain releases the pipes' descriptors."""
+    monkeypatch.setattr(utils, "TEARDOWN_TIMEOUT_SECONDS", 0.2)
+    process = await asyncio.create_subprocess_exec(
+        _fake_nsjail(tmp_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+        env={
+            "FAKE_NSJAIL_MODE": "exit",
+            "FAKE_NSJAIL_PID_FILE": str(tmp_path / "jailed.pid"),
+        },
+    )
+    try:
+        with pytest.raises(utils.ProcessTeardownError):
+            await asyncio.wait_for(utils.communicate_process_group(process), 5)
+        stdout = process.stdout
+        assert stdout is not None
+        for _ in range(100):
+            if stdout.at_eof():
+                break
+            await asyncio.sleep(0.01)
+        assert stdout.at_eof()
+    finally:
+        _kill_leftover(tmp_path)
+
+
 def test_kill_cgroup_prefers_cgroup_kill(tmp_path: Path) -> None:
     (tmp_path / "cgroup.kill").write_text("0")
 
     kill_cgroup(tmp_path)
 
     assert (tmp_path / "cgroup.kill").read_text() == "1"
+
+
+@pytest.mark.anyio
+async def test_kill_cgroup_falls_back_to_listed_pids(tmp_path: Path) -> None:
+    """Invariant: without cgroup.kill, every PID listed in the subtree is killed."""
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-c", "import time; time.sleep(60)"
+    )
+    jail = tmp_path / "NSJAIL.1"
+    jail.mkdir()
+    (jail / "cgroup.procs").write_text(f"{process.pid}\n")
+    try:
+        kill_cgroup(tmp_path)
+        assert await asyncio.wait_for(process.wait(), 5) == -signal.SIGKILL
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
 
 
 def test_kill_cgroup_ignores_missing_cgroup(tmp_path: Path) -> None:

@@ -134,7 +134,7 @@ async def invoke_nsjail(
     workload_launcher_name: str | None = None,
     workload_launcher_script: str | None = None,
     workload_started_marker: bytes | None = None,
-    cgroup_mount: Path | None = None,
+    cgroup_mount: Path | None,
 ) -> NsjailCompletedProcess:
     """Prepare, launch, await, and clean up one nsjail process.
 
@@ -142,7 +142,9 @@ async def invoke_nsjail(
     so this boundary normalizes them as typed platform infrastructure failures.
 
     With ``cgroup_mount``, the jail runs in a cgroup created under it for this
-    call, and teardown kills every process in that cgroup.
+    call, and teardown kills every process in that cgroup. It is required so
+    every launch path decides explicitly; None is only for hosts without
+    cgroup delegation.
     """
     config_path = job_dir / "nsjail.cfg"
     launcher_path: Path | None = None
