@@ -1485,7 +1485,22 @@ async def test_duplicate_approval_request_events_are_deduped() -> None:
 
 
 @pytest.mark.anyio
-async def test_first_token_at_marks_first_model_output_only() -> None:
+@pytest.mark.parametrize(
+    "first_output",
+    [
+        UnifiedStreamEvent(type=StreamEventType.THINKING_DELTA, thinking="hm"),
+        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hi"),
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            tool_call_id="call-1",
+            tool_name="core.http_request",
+        ),
+    ],
+    ids=["thinking", "text", "tool_call"],
+)
+async def test_first_token_at_marks_first_model_output_only(
+    first_output: UnifiedStreamEvent,
+) -> None:
     handler = _make_handler()
     handler._stream_sink = _FakeStream()
 
@@ -1494,9 +1509,7 @@ async def test_first_token_at_marks_first_model_output_only() -> None:
     )
     assert handler.build_result().first_token_at is None
 
-    await handler._handle_stream_event(
-        UnifiedStreamEvent(type=StreamEventType.THINKING_DELTA, thinking="hm")
-    )
+    await handler._handle_stream_event(first_output)
     first_token_at = handler.build_result().first_token_at
     assert first_token_at is not None
 
