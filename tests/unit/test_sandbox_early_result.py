@@ -362,7 +362,7 @@ async def _execute_sandboxed_with_pending_finish(
 ) -> object:
     """Run ActionRunner._execute_sandboxed with a jail that exits on ``exited``."""
     cgroup = tmp_path / "cgroup"
-    cgroup.mkdir()
+    cgroup.mkdir(exist_ok=True)
     (cgroup / "cgroup.subtree_control").write_text("memory")
     (cgroup / "cgroup.procs").touch()
     monkeypatch.setenv("TRACECAT__SANDBOX_CGROUP_PATH", str(cgroup))
@@ -443,23 +443,39 @@ async def test_job_dir_and_leases_outlive_the_call_until_the_jail_exits(
 async def test_call_waits_for_the_exit_once_teardowns_fill_the_slots(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Jails tearing down past their activities never outnumber the slots."""
+    """Jails tearing down past their activities never outnumber the slots.
+
+    With one slot, the first early result defers its teardown; a second one
+    arriving while that teardown runs waits for its own jail's exit inline.
+    """
     monkeypatch.setattr(
-        action_runner.config, "TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES", 0
+        action_runner.config, "TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES", 1
     )
-    exited = asyncio.Event()
-    job_dirs: list[Path] = []
+    first_exited, second_exited = asyncio.Event(), asyncio.Event()
+    first_dirs: list[Path] = []
+    second_dirs: list[Path] = []
     order: list[str] = []
 
-    call = asyncio.create_task(
+    first = await _execute_sandboxed_with_pending_finish(
+        tmp_path, monkeypatch, first_exited, first_dirs, order
+    )
+    assert first == "ok"
+    assert first_dirs[0].exists()
+
+    second = asyncio.create_task(
         _execute_sandboxed_with_pending_finish(
-            tmp_path, monkeypatch, exited, job_dirs, order
+            tmp_path, monkeypatch, second_exited, second_dirs, []
         )
     )
     await asyncio.sleep(0.05)
+    assert not second.done()
 
-    assert not call.done()
-    exited.set()
-    assert await call == "ok"
-    assert not job_dirs[0].exists()
+    second_exited.set()
+    assert await second == "ok"
+    assert not second_dirs[0].exists()
+    assert first_dirs[0].exists()
+
+    first_exited.set()
+    await drain_deferred_sandbox_cleanups()
+    assert not first_dirs[0].exists()
     assert order == ["registry lease released, job dir exists=False"]
