@@ -708,6 +708,18 @@ examples:
           task_id: ${{ TRIGGER.task_id }}
           status: in_progress
 
+  cases-run-task:
+    title: Run a task's workflow
+    language: yaml
+    code: |
+      - ref: run_task
+        action: core.cases.run_task
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          task_id: ${{ TRIGGER.task_id }}
+          inputs:
+            reason: Requested by analyst
+
   cases-delete-task:
     title: Delete a task
     language: yaml
