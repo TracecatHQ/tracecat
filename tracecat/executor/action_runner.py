@@ -37,6 +37,7 @@ from tracecat_ee.tunnels.routing import (
 )
 
 from tracecat import config
+from tracecat.concurrency import rejoin_future_through_cancellation
 from tracecat.contexts import ctx_secret_masks
 from tracecat.executor.action_gateway.config import (
     ACTION_GATEWAY_SANDBOX_SOCKET,
@@ -209,7 +210,8 @@ def _defer_sandbox_cleanup(
 
     async def cleanup() -> None:
         try:
-            await finish
+            # A cancelled cleanup still waits for the jail before releasing it.
+            await rejoin_future_through_cancellation(finish)
         except Exception as exc:
             logger.warning("Sandbox teardown failed", error=str(exc))
         finally:

@@ -1202,7 +1202,9 @@ class NsjailExecutor:
             if early_result is not None:
                 self.pending_finish = completed.finish
                 return early_result
-            completed = await completed.finish
+            # Shielded: cancelling a finish task before its first step would skip
+            # the reap, so a cancelled caller waits for the jail to go first.
+            completed = await rejoin_future_through_cancellation(completed.finish)
 
         returncode = completed.returncode
         execution_time_ms = (time.time() - start_time) * 1000

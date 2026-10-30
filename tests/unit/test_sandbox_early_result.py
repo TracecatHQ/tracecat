@@ -238,6 +238,51 @@ async def test_early_marker_without_a_valid_result_waits_for_the_exit(
 
 
 @pytest.mark.anyio
+async def test_cancel_before_finish_starts_still_waits_for_the_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancelled caller never cancels the finish task out from under the jail.
+
+    Cancelling a task before its first step skips its body, and with it the
+    reap. The caller lands on that task in the same step the marker arrives,
+    so the cancellation must wait for the jail instead.
+    """
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    exited = asyncio.Event()
+    started: list[bool] = []
+    finishes: list[asyncio.Task[NsjailCompletedProcess]] = []
+
+    async def wait_for_exit() -> NsjailCompletedProcess:
+        started.append(True)
+        await exited.wait()
+        return _exited(1)
+
+    async def fake_invoke_nsjail(**_kwargs: object) -> NsjailCompletedProcess:
+        finishes.append(asyncio.create_task(wait_for_exit()))
+        return _early(finishes[0])
+
+    monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
+    executor = NsjailExecutor(
+        nsjail_path=str(tmp_path / "nsjail"),
+        rootfs_path=str(tmp_path / "rootfs"),
+        cache_dir=str(tmp_path / "cache"),
+    )
+    config = ActionSandboxConfig(registry_paths=[], tracecat_app_dir=tmp_path)
+    task = asyncio.create_task(executor.execute_action(job_dir, config))
+    await asyncio.sleep(0)  # execute_action reaches the finish task, unstarted
+    task.cancel()
+    await asyncio.sleep(0.05)
+
+    assert started == [True]
+    assert not task.done()
+    exited.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert finishes[0].done() and not finishes[0].cancelled()
+
+
+@pytest.mark.anyio
 async def test_early_decode_failure_waits_for_the_exit_before_raising(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
