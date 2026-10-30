@@ -101,8 +101,9 @@ Before mutation, show:
 - For a patch, the pinned baseline and evidence that the migration gate passed.
 - Public tag and whether the GitHub release is stable or a prerelease.
 - Version-bump, branch-push, tag-push, and release-publication commands.
-- Stable image tags update `latest` only when newer than the version `latest`
-  points to, so an older train's hotfix moves only its `X.Y` tag.
+- Stable image tags update `X.Y` and `latest` unless the version a tag points
+  to is newer (an equal version is re-published), so an older train's hotfix
+  moves only its `X.Y` tag.
   Prereleases leave `latest` unchanged.
 - Whether the GitHub release is marked latest: only when the tag is higher
   than every published stable release, because the Compose docs download
@@ -127,18 +128,22 @@ Review the generated diff and, for a patch, repeat the migration gate against
 the final release tree (including all version-bump edits) before committing or
 pushing. Stage only the changed files individually, and
 create a signed `release: <tag>` commit. Never bypass hooks or signing. Push
-`BRANCH`. For a prerelease or an older train's hotfix, record both current
-`latest` image digests before pushing the tag. Create an annotated `<tag>` on
-the version-bump commit and push it. No merge to `main` is involved. Leave the branch in place.
+`BRANCH`. For a prerelease or an older train's hotfix, record the current
+`latest` digests of all three images before pushing the tag. Create an
+annotated `<tag>` on the version-bump commit and push it. No merge to `main` is
+involved. Leave the branch in place.
 
 ## Verify the images before publication
 
 Tag push triggers `.github/workflows/build-push-images.yml`. Find the run whose
 tag and `headSha` match the new release commit, then watch it to successful
-completion. Inspect both multi-platform manifests and their version/revision
-labels. For a prerelease or an older train's hotfix, compare both `latest`
-digests before and after the build; for the highest stable release, verify
-`latest` points to the new image manifests.
+completion. Inspect all three multi-platform manifests (`tracecat`,
+`tracecat-ui` and `tracecat-tunnel-gateway`) and their version/revision
+labels. For a prerelease or an older train's hotfix, compare all three
+`latest` digests before and after the build; for the highest stable release,
+verify `X.Y` and `latest` point to the new image manifests. For a stable
+hotfix on an older train, verify its `X.Y` moved and `latest` did not; a
+prerelease moves neither.
 
 If image publication fails, stop before creating the GitHub release. Report the
 existing branch/tag and failed run; never move the tag or automatically cut a
@@ -155,8 +160,8 @@ cannot protect a direct dispatch or rerun. On a mismatch or lookup failure,
 stop; never bypass the helper or move the tag. A new release containing the
 current publisher requires a separately approved release plan. For a retry,
 verify the run ID, event, and release commit rather than accepting an older
-successful run. Rebuild only the newest patch of a train: a rebuild re-pushes
-the `X.Y` tag, so rebuilding an older patch moves that tag back.
+successful run. Rebuilding an older patch leaves both `X.Y` and `latest`
+unchanged.
 
 ## Release notes
 

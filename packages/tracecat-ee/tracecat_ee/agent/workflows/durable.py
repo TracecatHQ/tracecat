@@ -1448,6 +1448,8 @@ class DurableAgentWorkflow:
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
+            turn_started_at=workflow.info().start_time,
+            entity_type=args.entity_type,
         )
         executor_input = _apply_configured_timeout(
             executor_input,
@@ -1574,6 +1576,7 @@ class DurableAgentWorkflow:
                 await workflow.wait_condition(
                     lambda: self.approvals.is_ready() or self._cancel_requested
                 )
+                resumed_at = workflow.now()
                 if self._cancel_requested:
                     logger.info(
                         "Agent turn cancelled while waiting for approval",
@@ -1738,6 +1741,8 @@ class DurableAgentWorkflow:
                     sdk_session_data=reload_result.sdk_session_data,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
+                    turn_started_at=resumed_at,
+                    entity_type=args.entity_type,
                 )
                 executor_input = _apply_configured_timeout(
                     executor_input,

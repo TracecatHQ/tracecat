@@ -247,6 +247,11 @@ async def test_forward_request_streams_litellm_response(
             ttft_logs.append(dict(kwargs))
 
     monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger.info", fake_info)
+    ttft_metrics: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.llm_proxy.record_llm_ttft",
+        lambda **kwargs: ttft_metrics.append(kwargs),
+    )
 
     response_text, _ = await _forward(
         tmp_path,
@@ -264,6 +269,10 @@ async def test_forward_request_streams_litellm_response(
     assert ttft_logs[0]["path"] == "/v1/messages"
     assert isinstance(ttft_logs[0]["trace_request_id"], str)
     assert ttft_logs[0]["ttft_ms"] == pytest.approx(25.0)
+    # The helper builds the proxy without a backend label.
+    assert ttft_metrics == [
+        {"backend": "unknown", "route": "managed", "ttft_ms": pytest.approx(25.0)}
+    ]
 
 
 @pytest.mark.anyio

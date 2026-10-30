@@ -693,8 +693,9 @@ class _FakeLLMSocketProxy:
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
         on_error: Callable[[llm_proxy_module.LLMProxyError], None] | None = None,
+        backend: str | None = None,
     ) -> None:
-        del on_error
+        del on_error, backend
         self.socket_path = socket_path
         self.routing_plan = routing_plan
         self.direct_routes = routing_plan.direct_routes

@@ -66,6 +66,7 @@ from tracecat.agent.gateway_providers import (
     resolve_gateway_provider_config,
 )
 from tracecat.agent.llm_routing import get_litellm_route_model
+from tracecat.agent.metrics import UNKNOWN_LABEL, record_llm_ttft
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.sandbox.shim_entrypoint import HTTPRequestError, read_http_request
 from tracecat.agent.sandbox.tool_use_rewrite import (
@@ -1237,6 +1238,7 @@ class LLMSocketProxy:
         on_error: Callable[[LLMProxyError], None] | None = None,
         *,
         rewrite_tool_use: bool = True,
+        backend: str | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -1249,10 +1251,14 @@ class LLMSocketProxy:
                 ``/v1/messages`` responses. Runtimes other than Claude Code
                 should turn this off to receive upstream response bodies
                 unchanged. Stream error detection runs either way.
+            backend: ``backend`` label for proxy metrics, from
+                ``tracecat.agent.metrics.backend_label``. Unset is labelled
+                unknown.
         """
         self.socket_path = socket_path
         self.routing_plan = routing_plan
         self.rewrite_tool_use = rewrite_tool_use
+        self.backend = backend or UNKNOWN_LABEL
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._direct_client: httpx.AsyncClient | None = None
@@ -2037,6 +2043,11 @@ class LLMSocketProxy:
                         )
                         if upstream is not None:
                             upstream.first_chunk(ttft_ms)
+                        record_llm_ttft(
+                            backend=self.backend,
+                            route="direct" if route_is_direct else "managed",
+                            ttft_ms=ttft_ms,
+                        )
                     writer.write(chunk)
                     await writer.drain()
                     bytes_forwarded += len(chunk)

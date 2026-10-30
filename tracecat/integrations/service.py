@@ -40,7 +40,7 @@ from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, ctx_secret_masks
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
@@ -78,6 +78,10 @@ from tracecat.integrations.enums import (
     IntegrationStatus,
     MCPAuthType,
     OAuthGrantType,
+)
+from tracecat.integrations.mcp_headers import (
+    require_header_expression_scope,
+    resolve_mcp_header_values,
 )
 from tracecat.integrations.mcp_tunnel import (
     create_mcp_oauth_http_client,
@@ -144,6 +148,7 @@ from tracecat.integrations.types import (
 )
 from tracecat.sanitization import sanitize_urls_in_text
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
+from tracecat.secrets.masking import SecretMaskCollector
 from tracecat.service import BaseWorkspaceService
 
 MCP_TEST_CONNECTION_TIMEOUT_CAP = 15
@@ -3304,6 +3309,7 @@ class IntegrationService(BaseWorkspaceService):
             ):
                 custom_credentials = params.custom_credentials.get_secret_value()
                 if custom_credentials:
+                    require_header_expression_scope(custom_credentials, role=self.role)
                     encrypted_custom_credentials = self._encrypt_token(
                         custom_credentials
                     )
@@ -4084,8 +4090,11 @@ class IntegrationService(BaseWorkspaceService):
         # that import this module (e.g. the executor worker).
         from tracecat.agent.mcp.user_client import list_remote_mcp_tools
 
+        masks = SecretMaskCollector()
+        mask_token = ctx_secret_masks.set(masks)
         try:
             server_config = await self.resolve_mcp_http_server_config(mcp_integration)
+            masks.observe(server_config.get("headers", {}))
             timeout = mcp_integration.timeout or MCP_TEST_CONNECTION_TIMEOUT_CAP
             server_config["timeout"] = min(timeout, MCP_TEST_CONNECTION_TIMEOUT_CAP)
             # The transport timeout only covers reads; the outer timeout guards
@@ -4093,23 +4102,27 @@ class IntegrationService(BaseWorkspaceService):
             async with asyncio.timeout(MCP_TEST_CONNECTION_TIMEOUT_CAP + 5):
                 return await list_remote_mcp_tools(server_config)
         except MCPConfigurationError as e:
-            raise MCPConnectionVerificationError(
+            error = MCPConnectionVerificationError(
                 "MCP integration is not configured correctly",
-                sanitize_urls_in_text(str(e)),
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))),
+            )
         except TimeoutError as e:
-            raise MCPConnectionVerificationError(
+            error = MCPConnectionVerificationError(
                 "Connection to the MCP server timed out",
-                sanitize_urls_in_text(str(e)) or "Timed out",
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))) or "Timed out",
+            )
         except Exception as e:
             # Transport errors can echo the full request URL, including
             # userinfo or query-string secrets — sanitize before this text
-            # reaches logs or API error responses.
-            raise MCPConnectionVerificationError(
+            # reaches logs or API error responses. Mask first: sanitizing can
+            # rewrite a URL-shaped header value so the exact mask misses it.
+            error = MCPConnectionVerificationError(
                 "Failed to connect to the MCP server",
-                sanitize_urls_in_text(str(e)),
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))),
+            )
+        finally:
+            ctx_secret_masks.reset(mask_token)
+        raise error
 
     async def _probe_mcp_stdio_server(
         self, mcp_integration: MCPIntegration
@@ -4238,6 +4251,8 @@ class IntegrationService(BaseWorkspaceService):
             # (the user cleared the credentials editor) — mirror the update
             # path, which maps "" to no headers rather than back-filling.
             raw_credentials = params.custom_credentials.get_secret_value()
+            if raw_credentials:
+                require_header_expression_scope(raw_credentials, role=self.role)
             encrypted_headers = (
                 self._encrypt_token(raw_credentials) if raw_credentials else None
             )
@@ -4607,7 +4622,11 @@ class IntegrationService(BaseWorkspaceService):
                         custom_headers.pop(key, None)
                 headers.update(custom_headers)
         elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
-            headers.update(self._decrypt_mcp_custom_headers(mcp_integration))
+            headers.update(
+                await resolve_mcp_header_values(
+                    self._decrypt_mcp_custom_headers(mcp_integration), role=self.role
+                )
+            )
         elif mcp_integration.auth_type == MCPAuthType.NONE:
             pass
         else:
