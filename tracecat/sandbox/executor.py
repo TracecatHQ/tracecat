@@ -761,6 +761,7 @@ class NsjailExecutor:
             workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
             workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
             workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            cgroup_mount=self.cgroup_mount,
         )
         returncode = completed.returncode
 
@@ -896,6 +897,7 @@ class NsjailExecutor:
             workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
             workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
             workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            cgroup_mount=self.cgroup_mount,
         )
         returncode = completed.returncode
 
@@ -1176,6 +1178,7 @@ class NsjailExecutor:
                 workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
                 workload_started_marker=_WORKLOAD_STARTED_MARKER,
                 workload_done_marker=_WORKLOAD_DONE_MARKER,
+                cgroup_mount=self.cgroup_mount,
             )
 
         if completed.finish is not None:

@@ -4,21 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import errno
+import functools
 import os
 import re
 import tempfile
 import time
-from collections.abc import Awaitable
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, NoReturn
 
 from tracecat.concurrency import rejoin_future_through_cancellation
+from tracecat.logger import logger
+from tracecat.sandbox.cgroup import kill_cgroup, remove_cgroup
 from tracecat.sandbox.exceptions import (
     SandboxInfrastructureError,
     SandboxTimeoutError,
 )
-from tracecat.sandbox.utils import communicate_process_group, terminate_process_group
+from tracecat.sandbox.utils import (
+    TEARDOWN_TIMEOUT_SECONDS,
+    ProcessTeardownError,
+    close_process_pipes,
+    communicate_process_group,
+    terminate_process_group,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +71,8 @@ _EXIT_POLL_INTERVAL_SECONDS = 0.01
 # After the done marker, a well-behaved jail exits within its teardown time
 # (~120 ms with a TUN device). Past this, NsJail's process group is killed.
 DONE_EXIT_GRACE_SECONDS = 5.0
+_CGROUP_REMOVE_POLL_SECONDS = 0.01
+_TEARDOWN_FAILED_MESSAGE = "Sandbox teardown did not complete"
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,19 +100,71 @@ def _cleanup_executor_file(path: Path) -> None:
         pass
 
 
+async def _terminate_jail(
+    process: asyncio.subprocess.Process, *, jail_cgroup: Path | None
+) -> None:
+    """Kill NsJail's process group, then every process left in the jail.
+
+    A jailed process can outlive NsJail and keep its output pipes open; the
+    jail's cgroup is the one place that still lists it. Raises
+    ``ProcessTeardownError`` if that cgroup cannot be killed.
+    """
+    await terminate_process_group(process)
+    if jail_cgroup is None:
+        return
+    try:
+        kill_cgroup(jail_cgroup)
+    except OSError as error:
+        logger.error(
+            "Could not kill the sandbox cgroup", cgroup=str(jail_cgroup), error=error
+        )
+        raise ProcessTeardownError("Could not kill the sandbox cgroup") from error
+
+
+async def _remove_jail_cgroup(jail_cgroup: Path) -> None:
+    """Remove the jail's cgroup once its killed processes have exited."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + TEARDOWN_TIMEOUT_SECONDS
+    while True:
+        try:
+            remove_cgroup(jail_cgroup)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            if error.errno != errno.EBUSY or loop.time() >= deadline:
+                logger.warning(
+                    "Could not remove the sandbox cgroup",
+                    cgroup=str(jail_cgroup),
+                    error=error,
+                )
+                return
+        await asyncio.sleep(_CGROUP_REMOVE_POLL_SECONDS)
+
+
+async def _release_jail_cgroup(jail_cgroup: Path | None) -> None:
+    """Remove the jail's cgroup, finishing even if the caller is cancelled."""
+    if jail_cgroup is not None:
+        await rejoin_future_through_cancellation(
+            asyncio.ensure_future(_remove_jail_cgroup(jail_cgroup))
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class _InvocationFiles:
-    """Executor-owned files that live until NsJail has exited."""
+    """Executor-owned files and cgroup that live until NsJail has exited."""
 
     log_file: BinaryIO
     config_path: Path
     launcher_path: Path | None
+    jail_cgroup: Path | None
 
-    def cleanup(self) -> None:
+    async def cleanup(self) -> None:
         self.log_file.close()
         _cleanup_executor_file(self.config_path)
         if self.launcher_path is not None:
             _cleanup_executor_file(self.launcher_path)
+        await _release_jail_cgroup(self.jail_cgroup)
 
 
 def _strip_markers(stderr: bytes, *markers: bytes | None) -> tuple[bytes, list[bool]]:
@@ -131,10 +195,50 @@ async def _pump(
             seen.set()
 
 
-async def _reap(process: asyncio.subprocess.Process, pumps: Awaitable[object]) -> None:
-    """Kill the process group, then drain the pipes it held open."""
-    await terminate_process_group(process)
-    await pumps
+async def _reap_after(
+    error: BaseException,
+    process: asyncio.subprocess.Process,
+    pumps: asyncio.Future[tuple[None, None]],
+    jail_cgroup: Path | None,
+) -> NoReturn:
+    """Reap after ``error`` interrupted the call, then re-raise ``error``.
+
+    A cancellation or timeout stays the outcome; a failed teardown becomes its
+    cause instead of replacing it.
+    """
+    reaper = asyncio.ensure_future(_reap(process, pumps, jail_cgroup))
+    try:
+        await rejoin_future_through_cancellation(reaper)
+    except Exception as teardown_error:
+        raise error from teardown_error
+    raise error
+
+
+async def _reap(
+    process: asyncio.subprocess.Process,
+    pumps: asyncio.Future[tuple[None, None]],
+    jail_cgroup: Path | None,
+) -> None:
+    """Kill NsJail and the jail, then drain the pipes they held open.
+
+    Raises ``ProcessTeardownError`` if the pipes stay open past the bound.
+    """
+    try:
+        await _terminate_jail(process, jail_cgroup=jail_cgroup)
+    except ProcessTeardownError:
+        # A jail that could not be killed may hold the pipes indefinitely.
+        close_process_pipes(process)
+        raise
+    done, _ = await asyncio.wait({pumps}, timeout=TEARDOWN_TIMEOUT_SECONDS)
+    if done:
+        pumps.result()
+        return
+    # Closing the pipes ends the pumps at EOF, so a later reap of the same
+    # process finds them finished instead of cancelled.
+    close_process_pipes(process)
+    raise ProcessTeardownError(
+        f"Output pipes stayed open after process {process.pid} was killed"
+    )
 
 
 async def _communicate_until_done(
@@ -166,11 +270,13 @@ async def _communicate_until_done(
             while process.returncode is None and not done.is_set():
                 await asyncio.wait({done_waiter}, timeout=_EXIT_POLL_INTERVAL_SECONDS)
         if process.returncode is not None:
-            await _reap(process, pumps)
-    except BaseException:
-        reaper = asyncio.ensure_future(_reap(process, pumps))
-        await rejoin_future_through_cancellation(reaper)
+            await _reap(process, pumps, files.jail_cgroup)
+    except ProcessTeardownError:
+        # The reap already ran to its bound; reaping again would only signal
+        # a process group whose leader is gone.
         raise
+    except BaseException as error:
+        await _reap_after(error, process, pumps, files.jail_cgroup)
     finally:
         done_waiter.cancel()
 
@@ -204,14 +310,14 @@ async def _communicate_until_done(
             while process.returncode is None and loop.time() < deadline:
                 await asyncio.sleep(_EXIT_POLL_INTERVAL_SECONDS)
             exited_ns = time.time_ns()
-            await _reap(process, pumps)
+            await _reap(process, pumps, files.jail_cgroup)
             return record(process.returncode, exited_ns, await scan_log())
-        except BaseException:
-            reaper = asyncio.ensure_future(_reap(process, pumps))
-            await rejoin_future_through_cancellation(reaper)
-            raise
+        except ProcessTeardownError as error:
+            raise SandboxInfrastructureError(_TEARDOWN_FAILED_MESSAGE) from error
+        except BaseException as error:
+            await _reap_after(error, process, pumps, files.jail_cgroup)
         finally:
-            files.cleanup()
+            await files.cleanup()
 
     # Hand the running jail to its finish task with no await in between, so a
     # cancellation cannot leave it unowned. Only a valid result returns early,
@@ -234,6 +340,7 @@ async def invoke_nsjail(
     workload_started_marker: bytes | None = None,
     workload_done_marker: bytes | None = None,
     done_exit_grace_seconds: float = DONE_EXIT_GRACE_SECONDS,
+    cgroup_mount: Path | None,
 ) -> NsjailCompletedProcess:
     """Prepare, launch, await, and clean up one nsjail process.
 
@@ -242,9 +349,15 @@ async def invoke_nsjail(
 
     With ``workload_done_marker``, the call may return when the workload writes
     that marker, before NsJail exits; see ``NsjailCompletedProcess.finish``.
+
+    With ``cgroup_mount``, the jail runs in a cgroup created under it for this
+    call, and teardown kills every process in that cgroup. It is required so
+    every launch path decides explicitly; None is only for hosts without
+    cgroup delegation.
     """
     config_path = job_dir / "nsjail.cfg"
     launcher_path: Path | None = None
+    jail_cgroup: Path | None = None
     # An unlinked file outside the jail. NsJail marks every descriptor except
     # stdio close-on-exec before starting the workload, so only NsJail writes it.
     log_file = None
@@ -252,6 +365,14 @@ async def invoke_nsjail(
     owns_files = True
     try:
         log_file = tempfile.TemporaryFile()
+        cgroup_args: list[str] = []
+        if cgroup_mount is not None:
+            # NsJail creates the jail's own cgroup inside this one, so killing
+            # this one reaches the whole jail. A flag after --config overrides
+            # the config's cgroupv2_mount.
+            jail_cgroup = cgroup_mount / f"tracecat-{uuid.uuid4().hex}"
+            jail_cgroup.mkdir()
+            cgroup_args = ["--cgroupv2_mount", str(jail_cgroup)]
         if workload_launcher_name is not None:
             if workload_launcher_script is None or workload_started_marker is None:
                 raise ValueError(
@@ -273,6 +394,7 @@ async def invoke_nsjail(
             str(nsjail_path),
             "--config",
             str(config_path),
+            *cgroup_args,
             *env_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -285,7 +407,9 @@ async def invoke_nsjail(
             try:
                 completed = await _communicate_until_done(
                     process,
-                    files=_InvocationFiles(log_file, config_path, launcher_path),
+                    files=_InvocationFiles(
+                        log_file, config_path, launcher_path, jail_cgroup
+                    ),
                     spawned_ns=spawned_ns,
                     timeout_seconds=timeout_seconds,
                     workload_started_marker=workload_started_marker,
@@ -300,6 +424,7 @@ async def invoke_nsjail(
             stdout, stderr = await communicate_process_group(
                 process,
                 timeout=timeout_seconds,
+                terminate=functools.partial(_terminate_jail, jail_cgroup=jail_cgroup),
             )
         except TimeoutError as error:
             raise SandboxTimeoutError(timeout_message) from error
@@ -319,6 +444,8 @@ async def invoke_nsjail(
             spawned_ns=spawned_ns,
             exited_ns=exited_ns,
         )
+    except ProcessTeardownError as error:
+        raise SandboxInfrastructureError(_TEARDOWN_FAILED_MESSAGE) from error
     except OSError as error:
         raise SandboxInfrastructureError(
             "Sandbox host failed to prepare or launch nsjail"
@@ -330,3 +457,4 @@ async def invoke_nsjail(
             _cleanup_executor_file(config_path)
             if launcher_path is not None:
                 _cleanup_executor_file(launcher_path)
+            await _release_jail_cgroup(jail_cgroup)
