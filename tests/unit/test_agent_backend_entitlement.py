@@ -352,6 +352,26 @@ async def test_revoked_backend_lets_a_retry_adopt_its_prepared_turn() -> None:
 
 
 @pytest.mark.anyio
+async def test_revoked_backend_refuses_to_adopt_a_direct_dispatch() -> None:
+    """A direct dispatch keeps its reservation marker; adopting it is a new turn."""
+    service, db, role = _service()
+    run_id = uuid.uuid4()
+    agent_session = _existing_session(
+        role, entity_type=AgentSessionEntity.CASE, curr_run_id=run_id
+    )
+    agent_session.reserved_run_id = run_id
+    with (
+        _existing_turn(service, agent_session, _provider(), is_entitled=False),
+        patch.object(service, "_build_agent_config") as build_config,
+        pytest.raises(EntitlementRequired),
+    ):
+        await service.prepare_new_turn(agent_session.id, "Investigate")
+    build_config.assert_not_called()
+    db.commit.assert_not_awaited()
+    assert agent_session.reserved_run_id == run_id
+
+
+@pytest.mark.anyio
 async def test_revoked_backend_still_accepts_approvals_for_a_parked_turn() -> None:
     """Approval decisions finish a turn that started while entitled."""
     service, _, role = _service()

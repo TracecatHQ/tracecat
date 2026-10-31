@@ -2334,10 +2334,12 @@ class AgentSessionService(BaseWorkspaceService):
         Args:
             session_id: The ID of the session.
             request: The new message or approval continuation.
-            resume_prepared_turn: Whether the caller adopts a run it already
-                prepared (``prepare_new_turn`` retried after its commit). That
-                run was admitted while entitled, so it skips the entitlement
-                check like any turn already in flight.
+            resume_prepared_turn: Whether the caller may adopt a run that a
+                caller-owned preparation already committed (``prepare_new_turn``
+                retried after its commit). That run was admitted while
+                entitled, so it skips the entitlement check like any turn
+                already in flight. A direct dispatch's run is never adopted
+                this way.
         """
         agent_session = await self.get_session(session_id)
         if not agent_session:
@@ -2356,26 +2358,31 @@ class AgentSessionService(BaseWorkspaceService):
             case ContinueRunRequest():
                 # Approval decisions finish a turn that started while entitled,
                 # so they skip the entitlement check. Refusing them would leave
-                # the turn parked until it times out.
+                # the turn parked until someone cancels it.
                 if agent_session.curr_run_id is None:
                     raise TracecatNotFoundError(
                         f"No active workflow run for session {session_id}"
                     )
                 return agent_session
             case VercelChatRequest() | BasicChatRequest():
-                # Refusing an adopted run would strand its committed pointers:
-                # no workflow ever starts, so recovery cannot release them.
-                adopts_prepared_turn = (
-                    resume_prepared_turn and agent_session.curr_run_id is not None
-                )
-                if not adopts_prepared_turn:
-                    await require_session_backend_entitlement(
-                        self.session, self.organization_id, agent_session.backend_id
-                    )
                 if await self.has_pending_approvals(session_id):
                     raise ValueError(
                         "This session is waiting for approval decisions. "
                         "Submit all pending approvals before sending another message."
+                    )
+                # Only a caller-owned preparation clears the reservation
+                # marker; a direct dispatch keeps it until the turn ends.
+                # Refusing an adopted preparation would strand its committed
+                # pointers: no workflow ever starts, so recovery cannot
+                # release them.
+                adopts_prepared_turn = (
+                    resume_prepared_turn
+                    and agent_session.curr_run_id is not None
+                    and agent_session.reserved_run_id is None
+                )
+                if not adopts_prepared_turn:
+                    await require_session_backend_entitlement(
+                        self.session, self.organization_id, agent_session.backend_id
                     )
                 return agent_session
             case _:
