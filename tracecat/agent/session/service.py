@@ -41,7 +41,10 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
-from tracecat.agent.backends.access import require_backend_entitlement
+from tracecat.agent.backends.access import (
+    require_backend_entitlement,
+    require_session_backend_entitlement,
+)
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
     find_agent_backend,
@@ -2339,12 +2342,18 @@ class AgentSessionService(BaseWorkspaceService):
         )
         match request:
             case ContinueRunRequest():
+                # Approval decisions finish a turn that started while entitled,
+                # so they skip the entitlement check. Refusing them would leave
+                # the turn parked until it times out.
                 if agent_session.curr_run_id is None:
                     raise TracecatNotFoundError(
                         f"No active workflow run for session {session_id}"
                     )
                 return agent_session
             case VercelChatRequest() | BasicChatRequest():
+                await require_session_backend_entitlement(
+                    self.session, self.organization_id, agent_session.backend_id
+                )
                 if await self.has_pending_approvals(session_id):
                     raise ValueError(
                         "This session is waiting for approval decisions. "
@@ -2792,6 +2801,12 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatConflictError(str(e)) from e
         match control:
             case "steer":
+                # A steer is new user input and can be queued for a later turn,
+                # so it needs the entitlement like a new message. Withdrawing
+                # only takes input back and stays allowed.
+                await require_session_backend_entitlement(
+                    self.session, self.organization_id, agent_session.backend_id
+                )
                 supported, feature = backend.steering, "steering"
             case "withdraw":
                 supported, feature = backend.withdrawing, "withdrawing"

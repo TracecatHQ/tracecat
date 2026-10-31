@@ -32,7 +32,11 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
 from tracecat.db.models import AgentSession
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
@@ -923,16 +927,29 @@ class SlackChannelHandler:
                 user_id=context.user_id,
                 workspace_id=token.workspace_id,
             )
-            await session_service.run_turn(
-                session_id,
-                BasicChatRequest(
-                    message=self._extract_prompt_text(event),
-                    instructions=self._build_slack_actor_instructions(
-                        user_profile,
-                        user_id=context.user_id,
+            try:
+                await session_service.run_turn(
+                    session_id,
+                    BasicChatRequest(
+                        message=self._extract_prompt_text(event),
+                        instructions=self._build_slack_actor_instructions(
+                            user_profile,
+                            user_id=context.user_id,
+                        ),
                     ),
-                ),
-            )
+                )
+            except EntitlementRequired as exc:
+                # The thread's session runs on a backend the workspace lost.
+                # Tell the user instead of showing a generic failure.
+                await slack_client.api_call(
+                    api_method="chat.postMessage",
+                    json={
+                        "channel": context.channel_id,
+                        "thread_ts": context.thread_ts,
+                        "text": str(exc),
+                    },
+                )
+                return
         except SlackAlreadyAcknowledgedError:
             logger.info(
                 "Slack message already acknowledged",

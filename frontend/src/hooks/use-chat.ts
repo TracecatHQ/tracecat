@@ -201,6 +201,13 @@ export function parseChatError(error: unknown): string {
             return detail.trim()
           }
         }
+        // Typed API errors such as EntitlementRequired carry it in `message`.
+        if (parsed && typeof parsed === "object" && "message" in parsed) {
+          const parsedMessage = (parsed as { message?: unknown }).message
+          if (typeof parsedMessage === "string" && parsedMessage.trim()) {
+            return parsedMessage.trim()
+          }
+        }
       } catch {
         // message wasn't JSON; fall through to raw text
       }

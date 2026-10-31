@@ -11,6 +11,7 @@ import pytest
 from slack_sdk.errors import SlackApiError
 
 from tracecat import config
+from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
 from tracecat.agent.channels.handlers.slack import (
     SLACK_EVENT_DEDUP_TTL_SECONDS,
     SlackChannelHandler,
@@ -24,7 +25,7 @@ from tracecat.agent.channels.schemas import (
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 
 
 class _FakeSlackResponse:
@@ -152,8 +153,9 @@ def _patched_handle_deps(
             "AgentSessionService.has_pending_approvals",
             return_value=pending_approvals,
         )
-        enter("notify_error")
+        notify_error = enter("notify_error")
         yield SimpleNamespace(
+            notify_error=notify_error,
             ack_event=enter("ack_event"),
             run_turn=enter("AgentSessionService.run_turn", side_effect=run_turn_error),
             set_in_progress=enter("set_in_progress"),
@@ -482,6 +484,37 @@ async def test_handle_rejects_app_mention_when_pending_approvals_exist(
     assert fake_client.calls
     assert fake_client.calls[-1][0] == "chat.postMessage"
     mocks.run_turn.assert_not_awaited()
+    mocks.set_in_progress.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_handle_tells_the_thread_when_its_backend_is_no_longer_entitled(
+    handler: SlackChannelHandler,
+    token: ValidatedChannelToken,
+) -> None:
+    fake_client = _FakeSlackClient(token="xoxb-test")
+    refusal = EntitlementRequired(
+        "agent_runtime_preview", message=SESSION_BACKEND_NOT_ENTITLED_MESSAGE
+    )
+
+    with _patched_handle_deps(
+        handler,
+        slack_client=fake_client,
+        session_row=SimpleNamespace(channel_context={}),
+        run_turn_error=refusal,
+    ) as mocks:
+        await handler.handle(payload=_APP_MENTION_PAYLOAD, token=token)
+
+    assert fake_client.calls[-1] == (
+        "chat.postMessage",
+        {
+            "channel": "C1",
+            "thread_ts": "1700000000.100",
+            "text": SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
+        },
+    )
+    mocks.run_turn.assert_awaited_once()
+    mocks.notify_error.assert_not_awaited()
     mocks.set_in_progress.assert_not_awaited()
 
 

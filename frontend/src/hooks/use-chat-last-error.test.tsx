@@ -99,6 +99,26 @@ describe("useVercelChat lastError", () => {
     expect(hook.result.current.lastError).toBe(detail)
   })
 
+  it("shows a typed API error's message when a send is refused", () => {
+    const { hook, onError } = renderChat()
+    const message =
+      "This chat uses a feature your workspace no longer has. Start a new chat."
+
+    act(() => {
+      onError?.(
+        new Error(
+          JSON.stringify({
+            type: "EntitlementRequired",
+            message,
+            detail: { entitlement: "agent_runtime_preview" },
+          })
+        )
+      )
+    })
+
+    expect(hook.result.current.lastError).toBe(message)
+  })
+
   it("clears the error once a later turn finishes cleanly", () => {
     const { hook, onError, onFinish } = renderChat()
 

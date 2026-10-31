@@ -16775,7 +16775,7 @@ export const $EffectiveEntitlements = {
       type: "boolean",
       title: "Agent runtime preview",
       description:
-        "Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions",
+        "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
       default: false,
     },
   },
@@ -17023,7 +17023,7 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Agent runtime preview",
       description:
-        "Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions",
+        "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
     },
   },
   type: "object",
