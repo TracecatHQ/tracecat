@@ -37,6 +37,7 @@ from tracecat.agent.backends.schemas import (
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     AgentControlUncertain,
+    SessionDeleteContext,
     SessionDispatchUncertain,
     SessionForkContext,
     SessionTurnContext,
@@ -1153,6 +1154,68 @@ async def test_fork_delegates_to_required_backend_operation(preparation_fails):
             with pytest.raises(ValueError, match="Unable to prepare fork"):
                 await service.fork_session(ctx.session.id)
             ctx.db.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("outcome", ["cleaned", "cleanup_fails", "preparation_fails"])
+async def test_delete_lets_the_backend_prepare_and_clean_up(outcome: str):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    db = ctx.db
+    service = AgentSessionService(db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+    cleanup = AsyncMock(
+        side_effect=RuntimeError("unreachable") if outcome == "cleanup_fails" else None
+    )
+
+    async def prepare_delete(context: SessionDeleteContext) -> AsyncMock:
+        assert (context.db, context.session, context.role) == (
+            db,
+            ctx.session,
+            ctx.role,
+        )
+        db.delete.assert_not_awaited()
+        if outcome == "preparation_fails":
+            raise TracecatConflictError("Session is busy")
+        return cleanup
+
+    async def committed() -> None:
+        db.delete.assert_awaited_once_with(ctx.session)
+        cleanup.assert_not_awaited()
+
+    provider.prepare_delete = AsyncMock(side_effect=prepare_delete)
+    db.commit.side_effect = committed
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend", return_value=provider
+    ) as find:
+        if outcome == "preparation_fails":
+            with pytest.raises(TracecatConflictError):
+                await service.delete_session(ctx.session)
+            db.delete.assert_not_awaited()
+            db.commit.assert_not_awaited()
+            cleanup.assert_not_awaited()
+        else:
+            # A failed cleanup is logged; the delete has committed.
+            await service.delete_session(ctx.session)
+            cleanup.assert_awaited_once_with()
+    find.assert_called_once_with(ctx.session.backend_id)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("installed", [True, False])
+async def test_delete_needs_no_cleanup_from_the_builtin_or_a_missing_backend(
+    installed: bool,
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend",
+        return_value=DefaultBackend() if installed else None,
+    ):
+        await service.delete_session(ctx.session)
+    ctx.db.delete.assert_awaited_once_with(ctx.session)
+    ctx.db.commit.assert_awaited_once()
 
 
 def test_backend_contract_requires_fork_preparation():

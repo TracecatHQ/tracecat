@@ -51,6 +51,7 @@ from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
     AgentControlRejected,
+    SessionDeleteContext,
     SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnContext,
@@ -1132,11 +1133,35 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> None:
         """Delete an agent session and its history.
 
+        The session's backend, when installed, prepares the delete in its
+        transaction and may clean up its own state once it commits.
+
         Args:
             agent_session: The AgentSession model to delete.
         """
+        backend = find_agent_backend(agent_session.backend_id)
+        cleanup = (
+            None
+            if backend is None
+            else await backend.prepare_delete(
+                SessionDeleteContext(
+                    db=self.session, session=agent_session, role=self.role
+                )
+            )
+        )
+        session_id = agent_session.id
         await self.session.delete(agent_session)
         await self.session.commit()
+        if cleanup is None:
+            return
+        try:
+            await cleanup()
+        except Exception as e:
+            logger.warning(
+                "Agent session cleanup failed",
+                session_id=session_id,
+                error_type=type(e).__name__,
+            )
 
     async def update_last_stream_id(
         self,
