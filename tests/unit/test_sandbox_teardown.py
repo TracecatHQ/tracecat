@@ -364,6 +364,51 @@ async def test_failed_cgroup_kill_fails_the_call(
         _kill_leftover(tmp_path)
 
 
+@pytest.mark.anyio
+async def test_cancellation_survives_a_failed_teardown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: a cancelled call stays cancelled even if its teardown fails.
+
+    The teardown failure is kept as the cancellation's cause.
+    """
+
+    def fail_kill(path: Path) -> None:
+        raise PermissionError(f"synthetic cgroup.kill failure for {path.name}")
+
+    monkeypatch.setattr(nsjail_protocol, "kill_cgroup", fail_kill)
+    cgroup_mount = tmp_path / "cgroup"
+    cgroup_mount.mkdir()
+    call = asyncio.create_task(
+        invoke_nsjail(
+            nsjail_path=_fake_nsjail(tmp_path),
+            job_dir=tmp_path,
+            config_text="mode: ONCE",
+            env={
+                "FAKE_NSJAIL_MODE": "hang",
+                "FAKE_NSJAIL_PID_FILE": str(tmp_path / "jailed.pid"),
+            },
+            timeout_seconds=30,
+            timeout_message="synthetic timeout",
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            workload_done_marker=_WORKLOAD_DONE_MARKER,
+            cgroup_mount=cgroup_mount,
+        )
+    )
+    try:
+        for _ in range(500):
+            if (tmp_path / "jailed.pid").exists():
+                break
+            await asyncio.sleep(0.01)
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError) as exc_info:
+            await asyncio.wait_for(call, timeout=5)
+        assert isinstance(exc_info.value.__cause__, utils.ProcessTeardownError)
+    finally:
+        _kill_leftover(tmp_path)
+
+
 def test_kill_cgroup_prefers_cgroup_kill(tmp_path: Path) -> None:
     (tmp_path / "cgroup.kill").write_text("0")
 

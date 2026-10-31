@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, NoReturn
 
 from tracecat.concurrency import rejoin_future_through_cancellation
 from tracecat.logger import logger
@@ -195,6 +195,25 @@ async def _pump(
             seen.set()
 
 
+async def _reap_after(
+    error: BaseException,
+    process: asyncio.subprocess.Process,
+    pumps: asyncio.Future[tuple[None, None]],
+    jail_cgroup: Path | None,
+) -> NoReturn:
+    """Reap after ``error`` interrupted the call, then re-raise ``error``.
+
+    A cancellation or timeout stays the outcome; a failed teardown becomes its
+    cause instead of replacing it.
+    """
+    reaper = asyncio.ensure_future(_reap(process, pumps, jail_cgroup))
+    try:
+        await rejoin_future_through_cancellation(reaper)
+    except ProcessTeardownError as teardown_error:
+        raise error from teardown_error
+    raise error
+
+
 async def _reap(
     process: asyncio.subprocess.Process,
     pumps: asyncio.Future[tuple[None, None]],
@@ -256,10 +275,8 @@ async def _communicate_until_done(
         # The reap already ran to its bound; reaping again would only signal
         # a process group whose leader is gone.
         raise
-    except BaseException:
-        reaper = asyncio.ensure_future(_reap(process, pumps, files.jail_cgroup))
-        await rejoin_future_through_cancellation(reaper)
-        raise
+    except BaseException as error:
+        await _reap_after(error, process, pumps, files.jail_cgroup)
     finally:
         done_waiter.cancel()
 
@@ -297,10 +314,8 @@ async def _communicate_until_done(
             return record(process.returncode, exited_ns, await scan_log())
         except ProcessTeardownError as error:
             raise SandboxInfrastructureError(_TEARDOWN_FAILED_MESSAGE) from error
-        except BaseException:
-            reaper = asyncio.ensure_future(_reap(process, pumps, files.jail_cgroup))
-            await rejoin_future_through_cancellation(reaper)
-            raise
+        except BaseException as error:
+            await _reap_after(error, process, pumps, files.jail_cgroup)
         finally:
             await files.cleanup()
 
