@@ -61,8 +61,9 @@ Path('/work/result.json').write_text(json.dumps(
 
 
 async def main() -> None:
-    """Check aggregate OOM, sibling survival, supervisor survival, reuse, and
-    that an unset address-space cap is uncapped under the cgroup."""
+    """Check aggregate OOM, sibling survival, supervisor survival, reuse, that
+    an unset address-space cap is uncapped under the cgroup, and that each jail
+    runs inside its call's own cgroup."""
     assert os.getuid() == 1001
     root = sandbox_cgroup()
     parent_group = Path("/proc/self/cgroup").read_text()
@@ -70,6 +71,17 @@ async def main() -> None:
     executor = NsjailExecutor(cgroup_mount=root)
     resources = ResourceLimits(memory_mb=128, address_space_mb=512, timeout_seconds=15)
     uncapped = ResourceLimits(memory_mb=128, timeout_seconds=15)
+
+    def call_cgroups_with_jail() -> list[Path]:
+        populated = []
+        for jail in root.glob("tracecat-*/NSJAIL*"):
+            # NsJail removes a jail's cgroup as the jail exits.
+            try:
+                if (jail / "cgroup.procs").read_text().strip():
+                    populated.append(jail)
+            except FileNotFoundError:
+                pass
+        return populated
 
     def oom_kills() -> int:
         return int(
@@ -120,6 +132,17 @@ async def main() -> None:
             flush=True,
         )
         print(f"PASS {kind}: unset address-space cap reserved 16 GiB", flush=True)
+
+        # Teardown kills the call's cgroup, so the jail must land inside it.
+        running = asyncio.create_task(run(kind, HEALTHY_SCRIPT))
+        found: list[Path] = []
+        while not running.done() and not found:
+            found = call_cgroups_with_jail()
+            await asyncio.sleep(0.01)
+        assert found, "jail did not run inside its call's cgroup"
+        assert (await running).success
+        assert set(root.iterdir()) == initial_children, "a call leaked its cgroup"
+        print(f"PASS {kind}: jail ran inside its call's cgroup", flush=True)
 
 
 if __name__ == "__main__":

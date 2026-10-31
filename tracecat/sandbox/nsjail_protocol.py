@@ -204,7 +204,12 @@ async def _reap(
 
     Raises ``ProcessTeardownError`` if the pipes stay open past the bound.
     """
-    await _terminate_jail(process, jail_cgroup=jail_cgroup)
+    try:
+        await _terminate_jail(process, jail_cgroup=jail_cgroup)
+    except ProcessTeardownError:
+        # A jail that could not be killed may hold the pipes indefinitely.
+        close_process_pipes(process)
+        raise
     done, _ = await asyncio.wait({pumps}, timeout=TEARDOWN_TIMEOUT_SECONDS)
     if done:
         pumps.result()

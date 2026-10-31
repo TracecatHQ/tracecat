@@ -310,32 +310,56 @@ async def test_teardown_failure_before_done_marker_stays_an_infrastructure_error
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("done_marker", [None, _WORKLOAD_DONE_MARKER])
 async def test_failed_cgroup_kill_fails_the_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    done_marker: bytes | None,
 ) -> None:
-    """Invariant: a jail that could not be killed is a sandbox failure, not a success."""
+    """Invariant: a jail that could not be killed is a sandbox failure, not a success.
+
+    The pipes it may still hold are closed on both the inline and the action
+    (done marker) teardown paths.
+    """
 
     def fail_kill(path: Path) -> None:
         raise PermissionError(f"synthetic cgroup.kill failure for {path.name}")
 
+    closed: list[int] = []
+    close_pipes = utils.close_process_pipes
+
+    def record_close(process: asyncio.subprocess.Process) -> None:
+        closed.append(process.pid)
+        close_pipes(process)
+
     monkeypatch.setattr(nsjail_protocol, "kill_cgroup", fail_kill)
+    monkeypatch.setattr(nsjail_protocol, "close_process_pipes", record_close)
+    monkeypatch.setattr(utils, "close_process_pipes", record_close)
     cgroup_mount = tmp_path / "cgroup"
     cgroup_mount.mkdir()
     try:
         with pytest.raises(SandboxInfrastructureError) as exc_info:
             await asyncio.wait_for(
-                _invoke(
-                    tmp_path,
-                    mode="exit",
-                    cgroup_mount=cgroup_mount,
+                invoke_nsjail(
+                    nsjail_path=_fake_nsjail(tmp_path),
+                    job_dir=tmp_path,
+                    config_text="mode: ONCE",
+                    env={
+                        "FAKE_NSJAIL_MODE": "exit",
+                        "FAKE_NSJAIL_PID_FILE": str(tmp_path / "jailed.pid"),
+                    },
                     timeout_seconds=30,
+                    timeout_message="synthetic timeout",
+                    workload_started_marker=_WORKLOAD_STARTED_MARKER,
+                    workload_done_marker=done_marker,
+                    cgroup_mount=cgroup_mount,
                 ),
                 timeout=5,
             )
         cause = exc_info.value.__cause__
         assert isinstance(cause, utils.ProcessTeardownError)
         assert isinstance(cause.__cause__, PermissionError)
+        assert closed
     finally:
         _kill_leftover(tmp_path)
 
