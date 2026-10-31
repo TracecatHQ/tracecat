@@ -64,7 +64,6 @@ async def _invoke(
         workload_started_marker=_WORKLOAD_STARTED_MARKER,
         workload_done_marker=_WORKLOAD_DONE_MARKER,
         done_exit_grace_seconds=grace,
-        cgroup_mount=None,
     )
 
 

@@ -91,7 +91,6 @@ async def test_executor_owned_file_write_is_infrastructure_failure(
             env={},
             timeout_seconds=1,
             timeout_message="synthetic timeout",
-            cgroup_mount=None,
         )
 
     assert isinstance(exc_info.value.__cause__, OSError)
@@ -120,7 +119,6 @@ async def test_timeout_is_reported_and_config_cleaned_up(
             env={},
             timeout_seconds=1,
             timeout_message="synthetic timeout",
-            cgroup_mount=None,
         )
 
     assert not (tmp_path / "nsjail.cfg").exists()
@@ -229,7 +227,6 @@ async def test_nsjail_private_log_is_passed_at_info_level(
             env={},
             timeout_seconds=1,
             timeout_message="synthetic timeout",
-            cgroup_mount=None,
         )
 
     (log_fd,) = launched_fds
@@ -302,7 +299,6 @@ async def test_nsjail_log_creation_failure_is_infrastructure_error(
             env={},
             timeout_seconds=1,
             timeout_message="timed out",
-            cgroup_mount=None,
         )
     create_process.assert_not_called()
 
@@ -445,7 +441,6 @@ async def test_workload_start_proof_is_scoped_to_each_nsjail_invocation(
         process: object,
         *,
         timeout: float,
-        terminate: object,
     ) -> tuple[bytes, bytes]:
         nonlocal invocation
         invocation += 1
@@ -475,7 +470,6 @@ async def test_workload_start_proof_is_scoped_to_each_nsjail_invocation(
             workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
             workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
             workload_started_marker=_WORKLOAD_STARTED_MARKER,
-            cgroup_mount=None,
         )
 
     first = await run_once()

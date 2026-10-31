@@ -240,13 +240,14 @@ async def _lease_and_release(
 class _BlockingSubprocess:
     """Fake subprocess that blocks in communicate until it is cancelled."""
 
-    def __init__(self, *, block_exit: bool = False) -> None:
+    def __init__(self, *, block_wait: bool = False) -> None:
         self.pid = 999_999_999
         self.communicate_started = asyncio.Event()
-        self.kill_started = asyncio.Event()
+        self.wait_started = asyncio.Event()
+        self.release_wait = asyncio.Event()
         self.cleanup_calls: list[str] = []
         self.returncode: int | None = None
-        self._block_exit = block_exit
+        self._block_wait = block_wait
 
     async def communicate(
         self,
@@ -259,15 +260,17 @@ class _BlockingSubprocess:
         return b"", b""
 
     def kill(self) -> None:
-        """Record that the subprocess was killed; it exits unless blocked."""
+        """Record that the subprocess was killed."""
         self.cleanup_calls.append("kill")
-        self.kill_started.set()
-        if not self._block_exit:
-            self.exit()
-
-    def exit(self) -> None:
-        """Let the killed subprocess exit."""
         self.returncode = -9
+
+    async def wait(self) -> int:
+        """Record that the killed subprocess was reaped."""
+        self.cleanup_calls.append("wait")
+        self.wait_started.set()
+        if self._block_wait:
+            await self.release_wait.wait()
+        return -9
 
 
 class _CapturedSubprocess:
@@ -276,6 +279,7 @@ class _CapturedSubprocess:
     def __init__(self, process: asyncio.subprocess.Process) -> None:
         self.process = process
         self.killed = False
+        self.reaped = False
 
     @property
     def returncode(self) -> int | None:
@@ -300,8 +304,10 @@ class _CapturedSubprocess:
         self.process.kill()
 
     async def wait(self) -> int:
-        """Reap the wrapped subprocess."""
-        return await self.process.wait()
+        """Reap the wrapped subprocess and record completion."""
+        returncode = await self.process.wait()
+        self.reaped = True
+        return returncode
 
 
 @pytest.fixture
@@ -1862,7 +1868,7 @@ class TestRegistryArtifactCache:
         ctx.paths.entry_dir.mkdir(parents=True)
         image_path.write_bytes(b"squashfs")
         target_dir.mkdir()
-        process = _BlockingSubprocess(block_exit=True)
+        process = _BlockingSubprocess(block_wait=True)
 
         with (
             patch(
@@ -1877,16 +1883,16 @@ class TestRegistryArtifactCache:
             )
             await process.communicate_started.wait()
             mounting.cancel()
-            await process.kill_started.wait()
+            await process.wait_started.wait()
 
             mounting.cancel()
             done, _ = await asyncio.wait({mounting}, timeout=0.05)
             assert not done
-            process.exit()
+            process.release_wait.set()
             with pytest.raises(asyncio.CancelledError):
                 await mounting
 
-        assert process.cleanup_calls == ["kill"]
+        assert process.cleanup_calls == ["kill", "wait"]
         await_args = create_subprocess_exec.await_args
         assert await_args is not None
         assert await_args.kwargs["start_new_session"] is True
@@ -1958,7 +1964,7 @@ class TestRegistryArtifactCache:
                     await captured.wait()
 
         assert captured.killed is True
-        # Teardown waits for the exit itself, not asyncio's pipe-bound wait().
+        assert captured.reaped is True
         assert captured.returncode is not None
 
     @pytest.mark.anyio
@@ -4633,7 +4639,7 @@ class TestRegistryArtifactCacheEviction:
         paths.squashfs_mount_dir.mkdir()
         (paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
         mounted = {paths.squashfs_mount_dir}
-        blocked_process = _BlockingSubprocess(block_exit=True)
+        blocked_process = _BlockingSubprocess(block_wait=True)
         released_process = AsyncMock()
         released_process.communicate.return_value = (b"", b"")
         released_process.returncode = 0
@@ -4663,16 +4669,16 @@ class TestRegistryArtifactCacheEviction:
             eviction = asyncio.create_task(cache._evict_entry(cache_key))
             await blocked_process.communicate_started.wait()
             eviction.cancel()
-            await blocked_process.kill_started.wait()
+            await blocked_process.wait_started.wait()
 
             eviction.cancel()
             done, _ = await asyncio.wait({eviction}, timeout=0.05)
             assert not done
-            blocked_process.exit()
+            blocked_process.release_wait.set()
             with pytest.raises(asyncio.CancelledError):
                 await eviction
 
-            assert blocked_process.cleanup_calls == ["kill"]
+            assert blocked_process.cleanup_calls == ["kill", "wait"]
             kill_group.assert_called_once_with(
                 blocked_process.pid,
                 signal.SIGKILL,
