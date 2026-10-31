@@ -309,6 +309,37 @@ async def test_teardown_failure_before_done_marker_stays_an_infrastructure_error
         _kill_leftover(tmp_path)
 
 
+@pytest.mark.anyio
+async def test_failed_cgroup_kill_fails_the_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: a jail that could not be killed is a sandbox failure, not a success."""
+
+    def fail_kill(path: Path) -> None:
+        raise PermissionError(f"synthetic cgroup.kill failure for {path.name}")
+
+    monkeypatch.setattr(nsjail_protocol, "kill_cgroup", fail_kill)
+    cgroup_mount = tmp_path / "cgroup"
+    cgroup_mount.mkdir()
+    try:
+        with pytest.raises(SandboxInfrastructureError) as exc_info:
+            await asyncio.wait_for(
+                _invoke(
+                    tmp_path,
+                    mode="exit",
+                    cgroup_mount=cgroup_mount,
+                    timeout_seconds=30,
+                ),
+                timeout=5,
+            )
+        cause = exc_info.value.__cause__
+        assert isinstance(cause, utils.ProcessTeardownError)
+        assert isinstance(cause.__cause__, PermissionError)
+    finally:
+        _kill_leftover(tmp_path)
+
+
 def test_kill_cgroup_prefers_cgroup_kill(tmp_path: Path) -> None:
     (tmp_path / "cgroup.kill").write_text("0")
 

@@ -45,7 +45,10 @@ async def _wait_for_exit(process: asyncio.subprocess.Process, timeout: float) ->
 
 
 def close_process_pipes(process: asyncio.subprocess.Process) -> None:
-    """Stop reading pipes nothing will close, releasing their descriptors."""
+    """Stop reading pipes nothing will close, releasing their descriptors.
+
+    Closing the transport also kills the leader if it is still running.
+    """
     # asyncio has no public way to close a subprocess's pipes, and typeshed
     # does not declare Process._transport, so read it with getattr. Process
     # stand-ins without a transport have nothing to close.
@@ -55,13 +58,13 @@ def close_process_pipes(process: asyncio.subprocess.Process) -> None:
 
 
 async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
-    """Kill and reap a subprocess session, including any surviving descendants.
+    """Kill a subprocess session, including any surviving descendants.
 
     The subprocess must have been started with ``start_new_session=True``, which
     makes its PID the process-group ID. Calling this after normal completion is
     intentional: a subprocess can exit while leaving background descendants
     alive. The wait for the leader's exit is bounded; past it, this logs and
-    returns.
+    returns without the leader having been reaped.
     """
     with suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGKILL)
@@ -165,7 +168,9 @@ async def communicate_process_group(
         try:
             await rejoin_future_through_cancellation(cleanup_task)
         except BaseException as cleanup_error:
-            if operation_error is not None:
+            # A terminator that failed in the operation fails again here; keep
+            # its own cause instead of chaining it to itself.
+            if operation_error is not None and cleanup_error is not operation_error:
                 raise operation_error from cleanup_error
             raise
 

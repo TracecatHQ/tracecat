@@ -72,7 +72,7 @@ _EXIT_POLL_INTERVAL_SECONDS = 0.01
 # (~120 ms with a TUN device). Past this, NsJail's process group is killed.
 DONE_EXIT_GRACE_SECONDS = 5.0
 _CGROUP_REMOVE_POLL_SECONDS = 0.01
-_OUTPUT_HELD_MESSAGE = "Sandbox output stayed open after NsJail was killed"
+_TEARDOWN_FAILED_MESSAGE = "Sandbox teardown did not complete"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +106,8 @@ async def _terminate_jail(
     """Kill NsJail's process group, then every process left in the jail.
 
     A jailed process can outlive NsJail and keep its output pipes open; the
-    jail's cgroup is the one place that still lists it.
+    jail's cgroup is the one place that still lists it. Raises
+    ``ProcessTeardownError`` if that cgroup cannot be killed.
     """
     await terminate_process_group(process)
     if jail_cgroup is None:
@@ -114,9 +115,10 @@ async def _terminate_jail(
     try:
         kill_cgroup(jail_cgroup)
     except OSError as error:
-        logger.warning(
+        logger.error(
             "Could not kill the sandbox cgroup", cgroup=str(jail_cgroup), error=error
         )
+        raise ProcessTeardownError("Could not kill the sandbox cgroup") from error
 
 
 async def _remove_jail_cgroup(jail_cgroup: Path) -> None:
@@ -289,7 +291,7 @@ async def _communicate_until_done(
             await _reap(process, pumps, files.jail_cgroup)
             return record(process.returncode, exited_ns, await scan_log())
         except ProcessTeardownError as error:
-            raise SandboxInfrastructureError(_OUTPUT_HELD_MESSAGE) from error
+            raise SandboxInfrastructureError(_TEARDOWN_FAILED_MESSAGE) from error
         except BaseException:
             reaper = asyncio.ensure_future(_reap(process, pumps, files.jail_cgroup))
             await rejoin_future_through_cancellation(reaper)
@@ -423,7 +425,7 @@ async def invoke_nsjail(
             exited_ns=exited_ns,
         )
     except ProcessTeardownError as error:
-        raise SandboxInfrastructureError(_OUTPUT_HELD_MESSAGE) from error
+        raise SandboxInfrastructureError(_TEARDOWN_FAILED_MESSAGE) from error
     except OSError as error:
         raise SandboxInfrastructureError(
             "Sandbox host failed to prepare or launch nsjail"
