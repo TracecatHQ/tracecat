@@ -11,17 +11,19 @@ from pathlib import Path
 
 import pytest
 
-from tracecat.sandbox import utils
+from tracecat.sandbox import nsjail_protocol, utils
 from tracecat.sandbox.cgroup import kill_cgroup
 from tracecat.sandbox.exceptions import (
     SandboxInfrastructureError,
     SandboxTimeoutError,
 )
+from tracecat.sandbox.executor import _WORKLOAD_DONE_MARKER, _WORKLOAD_STARTED_MARKER
 from tracecat.sandbox.nsjail_protocol import invoke_nsjail
 
 # Stands in for NsJail: forks a jailed process that leaves NsJail's process
 # group, ignores SIGTERM and keeps the output pipes open, and lists it in the
-# jail's cgroup like NsJail would. Then exits, or keeps running ("hang").
+# jail's cgroup like NsJail would. Then writes any given stderr (hex) and
+# exits, or keeps running ("hang").
 _FAKE_NSJAIL = """
 import os
 import signal
@@ -44,6 +46,7 @@ if "--cgroupv2_mount" in args:
     jail.mkdir()
     (jail / "cgroup.procs").write_text(f"{pid}\\n")
 Path(os.environ["FAKE_NSJAIL_PID_FILE"]).write_text(str(pid))
+os.write(2, bytes.fromhex(os.environ.get("FAKE_NSJAIL_STDERR", "")))
 if os.environ["FAKE_NSJAIL_MODE"] == "hang":
     while True:
         time.sleep(60)
@@ -133,6 +136,52 @@ async def test_teardown_kills_jailed_process_that_outlived_nsjail(
         await _wait_for_process_exit(int((tmp_path / "jailed.pid").read_text()))
         (jail_cgroup,) = cgroup_mount.iterdir()
         assert jail_cgroup.name.startswith("tracecat-")
+    finally:
+        _kill_leftover(tmp_path)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["exit", "hang"])
+async def test_deferred_teardown_kills_jailed_process_that_outlived_nsjail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Invariant: teardown deferred past an early result also kills the jail.
+
+    The result returns at the done marker; the finish task then kills every
+    process in the jail's cgroup and completes within the grace plus the bound,
+    so the job dir and leases it guards are released.
+    """
+    monkeypatch.setattr(nsjail_protocol, "TEARDOWN_TIMEOUT_SECONDS", 1.0)
+    cgroup_mount = tmp_path / "cgroup"
+    cgroup_mount.mkdir()
+    try:
+        completed = await invoke_nsjail(
+            nsjail_path=_fake_nsjail(tmp_path),
+            job_dir=tmp_path,
+            config_text="mode: ONCE",
+            env={
+                "FAKE_NSJAIL_MODE": mode,
+                "FAKE_NSJAIL_PID_FILE": str(tmp_path / "jailed.pid"),
+                "FAKE_NSJAIL_STDERR": (
+                    _WORKLOAD_STARTED_MARKER + _WORKLOAD_DONE_MARKER
+                ).hex(),
+            },
+            timeout_seconds=30,
+            timeout_message="synthetic timeout",
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            workload_done_marker=_WORKLOAD_DONE_MARKER,
+            done_exit_grace_seconds=0.2,
+            cgroup_mount=cgroup_mount,
+        )
+        assert completed.finish is not None
+
+        final = await asyncio.wait_for(completed.finish, timeout=3)
+
+        assert final.returncode is not None
+        await _wait_for_process_exit(int((tmp_path / "jailed.pid").read_text()))
+        assert not (tmp_path / "nsjail.cfg").exists()
     finally:
         _kill_leftover(tmp_path)
 

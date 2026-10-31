@@ -1,0 +1,209 @@
+diff --git a/cgroup2.cc b/cgroup2.cc
+index f2619bb..07efb9b 100644
+--- a/cgroup2.cc
++++ b/cgroup2.cc
+@@ -22,6 +22,7 @@
+ #include "cgroup2.h"
+ 
+ #include <errno.h>
++#include <sched.h>
+ #include <fcntl.h>
+ #include <limits.h>
+ #include <linux/magic.h>
+@@ -32,11 +33,23 @@
+ #include <sys/vfs.h>
+ #include <unistd.h>
+ 
++#include <map>
++
+ #include "logs.h"
+ #include "util.h"
+ 
+ namespace cgroup2 {
+ 
++/*
++ * Cgroups of children created directly inside them with CLONE_INTO_CGROUP, by
++ * pid. Writing a pid to cgroup.procs takes cgroup_threadgroup_rwsem for writing,
++ * which waits for an RCU grace period (tens of ms on busy hosts); cloning into
++ * the cgroup avoids the move entirely. The cgroup is created before the pid is
++ * known and cgroup v2 forbids renames, so it keeps its creation-time name.
++ */
++static std::map<pid_t, std::string> cloned_into_cgroup;
++static unsigned long clone_into_seq = 0;
++
+ static bool addPidToProcList(const std::string& cgroup_path, pid_t pid) {
+ 	std::string pid_str = std::to_string(pid);
+ 
+@@ -215,6 +228,11 @@ static bool initNsFromParentMem(nsj_t* nsj, pid_t pid) {
+ 		return true;
+ 	}
+ 
++	if (cloned_into_cgroup.count(pid)) {
++		/* Created with its limits by prepareCloneInto(); nothing to move. */
++		return true;
++	}
++
+ 	std::string cgroup_path = getCgroupPath(nsj, pid);
+ 	RETURN_ON_FAILURE(createCgroup(cgroup_path, pid));
+ 	RETURN_ON_FAILURE(addPidToProcList(cgroup_path, pid));
+@@ -268,12 +286,77 @@ bool initNsFromParent(nsj_t* nsj, pid_t pid) {
+ }
+ 
+ void finishFromParent(nsj_t* nsj, pid_t pid) {
++	auto cloned = cloned_into_cgroup.find(pid);
++	if (cloned != cloned_into_cgroup.end()) {
++		removeCgroup(cloned->second);
++		cloned_into_cgroup.erase(cloned);
++		return;
++	}
+ 	if (nsj->njc.cgroup_mem_max() != (size_t)0 || nsj->njc.cgroup_pids_max() != 0U ||
+ 	    nsj->njc.cgroup_cpu_ms_per_sec() != 0U) {
+ 		removeCgroup(getCgroupPath(nsj, pid));
+ 	}
+ }
+ 
++static std::string getCloneIntoCgroupPath(nsj_t* nsj) {
++	return nsj->njc.cgroupv2_mount() + "/NSJAIL." + std::to_string(getpid()) + "." +
++	       std::to_string(clone_into_seq);
++}
++
++/*
++ * Create the child's memory cgroup with its limits before clone3(), and return an
++ * O_PATH directory fd for CLONE_INTO_CGROUP, or -1 to fall back to moving the
++ * child after clone. Only the memory controller takes this path; pids and cpu
++ * limits keep the existing per-controller setup.
++ */
++int prepareCloneInto(nsj_t* nsj) {
++	if (!nsj->njc.use_cgroupv2() || !needMemoryController(nsj) || needPidsController(nsj) ||
++	    needCpuController(nsj)) {
++		return -1;
++	}
++	clone_into_seq++;
++	std::string cgroup_path = getCloneIntoCgroupPath(nsj);
++	if (mkdir(cgroup_path.c_str(), 0700) == -1) {
++		PLOG_W("mkdir('%s', 0700) failed", cgroup_path.c_str());
++		return -1;
++	}
++
++	ssize_t swap_max = nsj->njc.cgroup_mem_swap_max();
++	if (nsj->njc.cgroup_mem_memsw_max() > (size_t)0) {
++		swap_max = nsj->njc.cgroup_mem_memsw_max() - nsj->njc.cgroup_mem_max();
++	}
++	bool ok = true;
++	if (nsj->njc.cgroup_mem_max() > (size_t)0) {
++		ok = writeToCgroup(
++		    cgroup_path, "memory.max", std::to_string(nsj->njc.cgroup_mem_max()));
++	}
++	if (ok && swap_max >= (ssize_t)0) {
++		ok = writeToCgroup(cgroup_path, "memory.swap.max", std::to_string(swap_max));
++	}
++	int fd = ok ? TEMP_FAILURE_RETRY(open(cgroup_path.c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC))
++		    : -1;
++	if (fd == -1) {
++		if (ok) {
++			PLOG_W("open('%s', O_PATH|O_DIRECTORY) failed", cgroup_path.c_str());
++		}
++		removeCgroup(cgroup_path);
++		return -1;
++	}
++	return fd;
++}
++
++/* Record the cgroup a child was cloned into, for initNsFromParent and cleanup. */
++void finishCloneInto(nsj_t* nsj, int cgroup_fd, pid_t pid) {
++	close(cgroup_fd);
++	cloned_into_cgroup[pid] = getCloneIntoCgroupPath(nsj);
++}
++
++/* Discard a prepared cgroup that no child entered. */
++void abortCloneInto(nsj_t* nsj, int cgroup_fd) {
++	close(cgroup_fd);
++	removeCgroup(getCloneIntoCgroupPath(nsj));
++}
++
+ bool initUser(nsj_t* nsj) {
+ 	return true;
+ }
+diff --git a/cgroup2.h b/cgroup2.h
+index 18e1b10..e61ce2e 100644
+--- a/cgroup2.h
++++ b/cgroup2.h
+@@ -35,6 +35,9 @@ bool initUser(nsj_t* nsj);
+ void finishFromParent(nsj_t* nsj, pid_t pid);
+ bool setup(nsj_t* nsj);
+ bool detectCgroupv2(nsj_t* nsj);
++int prepareCloneInto(nsj_t* nsj);
++void finishCloneInto(nsj_t* nsj, int cgroup_fd, pid_t pid);
++void abortCloneInto(nsj_t* nsj, int cgroup_fd);
+ 
+ }  // namespace cgroup2
+ 
+diff --git a/subproc.cc b/subproc.cc
+index e96cab4..a750c70 100644
+--- a/subproc.cc
++++ b/subproc.cc
+@@ -519,7 +519,14 @@ pid_t runChild(
+ 	int child_fd = sv[0];
+ 	int parent_fd = sv[1];
+ 
+-	pid_t pid = cloneProc(flags, SIGCHLD, pidfd_out);
++	int cgroup_fd = cgroup2::prepareCloneInto(nsj);
++	pid_t pid = cloneProc(flags, SIGCHLD, pidfd_out, cgroup_fd);
++	if (pid == -1 && cgroup_fd >= 0) {
++		/* Kernel without CLONE_INTO_CGROUP (< 5.7): move the child after clone. */
++		cgroup2::abortCloneInto(nsj, cgroup_fd);
++		cgroup_fd = -1;
++		pid = cloneProc(flags, SIGCHLD, pidfd_out);
++	}
+ 	if (pid == 0) {
+ 		close(parent_fd);
+ 
+@@ -530,6 +537,9 @@ pid_t runChild(
+ 		_exit(0xff);
+ 	}
+ 	close(child_fd);
++	if (pid > 0 && cgroup_fd >= 0) {
++		cgroup2::finishCloneInto(nsj, cgroup_fd, pid);
++	}
+ 	if (pid == -1) {
+ 		auto saved_errno = errno;
+ 		PLOG_W("clone(flags=%s) failed", cloneFlagsToStr(flags).c_str());
+@@ -563,7 +573,7 @@ pid_t runChild(
+  * Returns child pid in the parent, 0 in the child, -1 on error.
+  * On success, *pidfd receives a file descriptor referring to the child.
+  */
+-[[nodiscard]] pid_t cloneProc(uint64_t flags, int exit_signal, int* pidfd) {
++[[nodiscard]] pid_t cloneProc(uint64_t flags, int exit_signal, int* pidfd, int cgroup_fd) {
+ 	exit_signal &= CSIGNAL;
+ 
+ 	if (flags & CLONE_VM) {
+@@ -581,10 +591,15 @@ pid_t runChild(
+ 	ca.exit_signal = (uint64_t)exit_signal;
+ 	ca.flags = flags | CLONE_PIDFD | CLONE_CLEAR_SIGHAND;
+ 	ca.pidfd = (uint64_t)pidfd;
++	if (cgroup_fd >= 0) {
++		ca.flags |= CLONE_INTO_CGROUP;
++		ca.cgroup = (uint64_t)cgroup_fd;
++	}
+ 
+ 	pid_t ret = util::syscall(__NR_clone3, (uintptr_t)&ca, sizeof(ca));
+ 	if (ret == -1) {
+-		PLOG_W("clone3(flags=%s|CLONE_PIDFD) failed", cloneFlagsToStr(flags).c_str());
++		PLOG_W("clone3(flags=%s|CLONE_PIDFD%s) failed", cloneFlagsToStr(flags).c_str(),
++		    cgroup_fd >= 0 ? "|CLONE_INTO_CGROUP" : "");
+ 		return -1;
+ 	}
+ 	return ret;
+diff --git a/subproc.h b/subproc.h
+index 4d26a7e..cc32401 100644
+--- a/subproc.h
++++ b/subproc.h
+@@ -45,7 +45,7 @@ int reapProc(nsj_t* nsj, pid_t pid, bool should_wait = false);
+ uint64_t checkTimeouts(
+     nsj_t* nsj, pid_t target_pid, time_t start_time, const std::string& remote_txt, int pidfd);
+ [[nodiscard]] int systemExe(const std::vector<std::string>& args, char** env);
+-[[nodiscard]] pid_t cloneProc(uint64_t flags, int exit_signal, int* pidfd);
++[[nodiscard]] pid_t cloneProc(uint64_t flags, int exit_signal, int* pidfd, int cgroup_fd = -1);
+ 
+ [[nodiscard]] pid_t cloneProcNoPidfd(uint64_t flags, int exit_signal);
+ 

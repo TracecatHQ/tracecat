@@ -31,7 +31,10 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.action_gateway.config import ACTION_GATEWAY_SANDBOX_SOCKET
 from tracecat.executor.action_gateway.server import ActionGateway
-from tracecat.executor.action_runner import ActionRunner
+from tracecat.executor.action_runner import (
+    ActionRunner,
+    drain_deferred_sandbox_cleanups,
+)
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.enums import ExecutorBackendType
@@ -868,6 +871,8 @@ async def _run_executor_action_smoke_case(
         else:
             assert result["source"] == "/packages/0/registry_artifact_smoke_action.py"
             if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
+                # The jail holds its registry lease until NsJail has exited.
+                await drain_deferred_sandbox_cleanups()
                 assert not mount_dir.is_mount()
                 assert cache_paths.squashfs_image_path.is_file()
             else:

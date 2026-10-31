@@ -44,7 +44,7 @@ async def _wait_for_exit(process: asyncio.subprocess.Process, timeout: float) ->
     return True
 
 
-def _close_pipes(process: asyncio.subprocess.Process) -> None:
+def close_process_pipes(process: asyncio.subprocess.Process) -> None:
     """Stop reading pipes nothing will close, releasing their descriptors."""
     # asyncio has no public way to close a subprocess's pipes, and typeshed
     # does not declare Process._transport, so read it with getattr.
@@ -141,7 +141,7 @@ async def communicate_process_group(
                 {communicate_task}, timeout=TEARDOWN_TIMEOUT_SECONDS
             )
             if not done:
-                _close_pipes(process)
+                close_process_pipes(process)
                 raise ProcessTeardownError(
                     f"Output pipes stayed open after process {process.pid} was killed"
                 )
