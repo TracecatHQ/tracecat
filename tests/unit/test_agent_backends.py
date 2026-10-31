@@ -1268,6 +1268,34 @@ async def test_a_cancelled_delete_still_finishes_its_cleanup():
 
 
 @pytest.mark.anyio
+async def test_a_delete_cancelled_during_its_commit_still_cleans_up():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    committing, release = asyncio.Event(), asyncio.Event()
+
+    async def commit() -> None:
+        committing.set()
+        await release.wait()
+
+    ctx.db.commit.side_effect = commit
+    cleanup = AsyncMock()
+    provider = Mock(spec=DefaultBackend)
+    provider.prepare_delete = AsyncMock(return_value=cleanup)
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend", return_value=provider
+    ):
+        deleting = asyncio.ensure_future(service.delete_session(ctx.session))
+        await committing.wait()
+        deleting.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await deleting
+    cleanup.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("installed", [True, False])
 async def test_delete_needs_no_cleanup_from_the_builtin_or_a_missing_backend(
     installed: bool,

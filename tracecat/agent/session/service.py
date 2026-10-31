@@ -433,7 +433,7 @@ async def _run_session_cleanup(cleanup: SessionCleanup, session_id: uuid.UUID) -
     try:
         async with asyncio.timeout(SESSION_CLEANUP_TIMEOUT_SECONDS):
             await cleanup()
-    # The caller's cancellation never reaches this task (see `delete_session`), so
+    # The caller's cancellation never reaches this (see `delete_session`), so
     # a cancellation here is the cleanup's own.
     except (asyncio.CancelledError, Exception) as e:
         # The error's text may carry backend or provider detail; log its type.
@@ -1173,13 +1173,15 @@ class AgentSessionService(BaseWorkspaceService):
             )
         )
         await self.session.delete(agent_session)
-        await self.session.commit()
-        if cleanup is not None:
-            # The delete has committed: a cancelled request still lets the
-            # cleanup finish before the cancellation propagates.
-            await rejoin_future_on_cancel(
-                asyncio.ensure_future(_run_session_cleanup(cleanup, session_id))
-            )
+
+        async def commit_and_clean_up() -> None:
+            await self.session.commit()
+            if cleanup is not None:
+                await _run_session_cleanup(cleanup, session_id)
+
+        # Cancellation must not interrupt a commit PostgreSQL may already have
+        # accepted, or skip the cleanup after it.
+        await rejoin_future_on_cancel(asyncio.ensure_future(commit_and_clean_up()))
 
     async def update_last_stream_id(
         self,
