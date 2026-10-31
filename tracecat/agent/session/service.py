@@ -51,6 +51,7 @@ from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
     AgentControlRejected,
+    SessionCleanup,
     SessionDeleteContext,
     SessionForkContext,
     SessionHistoryAdapter,
@@ -141,6 +142,7 @@ from tracecat.chat.tools import (
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
+from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.db.models import (
     APPROVAL_STATUS_ENUM,
     AgentSession,
@@ -420,6 +422,24 @@ def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
                 return None
         case _:
             return None
+
+
+# How long a backend's post-delete cleanup may run; it should only start work.
+SESSION_CLEANUP_TIMEOUT_SECONDS = 10
+
+
+async def _run_session_cleanup(cleanup: SessionCleanup, session_id: uuid.UUID) -> None:
+    """Run a committed delete's cleanup, bounded, logging rather than raising."""
+    try:
+        async with asyncio.timeout(SESSION_CLEANUP_TIMEOUT_SECONDS):
+            await cleanup()
+    except Exception as e:
+        # The error's text may carry backend or provider detail; log its type.
+        logger.warning(
+            "Agent session cleanup failed",
+            session_id=session_id,
+            error_type=type(e).__name__,
+        )
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -1152,15 +1172,11 @@ class AgentSessionService(BaseWorkspaceService):
         session_id = agent_session.id
         await self.session.delete(agent_session)
         await self.session.commit()
-        if cleanup is None:
-            return
-        try:
-            await cleanup()
-        except Exception as e:
-            logger.warning(
-                "Agent session cleanup failed",
-                session_id=session_id,
-                error_type=type(e).__name__,
+        if cleanup is not None:
+            # The delete has committed: a cancelled request still lets the
+            # cleanup finish before the cancellation propagates.
+            await rejoin_future_on_cancel(
+                asyncio.ensure_future(_run_session_cleanup(cleanup, session_id))
             )
 
     async def update_last_stream_id(

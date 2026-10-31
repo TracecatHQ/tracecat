@@ -138,8 +138,10 @@ class AgentBackend[InputT, OutputT](ABC):
         remote services.
 
         Return a callable to run once the delete has committed, for state outside
-        the database. It should only start the work, not wait for it; its failure
-        is logged and never fails the delete.
+        the database. It must return promptly, such as by starting durable work
+        elsewhere, and raise any failure it wants logged. The service bounds it,
+        logs a failure and never fails the delete, and lets it finish even when
+        the request is cancelled.
         """
         return None
 
