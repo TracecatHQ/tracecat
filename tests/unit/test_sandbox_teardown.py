@@ -404,7 +404,9 @@ async def test_cancellation_survives_a_failed_teardown(
         call.cancel()
         with pytest.raises(asyncio.CancelledError) as exc_info:
             await asyncio.wait_for(call, timeout=5)
-        assert isinstance(exc_info.value.__cause__, utils.ProcessTeardownError)
+        cause = exc_info.value.__cause__
+        assert isinstance(cause, utils.ProcessTeardownError)
+        assert isinstance(cause.__cause__, PermissionError)
     finally:
         _kill_leftover(tmp_path)
 

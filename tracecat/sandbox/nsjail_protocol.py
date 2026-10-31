@@ -209,7 +209,7 @@ async def _reap_after(
     reaper = asyncio.ensure_future(_reap(process, pumps, jail_cgroup))
     try:
         await rejoin_future_through_cancellation(reaper)
-    except ProcessTeardownError as teardown_error:
+    except Exception as teardown_error:
         raise error from teardown_error
     raise error
 
