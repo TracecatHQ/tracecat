@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -27,6 +27,7 @@ from tracecat.agent.control.schemas import (
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import (
     ApprovalDecision,
@@ -317,6 +318,37 @@ async def test_revoked_backend_refuses_a_caller_owned_turn() -> None:
     db.execute.assert_not_awaited()
     db.commit.assert_not_awaited()
     assert agent_session.curr_run_id is None
+
+
+@pytest.mark.anyio
+async def test_revoked_backend_lets_a_retry_adopt_its_prepared_turn() -> None:
+    """A caller-owned retry after its preparation committed finishes that turn.
+
+    Refusing it would leave the committed run pointers with no workflow to
+    release them, and the session would refuse every later turn as busy.
+    """
+    service, db, role = _service()
+    run_id = uuid.uuid4()
+    agent_session = _existing_session(
+        role, entity_type=AgentSessionEntity.CASE, curr_run_id=run_id
+    )
+    config = AgentConfig(model_name="test", model_provider="anthropic")
+
+    @contextlib.asynccontextmanager
+    async def build_config(_: AgentSession) -> AsyncIterator[AgentConfig]:
+        yield config
+
+    with (
+        _existing_turn(
+            service, agent_session, _provider(), is_entitled=False
+        ) as entitled,
+        patch.object(service, "_build_agent_config", build_config),
+    ):
+        prepared = await service.prepare_new_turn(agent_session.id, "Investigate")
+
+    assert prepared.run_id == run_id
+    entitled.assert_not_awaited()
+    db.commit.assert_awaited_once()
 
 
 @pytest.mark.anyio

@@ -2071,6 +2071,7 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session = await self.validate_turn_request(
             session_id,
             BasicChatRequest(message=prompt),
+            resume_prepared_turn=True,
         )
         backend = get_agent_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type
@@ -2325,8 +2326,19 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
+        *,
+        resume_prepared_turn: bool = False,
     ) -> AgentSession:
-        """Assert a turn can start before mutating session or stream state."""
+        """Assert a turn can start before mutating session or stream state.
+
+        Args:
+            session_id: The ID of the session.
+            request: The new message or approval continuation.
+            resume_prepared_turn: Whether the caller adopts a run it already
+                prepared (``prepare_new_turn`` retried after its commit). That
+                run was admitted while entitled, so it skips the entitlement
+                check like any turn already in flight.
+        """
         agent_session = await self.get_session(session_id)
         if not agent_session:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
@@ -2351,9 +2363,15 @@ class AgentSessionService(BaseWorkspaceService):
                     )
                 return agent_session
             case VercelChatRequest() | BasicChatRequest():
-                await require_session_backend_entitlement(
-                    self.session, self.organization_id, agent_session.backend_id
+                # Refusing an adopted run would strand its committed pointers:
+                # no workflow ever starts, so recovery cannot release them.
+                adopts_prepared_turn = (
+                    resume_prepared_turn and agent_session.curr_run_id is not None
                 )
+                if not adopts_prepared_turn:
+                    await require_session_backend_entitlement(
+                        self.session, self.organization_id, agent_session.backend_id
+                    )
                 if await self.has_pending_approvals(session_id):
                     raise ValueError(
                         "This session is waiting for approval decisions. "

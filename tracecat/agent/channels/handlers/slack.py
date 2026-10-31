@@ -14,6 +14,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
 from tracecat.agent.channels.handlers.slack_helpers import (
     SlackAlreadyAcknowledgedError,
     ack_event,
@@ -938,15 +939,15 @@ class SlackChannelHandler:
                         ),
                     ),
                 )
-            except EntitlementRequired as exc:
+            except EntitlementRequired:
                 # The thread's session runs on a backend the workspace lost.
-                # Tell the user instead of showing a generic failure.
+                # Post the fixed text, never the exception, into the channel.
                 await slack_client.api_call(
                     api_method="chat.postMessage",
                     json={
                         "channel": context.channel_id,
                         "thread_ts": context.thread_ts,
-                        "text": str(exc),
+                        "text": SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
                     },
                 )
                 return

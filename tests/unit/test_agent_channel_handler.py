@@ -493,9 +493,8 @@ async def test_handle_tells_the_thread_when_its_backend_is_no_longer_entitled(
     token: ValidatedChannelToken,
 ) -> None:
     fake_client = _FakeSlackClient(token="xoxb-test")
-    refusal = EntitlementRequired(
-        "agent_runtime_preview", message=SESSION_BACKEND_NOT_ENTITLED_MESSAGE
-    )
+    # Whatever the exception says, only the fixed text reaches the channel.
+    refusal = EntitlementRequired("agent_runtime_preview")
 
     with _patched_handle_deps(
         handler,
