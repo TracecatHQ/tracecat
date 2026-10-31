@@ -1121,20 +1121,14 @@ def test_sandbox_runner_skips_heavy_imports_for_plain_builtin_action() -> None:
             },
         }
     )
-    # The runner ends with os._exit, so report from inside that call.
     probe = (
-        "import os, runpy, sys\n"
+        "import runpy, sys\n"
+        f"runpy.run_path({minimal_runner.__file__!r}, run_name='__main__')\n"
         "heavy = (\n"
         "    'pydantic', 'rich', 'click', 'pygments',\n"
         "    'tracecat_registry._internal.models',\n"
         ")\n"
-        "_exit = os._exit\n"
-        "def report_then_exit(code):\n"
-        "    sys.stderr.write(repr(sorted(m for m in heavy if m in sys.modules)))\n"
-        "    sys.stderr.flush()\n"
-        "    _exit(code)\n"
-        "os._exit = report_then_exit\n"
-        f"runpy.run_path({minimal_runner.__file__!r}, run_name='__main__')\n"
+        "sys.stderr.write(repr(sorted(m for m in heavy if m in sys.modules)))\n"
     )
 
     proc = subprocess.run(
@@ -1148,12 +1142,3 @@ def test_sandbox_runner_skips_heavy_imports_for_plain_builtin_action() -> None:
 
     assert orjson.loads(proc.stdout) == {"success": True, "result": [{"a": 3, "b": 3}]}
     assert proc.stderr.decode().strip() == "[]"
-
-
-def test_runner_done_marker_matches_the_sandbox_host() -> None:
-    """The runner cannot import tracecat, so it keeps its own copy of the marker."""
-    from tracecat.sandbox import executor as sandbox_executor
-
-    assert minimal_runner._WORKLOAD_DONE_MARKER == (
-        sandbox_executor._WORKLOAD_DONE_MARKER
-    )

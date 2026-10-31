@@ -15,66 +15,26 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 
 from tracecat.concurrency import rejoin_future_through_cancellation
-from tracecat.logger import logger
 
 _PID_NAMESPACE_AVAILABLE: bool | None = None
 _PID_NAMESPACE_PROBE_ERROR: str | None = None
 _PROCESS_EXIT_POLL_INTERVAL_SECONDS = 0.01
-# Bounds each teardown wait once everything has been sent SIGKILL: the leader's
-# exit, then the close of its output pipes.
-TEARDOWN_TIMEOUT_SECONDS = 5.0
-
-
-class ProcessTeardownError(RuntimeError):
-    """A killed process's output pipes stayed open past the teardown bound."""
-
-
-async def _wait_for_exit(process: asyncio.subprocess.Process, timeout: float) -> bool:
-    """Wait up to ``timeout`` seconds for the process itself to exit.
-
-    asyncio's ``wait()`` also waits for the output pipes to close, which a
-    surviving descendant can hold open indefinitely, so poll the exit instead.
-    """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    while process.returncode is None:
-        if loop.time() >= deadline:
-            return False
-        await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
-    return True
-
-
-def close_process_pipes(process: asyncio.subprocess.Process) -> None:
-    """Stop reading pipes nothing will close, releasing their descriptors.
-
-    Closing the transport also kills the leader if it is still running.
-    """
-    # asyncio has no public way to close a subprocess's pipes, and typeshed
-    # does not declare Process._transport, so read it with getattr. Process
-    # stand-ins without a transport have nothing to close.
-    transport: asyncio.SubprocessTransport | None = getattr(process, "_transport", None)
-    if transport is not None:
-        transport.close()
 
 
 async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
-    """Kill a subprocess session, including any surviving descendants.
+    """Kill and reap a subprocess session, including any surviving descendants.
 
     The subprocess must have been started with ``start_new_session=True``, which
     makes its PID the process-group ID. Calling this after normal completion is
     intentional: a subprocess can exit while leaving background descendants
-    alive. The wait for the leader's exit is bounded; past it, this logs and
-    returns without the leader having been reaped.
+    alive.
     """
     with suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGKILL)
     if process.returncode is None:
         with suppress(ProcessLookupError):
             process.kill()
-    if not await _wait_for_exit(process, TEARDOWN_TIMEOUT_SECONDS):
-        logger.warning(
-            "Process did not exit after SIGKILL; continuing teardown", pid=process.pid
-        )
+    await process.wait()
 
 
 async def terminate_supervised_process(process: asyncio.subprocess.Process) -> None:
@@ -106,9 +66,6 @@ async def _finish_process_group_cleanup(
         await termination_task
     finally:
         if not communicate_task.done():
-            # Abandoned on timeout, cancellation or a stalled drain: close the
-            # pipes so a surviving holder cannot keep their descriptors open.
-            close_process_pipes(process)
             communicate_task.cancel()
         with suppress(asyncio.CancelledError):
             await communicate_task
@@ -129,9 +86,6 @@ async def communicate_process_group(
     terminate the group immediately and close those pipes. Cancellation also
     terminates the group before it propagates. Callers with a stronger process
     supervisor can supply its cleanup function as ``terminate``.
-
-    Raises ``ProcessTeardownError`` if the pipes stay open for
-    ``TEARDOWN_TIMEOUT_SECONDS`` after termination.
     """
     terminator = terminate or terminate_process_group
     communicate_task = asyncio.create_task(process.communicate(input=input))
@@ -143,16 +97,7 @@ async def communicate_process_group(
                 await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
             termination_task = asyncio.ensure_future(terminator(process))
             await asyncio.shield(termination_task)
-            # The terminator killed every known holder of the pipes; anything
-            # still holding them is out of reach, so stop waiting for EOF.
-            done, _ = await asyncio.wait(
-                {communicate_task}, timeout=TEARDOWN_TIMEOUT_SECONDS
-            )
-            if not done:
-                raise ProcessTeardownError(
-                    f"Output pipes stayed open after process {process.pid} was killed"
-                )
-            stdout, stderr = communicate_task.result()
+            stdout, stderr = await communicate_task
     except BaseException as e:
         operation_error = e
         raise
@@ -168,9 +113,7 @@ async def communicate_process_group(
         try:
             await rejoin_future_through_cancellation(cleanup_task)
         except BaseException as cleanup_error:
-            # A terminator that failed in the operation fails again here; keep
-            # its own cause instead of chaining it to itself.
-            if operation_error is not None and cleanup_error is not operation_error:
+            if operation_error is not None:
                 raise operation_error from cleanup_error
             raise
 
