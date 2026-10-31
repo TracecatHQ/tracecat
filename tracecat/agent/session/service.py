@@ -433,7 +433,9 @@ async def _run_session_cleanup(cleanup: SessionCleanup, session_id: uuid.UUID) -
     try:
         async with asyncio.timeout(SESSION_CLEANUP_TIMEOUT_SECONDS):
             await cleanup()
-    except Exception as e:
+    # The caller's cancellation never reaches this task (see `delete_session`), so
+    # a cancellation here is the cleanup's own.
+    except (asyncio.CancelledError, Exception) as e:
         # The error's text may carry backend or provider detail; log its type.
         logger.warning(
             "Agent session cleanup failed",
@@ -1159,6 +1161,7 @@ class AgentSessionService(BaseWorkspaceService):
         Args:
             agent_session: The AgentSession model to delete.
         """
+        session_id = agent_session.id
         backend = find_agent_backend(agent_session.backend_id)
         cleanup = (
             None
@@ -1169,7 +1172,6 @@ class AgentSessionService(BaseWorkspaceService):
                 )
             )
         )
-        session_id = agent_session.id
         await self.session.delete(agent_session)
         await self.session.commit()
         if cleanup is not None:

@@ -1158,7 +1158,14 @@ async def test_fork_delegates_to_required_backend_operation(preparation_fails):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "outcome", ["cleaned", "cleanup_fails", "cleanup_hangs", "preparation_fails"]
+    "outcome",
+    [
+        "cleaned",
+        "cleanup_fails",
+        "cleanup_hangs",
+        "cleanup_cancels",
+        "preparation_fails",
+    ],
 )
 async def test_delete_lets_the_backend_prepare_and_clean_up(outcome: str):
     ctx = context()
@@ -1174,6 +1181,7 @@ async def test_delete_lets_the_backend_prepare_and_clean_up(outcome: str):
         side_effect={
             "cleanup_fails": RuntimeError("unreachable"),
             "cleanup_hangs": hang,
+            "cleanup_cancels": asyncio.CancelledError(),
         }.get(outcome)
     )
 
@@ -1208,7 +1216,7 @@ async def test_delete_lets_the_backend_prepare_and_clean_up(outcome: str):
             db.commit.assert_not_awaited()
             cleanup.assert_not_awaited()
         else:
-            # A failed or hung cleanup is logged; the delete has committed.
+            # A failed, hung or cancelled cleanup is logged; the delete has committed.
             await service.delete_session(ctx.session)
             cleanup.assert_awaited_once_with()
         warned = [
@@ -1222,6 +1230,7 @@ async def test_delete_lets_the_backend_prepare_and_clean_up(outcome: str):
                 "cleaned": [],
                 "cleanup_fails": ["RuntimeError"],
                 "cleanup_hangs": ["TimeoutError"],
+                "cleanup_cancels": ["CancelledError"],
                 "preparation_fails": [],
             }[outcome]
         )
