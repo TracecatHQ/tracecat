@@ -1,6 +1,5 @@
 """nsjail executor for sandboxed Python execution."""
 
-import asyncio
 import itertools
 import os
 import re
@@ -12,7 +11,6 @@ from typing import Literal
 
 from opentelemetry.trace import Span
 
-from tracecat.concurrency import rejoin_future_through_cancellation
 from tracecat.config import (
     TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
     TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
@@ -159,7 +157,6 @@ _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
 }
 _WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
 _WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
-_WORKLOAD_DONE_MARKER = b"\x00tracecat-workload-done\x00"
 _FAILURE_STDERR_TAIL_CHARS = 8192
 _NSJAIL_LOG_LINE_PATTERN = re.compile(r"^\[[A-Z]\]\[")
 
@@ -263,27 +260,6 @@ def _record_runner_phase_spans(
                 end_time_ns=end,
                 attributes={"tracecat.timing.source": "runner"},
             )
-
-
-def _decode_action_outcome(
-    job_dir: Path, completed: NsjailCompletedProcess, start_time: float
-) -> ResultEnvelopeOutcome | None:
-    """Decode the action's result.json through the typed envelope."""
-    with platform_span("tracecat.action.sandbox.read_result"):
-        return decode_result_envelope(
-            job_dir,
-            output_key="result",
-            stdout=completed.stdout.decode("utf-8", errors="replace"),
-            stderr=completed.stderr.decode("utf-8", errors="replace"),
-            stderr_limit=2000,
-            invalid_result_error="Action sandbox produced an invalid result file",
-            log_label="action",
-            exit_code=completed.returncode,
-            execution_time_ms=(time.time() - start_time) * 1000,
-            max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
-            stream_source="process",
-            include_error_code=True,
-        )
 
 
 def _usable_result(
@@ -436,9 +412,6 @@ class NsjailExecutor:
         self.cache_dir = Path(cache_dir)
         self.cgroup_mount = cgroup_mount
         self.package_cache = self.cache_dir / "packages"
-        # Set by execute_action when it returned before NsJail exited. The jail
-        # still uses its job dir and mounts until this completes.
-        self.pending_finish: asyncio.Task[NsjailCompletedProcess] | None = None
 
     def _build_config(
         self,
@@ -1175,38 +1148,9 @@ class NsjailExecutor:
                 workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
                 workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
                 workload_started_marker=_WORKLOAD_STARTED_MARKER,
-                workload_done_marker=_WORKLOAD_DONE_MARKER,
             )
-
-        if completed.finish is not None:
-            # The runner reported done before NsJail exited. Return a valid
-            # result now and let the caller wait out the teardown; anything else
-            # (a forged marker, a partial file) waits for the exit and is
-            # classified as before.
-            early_result: SandboxResult | None = None
-            try:
-                outcome = _decode_action_outcome(job_dir, completed, start_time)
-                if outcome is not None and outcome.valid_envelope:
-                    early_result = _usable_result(outcome, completed)
-                    _record_runner_phase_spans(
-                        process_span, outcome.result.phase_marks, completed
-                    )
-                    # Everything the workload wrote came before its marker.
-                    early_stderr = completed.stderr.decode("utf-8", errors="replace")
-                    if early_result is not None and early_stderr.strip():
-                        logger.info("Subprocess output", output=early_stderr[:2000])
-            except BaseException:
-                # Never leave a running jail without an owner.
-                await rejoin_future_through_cancellation(completed.finish)
-                raise
-            if early_result is not None:
-                self.pending_finish = completed.finish
-                return early_result
-            # Shielded: cancelling a finish task before its first step would skip
-            # the reap, so a cancelled caller waits for the jail to go first.
-            completed = await rejoin_future_through_cancellation(completed.finish)
-
         returncode = completed.returncode
+
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = completed.stdout.decode("utf-8", errors="replace")
         stderr = completed.stderr.decode("utf-8", errors="replace")
@@ -1217,7 +1161,21 @@ class NsjailExecutor:
         result_path = job_dir / "result.json"
         result_file_exists = result_path.exists()
         workload_started = completed.workload_started
-        outcome = _decode_action_outcome(job_dir, completed, start_time)
+        with platform_span("tracecat.action.sandbox.read_result"):
+            outcome = decode_result_envelope(
+                job_dir,
+                output_key="result",
+                stdout=stdout,
+                stderr=stderr,
+                stderr_limit=2000,
+                invalid_result_error="Action sandbox produced an invalid result file",
+                log_label="action",
+                exit_code=returncode,
+                execution_time_ms=execution_time_ms,
+                max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+                stream_source="process",
+                include_error_code=True,
+            )
         if outcome is not None:
             _record_runner_phase_spans(
                 process_span, outcome.result.phase_marks, completed
