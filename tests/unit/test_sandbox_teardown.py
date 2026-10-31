@@ -235,6 +235,80 @@ async def test_abandoned_drain_closes_the_pipes(
         _kill_leftover(tmp_path)
 
 
+async def _wait_for_eof(stream: asyncio.StreamReader | None) -> None:
+    assert stream is not None
+    for _ in range(100):
+        if stream.at_eof():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("Pipe is still open")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("abandon", ["timeout", "cancel"])
+async def test_abandoned_communication_closes_the_pipes(
+    tmp_path: Path,
+    abandon: str,
+) -> None:
+    """Invariant: a timed-out or cancelled call also releases the pipes."""
+    process = await asyncio.create_subprocess_exec(
+        _fake_nsjail(tmp_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+        env={
+            "FAKE_NSJAIL_MODE": "hang",
+            "FAKE_NSJAIL_PID_FILE": str(tmp_path / "jailed.pid"),
+        },
+    )
+    try:
+        if abandon == "timeout":
+            with pytest.raises(TimeoutError):
+                await utils.communicate_process_group(process, timeout=0.3)
+        else:
+            call = asyncio.create_task(utils.communicate_process_group(process))
+            await asyncio.sleep(0.3)
+            call.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(call, 5)
+        await _wait_for_eof(process.stdout)
+        await _wait_for_eof(process.stderr)
+    finally:
+        _kill_leftover(tmp_path)
+
+
+@pytest.mark.anyio
+async def test_teardown_failure_before_done_marker_stays_an_infrastructure_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: a reap that gives up surfaces its own error, not a cancellation."""
+    monkeypatch.setattr(nsjail_protocol, "TEARDOWN_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(utils, "TEARDOWN_TIMEOUT_SECONDS", 0.2)
+    try:
+        with pytest.raises(SandboxInfrastructureError) as exc_info:
+            await asyncio.wait_for(
+                invoke_nsjail(
+                    nsjail_path=_fake_nsjail(tmp_path),
+                    job_dir=tmp_path,
+                    config_text="mode: ONCE",
+                    env={
+                        "FAKE_NSJAIL_MODE": "exit",
+                        "FAKE_NSJAIL_PID_FILE": str(tmp_path / "jailed.pid"),
+                    },
+                    timeout_seconds=30,
+                    timeout_message="synthetic timeout",
+                    workload_started_marker=_WORKLOAD_STARTED_MARKER,
+                    workload_done_marker=_WORKLOAD_DONE_MARKER,
+                    cgroup_mount=None,
+                ),
+                timeout=5,
+            )
+        assert isinstance(exc_info.value.__cause__, utils.ProcessTeardownError)
+    finally:
+        _kill_leftover(tmp_path)
+
+
 def test_kill_cgroup_prefers_cgroup_kill(tmp_path: Path) -> None:
     (tmp_path / "cgroup.kill").write_text("0")
 

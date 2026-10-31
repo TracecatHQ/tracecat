@@ -205,11 +205,11 @@ async def _reap(
     await _terminate_jail(process, jail_cgroup=jail_cgroup)
     done, _ = await asyncio.wait({pumps}, timeout=TEARDOWN_TIMEOUT_SECONDS)
     if done:
-        if not pumps.cancelled():
-            pumps.result()
+        pumps.result()
         return
+    # Closing the pipes ends the pumps at EOF, so a later reap of the same
+    # process finds them finished instead of cancelled.
     close_process_pipes(process)
-    pumps.cancel()
     raise ProcessTeardownError(
         f"Output pipes stayed open after process {process.pid} was killed"
     )
@@ -245,6 +245,10 @@ async def _communicate_until_done(
                 await asyncio.wait({done_waiter}, timeout=_EXIT_POLL_INTERVAL_SECONDS)
         if process.returncode is not None:
             await _reap(process, pumps, files.jail_cgroup)
+    except ProcessTeardownError:
+        # The reap already ran to its bound; reaping again would only signal
+        # a process group whose leader is gone.
+        raise
     except BaseException:
         reaper = asyncio.ensure_future(_reap(process, pumps, files.jail_cgroup))
         await rejoin_future_through_cancellation(reaper)

@@ -47,9 +47,11 @@ async def _wait_for_exit(process: asyncio.subprocess.Process, timeout: float) ->
 def close_process_pipes(process: asyncio.subprocess.Process) -> None:
     """Stop reading pipes nothing will close, releasing their descriptors."""
     # asyncio has no public way to close a subprocess's pipes, and typeshed
-    # does not declare Process._transport, so read it with getattr.
-    transport: asyncio.SubprocessTransport = getattr(process, "_transport")  # noqa: B009
-    transport.close()
+    # does not declare Process._transport, so read it with getattr. Process
+    # stand-ins without a transport have nothing to close.
+    transport: asyncio.SubprocessTransport | None = getattr(process, "_transport", None)
+    if transport is not None:
+        transport.close()
 
 
 async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
@@ -101,6 +103,9 @@ async def _finish_process_group_cleanup(
         await termination_task
     finally:
         if not communicate_task.done():
+            # Abandoned on timeout, cancellation or a stalled drain: close the
+            # pipes so a surviving holder cannot keep their descriptors open.
+            close_process_pipes(process)
             communicate_task.cancel()
         with suppress(asyncio.CancelledError):
             await communicate_task
@@ -141,7 +146,6 @@ async def communicate_process_group(
                 {communicate_task}, timeout=TEARDOWN_TIMEOUT_SECONDS
             )
             if not done:
-                close_process_pipes(process)
                 raise ProcessTeardownError(
                     f"Output pipes stayed open after process {process.pid} was killed"
                 )
