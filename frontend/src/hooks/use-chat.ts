@@ -184,6 +184,14 @@ export function parseChatError(error: unknown): string {
   }
 
   if (error instanceof Error) {
+    // Generated-client errors keep the API body apart from the status text.
+    const body = "body" in error ? error.body : undefined
+    if (body && typeof body === "object" && "message" in body) {
+      const bodyMessage = (body as { message?: unknown }).message
+      if (typeof bodyMessage === "string" && bodyMessage.trim()) {
+        return bodyMessage.trim()
+      }
+    }
     const message = error.message?.trim()
     if (message) {
       try {

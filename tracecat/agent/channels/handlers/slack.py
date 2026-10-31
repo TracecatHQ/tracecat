@@ -19,6 +19,7 @@ from tracecat.agent.channels.handlers.slack_helpers import (
     SlackAlreadyAcknowledgedError,
     ack_event,
     notify_error,
+    set_error,
     set_in_progress,
 )
 from tracecat.agent.channels.schemas import (
@@ -950,6 +951,17 @@ class SlackChannelHandler:
                         "text": SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
                     },
                 )
+                try:
+                    await set_error(
+                        slack_client, channel_id=context.channel_id, ts=context.ts
+                    )
+                except Exception as exc:
+                    # The refusal is already posted; a stale reaction is cosmetic.
+                    logger.warning(
+                        "Failed to mark refused Slack message with error reaction",
+                        channel_id=context.channel_id,
+                        error=str(exc),
+                    )
                 return
         except SlackAlreadyAcknowledgedError:
             logger.info(

@@ -156,6 +156,7 @@ def _patched_handle_deps(
         notify_error = enter("notify_error")
         yield SimpleNamespace(
             notify_error=notify_error,
+            set_error=enter("set_error"),
             ack_event=enter("ack_event"),
             run_turn=enter("AgentSessionService.run_turn", side_effect=run_turn_error),
             set_in_progress=enter("set_in_progress"),
@@ -513,6 +514,10 @@ async def test_handle_tells_the_thread_when_its_backend_is_no_longer_entitled(
         },
     )
     mocks.run_turn.assert_awaited_once()
+    # The source message leaves the acknowledged state for the error state.
+    mocks.set_error.assert_awaited_once_with(
+        fake_client, channel_id="C1", ts="1700000000.123"
+    )
     mocks.notify_error.assert_not_awaited()
     mocks.set_in_progress.assert_not_awaited()
 
