@@ -8479,6 +8479,27 @@ export type PullResult = {
  */
 export type PushStatus = "committed" | "no_op"
 
+export type PythonPackageSettingsRead = {
+  python_package_index_url?: string | null
+  python_package_index_username?: string | null
+  python_package_index_password_configured?: boolean
+}
+
+export type PythonPackageSettingsUpdate = {
+  /**
+   * HTTPS URL of a PEP 503 simple index (e.g. a JFrog Artifactory PyPI repository) used instead of PyPI to install run_python dependencies. Null restores the deployment default.
+   */
+  python_package_index_url?: string | null
+  /**
+   * Username for the package index.
+   */
+  python_package_index_username?: string | null
+  /**
+   * Encrypted, write-only password or access token for the package index. Omit to keep the saved value; null clears it. Changing the URL clears the saved password unless a new one is sent in the same request.
+   */
+  python_package_index_password?: string | null
+}
+
 export type RateLimitEvent = {
   rate_limit_info: RateLimitInfo
   uuid: string
@@ -16851,6 +16872,14 @@ export type SettingsUpdateAgentOtelSettingsData = {
 
 export type SettingsUpdateAgentOtelSettingsResponse = void
 
+export type SettingsGetPythonPackageSettingsResponse = PythonPackageSettingsRead
+
+export type SettingsUpdatePythonPackageSettingsData = {
+  requestBody: PythonPackageSettingsUpdate
+}
+
+export type SettingsUpdatePythonPackageSettingsResponse = void
+
 export type OrganizationSecretsListOrgSecretsData = {
   /**
    * Filter by secret type
@@ -24626,6 +24655,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAgentOtelSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/python-packages": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PythonPackageSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdatePythonPackageSettingsData
       res: {
         /**
          * Successful Response
