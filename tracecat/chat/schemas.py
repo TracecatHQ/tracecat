@@ -133,7 +133,6 @@ class ChatCreate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="Tools available to the agent for this chat",
-        max_length=50,
     )
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
@@ -203,7 +202,7 @@ class ChatUpdate(BaseModel):
     """Request model for updating chat properties."""
 
     tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent", max_length=50
+        default=None, description="Tools available to the agent"
     )
     title: str | None = Field(
         default=None, description="Chat title", min_length=1, max_length=200
