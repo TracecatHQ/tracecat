@@ -2089,8 +2089,8 @@ def _build_import_data_from_workflow_yaml(
         raise ToolError("Workflow definition YAML must include a definition object")
     if "title" not in definition and title is not None:
         definition["title"] = title
-    if "description" not in definition and description:
-        definition["description"] = description
+    if "description" not in definition:
+        definition["description"] = description or ""
 
     actions = definition.get("actions", [])
     if actions:
@@ -2668,6 +2668,7 @@ definition:
   actions:
     - ref: first_action
       action: core.http_request
+      description: "Fetch the alert details"
       args:
         url: "https://api.example.com/alerts/${{ TRIGGER.alert_id }}"
         method: GET
@@ -2715,6 +2716,7 @@ Each action in the `actions` list supports:
 |-------|------|-------------|
 | `ref` | str (required) | Unique slug identifier (lowercase, hyphens, underscores) |
 | `action` | str (required) | Fully qualified action type (e.g. `core.http_request`) |
+| `description` | str | Human-readable summary of what this action does (default `""`) |
 | `args` | mapping | Action arguments — use expressions for dynamic values |
 | `depends_on` | list[str] | Refs of actions that must complete before this one runs |
 | `run_if` | expression | Conditional — skip this action if the expression is falsy |
@@ -4331,6 +4333,7 @@ async def edit_workflow(
           "value": {
             "ref": "notify_owner",
             "action": "core.http_request",
+            "description": "Notify the event owner",
             "depends_on": ["parse_event"],
             "args": {
               "method": "POST",
