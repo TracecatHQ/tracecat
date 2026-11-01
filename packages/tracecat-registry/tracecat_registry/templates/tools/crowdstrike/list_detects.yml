@@ -28,26 +28,16 @@ definition:
       description: Crowdstrike member CID.
       default: null
   steps:
-    - ref: build_filter
-      action: core.script.run_python
-      args:
-        inputs:
-          query: ${{ inputs.query }}
-          start_time: ${{ inputs.start_time }}
-          end_time: ${{ inputs.end_time }}
-        script: |
-          def main(query, start_time, end_time):
-              if query:
-                  return query
-              else:
-                  return f"created_date:>='{start_time.isoformat()}' + created_date:<'{end_time.isoformat()}'"
     - ref: query_detects
       action: tools.falconpy.call_command
       args:
         operation_id: QueryDetects
         member_cid: ${{ inputs.member_cid }}
         params:
-          filter: ${{ steps.build_filter.result }}
+          filter: >-
+            ${{ inputs.query || FN.format("created_date:>='{}' + created_date:<'{}'",
+            FN.format_datetime(FN.to_datetime(inputs.start_time, "UTC"), "%Y-%m-%dT%H:%M:%SZ"),
+            FN.format_datetime(FN.to_datetime(inputs.end_time, "UTC"), "%Y-%m-%dT%H:%M:%SZ")) }}
           limit: ${{ inputs.limit }}
     - ref: get_detect_summaries
       action: tools.falconpy.call_command
@@ -57,4 +47,4 @@ definition:
         params:
           body:
             ids: ${{ steps.query_detects.result.body.resources }}
-  returns: ${{ steps.get_detect_summaries.result.data }}
+  returns: ${{ steps.get_detect_summaries.result.body }}
