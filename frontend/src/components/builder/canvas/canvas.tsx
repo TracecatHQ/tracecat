@@ -39,6 +39,8 @@ import type {
   GraphResponse,
   RegistryActionReadMinimal,
 } from "@/client"
+import { graphPreviewAutoLayout } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import actionNode, {
   type ActionNodeData,
   type ActionNodeType,
@@ -180,6 +182,8 @@ export const WorkflowCanvas = React.forwardRef<
     workspaceId,
     workflowId ?? ""
   )
+  const canUpdateWorkflow = useScopeCheck("workflow:update")
+  const isReadOnly = canUpdateWorkflow === false
   const [graphVersion, setGraphVersion] = useState<number>(1)
   const [hydratedWorkflowId, setHydratedWorkflowId] = useState<string | null>(
     null
@@ -772,7 +776,7 @@ export const WorkflowCanvas = React.forwardRef<
         })
       }
 
-      if (operations.length === 0) return
+      if (operations.length === 0 || isReadOnly) return
 
       try {
         const result = await applyGraphOperations({
@@ -803,11 +807,30 @@ export const WorkflowCanvas = React.forwardRef<
         }
       }
     },
-    [graphVersion, applyGraphOperations, refetchGraph]
+    [graphVersion, applyGraphOperations, refetchGraph, isReadOnly]
   )
 
   const onLayout = useCallback(async () => {
     if (!workflowId) return
+    if (isReadOnly) {
+      // Read-only users get a local-only layout; nothing is saved.
+      try {
+        const preview = await graphPreviewAutoLayout({
+          workspaceId,
+          workflowId,
+        })
+        const { nodes: previewNodes, edges: previewEdges } =
+          buildNodesAndEdgesFromGraph(preview)
+        hydrateCanvasFromGraph(previewNodes, previewEdges)
+      } catch (error) {
+        console.error("Failed to preview auto-layout:", error)
+        toast({
+          title: "Failed to auto-layout workflow",
+          description: "Please try again.",
+        })
+      }
+      return
+    }
     const operations: GraphOperation[] = [{ type: "auto_layout", payload: {} }]
     try {
       const result = await applyGraphOperations({
@@ -834,10 +857,15 @@ export const WorkflowCanvas = React.forwardRef<
     }
   }, [
     workflowId,
+    workspaceId,
+    isReadOnly,
     graphVersion,
     applyGraphOperations,
     refetchGraph,
     updateStateFromGraph,
+    hydrateCanvasFromGraph,
+    buildNodesAndEdgesFromGraph,
+    toast,
   ])
 
   // Batch update positions when nodes are dragged
@@ -851,7 +879,7 @@ export const WorkflowCanvas = React.forwardRef<
   // Save viewport when panning/zooming stops
   const onMoveEnd = useCallback(
     async (_event: unknown, viewport: Viewport) => {
-      if (!workflowId) return
+      if (!workflowId || isReadOnly) return
 
       const operation: GraphOperation = {
         type: "update_viewport",
@@ -891,7 +919,7 @@ export const WorkflowCanvas = React.forwardRef<
         }
       }
     },
-    [workflowId, graphVersion, applyGraphOperations, refetchGraph]
+    [workflowId, isReadOnly, graphVersion, applyGraphOperations, refetchGraph]
   )
 
   // Add this function to center on a node

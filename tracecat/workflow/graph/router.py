@@ -2,6 +2,7 @@
 
 This module provides the canonical graph API endpoints:
 - GET /workflows/{id}/graph - Read the graph projection from Actions
+- GET /workflows/{id}/graph/auto-layout - Preview auto-layout without saving
 - PATCH /workflows/{id}/graph - Apply graph operations with optimistic concurrency
 """
 
@@ -37,6 +38,28 @@ async def get_graph(
     """
     svc = WorkflowGraphService(session, role=role)
     graph = await svc.get_graph(workflow_id)
+    if graph is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+    return graph
+
+
+@router.get("/auto-layout")
+@require_scope("workflow:read")
+async def preview_auto_layout(
+    role: WorkspaceActorRouteRole,
+    workflow_id: AnyWorkflowIDPath,
+    session: AsyncDBSession,
+) -> GraphResponse:
+    """Get the graph with auto-layout positions applied, without saving them.
+
+    Read-only users can tidy their own view of the canvas. Use the
+    ``auto_layout`` graph operation to persist the layout.
+    """
+    svc = WorkflowGraphService(session, role=role)
+    graph = await svc.preview_auto_layout(workflow_id)
     if graph is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
