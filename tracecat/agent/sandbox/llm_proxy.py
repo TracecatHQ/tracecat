@@ -165,6 +165,11 @@ _ERROR_MESSAGES = {
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
 # Upstream throttling is retried before any response bytes reach the runtime.
 _RATE_LIMIT_MAX_ATTEMPTS = 4
+# Managed providers throttle per minute (e.g. Azure TPM), so a few seconds of
+# backoff cannot outlast the window. Bound managed retries by attempts and by
+# cumulative wait instead.
+_MANAGED_RATE_LIMIT_MAX_ATTEMPTS = 8
+_MANAGED_RATE_LIMIT_MAX_WAIT_SECONDS = 60.0
 _RATE_LIMIT_BASE_DELAY_SECONDS = 1.0
 # Caps both backoff and upstream Retry-After so one request cannot stall a turn.
 _RATE_LIMIT_MAX_DELAY_SECONDS = 20.0
@@ -303,6 +308,20 @@ def _error_object_message(body: bytes) -> str | None:
         return None
     message = error.get("message")
     return message if isinstance(message, str) else None
+
+
+def _error_object_retry_after(body: bytes) -> str | None:
+    """Read the managed gateway's numeric ``error.retry_after`` hint, if present."""
+    payload = parse_bounded_error_body(body)
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None
+    retry_after = error.get("retry_after")
+    if isinstance(retry_after, bool) or not isinstance(retry_after, int | float):
+        return None
+    return str(retry_after)
 
 
 def _managed_unclassified(status_code: int, body: bytes) -> RuntimeErrorClassification:
@@ -1683,6 +1702,11 @@ class LLMSocketProxy:
             )
 
             connection_drop_retried = False
+            max_rate_limit_attempts = (
+                _RATE_LIMIT_MAX_ATTEMPTS
+                if route.is_direct
+                else _MANAGED_RATE_LIMIT_MAX_ATTEMPTS
+            )
 
             def log_rate_limit_retry(retry_state: RetryCallState) -> None:
                 outcome = retry_state.outcome
@@ -1699,22 +1723,27 @@ class LLMSocketProxy:
                 logger.warning(
                     "Retrying rate limited LLM request",
                     attempt=retry_state.attempt_number,
-                    max_attempts=_RATE_LIMIT_MAX_ATTEMPTS,
+                    max_attempts=max_rate_limit_attempts,
                     retry_delay_seconds=(
                         round(next_action.sleep, 2) if next_action else None
                     ),
                     trace_request_id=trace_request_id,
                 )
 
-            def rate_limit_attempts_exhausted(retry_state: RetryCallState) -> bool:
+            def rate_limit_budget_exhausted(retry_state: RetryCallState) -> bool:
                 # The single connection-drop retry has its own budget.
                 rate_limit_attempt = retry_state.attempt_number - int(
                     connection_drop_retried
                 )
-                return rate_limit_attempt >= _RATE_LIMIT_MAX_ATTEMPTS
+                if rate_limit_attempt >= max_rate_limit_attempts:
+                    return True
+                return (
+                    not route.is_direct
+                    and retry_state.idle_for >= _MANAGED_RATE_LIMIT_MAX_WAIT_SECONDS
+                )
 
             async for attempt in AsyncRetrying(
-                stop=rate_limit_attempts_exhausted,
+                stop=rate_limit_budget_exhausted,
                 wait=_rate_limit_wait,
                 retry=retry_if_exception_type(
                     (_UpstreamRateLimited, _UpstreamConnectionDropped)
@@ -1723,7 +1752,6 @@ class LLMSocketProxy:
                 reraise=True,
             ):
                 attempt_number = attempt.retry_state.attempt_number
-                rate_limit_attempt = attempt_number - int(connection_drop_retried)
                 response_phase = "response_headers"
                 with (
                     attempt,
@@ -1776,11 +1804,18 @@ class LLMSocketProxy:
                                 if (
                                     classification.kind
                                     is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-                                    and rate_limit_attempt < _RATE_LIMIT_MAX_ATTEMPTS
+                                    and not rate_limit_budget_exhausted(
+                                        attempt.retry_state
+                                    )
                                     and not self._stopping
                                 ):
                                     raise _UpstreamRateLimited(
                                         response.headers.get("retry-after")
+                                        or (
+                                            None
+                                            if route.is_direct
+                                            else _error_object_retry_after(error_body)
+                                        )
                                     )
                                 # Error bodies may echo credentials, budgets or request data.
                                 # Keep durable failure text source-owned and privacy-safe.

@@ -2227,11 +2227,144 @@ async def test_forward_request_emits_rate_limit_after_bounded_retries(
     response_text, errors = await _forward(tmp_path, handler)
 
     # The pre-header connection drop is retried without using rate-limit budget.
-    assert attempts == llm_proxy._RATE_LIMIT_MAX_ATTEMPTS + 1
+    assert attempts == llm_proxy._MANAGED_RATE_LIMIT_MAX_ATTEMPTS + 1
     assert response_text.startswith("HTTP/1.1 429 Too Many Requests")
     assert response_text.count("HTTP/1.1") == 1
     assert len(errors) == 1
     assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+
+
+@pytest.mark.anyio
+async def test_forward_request_keeps_direct_rate_limit_budget(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(429, json={"error": {"type": "rate_limit_error"}})
+
+    _, errors = await _forward(
+        tmp_path,
+        handler,
+        _request({"model": "customer-alias", "messages": _HELLO}, headers=_LLM_HEADERS),
+        routing_plan=_direct_plan(),
+    )
+
+    assert attempts == llm_proxy._RATE_LIMIT_MAX_ATTEMPTS
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+
+
+@pytest.mark.anyio
+async def test_forward_request_bounds_managed_rate_limit_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_MAX_DELAY_SECONDS", 0.01)
+    monkeypatch.setattr(llm_proxy, "_MANAGED_RATE_LIMIT_MAX_WAIT_SECONDS", 0.025)
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
+            429,
+            json={
+                "error": {"type": "throttling_error", "message": "x", "retry_after": 1}
+            },
+        )
+
+    _, errors = await _forward(tmp_path, handler)
+
+    # Each wait is capped at 10ms, so the 25ms budget stops after three waits.
+    assert attempts == 4
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("headers", "body_retry_after", "expected"),
+    [
+        ({}, 7, "7"),
+        ({}, 2.5, "2.5"),
+        ({"Retry-After": "3"}, 7, "3"),
+        ({}, "7", None),
+        ({}, True, None),
+        ({}, None, None),
+    ],
+)
+async def test_forward_request_reads_managed_gateway_retry_after(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    body_retry_after: object,
+    expected: str | None,
+) -> None:
+    hints: list[str | None] = []
+
+    def record_wait(retry_state: RetryCallState) -> float:
+        outcome = retry_state.outcome
+        error = outcome.exception() if outcome is not None else None
+        assert isinstance(error, _UpstreamRateLimited)
+        hints.append(error.retry_after)
+        return 0.0
+
+    monkeypatch.setattr(llm_proxy, "_rate_limit_wait", record_wait)
+    error: dict[str, object] = {"type": "throttling_error", "message": "x"}
+    if body_retry_after is not None:
+        error["retry_after"] = body_retry_after
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, headers=headers, json={"error": error})
+        return _ok(request)
+
+    response_text, errors = await _forward(tmp_path, handler)
+
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert errors == []
+    assert hints == [expected]
+
+
+@pytest.mark.anyio
+async def test_forward_request_ignores_body_retry_after_on_direct_routes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hints: list[str | None] = []
+
+    def record_wait(retry_state: RetryCallState) -> float:
+        outcome = retry_state.outcome
+        error = outcome.exception() if outcome is not None else None
+        assert isinstance(error, _UpstreamRateLimited)
+        hints.append(error.retry_after)
+        return 0.0
+
+    monkeypatch.setattr(llm_proxy, "_rate_limit_wait", record_wait)
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                429,
+                json={"error": {"type": "rate_limit_error", "retry_after": 7}},
+            )
+        return _ok(request)
+
+    await _forward(
+        tmp_path,
+        handler,
+        _request({"model": "customer-alias", "messages": _HELLO}, headers=_LLM_HEADERS),
+        routing_plan=_direct_plan(),
+    )
+
+    assert hints == [None]
 
 
 @pytest.mark.anyio
