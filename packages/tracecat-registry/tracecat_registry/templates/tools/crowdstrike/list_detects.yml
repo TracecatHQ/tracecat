@@ -1,7 +1,11 @@
 type: action
 definition:
   title: List detects
-  description: Query for CrowdStrike detects and summaries via the Falcon SIEM API.
+  description: >-
+    Deprecated. Query legacy CrowdStrike detects through the Detects API, which
+    CrowdStrike has deprecated in favour of Alerts. Use
+    `tools.crowdstrike.list_alerts` instead.
+  deprecated: Use `tools.crowdstrike.list_alerts` instead.
   display_group: CrowdStrike
   doc_url: https://falconpy.io/Service-Collections/Detects.html
   namespace: tools.crowdstrike

@@ -1,7 +1,13 @@
 type: action
 definition:
   title: List incidents
-  description: Query for Crowdstrike incidents via the Falcon SIEM API.
+  description: >-
+    Deprecated. Query legacy CrowdStrike incidents through the Incidents API,
+    which CrowdStrike is retiring. Use Case Management actions such as
+    `tools.crowdstrike.list_cases` instead; cases use a different data model.
+  deprecated: >-
+    Use `tools.crowdstrike.list_cases` instead. CrowdStrike is retiring the
+    Incidents API; cases are not a drop-in replacement for incidents.
   display_group: CrowdStrike
   doc_url: https://falconpy.io/Service-Collections/Incidents.html
   namespace: tools.crowdstrike
