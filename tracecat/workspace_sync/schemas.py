@@ -95,6 +95,50 @@ class WorkspaceManifestResources(BaseModel):
     )
 
 
+class PackageResourceEntry(BaseModel):
+    """One resource recorded in a managed resources package manifest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resource_type: SyncResourceType = Field(description="Kind of resource.")
+    source_id: str = Field(min_length=1, description="Stable Git source id.")
+
+
+class PackageRegistryRequirement(BaseModel):
+    """A custom registry repository version that a package's actions need."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    origin: str = Field(min_length=1, description="Registry repository origin.")
+    version: str = Field(min_length=1, description="Registry version string.")
+    commit_sha: str | None = Field(
+        default=None, description="Git commit of the registry version, if any."
+    )
+    actions: list[str] = Field(
+        default_factory=list,
+        description="Fully qualified action names the package uses from it.",
+    )
+
+
+class WorkspacePackageManifest(BaseModel):
+    """What a managed resources package export contains and needs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    explicit: list[PackageResourceEntry] = Field(
+        default_factory=list,
+        description="Resources matched by the include file.",
+    )
+    implied: list[PackageResourceEntry] = Field(
+        default_factory=list,
+        description="Dependencies of explicit resources, included automatically.",
+    )
+    registry: list[PackageRegistryRequirement] = Field(
+        default_factory=list,
+        description="Custom registry versions the packaged actions resolve to.",
+    )
+
+
 class WorkspaceManifest(BaseModel):
     """Top-level ``tracecat.json`` describing a workspace sync repository."""
 
@@ -104,6 +148,12 @@ class WorkspaceManifest(BaseModel):
     resources: WorkspaceManifestResources = Field(
         default_factory=WorkspaceManifestResources,
         description="Per-resource-type repository root directories.",
+    )
+    # Optional, so ordinary v2 manifests stay valid and serialize unchanged:
+    # canonical JSON omits null fields.
+    package: WorkspacePackageManifest | None = Field(
+        default=None,
+        description="Managed resources package metadata, on package exports only.",
     )
 
 
@@ -858,6 +908,14 @@ class WorkspaceSyncExportRequest(BaseModel):
         default=False,
         description="Whether to include workflow schedules in the export.",
     )
+    package_include: list[str] | None = Field(
+        default=None,
+        description=(
+            "Include file patterns to write with a managed resources package "
+            "export. Only valid for the package source workspace; ``None`` keeps "
+            "the include file already in the repository."
+        ),
+    )
 
     @field_validator("message")
     @classmethod
@@ -885,6 +943,13 @@ class WorkspaceSyncExportPreviewRequest(BaseModel):
         description=(
             "Repository ref to compare the projected export against. When omitted, "
             "the preview only returns the export manifest summary."
+        ),
+    )
+    package_include: list[str] | None = Field(
+        default=None,
+        description=(
+            "Include file patterns to preview for a managed resources package "
+            "export. ``None`` uses the include file at ``compare_ref``."
         ),
     )
 
@@ -922,6 +987,51 @@ class WorkspaceSyncExportPreview(BaseModel):
         description=(
             "Per-resource file diffs between the comparison ref and projected export."
         ),
+    )
+
+
+type PackageResourceStatus = Literal["explicit", "implied", "excluded"]
+
+
+class WorkspacePackageResource(BaseModel):
+    """One source workspace resource as the package picker shows it."""
+
+    resource_type: SyncResourceType = Field(description="Kind of resource.")
+    source_id: str = Field(description="Stable Git source id.")
+    local_id: uuid.UUID = Field(description="Workspace-local resource id.")
+    name: str = Field(description="Human-readable resource name.")
+    path: str = Field(description="Primary repository path of the resource.")
+    pattern: str = Field(description="Include pattern that selects the resource.")
+    status: PackageResourceStatus = Field(
+        description=(
+            "``explicit`` when a pattern selects it, ``implied`` when only a "
+            "dependency, ``excluded`` otherwise."
+        )
+    )
+    implied_by: list[str] = Field(
+        default_factory=list,
+        description="Names of the explicit resources that need an implied one.",
+    )
+
+
+class WorkspacePackageRead(BaseModel):
+    """The managed resources package selection of the source workspace."""
+
+    is_source: bool = Field(
+        description="Whether this workspace is the managed resources source."
+    )
+    ref: str | None = Field(
+        default=None, description="Branch the include file was read from."
+    )
+    patterns: list[str] = Field(
+        default_factory=list, description="Include file patterns in file order."
+    )
+    resources: list[WorkspacePackageResource] = Field(
+        default_factory=list,
+        description="Every syncable resource with its package status.",
+    )
+    warnings: list[str] = Field(
+        default_factory=list, description="Include file problems worth fixing."
     )
 
 

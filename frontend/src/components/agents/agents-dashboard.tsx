@@ -80,6 +80,7 @@ import {
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { ListHeaderSearch } from "@/components/list-header-search"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { RowTimestamps } from "@/components/timestamps"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -151,6 +152,7 @@ import {
   useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   type AgentCatalogFilters,
@@ -1315,8 +1317,8 @@ function AgentPresetContextActions({
   areTagsLoading = false,
   onDuplicate,
   duplicateDisabled = false,
-  canUpdateAgent,
-  canDeleteAgent,
+  canUpdateAgent: canUpdateAgentScope,
+  canDeleteAgent: canDeleteAgentScope,
   canDuplicateAgent,
   organizationEnabled = true,
   defaultAgentActions,
@@ -1337,6 +1339,11 @@ function AgentPresetContextActions({
 }) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  // Managed presets cannot be changed, moved, retagged or deleted.
+  const { isManaged } = useManagedResources()
+  const isLocked = isManaged("agent_preset", item.id)
+  const canUpdateAgent = canUpdateAgentScope && !isLocked
+  const canDeleteAgent = canDeleteAgentScope && !isLocked
   const canOrganize = canUpdateAgent && organizationEnabled
   const { updateAgentPreset, updateAgentPresetIsPending } =
     useUpdateAgentPreset(workspaceId)
@@ -1802,6 +1809,11 @@ function AgentCatalogRow({
             <MousePointerClickIcon className="size-4 shrink-0 text-primary" />
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
+              <ManagedResourceStatus
+                resourceType="agent_preset"
+                id={item.id}
+                name={item.slug}
+              />
               <AgentToolSources
                 summary={item.tool_summary}
                 mcpBySlug={mcpBySlug}

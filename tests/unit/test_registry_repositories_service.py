@@ -19,6 +19,15 @@ from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.ssh import SshEnv
 
 
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.registry.repositories.service.ensure_registry_repository_unmanaged",
+        AsyncMock(return_value=None),
+    )
+
+
 @pytest.fixture
 def role() -> Role:
     return Role(

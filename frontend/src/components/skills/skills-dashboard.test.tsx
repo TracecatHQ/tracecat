@@ -9,6 +9,17 @@ const mockUseSkillDirectoryItems = jest.fn()
 const mockUseSkillTagCatalog = jest.fn()
 const mockUseAgentPresets = jest.fn()
 
+// No resource is managed by Tracecat in these tests.
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: () => false,
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
   useSearchParams: () => mockSearchParams.current,

@@ -151,6 +151,7 @@ from tracecat.expressions.expectations import (
     create_expectation_model,
 )
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID, generate_exec_id
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
@@ -1363,6 +1364,28 @@ class CaseFieldsService(CustomFieldsService):
         DYNAMIC_WORKSPACE_TENANT_COLUMN,
     }
 
+    async def _ensure_field_unmanaged(self, field_id: str) -> None:
+        """Refuse a definition change to a managed case field.
+
+        Setting a field's value on a case stays allowed; that is case data.
+
+        Raises:
+            ManagedResourceLockedError: The field is managed.
+        """
+        definition_id = await self.session.scalar(
+            select(CaseFields.id).where(CaseFields.workspace_id == self.workspace_id)
+        )
+        if definition_id is None:
+            return
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_FIELD,
+            # Same derivation as the case field sync adapter's
+            # ``case_field_local_id``, which cannot be imported here.
+            local_id=uuid.uuid5(definition_id, field_id),
+        )
+
     @require_scope("case:create")
     async def create_field(self, params: CaseFieldCreate) -> None:  # type: ignore[override]
         """Create a new case field column and update the schema.
@@ -1370,6 +1393,7 @@ class CaseFieldsService(CustomFieldsService):
         Extends the parent to persist the optional ``kind`` metadata
         (e.g. LONG_TEXT, URL) that controls UI rendering.
         """
+        await hold_for_customer_write(self.session, self.workspace_id)
         await self._ensure_schema_ready()
         params.nullable = True
         await self.editor.create_column(params)
@@ -1545,6 +1569,7 @@ class CaseFieldsService(CustomFieldsService):
         commit: bool = True,
     ) -> None:
         """Update a custom field column and update the schema if needed."""
+        await self._ensure_field_unmanaged(field_id)
         await self._ensure_schema_ready()
 
         # Get current schema to preserve type info
@@ -1654,6 +1679,7 @@ class CaseFieldsService(CustomFieldsService):
     @require_scope("case:delete")
     async def delete_field(self, field_id: str) -> None:
         """Delete a custom field and remove it from the schema."""
+        await self._ensure_field_unmanaged(field_id)
         await self._ensure_schema_ready()
         if field_id in self._reserved_columns:
             raise ValueError(f"Field {field_id} is a reserved field")

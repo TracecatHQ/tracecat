@@ -177,6 +177,12 @@ class FakeVcsTransport:
             for branch in repo.branch_names(limit=limit)
         ]
 
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        repo = self._server._repo(url)
+        if tag in repo.tags:
+            raise TracecatValidationError(f"Tag {tag!r} already exists")
+        repo.tags[tag] = repo.commit_at_ref(sha).sha
+
     async def list_tags(
         self,
         *,

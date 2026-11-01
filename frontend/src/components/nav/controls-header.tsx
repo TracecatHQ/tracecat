@@ -84,6 +84,7 @@ import { FormViewToggle } from "@/components/forms/form-view-toggle"
 import { CreateFormDialog } from "@/components/forms/forms-dashboard"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
 import { SkillLibrarySkillActions } from "@/components/skills/skill-library-skill-view"
@@ -543,11 +544,19 @@ function SkillsBreadcrumb({
         <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
-        <BreadcrumbItem>
+        <BreadcrumbItem className="gap-2">
           <BreadcrumbEntityPage
             label={skill?.name}
             skeletonClassName="h-4 w-28"
           />
+          {skill && (
+            <ManagedResourceStatus
+              resourceType="skill"
+              id={skill.id}
+              name={skill.slug}
+              showDetach
+            />
+          )}
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -2332,11 +2341,19 @@ function TableBreadcrumb({
         <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
-        <BreadcrumbItem>
+        <BreadcrumbItem className="gap-2">
           <BreadcrumbEntityPage
             label={table?.name}
             skeletonClassName="h-4 w-28"
           />
+          {table && (
+            <ManagedResourceStatus
+              resourceType="table"
+              id={table.id}
+              name={table.name}
+              showDetach
+            />
+          )}
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -2384,7 +2401,19 @@ function AgentPresetBreadcrumb({
       rootLabel={workspace?.name ?? <Skeleton className="h-4 w-20" />}
       rootHref={`/workspaces/${workspaceId}/agents`}
       folderPath={folderPath}
-      currentPage={preset?.name}
+      currentPage={
+        preset ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{preset.name}</span>
+            <ManagedResourceStatus
+              resourceType="agent_preset"
+              id={preset.id}
+              name={preset.slug}
+              showDetach
+            />
+          </span>
+        ) : undefined
+      }
       currentPageFallback={<Skeleton className="h-4 w-32" />}
     />
   )

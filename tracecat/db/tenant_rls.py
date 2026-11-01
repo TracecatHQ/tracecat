@@ -102,6 +102,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "agent_session_command",
     "workspace_sync_operation",
     "case_search_word",
+    "managed_detached_copy",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (
@@ -150,7 +151,13 @@ SEARCH_POLICY_TABLES = frozenset(
 # Managed rollout state: tenant sessions may only read their workspace's rows;
 # writes require the RLS-bypass session that platform rollouts use.
 READ_ONLY_WORKSPACE_POLICY_TABLES = frozenset(
-    {"managed_resource", "managed_target", "managed_reference_match"}
+    {
+        "managed_resource",
+        "managed_target",
+        "managed_reference_match",
+        "managed_rollout",
+        "managed_preset_skill_binding",
+    }
 )
 # group_member.organization_id is a nullable denormalization for the membership
 # foreign key; the table is governed by its parent group's policy.

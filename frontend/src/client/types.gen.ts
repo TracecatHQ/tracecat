@@ -4802,6 +4802,35 @@ export type DeferredToolUse = {
 }
 
 /**
+ * The copy a detach created.
+ */
+export type DetachedCopy = {
+  resource_type: SyncResourceType
+  local_id: string
+  name: string
+  original_local_id: string
+}
+
+/**
+ * A customer-owned copy made by detaching a managed resource.
+ */
+export type DetachedCopyRead = {
+  resource_type: SyncResourceType
+  local_id: string
+  original_local_id: string
+  original_name: string
+  detached_at: string
+  /**
+   * For a case field copy, its current schema key.
+   */
+  case_field_name?: string | null
+  /**
+   * For a workflow copy, its short ``wf_`` id.
+   */
+  workflow_id?: string | null
+}
+
+/**
  * Lifecycle states of a row document within an index generation.
  */
 export type DocumentState =
@@ -7428,6 +7457,156 @@ export type status6 =
   | "superseded"
 
 /**
+ * Kind of source-side reference a target workspace must resolve locally.
+ */
+export type ManagedReferenceKind = "model" | "mcp_integration" | "secret_store"
+
+/**
+ * The target's equivalent of one source model, MCP integration or store.
+ */
+export type ManagedReferenceMatchItem = {
+  reference_kind: ManagedReferenceKind
+  source_key: string
+  /**
+   * Target resource id. Null leaves a secret store unlinked.
+   */
+  resolved_id?: string | null
+}
+
+/**
+ * Replace a target's saved reference matches.
+ */
+export type ManagedReferenceMatchesUpdate = {
+  matches?: Array<ManagedReferenceMatchItem>
+}
+
+/**
+ * The commit a new release would tag, and the package published in it.
+ */
+export type ManagedReleaseCandidateRead = {
+  /**
+   * Base branch of the source repository.
+   */
+  branch: string
+  commit_sha: string
+  commit_message: string
+  commit_author: string
+  commit_date: string
+  /**
+   * Tags already on this commit.
+   */
+  existing_tags?: Array<string>
+  /**
+   * Package metadata at this commit; null if none was published.
+   */
+  package?: WorkspacePackageManifest | null
+}
+
+/**
+ * Cut a release tag at the HEAD of the source repository's base branch.
+ */
+export type ManagedReleaseCreate = {
+  tag: string
+  /**
+   * The commit the caller reviewed. When set, the release is refused if the base branch has moved past it.
+   */
+  commit_sha?: string | null
+}
+
+/**
+ * Detach a managed resource into an editable copy named ``new_name``.
+ */
+export type ManagedResourceDetach = {
+  resource_type: SyncResourceType
+  local_id: string
+  new_name: string
+}
+
+/**
+ * One managed resource, for the "Managed by Tracecat" badge.
+ */
+export type ManagedResourceRead = {
+  resource_type: SyncResourceType
+  local_id: string
+  source_id: string
+  /**
+   * Package tag the resource came from.
+   */
+  deployed_tag: string
+  deployed_commit_sha: string
+  /**
+   * When the last rollout wrote it.
+   */
+  deployed_at: string
+  /**
+   * For a case field, its current schema key. Case fields have no row id, and the key can differ from ``source_id``.
+   */
+  case_field_name?: string | null
+  /**
+   * For a workflow, its short ``wf_`` id, as workflow APIs return it.
+   */
+  workflow_id?: string | null
+  /**
+   * For an agent preset, the skills the package binds to it. They cannot be removed; skills the customer added can.
+   */
+  package_skill_ids?: Array<string>
+}
+
+/**
+ * Apply previewed rollouts; only ready ones are applied.
+ */
+export type ManagedRolloutApplyRequest = {
+  rollout_ids: Array<string>
+}
+
+/**
+ * What a rollout record does to its target workspace.
+ */
+export type ManagedRolloutKind = "apply" | "unassign"
+
+/**
+ * Preview a tag for several targets at once.
+ */
+export type ManagedRolloutPreviewRequest = {
+  target_ids: Array<string>
+  /**
+   * Tag to preview. ``None`` uses each target's pinned tag.
+   */
+  tag?: string | null
+}
+
+/**
+ * One rollout record for one target.
+ */
+export type ManagedRolloutRead = {
+  id: string
+  target_id: string | null
+  workspace_id: string
+  kind: ManagedRolloutKind
+  status: ManagedRolloutStatus
+  tag: string | null
+  commit_sha: string | null
+  preview: RolloutPreview | null
+  error: string | null
+  created_at: string
+  applied_at: string | null
+}
+
+/**
+ * Lifecycle of one rollout record for one target workspace.
+ */
+export type ManagedRolloutStatus =
+  | "previewing"
+  | "ready"
+  | "no_changes"
+  | "blocked"
+  | "needs_references"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "stale"
+
+/**
  * The workspace managed resources are published from, and its Git binding.
  */
 export type ManagedSourceRead = {
@@ -7455,6 +7634,47 @@ export type ManagedSourceUpdate = {
 }
 
 /**
+ * Assign a workspace as a target, pinned to a tag.
+ */
+export type ManagedTargetCreate = {
+  workspace_id: string
+  pinned_tag: string
+}
+
+/**
+ * A customer workspace that receives the package.
+ */
+export type ManagedTargetRead = {
+  id: string
+  workspace_id: string
+  workspace_name: string
+  organization_id: string
+  organization_name: string
+  pinned_tag: string
+  last_applied_tag: string | null
+  last_rollout_status: ManagedTargetStatus
+  last_rollout_at: string | null
+  assigned_at: string
+}
+
+/**
+ * Outcome of the most recent rollout to a managed target workspace.
+ */
+export type ManagedTargetStatus =
+  | "pending"
+  | "up_to_date"
+  | "blocked"
+  | "needs_references"
+  | "failed"
+
+/**
+ * Move a target's pin to another tag; a rollout applies it.
+ */
+export type ManagedTargetUpdate = {
+  pinned_tag: string
+}
+
+/**
  * Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.
  */
 export type ManagedTunnelCreate = {
@@ -7472,6 +7692,21 @@ export type ManagedTunnelCreated = {
   site_secret: string
   site_endpoint: string
   site_install_command: string
+}
+
+/**
+ * A workspace an FDE can assign as a target.
+ */
+export type ManagedWorkspaceRead = {
+  workspace_id: string
+  workspace_name: string
+  organization_id: string
+  organization_name: string
+  is_source: boolean
+  /**
+   * Set when the workspace is already a target.
+   */
+  target_id?: string | null
 }
 
 export type McpIntegrationMappingAffectedPreset = {
@@ -7961,6 +8196,56 @@ export type OutputType =
       [key: string]: unknown
     }
 
+/**
+ * A custom registry repository version that a package's actions need.
+ */
+export type PackageRegistryRequirement = {
+  /**
+   * Registry repository origin.
+   */
+  origin: string
+  /**
+   * Registry version string.
+   */
+  version: string
+  /**
+   * Git commit of the registry version, if any.
+   */
+  commit_sha?: string | null
+  /**
+   * Fully qualified action names the package uses from it.
+   */
+  actions?: Array<string>
+}
+
+/**
+ * One resource recorded in a managed resources package manifest.
+ */
+export type PackageResourceEntry = {
+  /**
+   * Kind of resource.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Stable Git source id.
+   */
+  source_id: string
+}
+
+export type PackageResourceStatus = "explicit" | "implied" | "excluded"
+
+export type Page_DetachedCopyRead_ = {
+  items: Array<DetachedCopyRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 export type Page_ExternalGroupMappingRead_ = {
   items: Array<ExternalGroupMappingRead>
   /**
@@ -7987,6 +8272,66 @@ export type Page_ExternalGroupRead_ = {
 
 export type Page_GitTagInfo_ = {
   items: Array<GitTagInfo>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedReferenceMatchItem_ = {
+  items: Array<ManagedReferenceMatchItem>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedResourceRead_ = {
+  items: Array<ManagedResourceRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedRolloutRead_ = {
+  items: Array<ManagedRolloutRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedTargetRead_ = {
+  items: Array<ManagedTargetRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ManagedWorkspaceRead_ = {
+  items: Array<ManagedWorkspaceRead>
   /**
    * Next-page cursor
    */
@@ -8469,6 +8814,7 @@ export type PullResult = {
   files?: Array<string> | null
   resources?: Array<SyncPreviewResource> | null
   library_skill_installs?: Array<string>
+  skipped_managed?: Array<string>
   catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
   mcp_integration_mapping_requirements?: Array<McpIntegrationMappingRequirement> | null
   secret_store_mapping_requirements?: Array<SecretStoreMappingRequirement> | null
@@ -8730,6 +9076,8 @@ export type RegistryArtifactsBackfillStartResponse = {
   workflow_id: string
   requested_count: number
 }
+
+export type RegistryInstallAction = "install" | "present" | "blocked"
 
 /**
  * Registry version lock with action-level bindings for O(1) resolution.
@@ -9108,6 +9456,105 @@ export type RoleUpdate = {
    * List of scope IDs to assign to the role (replaces existing)
    */
   scope_ids?: Array<string> | null
+}
+
+/**
+ * One resource a rollout adds, modifies or deletes in the target.
+ */
+export type RolloutChange = {
+  change: RolloutChangeKind
+  resource_type: SyncResourceType
+  source_id: string
+  name: string
+}
+
+export type RolloutChangeKind = "added" | "modified" | "deleted"
+
+/**
+ * An incoming managed resource whose name a customer resource already uses.
+ */
+export type RolloutConflict = {
+  resource_type: SyncResourceType
+  source_id: string
+  /**
+   * The name both resources share.
+   */
+  name: string
+  /**
+   * The customer's resource.
+   */
+  existing_local_id: string
+}
+
+/**
+ * Customer data a delete destroys, shown before the FDE applies.
+ */
+export type RolloutDeleteWarning = {
+  resource_type: SyncResourceType
+  source_id: string
+  name: string
+  /**
+   * Rows in a deleted table.
+   */
+  table_rows?: number | null
+  /**
+   * Cases using a deleted case tag or dropdown. For a deleted case field, the number of cases in the workspace whose value is erased.
+   */
+  cases_using?: number | null
+  /**
+   * A deleted secret or variable holds values.
+   */
+  has_customer_values?: boolean
+  /**
+   * Customer workflows and presets that mention it by name.
+   */
+  referenced_by?: Array<string>
+}
+
+/**
+ * A customer skill binding dropped because the package now binds it.
+ */
+export type RolloutDroppedSkill = {
+  preset: string
+  skill: string
+}
+
+/**
+ * Everything an FDE reviews before applying a tag to one target.
+ */
+export type RolloutPreview = {
+  changes?: Array<RolloutChange>
+  conflicts?: Array<RolloutConflict>
+  references?: Array<RolloutReference>
+  delete_warnings?: Array<RolloutDeleteWarning>
+  registry?: Array<RolloutRegistryPlan>
+  dropped_customer_skills?: Array<RolloutDroppedSkill>
+  diagnostics?: Array<string>
+}
+
+/**
+ * A model, MCP integration or secret store the target must match.
+ */
+export type RolloutReference = {
+  kind: ManagedReferenceKind
+  /**
+   * Source catalog id, integration id or store.
+   */
+  source_key: string
+  /**
+   * What the source calls it.
+   */
+  label: string
+}
+
+/**
+ * What a rollout does with one custom registry repository.
+ */
+export type RolloutRegistryPlan = {
+  origin: string
+  version: string
+  action: RegistryInstallAction
+  reason?: string | null
 }
 
 /**
@@ -13533,6 +13980,88 @@ export type WorkspaceMembershipRead = {
   workspace_id: string
 }
 
+/**
+ * What a managed resources package export contains and needs.
+ */
+export type WorkspacePackageManifest = {
+  /**
+   * Resources matched by the include file.
+   */
+  explicit?: Array<PackageResourceEntry>
+  /**
+   * Dependencies of explicit resources, included automatically.
+   */
+  implied?: Array<PackageResourceEntry>
+  /**
+   * Custom registry versions the packaged actions resolve to.
+   */
+  registry?: Array<PackageRegistryRequirement>
+}
+
+/**
+ * The managed resources package selection of the source workspace.
+ */
+export type WorkspacePackageRead = {
+  /**
+   * Whether this workspace is the managed resources source.
+   */
+  is_source: boolean
+  /**
+   * Branch the include file was read from.
+   */
+  ref?: string | null
+  /**
+   * Include file patterns in file order.
+   */
+  patterns?: Array<string>
+  /**
+   * Every syncable resource with its package status.
+   */
+  resources?: Array<WorkspacePackageResource>
+  /**
+   * Include file problems worth fixing.
+   */
+  warnings?: Array<string>
+}
+
+/**
+ * One source workspace resource as the package picker shows it.
+ */
+export type WorkspacePackageResource = {
+  /**
+   * Kind of resource.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Stable Git source id.
+   */
+  source_id: string
+  /**
+   * Workspace-local resource id.
+   */
+  local_id: string
+  /**
+   * Human-readable resource name.
+   */
+  name: string
+  /**
+   * Primary repository path of the resource.
+   */
+  path: string
+  /**
+   * Include pattern that selects the resource.
+   */
+  pattern: string
+  /**
+   * ``explicit`` when a pattern selects it, ``implied`` when only a dependency, ``excluded`` otherwise.
+   */
+  status: PackageResourceStatus
+  /**
+   * Names of the explicit resources that need an implied one.
+   */
+  implied_by?: Array<string>
+}
+
 export type WorkspaceRead = {
   id: string
   name: string
@@ -13660,6 +14189,10 @@ export type WorkspaceSyncExportPreviewRequest = {
    * Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.
    */
   compare_ref?: string | null
+  /**
+   * Include file patterns to preview for a managed resources package export. ``None`` uses the include file at ``compare_ref``.
+   */
+  package_include?: Array<string> | null
 }
 
 /**
@@ -13690,6 +14223,10 @@ export type WorkspaceSyncExportRequest_Input = {
    * Whether to include workflow schedules in the export.
    */
   include_schedules?: boolean
+  /**
+   * Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.
+   */
+  package_include?: Array<string> | null
 }
 
 /**
@@ -13720,6 +14257,10 @@ export type WorkspaceSyncExportRequest_Output = {
    * Whether to include workflow schedules in the export.
    */
   include_schedules?: boolean
+  /**
+   * Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.
+   */
+  package_include?: Array<string> | null
 }
 
 /**
@@ -14665,6 +15206,13 @@ export type WorkflowsExportWorkspaceSyncData = {
 
 export type WorkflowsExportWorkspaceSyncResponse = WorkspaceSyncExportResult
 
+export type WorkflowsGetWorkspaceSyncPackageData = {
+  ref?: string | null
+  workspaceId: string
+}
+
+export type WorkflowsGetWorkspaceSyncPackageResponse = WorkspacePackageRead
+
 export type WorkflowsPreviewExportWorkspaceSyncData = {
   requestBody: WorkspaceSyncExportPreviewRequest
   workspaceId: string
@@ -14679,6 +15227,31 @@ export type WorkflowsPullWorkflowsData = {
 }
 
 export type WorkflowsPullWorkflowsResponse = PullResult
+
+export type ManagedResourcesListManagedResourcesData = {
+  cursor?: string | null
+  limit?: number
+  resourceType?: SyncResourceType | null
+  workspaceId: string
+}
+
+export type ManagedResourcesListManagedResourcesResponse =
+  Page_ManagedResourceRead_
+
+export type ManagedResourcesListDetachedCopiesData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type ManagedResourcesListDetachedCopiesResponse = Page_DetachedCopyRead_
+
+export type ManagedResourcesDetachManagedResourceData = {
+  requestBody: ManagedResourceDetach
+  workspaceId: string
+}
+
+export type ManagedResourcesDetachManagedResourceResponse = DetachedCopy
 
 export type WorkflowsCreateSyncOperationData = {
   requestBody: SyncOperationCreate_Input
@@ -16242,6 +16815,89 @@ export type AdminListSourceTagsData = {
 }
 
 export type AdminListSourceTagsResponse = Page_GitTagInfo_
+
+export type AdminGetReleaseCandidateResponse = ManagedReleaseCandidateRead
+
+export type AdminCutReleaseData = {
+  requestBody: ManagedReleaseCreate
+}
+
+export type AdminCutReleaseResponse = GitTagInfo
+
+export type AdminListTargetCandidatesData = {
+  cursor?: string | null
+  limit?: number
+  organizationId?: string | null
+}
+
+export type AdminListTargetCandidatesResponse = Page_ManagedWorkspaceRead_
+
+export type AdminListTargetsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type AdminListTargetsResponse = Page_ManagedTargetRead_
+
+export type AdminAssignTargetData = {
+  requestBody: ManagedTargetCreate
+}
+
+export type AdminAssignTargetResponse = ManagedTargetRead
+
+export type AdminUpdateTargetData = {
+  requestBody: ManagedTargetUpdate
+  targetId: string
+}
+
+export type AdminUpdateTargetResponse = ManagedTargetRead
+
+export type AdminUnassignTargetData = {
+  targetId: string
+}
+
+export type AdminUnassignTargetResponse = ManagedRolloutRead
+
+export type AdminListReferenceMatchesData = {
+  cursor?: string | null
+  limit?: number
+  targetId: string
+}
+
+export type AdminListReferenceMatchesResponse = Page_ManagedReferenceMatchItem_
+
+export type AdminSaveReferenceMatchesData = {
+  requestBody: ManagedReferenceMatchesUpdate
+  targetId: string
+}
+
+export type AdminSaveReferenceMatchesResponse = Array<ManagedReferenceMatchItem>
+
+export type AdminPreviewRolloutsData = {
+  requestBody: ManagedRolloutPreviewRequest
+}
+
+export type AdminPreviewRolloutsResponse = Array<ManagedRolloutRead>
+
+export type AdminApplyRolloutsData = {
+  requestBody: ManagedRolloutApplyRequest
+}
+
+export type AdminApplyRolloutsResponse = Array<ManagedRolloutRead>
+
+export type AdminListRolloutsData = {
+  cursor?: string | null
+  limit?: number
+  targetId?: string | null
+}
+
+export type AdminListRolloutsResponse = Page_ManagedRolloutRead_
+
+export type AdminGetRolloutData = {
+  rolloutId: string
+}
+
+export type AdminGetRolloutResponse = ManagedRolloutRead
 
 export type AdminListOrganizationsResponse =
   Array<tracecat_ee__admin__organizations__schemas__OrgRead>
@@ -20259,6 +20915,25 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/workflows/sync/package": {
+    get: {
+      req: WorkflowsGetWorkspaceSyncPackageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspacePackageRead
+        /**
+         * Bad Request
+         */
+        400: WorkspaceSyncExportError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/workflows/sync/export/preview": {
     post: {
       req: WorkflowsPreviewExportWorkspaceSyncData
@@ -20286,6 +20961,51 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/managed-resources": {
+    get: {
+      req: ManagedResourcesListManagedResourcesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedResourceRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/managed-resources/detached": {
+    get: {
+      req: ManagedResourcesListDetachedCopiesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_DetachedCopyRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/managed-resources/detach": {
+    post: {
+      req: ManagedResourcesDetachManagedResourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: DetachedCopy
         /**
          * Validation Error
          */
@@ -23372,6 +24092,192 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Page_GitTagInfo_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/source/release-candidate": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedReleaseCandidateRead
+      }
+    }
+  }
+  "/admin/managed-resources/source/releases": {
+    post: {
+      req: AdminCutReleaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: GitTagInfo
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/workspaces": {
+    get: {
+      req: AdminListTargetCandidatesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedWorkspaceRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/targets": {
+    get: {
+      req: AdminListTargetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedTargetRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AdminAssignTargetData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ManagedTargetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/targets/{target_id}": {
+    patch: {
+      req: AdminUpdateTargetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedTargetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/targets/{target_id}/unassign": {
+    post: {
+      req: AdminUnassignTargetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedRolloutRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/targets/{target_id}/references": {
+    get: {
+      req: AdminListReferenceMatchesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedReferenceMatchItem_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AdminSaveReferenceMatchesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ManagedReferenceMatchItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/rollouts/preview": {
+    post: {
+      req: AdminPreviewRolloutsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ManagedRolloutRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/rollouts/apply": {
+    post: {
+      req: AdminApplyRolloutsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ManagedRolloutRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/rollouts": {
+    get: {
+      req: AdminListRolloutsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_ManagedRolloutRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/managed-resources/rollouts/{rollout_id}": {
+    get: {
+      req: AdminGetRolloutData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ManagedRolloutRead
         /**
          * Validation Error
          */

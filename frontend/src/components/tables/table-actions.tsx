@@ -7,6 +7,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 
 export function TableActions({
   table,
@@ -15,6 +16,9 @@ export function TableActions({
   table: TableReadMinimal
   onDeleteClick: (table: TableReadMinimal) => void
 }) {
+  // Managed tables cannot be deleted.
+  const { isManaged } = useManagedResources()
+  const isLocked = isManaged("table", table.id)
   return (
     <DropdownMenuGroup>
       <DropdownMenuItem
@@ -33,6 +37,7 @@ export function TableActions({
       </DropdownMenuItem>
       <DropdownMenuItem
         className="text-xs text-destructive focus:text-destructive"
+        disabled={isLocked}
         onClick={(e) => {
           e.stopPropagation() // Prevent row click
           onDeleteClick(table)

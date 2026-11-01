@@ -706,6 +706,7 @@ class AuditService(BaseService):
         include_actor_label: bool = True,
         include_ip_address: bool = True,
         include_user_agent: bool = True,
+        actor_label: str | None = None,
     ) -> None:
         """Deliver a privacy-bounded audit event when a sink is configured.
 
@@ -736,6 +737,9 @@ class AuditService(BaseService):
             include_user_agent: Whether to include the bounded request
                 user-agent from context. This field is sensitive security
                 metadata and may identify client software or devices.
+            actor_label: A fixed label to show instead of resolving one, for
+                actors that are not a user or service account, such as
+                Tracecat staff acting in a customer organization.
         """
 
         if self.role is None or self.role.actor_id is None:
@@ -751,7 +755,8 @@ class AuditService(BaseService):
             self.logger.debug("Skipping audit log", reason="webhook_unconfigured")
             return
 
-        actor_label = await self._get_actor_label() if include_actor_label else None
+        if actor_label is None and include_actor_label:
+            actor_label = await self._get_actor_label()
         request_audit = ctx_request_audit.get()
         payload = self._build_payload(
             resource_type=resource_type,

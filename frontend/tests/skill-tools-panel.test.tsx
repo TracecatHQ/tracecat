@@ -44,6 +44,17 @@ let mockMcpQueryResult: {
   mcpIntegrationsError: Error | null
 } | null = null
 
+// No resource is managed by Tracecat in these tests.
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: () => false,
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/components/auth/scope-guard", () => ({
   ...jest.requireActual("@/components/auth/scope-guard"),
   useScopeCheck: () => mockCanReadIntegrations,

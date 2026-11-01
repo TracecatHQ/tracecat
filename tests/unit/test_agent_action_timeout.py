@@ -5,6 +5,7 @@ No boundary rejects: out-of-bounds values normalize wherever they are seen.
 """
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -18,6 +19,15 @@ from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.workflow.actions.schemas import ActionControlFlow, ActionRead
 from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
+
+
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.managed_resources.guard.is_managed",
+        AsyncMock(return_value=False),
+    )
 
 
 def _task(

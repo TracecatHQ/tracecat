@@ -33,11 +33,11 @@ from tracecat.managed_resources.source import (
     MANAGED_RESOURCES_SOURCE_KEY,
     SOURCE_REPOSITORY_SCOPES,
     ManagedSource,
-    ManagedSourceSetting,
     ManagedSourceUnavailableError,
     get_managed_source,
     list_source_tags,
     load_managed_source,
+    pin_source,
     source_repository_role,
 )
 from tracecat.pagination import PageParams
@@ -72,7 +72,7 @@ def _source(workspace: Workspace) -> ManagedSource:
 
 
 def _stored(workspace: Workspace) -> bytes:
-    return ManagedSourceSetting.pin(_source(workspace)).model_dump_json().encode()
+    return pin_source(_source(workspace)).model_dump_json().encode()
 
 
 def _session(*scalars: object) -> AsyncMock:

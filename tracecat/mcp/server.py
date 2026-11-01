@@ -49,6 +49,7 @@ from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
@@ -200,6 +201,11 @@ from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import (
+    LOCKED_MESSAGE,
+    ManagedResourceLockedError,
+    ensure_unmanaged,
+)
 from tracecat.mcp.action_discovery import list_action_entry_page
 from tracecat.mcp.auth import (
     create_mcp_auth,
@@ -348,6 +354,7 @@ from tracecat.workflow.schedules.schemas import (
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.tags.service import WorkflowTagsService
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspaces.schemas import (
     WorkspaceSettingsRead,
     WorkspaceSettingsUpdate,
@@ -2220,6 +2227,26 @@ def _resolve_workflow_yaml_update_layout(
             for action in workflow.actions or []
         ],
     )
+
+
+async def _ensure_workflow_unmanaged(
+    session: AsyncSession, workspace_id: uuid.UUID, workflow_id: WorkflowUUID
+) -> None:
+    """Refuse an MCP edit of a managed workflow with a readable tool error.
+
+    Call it in the edit's own transaction: the check holds the ownership lock
+    until that transaction ends, so no rollout can take the workflow over
+    between the check and the write.
+    """
+    try:
+        await ensure_unmanaged(
+            session,
+            workspace_id=workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_id,
+        )
+    except ManagedResourceLockedError as exc:
+        raise ToolError(LOCKED_MESSAGE) from exc
 
 
 @audit_log(
@@ -4362,6 +4389,7 @@ async def edit_workflow(
         )
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
+            await _ensure_workflow_unmanaged(svc.session, workspace_id, wf_id)
             workflow = await svc.get_workflow(wf_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
@@ -4510,6 +4538,7 @@ async def update_workflow(
             else None
         )
         async with WorkflowsManagementService.with_session(role=role) as svc:
+            await _ensure_workflow_unmanaged(svc.session, workspace_id, workflow_id)
             workflow = await svc.get_workflow(workflow_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")

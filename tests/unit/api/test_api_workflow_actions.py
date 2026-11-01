@@ -14,6 +14,15 @@ _WORKFLOW_ID = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
 _MISSING_ACTION_ID = "00000000-0000-4000-8000-000000000000"
 
 
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.managed_resources.guard.is_managed",
+        AsyncMock(return_value=False),
+    )
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("method", "path", "payload", "service_method", "error", "status_code"),

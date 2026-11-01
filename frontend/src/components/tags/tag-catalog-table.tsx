@@ -6,13 +6,14 @@ import { CopyIcon, PencilIcon, Tag, Trash2Icon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
-import type { TagUpdate } from "@/client"
+import type { SyncResourceType, TagUpdate } from "@/client"
 import { ColorPicker } from "@/components/color-picker"
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +41,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 
 const updateTagSchema = z.object({
   name: z
@@ -91,6 +93,11 @@ interface TagCatalogTableProps {
   canDeleteTag?: boolean
   /** Resource label used in the delete confirmation, e.g. "workflows", "cases", "agents". */
   resourceLabel: string
+  /**
+   * Set when these tags can be managed by Tracecat (case tags). Managed tags
+   * show a badge and cannot be edited or deleted.
+   */
+  managedResourceType?: SyncResourceType
 }
 
 export function TagCatalogTable({
@@ -102,7 +109,17 @@ export function TagCatalogTable({
   canUpdateTag = true,
   canDeleteTag = true,
   resourceLabel,
+  managedResourceType,
 }: TagCatalogTableProps) {
+  // Only catalogs whose tags can be managed (case tags) need the lookup.
+  const { isManaged } = useManagedResources(undefined, {
+    enabled: managedResourceType !== undefined,
+  })
+  function isLocked(tagId: string): boolean {
+    return (
+      managedResourceType !== undefined && isManaged(managedResourceType, tagId)
+    )
+  }
   const [selectedTag, setSelectedTag] = useState<TagItem | null>(null)
   const [action, setAction] = useState<TagItemAction | null>(null)
   const isDialogOpen = action !== null && selectedTag !== null
@@ -141,6 +158,14 @@ export function TagCatalogTable({
                     }}
                   />
                   <span className="text-xs text-foreground/80">{tag.name}</span>
+                  {managedResourceType ? (
+                    <ManagedResourceStatus
+                      resourceType={managedResourceType}
+                      id={tag.id}
+                      name={tag.name}
+                      showDetach
+                    />
+                  ) : null}
                 </div>
               )
             },
@@ -211,7 +236,7 @@ export function TagCatalogTable({
                       <CopyIcon className="mr-2 size-3" />
                       Copy reference
                     </DropdownMenuItem>
-                    {canUpdateTag ? (
+                    {canUpdateTag && !isLocked(row.original.id) ? (
                       <AlertDialogTrigger asChild>
                         <DropdownMenuItem
                           onClick={() => {
@@ -224,7 +249,7 @@ export function TagCatalogTable({
                         </DropdownMenuItem>
                       </AlertDialogTrigger>
                     ) : null}
-                    {canDeleteTag ? (
+                    {canDeleteTag && !isLocked(row.original.id) ? (
                       <AlertDialogTrigger asChild>
                         <DropdownMenuItem
                           className="text-rose-500 focus:text-rose-600"
