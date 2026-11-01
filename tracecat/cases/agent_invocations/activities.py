@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.backends.registry import (
     find_agent_backend,
@@ -33,7 +34,7 @@ from tracecat.cases.agent_invocations.service import (
 )
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.logger import logger
 
 _MAX_STORED_ERROR_LENGTH = 2_000
@@ -65,9 +66,15 @@ async def prepare_comment_agent_invocation_activity(
             dispatcher.session,
             input.role,
         )
-        prepared_turn = await session_service.prepare_new_turn(
-            prepared.session_id, prepared.prompt
-        )
+        try:
+            prepared_turn = await session_service.prepare_new_turn(
+                prepared.session_id, prepared.prompt
+            )
+        except EntitlementRequired as e:
+            # Retrying cannot help until the entitlement is restored.
+            raise ApplicationError(
+                str(e), e.detail, type=e.__class__.__name__, non_retryable=True
+            ) from e
         backend = get_agent_backend(
             prepared_turn.backend_id, harness_type=prepared_turn.harness_type
         )

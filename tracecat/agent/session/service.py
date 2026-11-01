@@ -41,7 +41,10 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
-from tracecat.agent.backends.access import require_backend_entitlement
+from tracecat.agent.backends.access import (
+    require_backend_entitlement,
+    require_session_backend_entitlement,
+)
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
     find_agent_backend,
@@ -2068,6 +2071,7 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session = await self.validate_turn_request(
             session_id,
             BasicChatRequest(message=prompt),
+            resume_prepared_turn=True,
         )
         backend = get_agent_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type
@@ -2322,8 +2326,21 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
+        *,
+        resume_prepared_turn: bool = False,
     ) -> AgentSession:
-        """Assert a turn can start before mutating session or stream state."""
+        """Assert a turn can start before mutating session or stream state.
+
+        Args:
+            session_id: The ID of the session.
+            request: The new message or approval continuation.
+            resume_prepared_turn: Whether the caller may adopt a run that a
+                caller-owned preparation already committed (``prepare_new_turn``
+                retried after its commit). That run was admitted while
+                entitled, so it skips the entitlement check like any turn
+                already in flight. A direct dispatch's run is never adopted
+                this way.
+        """
         agent_session = await self.get_session(session_id)
         if not agent_session:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
@@ -2339,6 +2356,9 @@ class AgentSessionService(BaseWorkspaceService):
         )
         match request:
             case ContinueRunRequest():
+                # Approval decisions finish a turn that started while entitled,
+                # so they skip the entitlement check. Refusing them would leave
+                # the turn parked until someone cancels it.
                 if agent_session.curr_run_id is None:
                     raise TracecatNotFoundError(
                         f"No active workflow run for session {session_id}"
@@ -2349,6 +2369,20 @@ class AgentSessionService(BaseWorkspaceService):
                     raise ValueError(
                         "This session is waiting for approval decisions. "
                         "Submit all pending approvals before sending another message."
+                    )
+                # Only a caller-owned preparation clears the reservation
+                # marker; a direct dispatch keeps it until the turn ends.
+                # Refusing an adopted preparation would strand its committed
+                # pointers: no workflow ever starts, so recovery cannot
+                # release them.
+                adopts_prepared_turn = (
+                    resume_prepared_turn
+                    and agent_session.curr_run_id is not None
+                    and agent_session.reserved_run_id is None
+                )
+                if not adopts_prepared_turn:
+                    await require_session_backend_entitlement(
+                        self.session, self.organization_id, agent_session.backend_id
                     )
                 return agent_session
             case _:
@@ -2792,6 +2826,12 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatConflictError(str(e)) from e
         match control:
             case "steer":
+                # A steer is new user input and can be queued for a later turn,
+                # so it needs the entitlement like a new message. Withdrawing
+                # only takes input back and stays allowed.
+                await require_session_backend_entitlement(
+                    self.session, self.organization_id, agent_session.backend_id
+                )
                 supported, feature = backend.steering, "steering"
             case "withdraw":
                 supported, feature = backend.withdrawing, "withdrawing"

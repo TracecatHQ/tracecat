@@ -105,6 +105,7 @@ class EntitlementsDict(TypedDict, total=False):
         Field(
             title="Agent runtime preview",
             description="Whether agent backends other than the built-in one may be"
-            " listed and used to create or fork agent sessions",
+            " listed, used to create or fork agent sessions, and used to run"
+            " new turns in existing sessions",
         ),
     ]

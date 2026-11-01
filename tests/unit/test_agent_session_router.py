@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Annotated, Any, cast, get_args
 from unittest.mock import AsyncMock, Mock, patch
 
+import orjson
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
@@ -15,6 +16,7 @@ from starlette import status
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.backends import registry
+from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import (
     AgentControlRejected,
@@ -55,6 +57,7 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.session.views import build_session_read
+from tracecat.api.app import entitlement_exception_handler
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
@@ -1066,6 +1069,67 @@ async def test_send_message_does_not_reset_stream_when_validation_fails(
     stream_new_mock.assert_not_awaited()
     fake_stream.sse.assert_not_called()
     fake_svc.run_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_send_message_refuses_a_revoked_backend_with_403_and_no_stream() -> None:
+    session_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    refusal = EntitlementRequired(
+        "agent_runtime_preview", message=SESSION_BACKEND_NOT_ENTITLED_MESSAGE
+    )
+    fake_svc = SimpleNamespace(
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(side_effect=refusal),
+        run_turn=AsyncMock(return_value=None),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new", AsyncMock()
+        ) as stream_new_mock,
+    ):
+        raw_send_message = cast(Any, send_message).__wrapped__
+        with pytest.raises(EntitlementRequired) as exc_info:
+            await raw_send_message(
+                session_id=session_id,
+                request=VercelChatRequest(
+                    message=UIMessage(
+                        id="msg-1",
+                        role="user",
+                        parts=[{"type": "text", "text": "Hello"}],
+                    )
+                ),
+                role=role,
+                http_request=cast(
+                    Any,
+                    SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+                ),
+            )
+
+    # Refused before any stream or turn state exists.
+    stream_new_mock.assert_not_awaited()
+    fake_svc.run_turn.assert_not_awaited()
+    response = entitlement_exception_handler(
+        cast(Any, SimpleNamespace(url=SimpleNamespace(path="/agent/sessions"))),
+        exc_info.value,
+    )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert orjson.loads(bytes(response.body)) == {
+        "type": "EntitlementRequired",
+        "message": SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
+        "detail": {"entitlement": "agent_runtime_preview"},
+    }
 
 
 @pytest.mark.anyio
