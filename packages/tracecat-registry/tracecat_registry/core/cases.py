@@ -289,6 +289,13 @@ async def create_case(
         bool,
         Doc("If true, create any tags that do not already exist."),
     ] = False,
+    parent_id: Annotated[
+        str | None,
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of a top-level case to create "
+            "this case under as a sub-case. Requires the case add-ons entitlement."
+        ),
+    ] = None,
 ) -> types.Case:
     params: dict[str, Any] = {}
     if summary is not None:
@@ -311,6 +318,8 @@ async def create_case(
         params["tags"] = tags
     if create_missing_tags:
         params["create_missing_tags"] = create_missing_tags
+    if parent_id is not None:
+        params["parent_id"] = parent_id
     return await ctx.cases.aio.create_case_simple(**params)
 
 
@@ -404,6 +413,45 @@ async def update_case(
     if append and description is not None:
         client_params["append_description"] = True
     return await ctx.cases.aio.update_case_simple(case_id, **client_params)
+
+
+@registry.register(
+    default_title="Set case parent",
+    display_group="Cases",
+    description=(
+        "Group cases as sub-cases of a top-level parent case. "
+        "Cases already under another parent are moved."
+    ),
+    namespace="core.cases",
+)
+async def set_case_parent(
+    case_ids: Annotated[
+        list[str],
+        Doc("The IDs or short IDs (e.g. CASE-0042) of the cases to group (1-1000)."),
+    ],
+    parent_id: Annotated[
+        str,
+        Doc("The ID or short ID (e.g. CASE-0042) of the top-level parent case."),
+    ],
+) -> types.CaseBatchResponse:
+    return await ctx.cases.aio.set_case_parent(case_ids, parent_id=parent_id)
+
+
+@registry.register(
+    default_title="Clear case parent",
+    display_group="Cases",
+    description="Remove sub-cases from their parent case, returning them to the top level.",
+    namespace="core.cases",
+)
+async def clear_case_parent(
+    case_ids: Annotated[
+        list[str],
+        Doc(
+            "The IDs or short IDs (e.g. CASE-0042) of the sub-cases to ungroup (1-1000)."
+        ),
+    ],
+) -> types.CaseBatchResponse:
+    return await ctx.cases.aio.clear_case_parent(case_ids)
 
 
 @registry.register(
