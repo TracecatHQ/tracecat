@@ -34,6 +34,8 @@ from tracecat.agent.backends.types import (
     AgentControlUncertain,
     AgentWorkflow,
     PendingMessage,
+    SessionCleanup,
+    SessionDeleteContext,
     SessionDispatchUncertain,
     SessionForkContext,
     SessionHistoryAdapter,
@@ -123,6 +125,25 @@ class AgentBackend[InputT, OutputT](ABC):
         or start execution. Reading or executing the fork must preserve the
         parent's history without mutating the parent.
         """
+
+    async def prepare_delete(
+        self, context: SessionDeleteContext
+    ) -> SessionCleanup | None:
+        """Prepare backend state for the session's deletion.
+
+        The service calls this in the delete's transaction, before it deletes the
+        session and its history, and commits afterwards. Take here any row locks
+        the backend's own writers take, in their order, so the delete cannot
+        deadlock with them, and read what a cleanup needs. Do not commit or call
+        remote services.
+
+        Return a callable to run once the delete has committed, for state outside
+        the database. It must return promptly, such as by starting durable work
+        elsewhere, and raise any failure it wants logged. The service bounds it,
+        logs a failure and never fails the delete, and lets it finish even when
+        the request is cancelled.
+        """
+        return None
 
     @abstractmethod
     async def build_workflow_args(self, context: SessionWorkflowContext) -> InputT:

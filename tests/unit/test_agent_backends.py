@@ -37,6 +37,7 @@ from tracecat.agent.backends.schemas import (
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     AgentControlUncertain,
+    SessionDeleteContext,
     SessionDispatchUncertain,
     SessionForkContext,
     SessionTurnContext,
@@ -1153,6 +1154,162 @@ async def test_fork_delegates_to_required_backend_operation(preparation_fails):
             with pytest.raises(ValueError, match="Unable to prepare fork"):
                 await service.fork_session(ctx.session.id)
             ctx.db.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "cleaned",
+        "cleanup_fails",
+        "cleanup_hangs",
+        "cleanup_cancels",
+        "preparation_fails",
+    ],
+)
+async def test_delete_lets_the_backend_prepare_and_clean_up(outcome: str):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    db = ctx.db
+    service = AgentSessionService(db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+
+    async def hang() -> None:
+        await asyncio.Event().wait()
+
+    cleanup = AsyncMock(
+        side_effect={
+            "cleanup_fails": RuntimeError("unreachable"),
+            "cleanup_hangs": hang,
+            "cleanup_cancels": asyncio.CancelledError(),
+        }.get(outcome)
+    )
+
+    async def prepare_delete(context: SessionDeleteContext) -> AsyncMock:
+        assert (context.db, context.session, context.role) == (
+            db,
+            ctx.session,
+            ctx.role,
+        )
+        db.delete.assert_not_awaited()
+        if outcome == "preparation_fails":
+            raise TracecatConflictError("Session is busy")
+        return cleanup
+
+    async def committed() -> None:
+        db.delete.assert_awaited_once_with(ctx.session)
+        cleanup.assert_not_awaited()
+
+    provider.prepare_delete = AsyncMock(side_effect=prepare_delete)
+    db.commit.side_effect = committed
+    with (
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ) as find,
+        patch("tracecat.agent.session.service.SESSION_CLEANUP_TIMEOUT_SECONDS", 0.01),
+        patch("tracecat.agent.session.service.logger") as logger,
+    ):
+        if outcome == "preparation_fails":
+            with pytest.raises(TracecatConflictError):
+                await service.delete_session(ctx.session)
+            db.delete.assert_not_awaited()
+            db.commit.assert_not_awaited()
+            cleanup.assert_not_awaited()
+        else:
+            # A failed, hung or cancelled cleanup is logged; the delete has committed.
+            await service.delete_session(ctx.session)
+            cleanup.assert_awaited_once_with()
+        warned = [
+            call.kwargs.get("error_type")
+            for call in logger.warning.call_args_list
+            if call.args == ("Agent session cleanup failed",)
+        ]
+        assert (
+            warned
+            == {
+                "cleaned": [],
+                "cleanup_fails": ["RuntimeError"],
+                "cleanup_hangs": ["TimeoutError"],
+                "cleanup_cancels": ["CancelledError"],
+                "preparation_fails": [],
+            }[outcome]
+        )
+    find.assert_called_once_with(ctx.session.backend_id)
+
+
+@pytest.mark.anyio
+async def test_a_cancelled_delete_still_finishes_its_cleanup():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    started, release = asyncio.Event(), asyncio.Event()
+    finished: list[bool] = []
+
+    async def cleanup() -> None:
+        started.set()
+        await release.wait()
+        finished.append(True)
+
+    provider = Mock(spec=DefaultBackend)
+    provider.prepare_delete = AsyncMock(return_value=cleanup)
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend", return_value=provider
+    ):
+        deleting = asyncio.ensure_future(service.delete_session(ctx.session))
+        await started.wait()
+        deleting.cancel()
+        await asyncio.sleep(0)
+        assert not deleting.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await deleting
+    assert finished == [True]
+    ctx.db.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_a_delete_cancelled_during_its_commit_still_cleans_up():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    committing, release = asyncio.Event(), asyncio.Event()
+
+    async def commit() -> None:
+        committing.set()
+        await release.wait()
+
+    ctx.db.commit.side_effect = commit
+    cleanup = AsyncMock()
+    provider = Mock(spec=DefaultBackend)
+    provider.prepare_delete = AsyncMock(return_value=cleanup)
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend", return_value=provider
+    ):
+        deleting = asyncio.ensure_future(service.delete_session(ctx.session))
+        await committing.wait()
+        deleting.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await deleting
+    cleanup.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("installed", [True, False])
+async def test_delete_needs_no_cleanup_from_the_builtin_or_a_missing_backend(
+    installed: bool,
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend",
+        return_value=DefaultBackend() if installed else None,
+    ):
+        await service.delete_session(ctx.session)
+    ctx.db.delete.assert_awaited_once_with(ctx.session)
+    ctx.db.commit.assert_awaited_once()
 
 
 def test_backend_contract_requires_fork_preparation():
