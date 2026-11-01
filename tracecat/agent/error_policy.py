@@ -340,6 +340,34 @@ def agent_llm_stream_interrupted(
     )
 
 
+def agent_llm_provider_unavailable(*, status_code: int) -> RuntimeErrorClassification:
+    """Classify a managed-route upstream outage the gateway attributed to the provider.
+
+    Tracecat operates managed provider credentials and capacity, so the outage
+    is platform-owned even though the provider is the immediate cause.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+        message=(
+            f"The managed LLM provider is temporarily unavailable (HTTP {status_code}); "
+            "retry later"
+        ),
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
+def agent_llm_gateway_unavailable(*, status_code: int) -> RuntimeErrorClassification:
+    """Classify a managed gateway with no routable deployment or no healthy backend."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+        message=(
+            f"The LLM gateway is temporarily unavailable (HTTP {status_code}); "
+            "retry later"
+        ),
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
 def agent_llm_gateway_auth_failed() -> RuntimeErrorClassification:
     """Classify a rejected internal gateway credential at its trusted source."""
     return RuntimeErrorClassification.platform(

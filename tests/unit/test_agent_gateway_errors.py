@@ -9,9 +9,15 @@ import orjson
 import pytest
 from fastapi import Response
 from litellm.exceptions import (
+    APIConnectionError,
     AuthenticationError,
+    BadGatewayError,
+    InternalServerError,
+    MidStreamFallbackError,
     PermissionDeniedError,
     RateLimitError,
+    ServiceUnavailableError,
+    Timeout,
 )
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.proxy.anthropic_endpoints.endpoints import anthropic_response
@@ -118,7 +124,7 @@ async def test_router_unavailability_is_not_provider_throttling_or_auth(
     assert orjson.loads(body)["error"]["type"] == "tracecat_llm_deployment_unavailable"
     assert b"synthetic-sensitive" not in body
     classification = _http_error_classification(503, route_is_direct=False, body=body)
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
@@ -224,7 +230,7 @@ async def test_provider_auth_cooldown_does_not_establish_next_callers_auth_failu
     body = bytes(failure.body)
     assert b"synthetic-sensitive" not in body
     classification = _http_error_classification(503, route_is_direct=False, body=body)
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
@@ -447,3 +453,75 @@ async def test_mid_stream_provider_rate_limit_is_a_typed_sse_error(
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+def _provider_outage(kind: str) -> Exception:
+    detail = "synthetic-sensitive-detail"
+    match kind:
+        case "connection":
+            return APIConnectionError(detail, "synthetic-provider", "synthetic-model")
+        case "internal":
+            return InternalServerError(detail, "synthetic-provider", "synthetic-model")
+        case "bad_gateway":
+            return BadGatewayError(detail, "synthetic-provider", "synthetic-model")
+        case "unavailable":
+            return ServiceUnavailableError(
+                detail, "synthetic-provider", "synthetic-model"
+            )
+        case "mid_stream":
+            return MidStreamFallbackError(
+                detail, model="synthetic-model", llm_provider="synthetic-provider"
+            )
+        case _:
+            raise AssertionError(kind)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("endpoint", ["anthropic", "openai"])
+@pytest.mark.parametrize(
+    ("outage", "status_code"),
+    [
+        ("connection", 500),
+        ("internal", 500),
+        ("bad_gateway", 502),
+        ("unavailable", 503),
+        ("mid_stream", 503),
+    ],
+)
+async def test_provider_outage_is_typed_provider_unavailable(
+    endpoint: Literal["anthropic", "openai"],
+    outage: str,
+    status_code: int,
+    gateway_callbacks: ProxyLogging,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = await _gateway_failure(
+        _provider_outage(outage),
+        endpoint=endpoint,
+        proxy_logging=gateway_callbacks,
+        monkeypatch=monkeypatch,
+    )
+
+    assert failure.status_code == status_code
+    body = bytes(failure.body)
+    assert b"synthetic-sensitive" not in body
+    assert orjson.loads(body)["error"]["type"] == "tracecat_llm_provider_unavailable"
+    classification = _http_error_classification(
+        status_code, route_is_direct=False, body=body
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_provider_timeout_is_not_relabelled_as_outage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = await _anthropic_failure(
+        Timeout("synthetic timeout", "synthetic-model", "synthetic-provider"),
+        monkeypatch,
+    )
+
+    body = bytes(failure.body)
+    assert b"tracecat_llm_provider_unavailable" not in body
