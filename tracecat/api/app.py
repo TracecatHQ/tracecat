@@ -214,6 +214,7 @@ from tracecat.storage.blob import (
     ensure_bucket_exists,
 )
 from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.folders.router import router as table_folders_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.variables.router import router as variables_router
@@ -704,6 +705,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_secrets_router)
     app.include_router(org_secret_stores_router)
     _include_workspace_scoped_router(app, tables_router)
+    _include_workspace_scoped_router(app, table_folders_router)
     _include_workspace_scoped_router(app, forms_router)
     app.include_router(forms_intake_router)
     _include_workspace_scoped_router(app, cases_router)
