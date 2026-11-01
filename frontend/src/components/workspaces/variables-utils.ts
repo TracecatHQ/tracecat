@@ -1,4 +1,19 @@
+import { z } from "zod"
 import type { VariableReadMinimal } from "@/client"
+
+/** Matches the backend `VariableName` constraint: lowercase snake case. */
+export const VARIABLE_NAME_PATTERN = /^[a-z0-9_]+$/
+
+export const VARIABLE_NAME_ERROR =
+  "Use lowercase letters, numbers, and underscores only (e.g. api_config)."
+
+/** Zod schema for a variable name accepted by the backend. */
+export const variableNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Name is required.")
+  .max(255, "Name must be 255 characters or fewer.")
+  .regex(VARIABLE_NAME_PATTERN, VARIABLE_NAME_ERROR)
 
 export interface VariableGroup {
   name: string
@@ -41,3 +56,10 @@ export function buildVariableGroups(
     })
     .sort((a, b) => a.name.localeCompare(b.name))
 }
+
+/** Zod schema for a variable value key accepted by the backend. */
+export const variableKeySchema = z
+  .string()
+  .min(1, "Key is required.")
+  .max(255, "Key must be 255 characters or fewer.")
+  .regex(/[A-Za-z0-9_]/, "Key must contain a letter, number, or underscore.")

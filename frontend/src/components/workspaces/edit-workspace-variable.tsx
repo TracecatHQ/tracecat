@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogBody,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -28,7 +27,10 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { toast } from "@/components/ui/use-toast"
+import {
+  variableKeySchema,
+  variableNameSchema,
+} from "@/components/workspaces/variables-utils"
 import { useWorkspaceVariables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -41,12 +43,12 @@ interface EditVariableDialogProps
 }
 
 const updateVariableFormSchema = z.object({
-  name: z.string().optional(),
+  name: z.union([z.literal(""), variableNameSchema]).optional(),
   description: z.string().max(255).optional(),
   environment: z.string().optional(),
   values: z.array(
     z.object({
-      key: z.string(),
+      key: variableKeySchema,
       value: z.string(),
     })
   ),
@@ -61,6 +63,7 @@ export function EditVariableDialog({
   className,
   ...props
 }: EditVariableDialogProps) {
+  const [open, setOpen] = React.useState(false)
   const workspaceId = useWorkspaceId()
   const { updateVariableById } = useWorkspaceVariables(workspaceId, {
     listEnabled: false,
@@ -119,22 +122,15 @@ export function EditVariableDialog({
           variableId: selectedVariable.id,
           params,
         })
+        setOpen(false)
+        methods.reset()
+        setSelectedVariable(null)
       } catch (error) {
         console.error(error)
       }
-      methods.reset()
-      setSelectedVariable(null) // Only unset the selected variable after the form has been submitted
     },
     [selectedVariable, setSelectedVariable, updateVariableById, methods]
   )
-
-  const onValidationFailed = (errors: unknown) => {
-    console.error("Form validation failed", errors)
-    toast({
-      title: "Form validation failed",
-      description: "A validation error occurred while editing the variable.",
-    })
-  }
 
   const { fields, append, remove } = useFieldArray<UpdateVariableFormData>({
     control,
@@ -142,7 +138,7 @@ export function EditVariableDialog({
   })
 
   return (
-    <Dialog {...props}>
+    <Dialog {...props} open={open} onOpenChange={setOpen}>
       {children}
       <DialogContent size="lg" className={className}>
         <DialogHeader>
@@ -157,7 +153,7 @@ export function EditVariableDialog({
         <Form {...methods}>
           <form
             className="flex min-h-0 flex-1 flex-col"
-            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+            onSubmit={methods.handleSubmit(onSubmit)}
           >
             <DialogBody>
               <FormField
@@ -305,12 +301,10 @@ export function EditVariableDialog({
               )}
             </DialogBody>
             <DialogFooter>
-              <DialogClose asChild>
-                <Button size="sm" type="submit">
-                  <SaveIcon className="mr-2 size-4" />
-                  Save
-                </Button>
-              </DialogClose>
+              <Button size="sm" type="submit">
+                <SaveIcon className="mr-2 size-4" />
+                Save
+              </Button>
             </DialogFooter>
           </form>
         </Form>
