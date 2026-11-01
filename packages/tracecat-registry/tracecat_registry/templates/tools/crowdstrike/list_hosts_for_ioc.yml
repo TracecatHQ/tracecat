@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: List hosts for IOC
+  description: >-
+    Get the IDs of hosts that observed an indicator. Requires the IOC Management:
+    Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/ioc/#indicatorgetdevices_ran_onv1
+  namespace: tools.crowdstrike
+  name: list_hosts_for_ioc
+  expects:
+    type:
+      type: str
+      description: "Indicator type: sha256, md5, domain, ipv4, or ipv6."
+    value:
+      type: str
+      description: Indicator value.
+    limit:
+      type: int | None
+      description: Maximum number of host IDs to return.
+      default: null
+    offset:
+      type: str | None
+      description: Pagination offset from the previous response.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_hosts_for_ioc
+      action: tools.falconpy.call_command
+      args:
+        operation_id: indicator_get_devices_ran_on_v1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          type: ${{ inputs.type }}
+          value: ${{ inputs.value }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+  returns: ${{ steps.list_hosts_for_ioc.result }}

@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get alerts
+  description: >-
+    Retrieve Falcon alerts by composite ID. Requires the Alerts: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/alerts/#postentitiesalertsv2
+  namespace: tools.crowdstrike
+  name: get_alerts
+  expects:
+    composite_ids:
+      type: list[str]
+      description: Alert composite IDs, for example from `tools.crowdstrike.list_alerts`.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_alerts
+      action: tools.falconpy.call_command
+      args:
+        operation_id: PostEntitiesAlertsV2
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            composite_ids: ${{ inputs.composite_ids }}
+  returns: ${{ steps.get_alerts.result }}
