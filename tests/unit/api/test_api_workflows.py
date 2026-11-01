@@ -25,6 +25,7 @@ from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginatedResponse
@@ -201,6 +202,48 @@ async def test_create_workflow_import_builtin_registry_not_ready_returns_validat
     assert error["type"] == "dsl"
     assert "retry shortly" in error["msg"]
     assert error["detail"][0]["type"] == "registry.builtin_sync_pending"
+
+
+@pytest.mark.anyio
+async def test_create_workflow_import_invalid_control_flow_returns_validation_failure(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_workflow_from_external_definition.side_effect = (
+            TracecatValidationError(
+                "Invalid control flow for action 'notify': run_if: too long",
+                detail=[
+                    ValidationDetail(
+                        type="pydantic.string_too_long", msg="too long", loc=("run_if",)
+                    )
+                ],
+            )
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/workflows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={
+                "file": (
+                    "workflow.yaml",
+                    b"definition:\n  title: Imported workflow\n",
+                    "application/yaml",
+                )
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    payload = response.json()["detail"]
+    assert payload["status"] == "failure"
+    error = payload["errors"][0]
+    assert error["type"] == "dsl"
+    assert "'notify'" in error["msg"]
+    assert error["detail"][0]["loc"] == ["run_if"]
 
 
 @pytest.mark.anyio
