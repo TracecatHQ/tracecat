@@ -184,6 +184,14 @@ export function parseChatError(error: unknown): string {
   }
 
   if (error instanceof Error) {
+    // Generated-client errors keep the API body apart from the status text.
+    const body = "body" in error ? error.body : undefined
+    if (body && typeof body === "object" && "message" in body) {
+      const bodyMessage = (body as { message?: unknown }).message
+      if (typeof bodyMessage === "string" && bodyMessage.trim()) {
+        return bodyMessage.trim()
+      }
+    }
     const message = error.message?.trim()
     if (message) {
       try {
@@ -199,6 +207,13 @@ export function parseChatError(error: unknown): string {
           const detail = (parsed as { detail?: unknown }).detail
           if (typeof detail === "string" && detail.trim()) {
             return detail.trim()
+          }
+        }
+        // Typed API errors such as EntitlementRequired carry it in `message`.
+        if (parsed && typeof parsed === "object" && "message" in parsed) {
+          const parsedMessage = (parsed as { message?: unknown }).message
+          if (typeof parsedMessage === "string" && parsedMessage.trim()) {
+            return parsedMessage.trim()
           }
         }
       } catch {

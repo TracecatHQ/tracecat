@@ -9,7 +9,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from temporalio import workflow
 from temporalio.common import Priority, RetryPolicy
+from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.schemas import (
@@ -37,6 +39,7 @@ from tracecat.cases.agent_invocations.schemas import (
     PrepareCommentAgentInvocationResult,
 )
 from tracecat.cases.agent_invocations.types import PreparedCommentAgentSession
+from tracecat.exceptions import EntitlementRequired
 
 ACTIVITIES = "tracecat.cases.agent_invocations.activities"
 
@@ -134,7 +137,11 @@ def _prepared_turn(backend_id: str) -> SimpleNamespace:
 
 
 async def _prepare(
-    prepared_turn: SimpleNamespace, actor_role: Role, execution_role: Role
+    prepared_turn: SimpleNamespace,
+    actor_role: Role,
+    execution_role: Role,
+    *,
+    prepare_error: Exception | None = None,
 ) -> PrepareCommentAgentInvocationResult:
     prepared_session = PreparedCommentAgentSession(
         invocation_id=uuid.uuid4(),
@@ -148,7 +155,9 @@ async def _prepare(
     )
     session_service = SimpleNamespace(
         execution_role=execution_role,
-        prepare_new_turn=AsyncMock(return_value=prepared_turn),
+        prepare_new_turn=AsyncMock(
+            return_value=prepared_turn, side_effect=prepare_error
+        ),
     )
 
     @contextlib.asynccontextmanager
@@ -227,6 +236,29 @@ async def test_prepare_routes_the_turn_to_the_sessions_installed_backend() -> No
         "actions": ["core.cases.get_case"],
         "tools": ["core.cases.get_case"],
     }
+
+
+@pytest.mark.anyio
+async def test_prepare_fails_without_retry_when_the_backend_is_not_entitled() -> None:
+    """Retrying cannot help until the workspace has the entitlement again."""
+    actor_role, execution_role = _roles()
+    refusal = EntitlementRequired(
+        "agent_runtime_preview", message=SESSION_BACKEND_NOT_ENTITLED_MESSAGE
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await _prepare(
+            _prepared_turn("external"),
+            actor_role,
+            execution_role,
+            prepare_error=refusal,
+        )
+
+    error = exc_info.value
+    assert error.non_retryable
+    assert error.type == "EntitlementRequired"
+    assert error.message == SESSION_BACKEND_NOT_ENTITLED_MESSAGE
+    assert error.details == (refusal.detail,)
 
 
 def _complete_input(

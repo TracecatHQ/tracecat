@@ -18,11 +18,15 @@ from tracecat_registry._internal.logger import logger
 # jsonpath_ng builds a new PLY parser per parse() call, and without a shipped
 # parsetab module every call re-imports the missing table module and regenerates
 # the LALR table. That import-lock traffic can deadlock the process if a Temporal
-# activity thread is cancelled while holding the import lock. Build one parser at
-# module import time and serialize access: PLY's LRParser mutates shared state
-# during parse and is not thread-safe. Callers treat parsed expression trees as
+# activity thread is cancelled while holding the import lock. Build one parser
+# per process and serialize access: PLY's LRParser mutates shared state during
+# parse and is not thread-safe. Callers treat parsed expression trees as
 # read-only, so sharing them across threads is safe.
-_JSONPATH_PARSER = ExtentedJsonPathParser()
+#
+# The parser is built on first parse rather than at import: the LALR table costs
+# ~10 ms, and every sandboxed action imports this module through core.transform
+# whether or not it evaluates a JSONPath.
+_JSONPATH_PARSER: ExtentedJsonPathParser | None = None
 _JSONPATH_PARSER_LOCK = threading.Lock()
 
 # functools.lru_cache may execute the wrapped function multiple times for
@@ -52,6 +56,14 @@ def _cache_jsonpath(expr: str, parsed: jsonpath_nodes.JSONPath) -> None:
             _JSONPATH_CACHE.popitem(last=False)
 
 
+def _jsonpath_parser() -> ExtentedJsonPathParser:
+    """Return the process-wide parser, building it once. Hold the parser lock."""
+    global _JSONPATH_PARSER
+    if _JSONPATH_PARSER is None:
+        _JSONPATH_PARSER = ExtentedJsonPathParser()
+    return _JSONPATH_PARSER
+
+
 def _parse_jsonpath(expr: str) -> jsonpath_nodes.JSONPath:
     """Parse a JSONPath using the shared process-wide parser.
 
@@ -67,7 +79,7 @@ def _parse_jsonpath(expr: str) -> jsonpath_nodes.JSONPath:
         if cacheable and (parsed := _get_cached_jsonpath(expr)) is not None:
             return parsed
 
-        parsed = _JSONPATH_PARSER.parse(expr)
+        parsed = _jsonpath_parser().parse(expr)
         if cacheable:
             _cache_jsonpath(expr, parsed)
         return parsed

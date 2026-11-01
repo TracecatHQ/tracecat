@@ -14,10 +14,12 @@ from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
 from tracecat.agent.channels.handlers.slack_helpers import (
     SlackAlreadyAcknowledgedError,
     ack_event,
     notify_error,
+    set_error,
     set_in_progress,
 )
 from tracecat.agent.channels.schemas import (
@@ -32,7 +34,11 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
 from tracecat.db.models import AgentSession
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
@@ -923,16 +929,40 @@ class SlackChannelHandler:
                 user_id=context.user_id,
                 workspace_id=token.workspace_id,
             )
-            await session_service.run_turn(
-                session_id,
-                BasicChatRequest(
-                    message=self._extract_prompt_text(event),
-                    instructions=self._build_slack_actor_instructions(
-                        user_profile,
-                        user_id=context.user_id,
+            try:
+                await session_service.run_turn(
+                    session_id,
+                    BasicChatRequest(
+                        message=self._extract_prompt_text(event),
+                        instructions=self._build_slack_actor_instructions(
+                            user_profile,
+                            user_id=context.user_id,
+                        ),
                     ),
-                ),
-            )
+                )
+            except EntitlementRequired:
+                # The thread's session runs on a backend the workspace lost.
+                # Post the fixed text, never the exception, into the channel.
+                await slack_client.api_call(
+                    api_method="chat.postMessage",
+                    json={
+                        "channel": context.channel_id,
+                        "thread_ts": context.thread_ts,
+                        "text": SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
+                    },
+                )
+                try:
+                    await set_error(
+                        slack_client, channel_id=context.channel_id, ts=context.ts
+                    )
+                except Exception as exc:
+                    # The refusal is already posted; a stale reaction is cosmetic.
+                    logger.warning(
+                        "Failed to mark refused Slack message with error reaction",
+                        channel_id=context.channel_id,
+                        error=str(exc),
+                    )
+                return
         except SlackAlreadyAcknowledgedError:
             logger.info(
                 "Slack message already acknowledged",

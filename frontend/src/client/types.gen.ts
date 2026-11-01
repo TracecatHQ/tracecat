@@ -5021,7 +5021,7 @@ export type EffectiveEntitlements = {
    */
   tunnels?: boolean
   /**
-   * Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions
+   * Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions
    */
   agent_runtime_preview?: boolean
 }
@@ -5158,7 +5158,7 @@ export type EntitlementsDict = {
    */
   tunnels?: boolean
   /**
-   * Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions
+   * Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions
    */
   agent_runtime_preview?: boolean
 }

@@ -108,24 +108,33 @@ def test_alpha_hotfix_replaces_complete_tags_in_tracked_files(checkout: Path) ->
     seed_versions(checkout, "1.2.0-alpha.1.1", "1.2.0a1.post1")
     # Different old versions exercise pattern replacement, not just literal replacement.
     content = (
-        "${TRACECAT__IMAGE_TAG:-1.2.0-alpha.1.9}\n"
-        "https://raw.githubusercontent.com/TracecatHQ/tracecat/1.2.0-alpha.1.9/file\n"
         "https://github.com/TracecatHQ/tracecat/blob/1.2.0-alpha.1.9/file\n"
         "`1.2.0-alpha.1.9`\n"
         "TF_VAR_tracecat_image_tag=1.2.0-alpha.1.9\n"
         "Current version: 1.2.0-alpha.1.1\n"
     )
+    # Compose defaults to the latest image and docs link to release assets, so
+    # image-tag defaults and raw GitHub URLs are no longer rewritten.
+    untouched = (
+        "${TRACECAT__IMAGE_TAG:-latest}\n"
+        "${TRACECAT__IMAGE_TAG:-1.2.0-alpha.1.9}\n"
+        "https://raw.githubusercontent.com/TracecatHQ/tracecat/1.2.0-alpha.1.9/file\n"
+    )
     doc = checkout / "docs/install.md"
     doc.parent.mkdir()
-    doc.write_text(content)
+    doc.write_text(content + untouched)
     subprocess.run(["git", "add", "--", "docs/install.md"], cwd=checkout, check=True)
 
     result = update(checkout, "1.2.0-alpha.1.2")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert doc.read_text() == content.replace(
-        "1.2.0-alpha.1.9", "1.2.0-alpha.1.2"
-    ).replace("1.2.0-alpha.1.1", "1.2.0-alpha.1.2")
+    assert (
+        doc.read_text()
+        == content.replace("1.2.0-alpha.1.9", "1.2.0-alpha.1.2").replace(
+            "1.2.0-alpha.1.1", "1.2.0-alpha.1.2"
+        )
+        + untouched
+    )
 
 
 @pytest.mark.parametrize(
