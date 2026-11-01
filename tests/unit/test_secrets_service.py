@@ -261,7 +261,7 @@ class TestSecretsService:
         session: AsyncSession,
         svc_admin_role: Role,
     ) -> None:
-        for scope in ("workflow:sync", "workspace_sync:sync"):
+        for scope in ("workspace_sync:pull", "workspace_sync:push"):
             service = SecretsService(
                 session=session,
                 role=svc_admin_role.model_copy(update={"scopes": frozenset({scope})}),

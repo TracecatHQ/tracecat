@@ -266,7 +266,7 @@ describe("AppSidebar", () => {
   })
 
   it("shows Git sync without a lock when the plan includes it", () => {
-    mockScopes = { "workspace_sync:sync": true }
+    mockScopes = { "workspace_sync:push": true }
     mockEntitlements = { git_sync: true }
 
     render(<AppSidebar />)

@@ -430,7 +430,9 @@ async def test_credential_lifecycle_and_status_never_returns_token():
 
 @pytest.mark.anyio
 async def test_credentials_require_settings_scope_and_entitlement():
-    service = BitbucketTokenService(session=AsyncMock(), role=role("workflow:sync"))
+    service = BitbucketTokenService(
+        session=AsyncMock(), role=role("workspace_sync:pull")
+    )
     with patch.object(service, "require_entitlement", new=AsyncMock()):
         with pytest.raises(ScopeDeniedError):
             await service.save_bitbucket_token_credentials(

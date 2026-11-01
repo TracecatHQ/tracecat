@@ -300,7 +300,7 @@ async def test_push_command_checks_scope_before_consuming_preview(
             }
         )
     )
-    role = svc_role.model_copy(update={"scopes": frozenset({"workflow:sync"})})
+    role = svc_role.model_copy(update={"scopes": frozenset({"workspace_sync:pull"})})
     value = snapshot(
         inputs, role, status="ready" if kind == "apply" else "failed", revision=3
     )
@@ -337,9 +337,7 @@ async def test_push_command_checks_scope_before_consuming_preview(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("kind", ["apply", "retry"])
-@pytest.mark.parametrize(
-    "authority", ["revoked", "newly_granted", "different_sync_grant"]
-)
+@pytest.mark.parametrize("authority", ["revoked", "newly_granted", "current_push_only"])
 async def test_pull_write_preflight_preserves_unconsumed_preview(
     session, svc_role, monkeypatch, kind, authority
 ):
@@ -347,22 +345,22 @@ async def test_pull_write_preflight_preserves_unconsumed_preview(
         {"id": str(uuid.uuid4()), "direction": "pull", "pull": {"commit_sha": "a" * 40}}
     )
     narrow = svc_role.model_copy(
-        update={"scopes": frozenset({"workflow:sync", "variable:read"})}
+        update={"scopes": frozenset({"workspace_sync:pull", "variable:read"})}
     )
     owner = narrow if authority == "newly_granted" else svc_role
     current = narrow if authority == "revoked" else svc_role
-    if authority == "different_sync_grant":
+    if authority == "current_push_only":
         owner = svc_role.model_copy(
             update={
                 "scopes": frozenset(
-                    {"workflow:sync", "variable:create", "variable:update"}
+                    {"workspace_sync:pull", "variable:create", "variable:update"}
                 )
             }
         )
         current = svc_role.model_copy(
             update={
                 "scopes": frozenset(
-                    {"workspace_sync:sync", "variable:create", "variable:update"}
+                    {"workspace_sync:push", "variable:create", "variable:update"}
                 )
             }
         )
@@ -451,7 +449,7 @@ async def test_pull_retry_does_not_gate_preparation_or_committed_followups(
     inputs = SyncOperationCreate.model_validate(
         {"id": str(uuid.uuid4()), "direction": "pull", "pull": {"commit_sha": "a" * 40}}
     )
-    narrow = svc_role.model_copy(update={"scopes": frozenset({"workflow:sync"})})
+    narrow = svc_role.model_copy(update={"scopes": frozenset({"workspace_sync:pull"})})
     value = snapshot(inputs, narrow, status="failed", revision=3)
     value = replace(
         value, state=replace(value.state, stage=stage, data_applied=data_applied)

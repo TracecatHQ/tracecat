@@ -11,10 +11,10 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
-from tracecat.authz.controls import check_scopes, has_scope
+from tracecat.authz.controls import check_scopes
 from tracecat.db.models import WorkspaceSyncOperation
 from tracecat.dsl.client import get_temporal_client
-from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullResult
 from tracecat.workspace_sync.operations.domain import fingerprint
@@ -264,21 +264,8 @@ class SyncLifecycleService(BaseWorkspaceService):
         required = state.preview.write_scopes
         check_scopes(self.role, *required)
         check_scopes(owner, *required)
-        sync_scopes = ["workflow:sync", "workspace_sync:sync"]
-        if not any(
-            (
-                owner.is_platform_superuser
-                or has_scope(owner.scopes or frozenset(), scope)
-            )
-            and (
-                self.role.is_platform_superuser
-                or has_scope(self.role.scopes or frozenset(), scope)
-            )
-            for scope in sync_scopes
-        ):
-            raise ScopeDeniedError(
-                required_scopes=sync_scopes, missing_scopes=sync_scopes
-            )
+        check_scopes(self.role, "workspace_sync:pull")
+        check_scopes(owner, "workspace_sync:pull")
 
     async def command(
         self,
@@ -291,7 +278,7 @@ class SyncLifecycleService(BaseWorkspaceService):
         # Reject lost push permission before the workflow consumes its preview.
         # The activity still refreshes authorization at the write boundary.
         if current.direction == "push":
-            check_scopes(self.role, "workspace_sync:sync")
+            check_scopes(self.role, "workspace_sync:push")
         elif not current.data_applied and (
             (kind == "apply" and current.status == "ready")
             or (

@@ -37,7 +37,8 @@ const SYNC_QUERY_KEYS = [
 
 interface GitSyncViewProps {
   workspace: WorkspaceRead
-  canSync: boolean
+  canPush: boolean
+  canPull: boolean
   canManageConnection: boolean
 }
 
@@ -47,9 +48,11 @@ interface GitSyncViewProps {
  */
 export function GitSyncView({
   workspace,
-  canSync,
+  canPush,
+  canPull,
   canManageConnection,
 }: GitSyncViewProps) {
+  const canSync = canPush || canPull
   const gitRepoUrl = workspace.settings?.git_repo_url || undefined
   if (!gitRepoUrl || !canSync) {
     return (
@@ -69,6 +72,8 @@ export function GitSyncView({
       workspace={workspace}
       gitRepoUrl={gitRepoUrl}
       provider={workspace.settings?.git_provider ?? "github"}
+      canPush={canPush}
+      canPull={canPull}
       canManageConnection={canManageConnection}
     />
   )
@@ -78,16 +83,22 @@ function GitSyncConnectedView({
   workspace,
   gitRepoUrl,
   provider,
+  canPush,
+  canPull,
   canManageConnection,
 }: {
   workspace: WorkspaceRead
   gitRepoUrl: string
   provider: VcsProvider
+  canPush: boolean
+  canPull: boolean
   canManageConnection: boolean
 }) {
   const workspaceId = workspace.id
   const queryClient = useQueryClient()
-  const [direction, setDirection] = useState<SyncDirection>("push")
+  const [direction, setDirection] = useState<SyncDirection>(
+    canPush ? "push" : "pull"
+  )
   const [showConnection, setShowConnection] = useState(false)
   const [localPullRevision, setLocalPullRevision] = useState(0)
   const { data: previewRevision } = useQuery({
@@ -150,22 +161,29 @@ function GitSyncConnectedView({
             />
             <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
             <TabsList className="h-7 shrink-0 gap-0 overflow-hidden rounded-md border bg-transparent p-0">
-              <TabsTrigger
-                value="push"
-                disableUnderline
-                className={DIRECTION_TAB_CLASS_NAME}
-              >
-                <ArrowUpIcon className="size-3.5" />
-                Push
-              </TabsTrigger>
-              <TabsTrigger
-                value="pull"
-                disableUnderline
-                className={cn(DIRECTION_TAB_CLASS_NAME, "border-l")}
-              >
-                <ArrowDownIcon className="size-3.5" />
-                Pull
-              </TabsTrigger>
+              {canPush && (
+                <TabsTrigger
+                  value="push"
+                  disableUnderline
+                  className={DIRECTION_TAB_CLASS_NAME}
+                >
+                  <ArrowUpIcon className="size-3.5" />
+                  Push
+                </TabsTrigger>
+              )}
+              {canPull && (
+                <TabsTrigger
+                  value="pull"
+                  disableUnderline
+                  className={cn(
+                    DIRECTION_TAB_CLASS_NAME,
+                    canPush && "border-l"
+                  )}
+                >
+                  <ArrowDownIcon className="size-3.5" />
+                  Pull
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
         )}
@@ -185,43 +203,47 @@ function GitSyncConnectedView({
         )}
       >
         {/* Both tabs stay mounted so each keeps its form state. */}
-        <TabsContent
-          value="push"
-          forceMount
-          hidden={direction !== "push"}
-          className="mt-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
-        >
-          <GitSyncPushTab
-            key={connectionKey}
-            workspaceId={workspaceId}
-            persistedGitUrl={gitRepoUrl}
-            provider={provider}
-            repoBranches={branches}
-            baseBranch={baseBranch}
-            branchesIsLoading={branchesIsLoading}
-            branchesError={branchesError}
-            syncRevision={localPullRevision + previewRevision}
-          />
-        </TabsContent>
-        <TabsContent
-          value="pull"
-          forceMount
-          hidden={direction !== "pull"}
-          className="mt-0 min-w-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
-        >
-          <GitSyncPullTab
-            key={connectionKey}
-            workspaceId={workspaceId}
-            workspaceName={workspace.name}
-            provider={provider}
-            baseBranch={baseBranch}
-            commits={commits}
-            commitsIsLoading={commitsIsLoading}
-            commitsError={commitsError}
-            isActive={direction === "pull" && !showConnection}
-            onPulled={() => setLocalPullRevision((count) => count + 1)}
-          />
-        </TabsContent>
+        {canPush && (
+          <TabsContent
+            value="push"
+            forceMount
+            hidden={direction !== "push"}
+            className="mt-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
+          >
+            <GitSyncPushTab
+              key={connectionKey}
+              workspaceId={workspaceId}
+              persistedGitUrl={gitRepoUrl}
+              provider={provider}
+              repoBranches={branches}
+              baseBranch={baseBranch}
+              branchesIsLoading={branchesIsLoading}
+              branchesError={branchesError}
+              syncRevision={localPullRevision + previewRevision}
+            />
+          </TabsContent>
+        )}
+        {canPull && (
+          <TabsContent
+            value="pull"
+            forceMount
+            hidden={direction !== "pull"}
+            className="mt-0 min-w-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
+          >
+            <GitSyncPullTab
+              key={connectionKey}
+              workspaceId={workspaceId}
+              workspaceName={workspace.name}
+              provider={provider}
+              baseBranch={baseBranch}
+              commits={commits}
+              commitsIsLoading={commitsIsLoading}
+              commitsError={commitsError}
+              isActive={direction === "pull" && !showConnection}
+              onPulled={() => setLocalPullRevision((count) => count + 1)}
+            />
+          </TabsContent>
+        )}
       </div>
       <SyncOperationHistory workspaceId={workspaceId} />
     </Tabs>
