@@ -256,15 +256,18 @@ describe("PackageResourcesDialog", () => {
   it("marks a partly selected group", () => {
     renderDialog(new Set(), {
       ...SAME_GROUP_PACKAGE,
+      patterns: ["workflows/parent/**", "workflows/child/**"],
       resources: SAME_GROUP_PACKAGE.resources?.map((resource) => ({
         ...resource,
         status: "explicit",
       })),
     })
     expandGroups()
+    expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("checkbox", { name: /^child/ }))
 
+    expect(screen.getByText(/1 of 2 in the package/)).toBeInTheDocument()
     expect(
       screen.getByRole("checkbox", { name: /Select all Workflows/i })
     ).toHaveAttribute("aria-checked", "mixed")
