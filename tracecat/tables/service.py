@@ -290,10 +290,12 @@ class BaseTablesService(BaseWorkspaceService):
                         ) from exc
                     param = sa.bindparam(bind_key, coerced_id, type_=sa.Uuid())
                 case "created_at" | "updated_at":
+                    try:
+                        coerced_ts = coerce_to_utc_datetime(value)
+                    except TypeError as exc:
+                        raise ValueError(str(exc)) from exc
                     param = sa.bindparam(
-                        bind_key,
-                        coerce_to_utc_datetime(value),
-                        type_=sa.TIMESTAMP(timezone=True),
+                        bind_key, coerced_ts, type_=sa.TIMESTAMP(timezone=True)
                     )
                 case _:
                     try:

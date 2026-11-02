@@ -1509,6 +1509,19 @@ class TestTableRows:
                 table_name=table.name, columns=["id"], values=["not-a-uuid"]
             )
 
+    @pytest.mark.parametrize("column", ["created_at", "updated_at"])
+    async def test_lookup_row_rejects_invalid_timestamp(
+        self, tables_service: TablesService, table: Table, column: str
+    ) -> None:
+        with pytest.raises(ValueError, match="Invalid ISO datetime"):
+            await tables_service.lookup_rows(
+                table_name=table.name, columns=[column], values=["not-a-date"]
+            )
+        with pytest.raises(ValueError, match="Invalid ISO datetime"):
+            await tables_service.exists_rows(
+                table_name=table.name, columns=[column], values=["not-a-date"]
+            )
+
     async def test_lookup_row_coerces_string_to_integer_column(
         self, tables_service: TablesService, table: Table
     ) -> None:
@@ -3026,10 +3039,11 @@ async def test_database_not_null_fallback(
         (False, False),
         (1, True),
         (0, False),
+        (None, None),
     ],
 )
 def test_boolean_sql_clause_coerces_supported_values(
-    value: str | bool | int, expected: bool
+    value: str | bool | int | None, expected: bool | None
 ) -> None:
     assert to_sql_clause(value, "enabled", SqlType.BOOLEAN).value is expected
 
@@ -3083,6 +3097,43 @@ async def test_boolean_row_writes_preserve_supported_values(
     rows = await _list_rows(tables_service, table)
     assert len(rows) == 2
     assert all(result["enabled"] is expected for result in rows)
+
+
+@pytest.mark.anyio
+async def test_boolean_row_writes_accept_null_for_nullable_column(
+    tables_service: TablesService, table: Table
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="enabled", type=SqlType.BOOLEAN)
+    )
+    await tables_service.create_unique_index(table, "name")
+
+    row = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": None})
+    )
+    assert row["enabled"] is None
+    updated = await tables_service.update_row(table, row["id"], {"enabled": True})
+    assert updated["enabled"] is True
+    updated = await tables_service.update_row(table, row["id"], {"enabled": None})
+    assert updated["enabled"] is None
+    upserted = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": None}, upsert=True)
+    )
+    assert upserted["enabled"] is None
+
+    assert (
+        await tables_service.batch_insert_rows(
+            table, [{"name": "batch", "enabled": None}]
+        )
+        == 1
+    )
+    assert (
+        await tables_service.batch_update_rows(table, [row["id"]], {"enabled": None})
+        == 1
+    )
+    rows = await _list_rows(tables_service, table)
+    assert len(rows) == 2
+    assert all(result["enabled"] is None for result in rows)
 
 
 @pytest.mark.anyio
