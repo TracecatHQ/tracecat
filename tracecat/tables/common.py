@@ -348,9 +348,8 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
                 key=name, value=coerced, type_=sa.TIMESTAMP(timezone=True)
             )
         case SqlType.BOOLEAN:
-            return sa.bindparam(
-                key=name, value=coerce_boolean_value(value), type_=sa.Boolean
-            )
+            coerced = None if value is None else coerce_boolean_value(value)
+            return sa.bindparam(key=name, value=coerced, type_=sa.Boolean)
         case SqlType.INTEGER:
             coerced = None if value is None else coerce_integer_value(value)
             return sa.bindparam(key=name, value=coerced, type_=sa.BigInteger)
