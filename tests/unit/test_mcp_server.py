@@ -4753,39 +4753,78 @@ async def test_watchtower_middleware_passes_tool_call_targets(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("has_context", "claims", "expected"),
+    ("claims", "expected"),
     [
+        pytest.param({"email": "user@example.com"}, "user@example.com", id="email"),
         pytest.param(
-            True, {"email": "user@example.com"}, "user@example.com", id="email"
-        ),
-        pytest.param(
-            True,
             {"upstream_claims": {"email": " user@example.com "}},
             "user@example.com",
             id="upstream-claims-email",
         ),
         pytest.param(
-            True, {"client_id": "tracecat-client"}, "tracecat-client", id="client-id"
+            {"client_id": "tracecat-client"}, "tracecat-client", id="client-id"
         ),
-        pytest.param(True, None, "anonymous", id="no-token"),
-        pytest.param(False, None, "anonymous", id="no-context"),
+        pytest.param(None, "anonymous", id="no-token"),
     ],
 )
 async def test_get_mcp_client_id(
-    has_context: bool, claims: dict[str, object] | None, expected: str
+    monkeypatch: pytest.MonkeyPatch,
+    claims: dict[str, object] | None,
+    expected: str,
 ) -> None:
     from fastmcp.server.context import Context
 
-    from tracecat.mcp.middleware import get_mcp_client_id
+    from tracecat.mcp import middleware as middleware_module
 
-    token = SimpleNamespace(claims=claims) if claims is not None else None
-    fastmcp_ctx = SimpleNamespace(get_access_token=lambda: token)
+    token = SimpleNamespace(claims=claims, client_id="") if claims is not None else None
+    monkeypatch.setattr(middleware_module, "get_access_token", lambda: token)
     ctx = MiddlewareContext(
         message=CallToolRequestParams(name="t", arguments=None),
-        fastmcp_context=cast(Context, fastmcp_ctx) if has_context else None,
+        fastmcp_context=cast(Context, SimpleNamespace()),
         method="tools/call",
     )
-    assert get_mcp_client_id(ctx) == expected
+    assert middleware_module.get_mcp_client_id(ctx) == expected
+
+
+@pytest.mark.anyio
+async def test_get_mcp_client_id_distinguishes_pat_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rate limiting must key on each caller, not one shared anonymous bucket."""
+    from fastmcp.server.auth import AccessToken
+    from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
+
+    from tracecat.mcp import middleware as middleware_module
+
+    def pat_token(key_id: str, email: str) -> AccessToken:
+        return AccessToken(
+            token=f"tc_mcp_pat_{key_id}",
+            client_id=f"mcp_pat:{key_id}",
+            scopes=[],
+            claims={"email": email, "client_id": f"mcp_pat:{key_id}"},
+        )
+
+    limiter = RateLimitingMiddleware(
+        max_requests_per_second=0.001,
+        burst_capacity=1,
+        get_client_id=middleware_module.get_mcp_client_id,
+    )
+    ctx = MiddlewareContext(
+        message=CallToolRequestParams(name="t", arguments=None),
+        method="tools/call",
+    )
+
+    async def call_next(context: MiddlewareContext) -> str:  # type: ignore[type-arg]
+        _ = context
+        return "ok"
+
+    for key_id, email in (("a", "a@example.com"), ("b", "b@example.com")):
+        monkeypatch.setattr(
+            middleware_module,
+            "get_access_token",
+            lambda token=pat_token(key_id, email): token,
+        )
+        assert await limiter.on_request(ctx, call_next) == "ok"
 
 
 def test_watchtower_status_mapping() -> None:
