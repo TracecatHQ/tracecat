@@ -2,7 +2,8 @@
 
 import { ChevronRightIcon, PackageIcon, SearchIcon } from "lucide-react"
 import Link from "next/link"
-import { useRef, useState } from "react"
+import type { ReactNode } from "react"
+import { useState } from "react"
 import type { WorkspacePackageRead, WorkspacePackageResource } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -14,6 +15,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
@@ -306,17 +308,18 @@ export function PackageSummary({
           .
         </p>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0"
-        disabled={disabled}
-        onClick={() => setDialogOpen(true)}
-      >
-        Edit resources
-      </Button>
       <PackageResourcesDialog
+        trigger={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            disabled={disabled}
+          >
+            Edit resources
+          </Button>
+        }
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         workspacePackage={workspacePackage}
@@ -332,38 +335,24 @@ export function PackageSummary({
  * applied, so closing it discards them and the push preview is left alone.
  */
 export function PackageResourcesDialog({
+  trigger,
   open,
   onOpenChange,
   workspacePackage,
   selected,
   onApply,
 }: {
+  trigger: ReactNode
   open: boolean
   onOpenChange: (open: boolean) => void
   workspacePackage: WorkspacePackageRead
   selected: Set<string>
   onApply: (selected: Set<string>) => void
 }) {
-  const openerRef = useRef<HTMLElement | null>(null)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        size="xl"
-        className="max-w-3xl"
-        onOpenAutoFocus={() => {
-          // The dialog has no Radix trigger, so remember what opened it.
-          openerRef.current =
-            document.activeElement instanceof HTMLElement
-              ? document.activeElement
-              : null
-        }}
-        onCloseAutoFocus={(event) => {
-          // Without a trigger Radix would leave focus on the body.
-          event.preventDefault()
-          openerRef.current?.focus()
-        }}
-      >
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent size="xl" className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Choose package resources</DialogTitle>
           <DialogDescription>

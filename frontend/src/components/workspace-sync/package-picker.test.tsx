@@ -79,6 +79,8 @@ const SAME_GROUP_PACKAGE: WorkspacePackageRead = {
 
 const USES_SETTINGS = new Set(["workflow:triage"])
 
+const TRIGGER = <button type="button">Open</button>
+
 function renderDialog(
   selected: Set<string>,
   workspacePackage: WorkspacePackageRead = PACKAGE,
@@ -86,6 +88,7 @@ function renderDialog(
 ) {
   render(
     <PackageResourcesDialog
+      trigger={TRIGGER}
       open
       onOpenChange={jest.fn()}
       workspacePackage={workspacePackage}
@@ -157,6 +160,7 @@ describe("PackageResourcesDialog", () => {
             Reopen
           </button>
           <PackageResourcesDialog
+            trigger={TRIGGER}
             open={open}
             onOpenChange={setOpen}
             workspacePackage={PACKAGE}
@@ -183,6 +187,7 @@ describe("PackageResourcesDialog", () => {
     function dialog(workspacePackage: WorkspacePackageRead) {
       return (
         <PackageResourcesDialog
+          trigger={TRIGGER}
           open
           onOpenChange={jest.fn()}
           workspacePackage={workspacePackage}
@@ -233,6 +238,7 @@ describe("PackageResourcesDialog", () => {
     const onApply = jest.fn()
     render(
       <PackageResourcesDialog
+        trigger={TRIGGER}
         open
         onOpenChange={jest.fn()}
         workspacePackage={SAME_GROUP_PACKAGE}
