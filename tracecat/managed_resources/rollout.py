@@ -173,6 +173,11 @@ _TARGET_STATUS_BY_ROLLOUT = {
 }
 
 
+# Key in ``ManagedRollout.result``: the managed rows this rollout still has to
+# delete, committed with its first change so a retry can finish them.
+_PENDING_DELETES = "pending_deletes"
+
+
 class StaleRolloutError(TracecatValidationError):
     """The target changed after its preview; preview again."""
 
@@ -290,19 +295,12 @@ class ManagedRolloutEngine:
         # import would otherwise pass the conflict and fingerprint checks.
         await hold_ownership_lock(self.session, rollout.workspace_id, shared=False)
         try:
-            if rollout.kind == ManagedRolloutKind.UNASSIGN:
-                plan = await self._plan_unassign(rollout)
-                self._require_unchanged(rollout, plan)
-                await self._apply_unassign(rollout)
-                return rollout
-            plan = await self._plan_apply(rollout)
-            self._require_unchanged(rollout, plan)
-            if plan.status not in (
-                ManagedRolloutStatus.READY,
-                ManagedRolloutStatus.NO_CHANGES,
-            ):
-                raise StaleRolloutError("The target is no longer ready; preview again")
-            await self._apply_plan(rollout, plan)
+            # A retry finds ``result`` set once this rollout committed work.
+            # That work changed what the preview fingerprinted, so go straight
+            # to the deletes rather than mistake it for an outside change.
+            if rollout.result is None:
+                await self._start_apply(rollout)
+            await self._finish_apply(rollout)
         except StaleRolloutError as e:
             await self.session.rollback()
             rollout = await self._rollout(rollout_id)
@@ -491,6 +489,29 @@ class ManagedRolloutEngine:
             raise StaleRolloutError("The target changed after the preview")
 
     # -- apply ----------------------------------------------------------
+    async def _start_apply(self, rollout: ManagedRollout) -> None:
+        """Check the preview still holds, then commit the rollout's first step."""
+        if rollout.kind == ManagedRolloutKind.UNASSIGN:
+            plan = await self._plan_unassign(rollout)
+            self._require_unchanged(rollout, plan)
+            rollout.result = {
+                _PENDING_DELETES: [
+                    str(row.id)
+                    for row in await self._managed_rows(rollout.workspace_id)
+                    if row.resource_type != REGISTRY_RESOURCE_TYPE
+                ]
+            }
+            await self.session.commit()
+            return
+        plan = await self._plan_apply(rollout)
+        self._require_unchanged(rollout, plan)
+        if plan.status not in (
+            ManagedRolloutStatus.READY,
+            ManagedRolloutStatus.NO_CHANGES,
+        ):
+            raise StaleRolloutError("The target is no longer ready; preview again")
+        await self._apply_plan(rollout, plan)
+
     async def _apply_plan(self, rollout: ManagedRollout, plan: _Plan) -> None:
         workspace = await self._workspace(rollout.workspace_id)
         source = await require_managed_source(self.session)
@@ -520,26 +541,49 @@ class ManagedRolloutEngine:
             target = await self._target(rollout)
             target.last_applied_tag = rollout.tag
             target.last_rollout_at = datetime.now(UTC)
-            await self.session.commit()
             # Re-read: recording can move a source id to a new local id, and
             # the old row for it is gone rather than removed from the package.
-            removed = [
-                row
-                for row in await self._managed_rows(workspace.id)
-                if row.resource_type != REGISTRY_RESOURCE_TYPE
-                and (row.resource_type, row.source_id) not in incoming_keys
-            ]
-            rollout_id = rollout.id
+            current = await self.session.execute(
+                select(
+                    ManagedResource.id,
+                    ManagedResource.resource_type,
+                    ManagedResource.source_id,
+                ).where(ManagedResource.workspace_id == workspace.id)
+            )
+            rollout.result = {
+                "imported": {
+                    resource_type: count.imported
+                    for resource_type, count in (result.resource_counts or {}).items()
+                },
+                _PENDING_DELETES: [
+                    str(row_id)
+                    for row_id, resource_type, source_id in current.tuples().all()
+                    if resource_type != REGISTRY_RESOURCE_TYPE
+                    and (resource_type, source_id) not in incoming_keys
+                ],
+            }
+            await self.session.commit()
+
+    async def _finish_apply(self, rollout: ManagedRollout) -> None:
+        """Delete what ``rollout`` has pending, then finish it.
+
+        Safe to run again: a row deleted by an earlier attempt is already gone.
+        """
+        rollout_id, workspace_id = rollout.id, rollout.workspace_id
+        kind = rollout.kind
+        result = dict(rollout.result or {})
+        pending = set(result.pop(_PENDING_DELETES, []))
+        workspace = await self._workspace(workspace_id)
+        removed = [
+            row
+            for row in await self._managed_rows(workspace_id)
+            if str(row.id) in pending
+        ]
+        with managed_write_bypass():
             failures = await self._delete_managed(workspace, removed)
         # A failed delete rolls back, which expires every loaded object.
         rollout = await self._rollout(rollout_id)
-        rollout.result = {
-            "imported": {
-                resource_type: count.imported
-                for resource_type, count in (result.resource_counts or {}).items()
-            },
-            "deleted": len(removed) - len(failures),
-        }
+        rollout.result = {**result, "deleted": len(pending) - len(failures)}
         if failures:
             await self._finish(
                 rollout,
@@ -547,29 +591,15 @@ class ManagedRolloutEngine:
                 error="Could not delete: " + ", ".join(failures),
             )
             return
+        if kind == ManagedRolloutKind.UNASSIGN:
+            await self._clear_target(rollout)
         rollout.applied_at = datetime.now(UTC)
         await self._finish(rollout, ManagedRolloutStatus.APPLIED)
 
-    async def _apply_unassign(self, rollout: ManagedRollout) -> None:
-        rollout_id, workspace_id = rollout.id, rollout.workspace_id
-        workspace = await self._workspace(workspace_id)
-        managed = await self._managed_rows(workspace_id)
-        with managed_write_bypass():
-            failures = await self._delete_managed(
-                workspace,
-                [row for row in managed if row.resource_type != REGISTRY_RESOURCE_TYPE],
-            )
-        # A failed delete rolls back, which expires every loaded object.
-        rollout = await self._rollout(rollout_id)
-        workspace = await self._workspace(workspace_id)
-        managed = await self._managed_rows(workspace_id)
-        if failures:
-            await self._finish(
-                rollout,
-                ManagedRolloutStatus.FAILED,
-                error="Could not delete: " + ", ".join(failures),
-            )
-            return
+    async def _clear_target(self, rollout: ManagedRollout) -> None:
+        """Remove what is left of an unassigned target once its deletes are done."""
+        workspace = await self._workspace(rollout.workspace_id)
+        managed = await self._managed_rows(workspace.id)
         # Lock the target before its match rows, the order reference saves
         # use, so the two cannot deadlock.
         if rollout.target_id is not None:
@@ -601,8 +631,6 @@ class ManagedRolloutEngine:
                 delete(ManagedTarget).where(ManagedTarget.id == rollout.target_id)
             )
         rollout.target_id = None
-        rollout.applied_at = datetime.now(UTC)
-        await self._finish(rollout, ManagedRolloutStatus.APPLIED)
 
     async def _record_managed(
         self,

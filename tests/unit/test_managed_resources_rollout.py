@@ -8,6 +8,7 @@ Temporal, through the same engine the background activity calls.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -73,6 +74,7 @@ from tracecat.managed_resources.guard import (
 from tracecat.managed_resources.rollout import (
     ManagedRolloutEngine,
     _conflicts,
+    _delete_resource,
     _unused_match_keys,
     target_role,
 )
@@ -854,6 +856,129 @@ async def test_a_superseded_preview_is_not_revived(
 
     assert finished.status == ManagedRolloutStatus.STALE
     assert finished.preview is None
+
+
+def _stop_worker_at_delete(monkeypatch: pytest.MonkeyPatch, number: int) -> None:
+    """Stop the activity at the ``number``-th managed delete, once."""
+    calls = 0
+
+    async def delete_resource(session, role, row) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == number:
+            raise asyncio.CancelledError
+        await _delete_resource(session, role, row)
+
+    monkeypatch.setattr(
+        "tracecat.managed_resources.rollout._delete_resource", delete_resource
+    )
+
+
+@pytest.mark.anyio
+async def test_retry_after_the_import_commits_finishes_the_deletes(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The import commit changes what the preview fingerprinted. A retry has to
+    # finish the rollout, not report its own work as an outside change.
+    customer = await harness.new_target("juliet")
+    target_id = await harness.assign(customer, "v1.0.0")
+    await harness.roll([target_id], "v1.0.0")
+    await harness.publish("v2.0.0", V2)
+    [preview] = await harness.admin.preview_rollouts(
+        ManagedRolloutPreviewRequest(target_ids=[target_id], tag="v2.0.0")
+    )
+    _stop_worker_at_delete(monkeypatch, 1)
+
+    with pytest.raises(asyncio.CancelledError):
+        await harness.admin.apply_rollouts(
+            ManagedRolloutApplyRequest(rollout_ids=[preview.id])
+        )
+    await harness.session.rollback()
+
+    engine = ManagedRolloutEngine(
+        harness.session, transport_factory=harness.fake_vcs.transport_factory
+    )
+    retried = await engine.apply(preview.id)
+
+    assert retried.status == ManagedRolloutStatus.APPLIED, retried.error
+    assert retried.result is not None
+    assert "pending_deletes" not in retried.result
+    assert retried.result["deleted"] >= 1
+    assert await _workflow(harness.session, customer, "qa-orphan") is not None
+    assert ("table", "qa_indicators") not in await _managed(harness.session, customer)
+    assert (
+        await harness.session.scalar(
+            select(Table).where(
+                Table.workspace_id == customer.id, Table.name == "qa_indicators"
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_retry_finishes_a_partly_deleted_unassign(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    customer = await harness.new_target("kilo")
+    target_id = await harness.assign(customer, "v1.0.0")
+    await harness.roll([target_id], "v1.0.0")
+    unassign = await harness.admin.unassign_target(target_id)
+    _stop_worker_at_delete(monkeypatch, 2)
+
+    with pytest.raises(asyncio.CancelledError):
+        await harness.admin.apply_rollouts(
+            ManagedRolloutApplyRequest(rollout_ids=[unassign.id])
+        )
+    await harness.session.rollback()
+
+    retried = await ManagedRolloutEngine(harness.session).apply(unassign.id)
+
+    assert retried.status == ManagedRolloutStatus.APPLIED, retried.error
+    assert await _managed(harness.session, customer) == set()
+    assert (
+        await harness.session.scalar(
+            select(ManagedTarget).where(ManagedTarget.id == target_id)
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_a_target_runs_one_apply_at_a_time(harness: Harness) -> None:
+    # A rollout's deletes run after its import commits, outside the ownership
+    # lock, so a second apply could restore what the first then deletes.
+    customer = await harness.new_target("lima")
+    target_id = await harness.assign(customer, "v1.0.0")
+    [running] = await harness.admin.preview_rollouts(
+        ManagedRolloutPreviewRequest(target_ids=[target_id], tag="v1.0.0")
+    )
+    await harness.session.execute(
+        update(ManagedRollout)
+        .where(ManagedRollout.id == running.id)
+        .values(status=ManagedRolloutStatus.APPLYING)
+    )
+    await harness.session.commit()
+    [waiting] = await harness.admin.preview_rollouts(
+        ManagedRolloutPreviewRequest(target_ids=[target_id], tag="v1.0.0")
+    )
+    assert waiting.status == ManagedRolloutStatus.READY
+
+    [skipped] = await harness.admin.apply_rollouts(
+        ManagedRolloutApplyRequest(rollout_ids=[waiting.id])
+    )
+    assert skipped.status == ManagedRolloutStatus.READY
+
+    await harness.session.execute(
+        update(ManagedRollout)
+        .where(ManagedRollout.id == running.id)
+        .values(status=ManagedRolloutStatus.FAILED)
+    )
+    await harness.session.commit()
+    [applied] = await harness.admin.apply_rollouts(
+        ManagedRolloutApplyRequest(rollout_ids=[waiting.id])
+    )
+    assert applied.status == ManagedRolloutStatus.APPLIED, applied.error
 
 
 @pytest.mark.anyio

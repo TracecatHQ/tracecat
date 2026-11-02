@@ -571,6 +571,20 @@ class AdminManagedResourcesService(BasePlatformService):
                 ManagedRolloutStatus.NO_CHANGES,
             ):
                 continue
+            # One apply per target at a time. A rollout's deletes commit one by
+            # one after its import, so the ownership lock cannot keep a second
+            # rollout from restoring a resource the first then deletes. The
+            # target lock held here makes this check race free.
+            already_applying = await self.session.scalar(
+                select(ManagedRollout.id)
+                .where(
+                    ManagedRollout.target_id == rollout.target_id,
+                    ManagedRollout.status == ManagedRolloutStatus.APPLYING,
+                )
+                .limit(1)
+            )
+            if already_applying is not None:
+                continue
             rollout.status = ManagedRolloutStatus.APPLYING
             if rollout.kind == ManagedRolloutKind.APPLY and rollout.target_id:
                 target = await self.session.scalar(
