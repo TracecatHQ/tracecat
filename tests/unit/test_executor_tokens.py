@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock
 
 import jwt
@@ -14,6 +15,7 @@ from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.executor_tokens import (
     EXECUTOR_TOKEN_AUDIENCE,
     EXECUTOR_TOKEN_ISSUER,
+    EXECUTOR_TOKEN_SUBJECT,
     ExecutionOrigin,
     mint_executor_token,
     verify_executor_token,
@@ -30,74 +32,114 @@ def _make_request(token: str | None) -> Request:
     return Request(scope)
 
 
-def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatch):
+def _patch_workspace_org(
+    monkeypatch: pytest.MonkeyPatch, workspace_id: uuid.UUID
+) -> uuid.UUID:
+    """Mock the cached workspace->org lookup and return the organization ID."""
+    organization_id = uuid.uuid4()
+
+    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
+        return organization_id if ws_id == workspace_id else None
+
+    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
+    return organization_id
+
+
+def _mint_legacy_executor_token_without_service_id(
+    *, service_key: str, workspace_id: uuid.UUID
+) -> str:
+    now = datetime.now(UTC)
+    payload = {
+        "iss": EXECUTOR_TOKEN_ISSUER,
+        "aud": EXECUTOR_TOKEN_AUDIENCE,
+        "sub": EXECUTOR_TOKEN_SUBJECT,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=60)).timestamp()),
+        "workspace_id": str(workspace_id),
+        "user_id": None,
+        "wf_id": "wf-1",
+        "wf_exec_id": "run-1",
+    }
+    return jwt.encode(payload, service_key, algorithm="HS256")
+
+
+_AGENT_SESSION_ID = uuid.UUID(int=7)
+
+
+@pytest.mark.parametrize(
+    ("claims", "expected"),
+    [
+        pytest.param(
+            {},
+            {"execution_origin": None, "root_action": None, "agent_session_id": None},
+            id="defaults",
+        ),
+        *[
+            pytest.param(
+                {"execution_origin": origin, "root_action": "core.script.run_python"},
+                {"execution_origin": origin, "root_action": "core.script.run_python"},
+                id=f"{origin}-origin",
+            )
+            for origin in ("agent", "workflow")
+        ],
+        pytest.param(
+            {
+                "service_id": "tracecat-mcp",
+                "execution_origin": "agent",
+                "agent_session_id": _AGENT_SESSION_ID,
+            },
+            {"agent_session_id": _AGENT_SESSION_ID},
+            id="agent-session-id",
+        ),
+        pytest.param(
+            {"service_id": "tracecat-schedule-runner"},
+            {"service_id": "tracecat-schedule-runner"},
+            id="service-id",
+        ),
+    ],
+)
+def test_mint_and_verify_executor_token_roundtrip(
+    monkeypatch: pytest.MonkeyPatch,
+    claims: dict[str, Any],
+    expected: dict[str, Any],
+) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
 
     workspace_id = uuid.uuid4()
     user_id = uuid.uuid4()
-    wf_id = "wf-1"
-    wf_exec_id = "run-1"
 
     token = mint_executor_token(
         workspace_id=workspace_id,
         user_id=user_id,
-        wf_id=wf_id,
-        wf_exec_id=wf_exec_id,
+        wf_id="wf-1",
+        wf_exec_id="run-1",
         ttl_seconds=60,
+        **claims,
     )
 
     verified = verify_executor_token(token)
 
     assert verified.workspace_id == workspace_id
     assert verified.user_id == user_id
-    assert verified.wf_id == wf_id
-    assert verified.wf_exec_id == wf_exec_id
-    assert verified.execution_origin is None
-    assert verified.root_action is None
-    assert verified.agent_session_id is None
+    assert verified.wf_id == "wf-1"
+    assert verified.wf_exec_id == "run-1"
+    for attr, value in expected.items():
+        assert getattr(verified, attr) == value
 
 
-@pytest.mark.parametrize("execution_origin", ["agent", "workflow"])
-def test_executor_token_preserves_execution_origin(
+def test_verify_executor_token_without_service_id_claim_is_compatible(
     monkeypatch: pytest.MonkeyPatch,
-    execution_origin: ExecutionOrigin,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    service_key = "test-service-key"
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
 
-    token = mint_executor_token(
-        workspace_id=uuid.uuid4(),
-        user_id=None,
-        execution_origin=execution_origin,
-        root_action="core.script.run_python",
-        wf_id="wf-1",
-        wf_exec_id="run-1",
+    token = _mint_legacy_executor_token_without_service_id(
+        service_key=service_key, workspace_id=uuid.uuid4()
     )
 
     verified = verify_executor_token(token)
 
-    assert verified.execution_origin == execution_origin
-    assert verified.root_action == "core.script.run_python"
-
-
-def test_executor_token_preserves_agent_session_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    agent_session_id = uuid.uuid4()
-
-    token = mint_executor_token(
-        workspace_id=uuid.uuid4(),
-        user_id=None,
-        service_id="tracecat-mcp",
-        execution_origin="agent",
-        agent_session_id=agent_session_id,
-        wf_id="wf-1",
-        wf_exec_id="run-1",
-    )
-
-    verified = verify_executor_token(token)
-
-    assert verified.agent_session_id == agent_session_id
+    assert verified.service_id is None
 
 
 @pytest.mark.parametrize(
@@ -225,14 +267,8 @@ async def test_role_dependency_executor_token_populates_org_context(
 
     workspace_id = uuid.uuid4()
     user_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
+    organization_id = _patch_workspace_org(monkeypatch, workspace_id)
     agent_session_id = uuid.uuid4()
-
-    # Mock the cached workspace->org lookup
-    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
-        return organization_id if ws_id == workspace_id else None
-
-    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
 
     token = mint_executor_token(
         workspace_id=workspace_id,
@@ -274,12 +310,7 @@ async def test_role_dependency_workflow_token_clears_agent_session_context(
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-
-    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
-        return organization_id if ws_id == workspace_id else None
-
-    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
+    _patch_workspace_org(monkeypatch, workspace_id)
     token = mint_executor_token(
         workspace_id=workspace_id,
         user_id=None,
@@ -306,21 +337,19 @@ async def test_role_dependency_workflow_token_clears_agent_session_context(
 
 
 @pytest.mark.anyio
-async def test_role_dependency_executor_token_defaults_to_basic_for_unknown_user(
+@pytest.mark.parametrize(
+    "user_id",
+    [pytest.param(uuid.uuid4(), id="unknown_user"), pytest.param(None, id="null_user")],
+)
+async def test_role_dependency_executor_token_defaults_to_basic_user(
     monkeypatch: pytest.MonkeyPatch,
-):
-    """Verify executor role resolves even when DB user context is unavailable."""
+    user_id: uuid.UUID | None,
+) -> None:
+    """Executor roles resolve without DB user context, including system runs."""
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
 
     workspace_id = uuid.uuid4()
-    user_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-
-    # Mock the cached workspace->org lookup
-    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
-        return organization_id if ws_id == workspace_id else None
-
-    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
+    organization_id = _patch_workspace_org(monkeypatch, workspace_id)
 
     token = mint_executor_token(
         workspace_id=workspace_id,
@@ -329,13 +358,10 @@ async def test_role_dependency_executor_token_defaults_to_basic_for_unknown_user
         wf_exec_id="run-1",
         ttl_seconds=60,
     )
-    request = _make_request(token)
-
-    mock_session = AsyncMock()
 
     resolved = await _role_dependency(
-        request=request,
-        session=mock_session,
+        request=_make_request(token),
+        session=AsyncMock(),
         workspace_id=workspace_id,
         user=None,
         api_key=None,
@@ -351,50 +377,6 @@ async def test_role_dependency_executor_token_defaults_to_basic_for_unknown_user
 
 
 @pytest.mark.anyio
-async def test_role_dependency_executor_token_defaults_to_basic_for_null_user(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """Verify executor roles support null user_id (system execution)."""
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-
-    workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-
-    # Mock the cached workspace->org lookup
-    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
-        return organization_id if ws_id == workspace_id else None
-
-    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
-
-    token = mint_executor_token(
-        workspace_id=workspace_id,
-        user_id=None,  # System/anonymous execution
-        wf_id="wf-1",
-        wf_exec_id="run-1",
-        ttl_seconds=60,
-    )
-    request = _make_request(token)
-
-    # No user role lookup needed since user_id is None
-    mock_session = AsyncMock()
-
-    resolved = await _role_dependency(
-        request=request,
-        session=mock_session,
-        workspace_id=workspace_id,
-        user=None,
-        api_key=None,
-        allow_user=False,
-        allow_service=False,
-        allow_executor=True,
-        require_workspace="yes",
-    )
-
-    assert resolved.user_id is None
-    assert resolved.organization_id == organization_id
-
-
-@pytest.mark.anyio
 async def test_role_dependency_executor_uses_jwt_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -406,13 +388,7 @@ async def test_role_dependency_executor_uses_jwt_workspace(
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
 
     jwt_workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-
-    # Mock the cached workspace->org lookup
-    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
-        return organization_id if ws_id == jwt_workspace_id else None
-
-    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
+    organization_id = _patch_workspace_org(monkeypatch, jwt_workspace_id)
 
     token = mint_executor_token(
         workspace_id=jwt_workspace_id,
@@ -443,3 +419,44 @@ async def test_role_dependency_executor_uses_jwt_workspace(
     assert resolved.type == "service"
     assert resolved.service_id == "tracecat-executor"
     assert resolved.organization_id == organization_id
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("legacy_token", "expected_service_id"),
+    [
+        pytest.param(True, "tracecat-executor", id="claim_missing_defaults"),
+        pytest.param(False, "tracecat-schedule-runner", id="claim_present"),
+    ],
+)
+async def test_authenticate_executor_service_id(
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_token: bool,
+    expected_service_id: str,
+) -> None:
+    service_key = "test-service-key"
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
+    workspace_id = uuid.uuid4()
+    organization_id = _patch_workspace_org(monkeypatch, workspace_id)
+
+    if legacy_token:
+        token = _mint_legacy_executor_token_without_service_id(
+            service_key=service_key, workspace_id=workspace_id
+        )
+    else:
+        token = mint_executor_token(
+            workspace_id=workspace_id,
+            user_id=None,
+            service_id="tracecat-schedule-runner",
+            wf_id="wf-1",
+            wf_exec_id="run-1",
+        )
+
+    role = await credentials._authenticate_executor(
+        request=_make_request(token),
+        workspace_id=workspace_id,
+        require_workspace="yes",
+    )
+
+    assert role.service_id == expected_service_id
+    assert role.organization_id == organization_id

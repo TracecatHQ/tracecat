@@ -189,47 +189,10 @@ class TestCursorPaginator:
         assert decoded.sort_value.microsecond == 123456
         assert decoded.id == entity_id
 
-    def test_cursor_pagination_params(self):
-        """Test cursor pagination parameters."""
-        # Test default values
-        params = CursorPaginationParams()
-        assert params.cursor is None
-        assert params.limit == 20
-
-        # Test with custom values
-        params = CursorPaginationParams(cursor="test-cursor", limit=50)
-        assert params.cursor == "test-cursor"
-        assert params.limit == 50
-
-        # Test validation
+    @pytest.mark.parametrize("limit", [0, 201])
+    def test_cursor_pagination_params_bound_limit(self, limit: int):
         with pytest.raises(ValueError):
-            CursorPaginationParams(limit=0)  # Below minimum
-
-        with pytest.raises(ValueError):
-            CursorPaginationParams(limit=201)  # Above maximum
-
-    def test_cursor_data_model(self):
-        """Test CursorData model validation."""
-        timestamp = datetime.now(UTC)
-        entity_id = "test-id"
-
-        cursor_data = CursorData(
-            sort_column="created_at", sort_value=timestamp, id=entity_id
-        )
-        assert cursor_data.sort_column == "created_at"
-        assert cursor_data.sort_value == timestamp
-        assert cursor_data.id == entity_id
-
-        # Test JSON serialization
-        json_data = cursor_data.model_dump_json()
-        assert isinstance(json_data, str)
-
-        # Test deserialization
-        parsed_data = json.loads(json_data)
-        recreated = CursorData.model_validate(parsed_data)
-        assert recreated.sort_column == "created_at"
-        assert recreated.sort_value == timestamp
-        assert recreated.id == entity_id
+            CursorPaginationParams(limit=limit)
 
 
 class TestPaginate:

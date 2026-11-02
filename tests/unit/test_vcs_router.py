@@ -46,46 +46,33 @@ def _org_settings_role(scope: str) -> Role:
 
 
 @pytest.mark.anyio
-async def test_save_gitlab_credentials_reraises_entitlement_required() -> None:
+@pytest.mark.parametrize("endpoint", ["save", "delete", "status"])
+async def test_gitlab_credentials_endpoints_reraise_entitlement_required(
+    endpoint: str,
+) -> None:
     with patch.object(
         vcs_router,
         "GitLabTokenService",
         _EntitlementFailingGitLabTokenService,
     ):
         with pytest.raises(EntitlementRequired, match=Entitlement.GIT_SYNC.value):
-            await vcs_router.save_gitlab_token_credentials(
-                session=AsyncMock(),
-                role=_org_settings_role("org:settings:update"),
-                request=GitLabTokenCredentialsRequest(
-                    base_url="https://gitlab.example.test",
-                    token=SecretStr("test-token"),
-                ),
-            )
-
-
-@pytest.mark.anyio
-async def test_delete_gitlab_credentials_reraises_entitlement_required() -> None:
-    with patch.object(
-        vcs_router,
-        "GitLabTokenService",
-        _EntitlementFailingGitLabTokenService,
-    ):
-        with pytest.raises(EntitlementRequired, match=Entitlement.GIT_SYNC.value):
-            await vcs_router.delete_gitlab_token_credentials(
-                session=AsyncMock(),
-                role=_org_settings_role("org:settings:delete"),
-            )
-
-
-@pytest.mark.anyio
-async def test_gitlab_credentials_status_reraises_entitlement_required() -> None:
-    with patch.object(
-        vcs_router,
-        "GitLabTokenService",
-        _EntitlementFailingGitLabTokenService,
-    ):
-        with pytest.raises(EntitlementRequired, match=Entitlement.GIT_SYNC.value):
-            await vcs_router.get_gitlab_token_credentials_status(
-                session=AsyncMock(),
-                role=_org_settings_role("org:settings:read"),
-            )
+            match endpoint:
+                case "save":
+                    await vcs_router.save_gitlab_token_credentials(
+                        session=AsyncMock(),
+                        role=_org_settings_role("org:settings:update"),
+                        request=GitLabTokenCredentialsRequest(
+                            base_url="https://gitlab.example.test",
+                            token=SecretStr("test-token"),
+                        ),
+                    )
+                case "delete":
+                    await vcs_router.delete_gitlab_token_credentials(
+                        session=AsyncMock(),
+                        role=_org_settings_role("org:settings:delete"),
+                    )
+                case "status":
+                    await vcs_router.get_gitlab_token_credentials_status(
+                        session=AsyncMock(),
+                        role=_org_settings_role("org:settings:read"),
+                    )

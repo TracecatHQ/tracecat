@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Update watch list entry last seen time by ID
+  description: Update a watch list entry's last seen time by entry ID.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/893786/watchlist-integration#update-last-seen-time-of-watch-list-entry-by-watch-list-entry-id
+  namespace: tools.fortisiem
+  name: update_watchlist_entry_last_seen_by_id
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    entryId:
+      type: int
+      description: Watch list entry ID.
+    lastSeenTime:
+      type: int
+      description: Last seen time as a Unix timestamp in milliseconds.
+    custId:
+      type: int | None
+      description: Customer ID.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/watchlist/entry/lastseen/${{ inputs.entryId }}
+        method: POST
+        params:
+          lastSeenTime: ${{ inputs.lastSeenTime }}
+          custId: ${{ inputs.custId }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

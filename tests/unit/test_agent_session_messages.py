@@ -7,10 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
-from claude_agent_sdk.types import UserMessage
+from claude_agent_sdk.types import AssistantMessage, ThinkingBlock, UserMessage
 
 from tracecat.agent.runtime.claude_code.session_lines import (
+    APPROVAL_CONTINUATION_PROMPT,
     MODEL_CONTEXT_PROMPT_PREFIX,
+    mark_hidden_continuation,
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
@@ -52,40 +54,6 @@ def _build_service() -> tuple[AgentSessionService, AgentSession]:
 
 
 @pytest.mark.anyio
-async def test_list_messages_preserves_compaction_metadata() -> None:
-    service, agent_session = _build_service()
-    compaction_entry = SimpleNamespace(
-        id=uuid.uuid4(),
-        kind=MessageKind.COMPACTION.value,
-        content={
-            "type": "system",
-            "subtype": "compact_boundary",
-            "compactMetadata": {
-                "preTokens": 128000,
-                "trigger": "auto",
-            },
-        },
-    )
-
-    service.get_session = AsyncMock(return_value=agent_session)
-    service.session.execute = AsyncMock(
-        side_effect=[
-            _mock_scalar_result([]),
-            _mock_scalar_result([compaction_entry]),
-        ]
-    )
-
-    messages = await service.list_messages(agent_session.id)
-
-    assert len(messages) == 1
-    assert messages[0].kind == MessageKind.COMPACTION
-    assert messages[0].compaction == {
-        "phase": "completed",
-        "pre_tokens": 128000,
-    }
-
-
-@pytest.mark.anyio
 async def test_list_messages_maps_cancelled_marker() -> None:
     service, agent_session = _build_service()
     cancelled_entry = SimpleNamespace(
@@ -120,6 +88,9 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
     sdk_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
+        forked_from_sdk_session_id=None,
         sdk_session_id="sdk-session-123",
         curr_run_id=None,
     )
@@ -171,14 +142,9 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
 @pytest.mark.anyio
 async def test_display_only_context_splits_ui_from_model_history() -> None:
     """Raw source text is visible while the full prompt only reaches the model."""
-    service, _ = _build_service()
-    session_id = uuid.uuid4()
-    sdk_session = SimpleNamespace(
-        id=session_id,
-        parent_session_id=None,
-        sdk_session_id="sdk-session-123",
-        curr_run_id=None,
-    )
+    service, sdk_session = _build_service()
+    session_id = sdk_session.id
+    sdk_session.sdk_session_id = "sdk-session-123"
     context_prompt = f"{MODEL_CONTEXT_PROMPT_PREFIX}hidden thread instructions"
     entries = [
         SimpleNamespace(
@@ -248,6 +214,9 @@ async def test_load_session_history_prefers_exact_raw_nul_content() -> None:
     sdk_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
+        forked_from_sdk_session_id=None,
         sdk_session_id="sdk-session-123",
         curr_run_id=None,
     )
@@ -289,6 +258,9 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
     sdk_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
+        forked_from_sdk_session_id=None,
         sdk_session_id="sdk-session-123",
         curr_run_id=None,
     )
@@ -357,7 +329,10 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
                 "type": "user",
                 "uuid": "prompt-uuid",
                 "parentUuid": "synthetic-uuid",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": APPROVAL_CONTINUATION_PROMPT,
+                },
             },
         ),
         SimpleNamespace(
@@ -402,13 +377,8 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
 
 @pytest.mark.anyio
 async def test_list_messages_skips_misclassified_continuation_artifacts() -> None:
-    service, _ = _build_service()
-    session_id = uuid.uuid4()
-    agent_session = SimpleNamespace(
-        id=session_id,
-        parent_session_id=None,
-        curr_run_id=None,
-    )
+    service, agent_session = _build_service()
+    session_id = agent_session.id
     prompt_uuid = "prompt-uuid"
     thinking_uuid = "thinking-uuid"
     entries = [
@@ -428,7 +398,10 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
                 "type": "user",
                 "uuid": prompt_uuid,
                 "parentUuid": "synthetic-uuid",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": APPROVAL_CONTINUATION_PROMPT,
+                },
             },
         ),
         SimpleNamespace(
@@ -476,3 +449,72 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
 
     assert len(messages) == 1
     assert messages[0].message is not None
+
+
+@pytest.mark.anyio
+async def test_list_messages_keeps_thinking_after_internal_context_rows() -> None:
+    # Claude Code parents each step to internal attachment and skill-load rows;
+    # the reasoning that follows them is part of the turn, not a continuation.
+    service, agent_session = _build_service()
+    entries = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            content={
+                "type": "user",
+                "uuid": "skill-uuid",
+                "isMeta": True,
+                "message": {"role": "user", "content": "Base directory for skill"},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            content={
+                "type": "attachment",
+                "uuid": "attachment-uuid",
+                "parentUuid": "skill-uuid",
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "type": "assistant",
+                "uuid": "thinking-uuid",
+                "parentUuid": "attachment-uuid",
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet",
+                    "content": [
+                        {"type": "thinking", "thinking": "Check the cases first."}
+                    ],
+                },
+            },
+        ),
+    ]
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([]),
+            _mock_scalar_result(entries),
+        ]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert isinstance(messages[0].message, AssistantMessage)
+    assert isinstance(messages[0].message.content[0], ThinkingBlock)
+
+
+@pytest.mark.parametrize("parent_uuid", [["parent"], {"id": "parent"}, None])
+def test_mark_hidden_continuation_ignores_malformed_parent(
+    parent_uuid: object,
+) -> None:
+    hidden = {"parent"}
+    line = {"uuid": "child", "parentUuid": parent_uuid}
+
+    assert not mark_hidden_continuation(line, hidden, internal_row=True)
+    assert hidden == {"parent"}

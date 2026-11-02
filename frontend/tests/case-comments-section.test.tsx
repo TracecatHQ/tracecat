@@ -420,6 +420,7 @@ function createAgentPresetFixtures(): AgentPresetReadMinimal[] {
       name: "Triage agent",
       slug: "triage-agent",
       description: "Triages new cases",
+      use_in_chat: true,
       model_provider: "openai",
       model_name: "gpt-4o",
       created_at: "2024-01-01T00:00:00Z",
@@ -431,6 +432,7 @@ function createAgentPresetFixtures(): AgentPresetReadMinimal[] {
       name: "Malware agent",
       slug: "malware-agent",
       description: null,
+      use_in_chat: true,
       model_provider: "openai",
       model_name: "gpt-4o",
       created_at: "2024-01-01T00:00:00Z",
@@ -1639,6 +1641,23 @@ describe("CommentSection", () => {
   describe("agent mention autocomplete", () => {
     beforeEach(() => {
       mockEntitlements(["case_addons", "agent_addons"])
+    })
+
+    it("only offers agents explicitly enabled for chat", () => {
+      mockAgentPresets(
+        createAgentPresetFixtures().map((preset, index) => ({
+          ...preset,
+          use_in_chat: index === 0,
+        }))
+      )
+      renderCommentSection()
+      typeInto(getRootComposer(), "@")
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(screen.queryByText("Malware agent")).not.toBeInTheDocument()
+      expect(mockUseAgentPresets).toHaveBeenCalledWith(
+        "workspace-1",
+        expect.objectContaining({ enabled: true, useInChat: true })
+      )
     })
 
     function getCaretMarker(textarea: HTMLElement) {

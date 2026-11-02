@@ -1,0 +1,175 @@
+---
+title: "Timeouts"
+description: "Default timeouts for agents, chat turns, tool calls, model responses, and workflows, and every setting that raises them."
+---
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
+
+Agents run under several independent timeouts.
+Find the error your run failed with in [Timeout errors](#timeout-errors), then raise the matching setting.
+
+## Defaults
+
+| Limit | Default | Where to change it |
+| --- | --- | --- |
+| Agent action runtime (`ai.agent`, `ai.action`, `ai.preset_agent`) | `7200` seconds (2 hours) | The action's `Timeout` |
+| Chat turn | `7200` seconds (2 hours) | Fixed. Only a lower deployment ceiling changes it |
+| Shortest explicit agent timeout | `1800` seconds (30 minutes) | Fixed. A ceiling below `1800` lowers it |
+| Agent timeout ceiling | `10800` seconds (3 hours) | `TRACECAT__AGENT_SANDBOX_TIMEOUT` |
+| Model response read timeout | `600` seconds (`300` in the Helm chart) | `TRACECAT__LLM_PROXY_READ_TIMEOUT` |
+| Registry tool call | `300` seconds | Fixed. `TRACECAT__EXECUTOR_CLIENT_TIMEOUT` can lower it |
+| MCP integration response | `30` seconds, up to `300` | The MCP integration's `Timeout (seconds)` |
+| MCP tool discovery | `20` seconds per server, `60` seconds total | Fixed |
+| Workflow run | Unlimited | The workflow's `Timeout`, or the workspace's `Default workflow timeout` |
+
+Subagents run inside their parent agent's run and share its timeout.
+Time spent waiting for a [tool approval](/agents/human-in-the-loop) doesn't count toward the agent timeout, and the resumed run gets the full timeout again.
+
+## Raise an agent action's timeout
+
+<Steps>
+  <Step title="Open the action">
+    Open the workflow in the builder and select the `ai.agent`, `ai.action`, or `ai.preset_agent` action.
+  </Step>
+  <Step title="Set the timeout">
+    Select the `Control flow` tab and enter the runtime in seconds under `Timeout`.
+    New agent actions start with the `7200` second default.
+
+    <img src="/img/agents/timeouts-action-control-flow.png" alt="Agent action timeout" width="360" />
+  </Step>
+  <Step title="Save the action">
+    At run time, Tracecat clamps the value between `1800` seconds and the deployment ceiling. It never rejects a value.
+  </Step>
+</Steps>
+
+In a workflow definition, set `retry_policy.timeout`:
+
+```yaml
+- ref: investigate_alert
+  action: ai.preset_agent
+  retry_policy:
+    timeout: 10800
+  args:
+    preset: alert-triage
+    user_prompt: |
+      Investigate this alert:
+
+      ${{ TRIGGER.alert }}
+```
+
+Values above the ceiling run at the ceiling. To let agents run longer than `10800` seconds, raise the ceiling first.
+
+## Raise the agent timeout ceiling
+
+`TRACECAT__AGENT_SANDBOX_TIMEOUT` caps every agent action and chat turn.
+A ceiling below `1800` seconds also lowers the default and the shortest explicit timeout to the ceiling.
+
+<Tabs>
+  <Tab title="Docker Compose">
+    Set the variable in `.env`, then recreate the services:
+
+    ```bash
+    TRACECAT__AGENT_SANDBOX_TIMEOUT=14400
+    ```
+
+    ```bash
+    docker compose up -d
+    ```
+  </Tab>
+  <Tab title="Helm">
+    Set `tracecat.agentSandboxTimeout` in your values file:
+
+    ```yaml
+    tracecat:
+      agentSandboxTimeout: 14400
+    ```
+
+    The agent executor's `agentExecutor.gracefulShutdownTimeout` (ceiling plus `60`) and `agentExecutor.terminationGracePeriodSeconds` (drain timeout plus `60`) follow the ceiling when left empty.
+    If you set either explicitly, keep `gracefulShutdownTimeout` at least the ceiling plus `60`, or the chart fails to render.
+    See [Kubernetes](/self-hosting/kubernetes).
+  </Tab>
+  <Tab title="Terraform (EKS)">
+    Set `agent_sandbox_timeout` on the EKS module. It maps to `tracecat.agentSandboxTimeout` and must be at least `1800`:
+
+    ```hcl
+    agent_sandbox_timeout = 14400
+    ```
+  </Tab>
+  <Tab title="AWS Fargate">
+    Set `agent_sandbox_timeout` on the Fargate module:
+
+    ```hcl
+    agent_sandbox_timeout = "14400"
+    ```
+
+    See [AWS Fargate](/self-hosting/aws-fargate).
+  </Tab>
+</Tabs>
+
+On Docker Compose and Fargate, the agent executor's drain timeout `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` also defaults to the ceiling plus `60` seconds.
+
+## Chat turns
+
+Each turn in [workspace chat](/agents/workspace-chat), preset chat, or a [channel](/agents/channels) runs for up to `7200` seconds.
+You can't set a per-chat timeout. A ceiling below `7200` shortens chat turns to the ceiling.
+
+## Model response timeout
+
+`TRACECAT__LLM_PROXY_READ_TIMEOUT` sets how long the agent's LLM proxy waits for the next byte from the model provider or gateway.
+It applies to each model request, not to the whole run, so raise it for slow reasoning models or self-hosted gateways that stream slowly.
+
+| Deployment | Setting | Default |
+| --- | --- | --- |
+| Docker Compose | `TRACECAT__LLM_PROXY_READ_TIMEOUT` in `.env` | `600` |
+| Helm | `agentExecutor.llmProxyReadTimeout` | `300` |
+| AWS Fargate | `llm_proxy_read_timeout` | `600` |
+
+See [Custom LLM providers](/agents/custom-llm-providers#troubleshooting) for gateway errors.
+
+## Tool call timeouts
+
+Each registry action an agent calls as a tool runs with the default action timeout of `300` seconds.
+`TRACECAT__EXECUTOR_CLIENT_TIMEOUT` caps each call and can only shorten it.
+To run longer work from an agent, call a [workflow](/automations/triggers/workflows-as-apis) or a custom action that starts the work and returns.
+
+MCP integrations have their own `Timeout (seconds)`, between `1` and `300`, default `30`.
+Open `MCP servers` from the sidebar, click `Add MCP server` or edit an existing server, and set it under `Advanced`.
+
+![MCP integration timeout](/img/agents/timeouts-mcp-integration.png)
+
+Tool discovery gives each MCP server at most `20` seconds, or the integration's timeout if shorter, and `60` seconds for all servers in one run.
+
+## Workflow timeouts
+
+The workflow timeout bounds the whole workflow run, including agent actions and the time spent waiting for approvals.
+A long-running agent fails when the workflow times out, even if the agent's own timeout hasn't elapsed.
+
+Open the workflow and set `Timeout (seconds)` on the `Workflow` tab of the side panel. Click an empty spot on the canvas if an action is selected. `0` means unlimited.
+
+<img src="/img/agents/timeouts-workflow-settings.png" alt="Workflow timeout" width="360" />
+
+Workspace settings take precedence over each workflow's timeout:
+
+- `Unlimited workflow timeout` on: Workflows run with no timeout, and each workflow's `Timeout (seconds)` is ignored. New workspaces start with this on.
+- `Default workflow timeout` set: Every workflow in the workspace uses this value.
+- Neither set: Each workflow uses its own `Timeout (seconds)`.
+
+Open `Settings` from the sidebar, then select `Workflows` under `Workspace`.
+
+![Workspace runtime settings](/img/agents/timeouts-workspace-runtime.png)
+
+## Timeout errors
+
+| Error | Limit | Fix |
+| --- | --- | --- |
+| `Agent execution timed out after <n>s` | Agent action runtime or chat turn | Raise the action's `Timeout`, then the ceiling if needed |
+| `Model response timed out after <duration> without receiving data` | Model response read timeout | Raise `TRACECAT__LLM_PROXY_READ_TIMEOUT` |
+| `Gateway timeout` | Model response read timeout on a non-streaming request | Raise `TRACECAT__LLM_PROXY_READ_TIMEOUT` |
+| `Action execution timed out after 300s` | Registry tool call | Move the long-running work into a workflow |
+| Workflow run status is timed out | Workflow timeout | Raise the workflow or workspace timeout |
+
+## Related pages
+
+- See [Actions](/automations/actions#timeout) for how `timeout` and `max_attempts` apply to every action.
+- See [Human-in-the-loop](/agents/human-in-the-loop) for how approval waits interact with timeouts.
+- See [Environment variables](/self-hosting/environment-variables) for every deployment setting on this page.

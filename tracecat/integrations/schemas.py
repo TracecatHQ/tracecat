@@ -36,6 +36,7 @@ class IntegrationReadMinimal(BaseModel):
 
     id: UUID4
     provider_id: str
+    grant_type: OAuthGrantType
     status: IntegrationStatus
     is_expired: bool
 
@@ -432,6 +433,10 @@ class MCPHttpIntegrationCreate(_MCPIntegrationCreateBase):
     oauth_integration_id: uuid.UUID | None = Field(
         default=None, description="OAuth integration ID (required for oauth2 auth_type)"
     )
+    tunnel_id: uuid.UUID | None = Field(
+        default=None,
+        description="Workspace tunnel that every request to this server goes through",
+    )
     custom_credentials: SecretStr | None = Field(
         default=None,
         description=(
@@ -555,6 +560,10 @@ class MCPIntegrationUpdate(BaseModel):
     server_uri: str | None = None
     auth_type: MCPAuthType | None = None
     oauth_integration_id: uuid.UUID | None = None
+    tunnel_id: uuid.UUID | None = Field(
+        default=None,
+        description="Workspace tunnel for this HTTP server. Send null to stop using one.",
+    )
     custom_credentials: SecretStr | None = Field(
         default=None,
         description=(
@@ -833,6 +842,13 @@ class MCPToolSummary(BaseModel):
     """Whether this tool requires HITL approval before execution."""
     status: MCPToolStatus = "available"
     """Whether the tool was present in the latest successful discovery."""
+    input_schema: dict[str, Any] | None = None
+    """JSON Schema for the tool's arguments, as the server advertised it.
+
+    Recorded for stdio servers, whose tools are listed from this saved copy
+    instead of rediscovered per turn. ``None`` for HTTP servers and for stdio
+    tools verified before the schema was recorded.
+    """
 
     @classmethod
     def validate_stored(
@@ -898,9 +914,6 @@ class PlatformMCPCatalogRead(BaseModel):
     provider_id: str | None
     connection_spec: MCPConnectionSpec | None
     connection_options: list[MCPConnectionOption] = Field(default_factory=list)
-    locked: bool = Field(
-        description="Whether this platform MCP catalog row is locked by entitlement.",
-    )
     state: PlatformMCPCatalogState
     mcp_integration_id: UUID4 | None
     mcp_server_type: MCPServerType | None = None
@@ -933,6 +946,7 @@ class MCPIntegrationRead(BaseModel):
     server_uri: str | None
     auth_type: MCPAuthType
     oauth_integration_id: UUID4 | None
+    tunnel_id: UUID4 | None = None
     state: PlatformMCPCatalogState
     # Stdio-type server fields
     stdio_command: str | None
@@ -974,6 +988,7 @@ class MCPHttpIntegrationTestConnectionRequest(_MCPIntegrationTestConnectionReque
     server_uri: str = Field(..., min_length=1, max_length=2048)
     auth_type: MCPAuthType = MCPAuthType.NONE
     oauth_integration_id: UUID4 | None = None
+    tunnel_id: UUID4 | None = None
     custom_credentials: SecretStr | None = Field(
         default=None,
         description="JSON object of custom headers; falls back to stored headers when omitted",

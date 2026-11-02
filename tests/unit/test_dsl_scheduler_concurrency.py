@@ -8,7 +8,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from temporalio.exceptions import ActivityError, CancelledError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from tests.shared import capture_application_error as _capture_application_error
 from tracecat.auth.types import Role
@@ -32,6 +32,7 @@ from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
+    RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import (
     build_error_transport_detail,
@@ -42,18 +43,21 @@ from tracecat.temporal.patches import WorkflowPatch
 
 def _build_scheduler(
     *,
-    total_tasks: int,
     executor: Callable[[ActionStatement], Awaitable[None]],
+    total_tasks: int = 0,
+    actions: list[ActionStatement] | None = None,
     max_pending_tasks: int | None = None,
 ) -> DSLScheduler:
+    if actions is None:
+        actions = [
+            ActionStatement(ref=f"task_{index}", action="core.noop")
+            for index in range(total_tasks)
+        ]
     dsl = DSLInput(
         title="test",
         description="test",
-        entrypoint=DSLEntrypoint(ref="task_0"),
-        actions=[
-            ActionStatement(ref=f"task_{index}", action="core.noop")
-            for index in range(total_tasks)
-        ],
+        entrypoint=DSLEntrypoint(ref=actions[0].ref),
+        actions=actions,
     )
     wf_id = WorkflowUUID.new_uuid4()
     test_role = Role(
@@ -72,7 +76,7 @@ def _build_scheduler(
     return DSLScheduler(
         executor=executor,
         dsl=dsl,
-        max_pending_tasks=max_pending_tasks or total_tasks,
+        max_pending_tasks=max_pending_tasks or len(actions),
         context=ExecutionContext(ACTIONS={}, TRIGGER=None),
         role=test_role,
         run_context=test_run_context,
@@ -117,6 +121,36 @@ async def test_scheduler_preserves_temporal_cancellation_with_replay_gate(
         else:
             await scheduler.start()
             assert "task_0" in scheduler.task_exceptions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("preserve_cancellation", [True, False])
+async def test_run_if_preserves_temporal_cancellation_with_replay_gate(
+    preserve_cancellation: bool,
+) -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    activity_error = _cancelled_activity_error()
+    stmt = ActionStatement(ref="task_0", action="core.noop", run_if="${{ True }}")
+    scheduler = _build_scheduler(executor=executor, actions=[stmt])
+    task = Task(stmt.ref, ROOT_STREAM)
+    with (
+        patch.object(scheduler, "resolve_expression", side_effect=activity_error),
+        patch(
+            "tracecat.dsl.scheduler.workflow.patched",
+            return_value=preserve_cancellation,
+        ) as patched,
+    ):
+        if preserve_cancellation:
+            with pytest.raises(ActivityError) as exc_info:
+                await scheduler._task_should_skip(task, stmt)
+            assert exc_info.value is activity_error
+        else:
+            with pytest.raises(ApplicationError, match="Error evaluating `run_if`"):
+                await scheduler._task_should_skip(task, stmt)
+
+    patched.assert_called_once_with(WorkflowPatch.PRESERVE_RUN_IF_CANCELLATION)
 
 
 @pytest.mark.anyio
@@ -516,3 +550,89 @@ async def test_scheduler_stops_spawning_after_failure_during_spawn_yield() -> No
     first_unstarted_ref = f"task_{scheduler_module._SCHEDULER_TASK_SPAWN_YIELD_EVERY}"
     assert len(started_refs) == scheduler_module._SCHEDULER_TASK_SPAWN_YIELD_EVERY
     assert first_unstarted_ref not in started_refs
+
+
+@pytest.mark.anyio
+async def test_scheduler_classifies_unreachable_join_as_user_error() -> None:
+    """A join with a skipped sibling and ``join_strategy: all`` fails as a
+    user-owned ``workflow.join.unreachable`` error, not an unclassified one."""
+
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(
+        executor=executor,
+        actions=[
+            ActionStatement(ref="start", action="core.noop"),
+            ActionStatement(
+                ref="left",
+                action="core.noop",
+                depends_on=["start"],
+                run_if="${{ False }}",
+            ),
+            ActionStatement(ref="right", action="core.noop", depends_on=["start"]),
+            ActionStatement(
+                ref="join", action="core.noop", depends_on=["left", "right"]
+            ),
+        ],
+    )
+
+    async def resolve_expression(expression: str, _: ExecutionContext) -> Any:
+        return expression != "${{ False }}"
+
+    with patch.object(scheduler, "resolve_expression", new=resolve_expression):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is not None
+    assert set(task_exceptions) == {"join"}
+    info = task_exceptions["join"]
+    classifications = extract_error_classifications(info.exception)
+    assert len(classifications) == 1
+    classification = classifications[0]
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_JOIN_UNREACHABLE
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert "'left'" in info.details.message
+    assert "'right'" not in info.details.message
+    assert "join_strategy: any" in info.details.message
+
+
+@pytest.mark.anyio
+async def test_scheduler_classifies_templated_scatter_interval_as_user_error() -> None:
+    """A stored scatter with an expression `interval` fails as a user error."""
+
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    scheduler = _build_scheduler(
+        executor=executor,
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action="core.transform.scatter",
+                args={
+                    "collection": "${{ [1, 2] }}",
+                    "interval": "${{ TRIGGER.delay }}",
+                },
+            ),
+            ActionStatement(
+                ref="gather",
+                action="core.transform.gather",
+                args={"items": "${{ ACTIONS.scatter.result }}"},
+                depends_on=["scatter"],
+            ),
+        ],
+    )
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is not None
+    assert set(task_exceptions) == {"scatter"}
+    info = task_exceptions["scatter"]
+    [classification] = extract_error_classifications(info.exception)
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert info.details.message.startswith(
+        "Scatter action 'scatter' has invalid arguments: interval:"
+    )

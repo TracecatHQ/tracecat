@@ -106,7 +106,7 @@ while true; do
     if [ "$new_ip" != "0.0.0.0" ]; then
         break
     fi
-    echo -e "${RED}Cannot use 0.0.0.0 as address.\nSee https://docs.tracecat.com/self-hosting/deployment-options/docker-compose#download-configuration-files ${NC}"
+    echo -e "${RED}Cannot use 0.0.0.0 as address.\nSee https://docs.tracecat.com/self-hosting/docker-compose#faq ${NC}"
 done
 
 # Extract hostname and port from the input

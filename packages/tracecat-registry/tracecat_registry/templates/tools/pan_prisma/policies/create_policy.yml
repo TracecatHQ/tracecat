@@ -1,0 +1,91 @@
+type: action
+definition:
+  title: Create policy
+  description: Add a custom policy. Calls POST /policy directly.
+  display_group: Palo Alto Networks (Prisma Cloud)
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/add-policy/
+  namespace: tools.pan_prisma
+  name: create_policy
+  secrets:
+  - name: pan_prisma
+    keys:
+    - PRISMA_ACCESS_KEY_ID
+    - PRISMA_SECRET_KEY
+  expects:
+    name:
+      type: str
+      description: Policy name.
+    policyType:
+      type: str
+      description: 'Policy type, e.g. config, network, audit_event or iam. Policy type anomaly is read-only.'
+    severity:
+      type: str
+      description: 'Policy severity, e.g. low, medium or high.'
+    rule:
+      type: dict[str, Any]
+      description: 'Policy rule. Uses criteria (a saved search ID), name, parameters and type, e.g. {"criteria": "<saved-search-id>", "name": "my rule", "parameters": {"savedSearch": "true"}, "type": "Config"}.'
+    cloudType:
+      type: str | None
+      description: 'Cloud type. Required for config policies; other policy types default to ALL. Allowed values: ALL, AWS, AZURE, GCP, ALIBABA_CLOUD, OCI, IBM.'
+      default: null
+    description:
+      type: str | None
+      description: Policy description.
+      default: null
+    recommendation:
+      type: str | None
+      description: Remediation recommendation.
+      default: null
+    labels:
+      type: list[str] | None
+      description: Policy labels.
+      default: null
+    enabled:
+      type: bool | None
+      description: Whether the policy is enabled. Prisma Cloud defaults to true.
+      default: null
+    complianceMetadata:
+      type: list[dict[str, Any]] | None
+      description: Compliance standard, requirement and section mappings.
+      default: null
+    remediation:
+      type: dict[str, Any] | None
+      description: Remediation details, e.g. cliScriptTemplate and description.
+      default: null
+    base_url:
+      type: str | None
+      description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
+      default: null
+  steps:
+  - ref: login
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/login
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        username: ${{ SECRETS.pan_prisma.PRISMA_ACCESS_KEY_ID }}
+        password: ${{ SECRETS.pan_prisma.PRISMA_SECRET_KEY }}
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/policy
+      method: POST
+      headers:
+        x-redlock-auth: ${{ steps.login.result.data.token }}
+        Accept: application/json
+      payload:
+        name: ${{ inputs.name }}
+        policyType: ${{ inputs.policyType }}
+        severity: ${{ inputs.severity }}
+        rule: ${{ inputs.rule }}
+        cloudType: ${{ inputs.cloudType }}
+        description: ${{ inputs.description }}
+        recommendation: ${{ inputs.recommendation }}
+        labels: ${{ inputs.labels }}
+        enabled: ${{ inputs.enabled }}
+        complianceMetadata: ${{ inputs.complianceMetadata }}
+        remediation: ${{ inputs.remediation }}
+  returns: ${{ steps.request.result }}

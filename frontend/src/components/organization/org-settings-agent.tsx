@@ -15,7 +15,10 @@ import {
   type AzureAICatalogCreate,
   type AzureOpenAICatalogCreate,
   agentDeleteProviderCredentials,
+  agentRefreshProviderModels,
+  agentSubscribeBedrockModel,
   type BedrockCatalogCreate,
+  type BedrockSubscriptionRead,
   createCatalogEntry,
   createCustomProvider,
   deleteCatalogEntry,
@@ -65,6 +68,7 @@ import {
 } from "@/components/ui/collapsible"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -424,6 +428,68 @@ interface BuiltInCatalogEntry extends ModelCatalogEntry {
   credentials_configured?: boolean
   organization_id?: string | null
   metadata_display_name?: string | null
+  bedrock_subscription_status?: BedrockSubscriptionStatus | null
+}
+
+type BedrockSubscriptionStatus = BedrockSubscriptionRead["status"]
+
+const BEDROCK_SUBSCRIPTION_LABELS: Record<
+  BedrockSubscriptionStatus,
+  string | null
+> = {
+  subscribed: "Subscribed",
+  not_subscribed: "Not subscribed",
+  pending: "Subscription pending",
+  not_authorized: "Not authorized",
+  unavailable: "Unavailable in region",
+  error: "Subscription error",
+  unknown: null,
+}
+
+const BEDROCK_SUBSCRIBABLE_STATUSES: ReadonlySet<BedrockSubscriptionStatus> =
+  new Set(["not_subscribed", "error", "unknown"])
+
+function getBedrockSubscriptionStatus(
+  metadata: Record<string, unknown> | null | undefined
+): BedrockSubscriptionStatus | null {
+  const subscription = metadata?.bedrock_subscription
+  if (!subscription || typeof subscription !== "object") {
+    return null
+  }
+  const status = (subscription as Record<string, unknown>).status
+  return typeof status === "string" && status in BEDROCK_SUBSCRIPTION_LABELS
+    ? (status as BedrockSubscriptionStatus)
+    : null
+}
+
+function BedrockSubscriptionBadge({
+  status,
+}: {
+  status: BedrockSubscriptionStatus
+}) {
+  const label = BEDROCK_SUBSCRIPTION_LABELS[status]
+  if (!label) {
+    return null
+  }
+  return (
+    <Badge
+      className={cn(
+        "shrink-0 font-medium",
+        status === "subscribed" &&
+          "border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
+        status === "pending" &&
+          "border-amber-500/40 text-amber-700 dark:text-amber-400",
+        (status === "not_subscribed" ||
+          status === "not_authorized" ||
+          status === "error") &&
+          "border-red-500/40 text-red-600 dark:text-red-400",
+        status === "unavailable" && "text-muted-foreground"
+      )}
+      variant="outline"
+    >
+      {label}
+    </Badge>
+  )
 }
 
 interface BuiltInProviderConnection {
@@ -512,6 +578,52 @@ function formatStatus(value?: string | null): string {
     .join(" ")
 }
 
+/**
+ * Display order for built-in providers. Providers missing from this list are
+ * appended after it in their API order.
+ */
+const PROVIDER_DISPLAY_ORDER: readonly string[] = [
+  "openai",
+  "anthropic",
+  "bedrock",
+  "azure_openai",
+  "azure_ai",
+  "gemini",
+  "vertex_ai",
+  "mistral",
+  "ollama",
+  "vllm",
+  "litellm",
+  "openrouter",
+]
+
+/**
+ * Built-in providers that expose an OpenAI-compatible `/models` endpoint and
+ * support re-discovering their catalog from the org credentials.
+ */
+const GATEWAY_PROVIDERS: ReadonlySet<string> = new Set([
+  "ollama",
+  "vllm",
+  "litellm",
+  "openrouter",
+])
+
+function isGatewayProvider(provider: string): boolean {
+  return GATEWAY_PROVIDERS.has(provider)
+}
+
+function supportsModelRefresh(provider: string): boolean {
+  return isGatewayProvider(provider) || provider === "bedrock"
+}
+
+function providerDisplayRank(provider: string, fallbackIndex: number): number {
+  const index = PROVIDER_DISPLAY_ORDER.indexOf(provider)
+  if (index === -1) {
+    return PROVIDER_DISPLAY_ORDER.length + fallbackIndex
+  }
+  return index
+}
+
 function getProviderDisplayLabel(provider: string): string {
   if (isCloudCatalogProvider(provider)) {
     return getCloudProviderLabel(provider)
@@ -526,6 +638,14 @@ function getProviderDisplayLabel(provider: string): string {
       return "Mistral AI"
     case "openai":
       return "OpenAI"
+    case "ollama":
+      return "Ollama"
+    case "vllm":
+      return "vLLM"
+    case "litellm":
+      return "LiteLLM"
+    case "openrouter":
+      return "OpenRouter"
     case "custom-model-provider":
       return "Custom"
     default:
@@ -549,6 +669,14 @@ function getProviderIconId(provider?: string | null): string {
       return "mistral"
     case "openai":
       return "openai"
+    case "ollama":
+      return "ollama"
+    case "vllm":
+      return "vllm"
+    case "litellm":
+      return "litellm"
+    case "openrouter":
+      return "openrouter"
     default:
       return "custom"
   }
@@ -921,7 +1049,7 @@ function CustomProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent size="lg" className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>
             {provider ? "Edit custom source" : "Add custom source"}
@@ -937,141 +1065,148 @@ function CustomProviderDialog({
             onSubmit={form.handleSubmit(handleSubmit, () => {
               if (form.formState.errors.customHeadersJson) setAdvancedOpen(true)
             })}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <FormField
-              control={form.control}
-              name="displayName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="Local gateway" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="displayName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Local gateway" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="baseUrl"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Base URL</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="http://localhost:11434/v1" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="baseUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Base URL</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="http://localhost:11434/v1"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <div className="space-y-2">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="apiKeyHeader"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Auth header</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Authorization" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="apiKey"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Auth value</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type="password"
-                          placeholder={
-                            provider
-                              ? "Leave blank to keep saved value"
-                              : "sk-••••••••"
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <p className="text-muted-foreground text-xs">
-                Defaults to{" "}
-                <code className="bg-muted rounded px-1 py-0.5 font-mono">
-                  Authorization: Bearer &lt;value&gt;
-                </code>{" "}
-                if no header is set.
-              </p>
-            </div>
-
-            <FormField
-              control={form.control}
-              name="passthrough"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
-                  <div className="space-y-1">
-                    <FormLabel className="text-sm">Passthrough mode</FormLabel>
-                    <FormDescription>
-                      Recommended for bring-your-own gateways (LiteLLM, vLLM,
-                      etc.). Skips Tracecat&apos;s transforms and forwards
-                      requests directly to your endpoint.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-              <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-180">
-                <ChevronDown className="size-4 transition-transform duration-200" />
-                Advanced
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="pt-3">
+              <div className="space-y-2">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
-                    name="customHeadersJson"
+                    name="apiKeyHeader"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Additional headers</FormLabel>
+                        <FormLabel>Auth header</FormLabel>
                         <FormControl>
-                          <Textarea
+                          <Input {...field} placeholder="Authorization" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="apiKey"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Auth value</FormLabel>
+                        <FormControl>
+                          <Input
                             {...field}
-                            className="min-h-28 font-mono text-xs"
-                            placeholder='{"X-Custom-Header":"value"}'
+                            type="password"
+                            placeholder={
+                              provider
+                                ? "Leave blank to keep saved value"
+                                : "sk-••••••••"
+                            }
                           />
                         </FormControl>
-                        <FormDescription>
-                          Optional JSON object of extra static headers sent on
-                          every request. Use this for non-auth headers not
-                          covered by the API key above. Saving new JSON replaces
-                          the saved value.
-                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+                <p className="text-muted-foreground text-xs">
+                  Defaults to{" "}
+                  <code className="bg-muted rounded px-1 py-0.5 font-mono">
+                    Authorization: Bearer &lt;value&gt;
+                  </code>{" "}
+                  if no header is set.
+                </p>
+              </div>
 
-            <DialogFooter className="gap-2 sm:gap-0">
+              <FormField
+                control={form.control}
+                name="passthrough"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
+                    <div className="space-y-1">
+                      <FormLabel className="text-sm">
+                        Passthrough mode
+                      </FormLabel>
+                      <FormDescription>
+                        Recommended for bring-your-own gateways (LiteLLM, vLLM,
+                        etc.). Skips Tracecat&apos;s transforms and forwards
+                        requests directly to your endpoint.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-180">
+                  <ChevronDown className="size-4 transition-transform duration-200" />
+                  Advanced
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="pt-3">
+                    <FormField
+                      control={form.control}
+                      name="customHeadersJson"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Additional headers</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              className="min-h-28 font-mono text-xs"
+                              placeholder='{"X-Custom-Header":"value"}'
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Optional JSON object of extra static headers sent on
+                            every request. Use this for non-auth headers not
+                            covered by the API key above. Saving new JSON
+                            replaces the saved value.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </DialogBody>
+            <DialogFooter>
               <Button
+                size="sm"
                 type="button"
                 variant="outline"
                 disabled={saveMutation.isPending || validateMutation.isPending}
@@ -1083,6 +1218,7 @@ function CustomProviderDialog({
                 Test connection
               </Button>
               <Button
+                size="sm"
                 type="submit"
                 disabled={saveMutation.isPending || validateMutation.isPending}
               >
@@ -1197,6 +1333,7 @@ function ProviderAllowlistModelRow({
   onToggle,
   onEdit,
   onDelete,
+  onSubscribe,
 }: {
   canManageModels: boolean
   disabled: boolean
@@ -1205,7 +1342,17 @@ function ProviderAllowlistModelRow({
   onToggle: (model: ModelCatalogEntry) => Promise<void>
   onEdit?: (model: BuiltInCatalogEntry) => void
   onDelete?: (model: BuiltInCatalogEntry) => void
+  onSubscribe?: (model: BuiltInCatalogEntry) => Promise<void>
 }) {
+  const [subscribePending, setSubscribePending] = useState(false)
+  const subscriptionStatus = model.bedrock_subscription_status ?? null
+  const canSubscribe =
+    canManageModels &&
+    onSubscribe !== undefined &&
+    model.organization_id != null &&
+    model.credentials_configured === true &&
+    subscriptionStatus !== null &&
+    BEDROCK_SUBSCRIBABLE_STATUSES.has(subscriptionStatus)
   const canEnable = canEnableBuiltInCatalogModel(model)
   const statusMessage = model.readiness_message
   const isCloudCatalogModel = isCloudCatalogProvider(model.model_provider)
@@ -1230,12 +1377,42 @@ function ProviderAllowlistModelRow({
       >
         <div className="min-w-0 space-y-1">
           <div className="flex min-w-0 items-center gap-2">
-            <p className="truncate text-sm font-medium">
+            <p
+              className="min-w-0 truncate text-sm font-medium"
+              title={displayName || getModelLabel(model)}
+            >
               {displayName || getModelLabel(model)}
             </p>
+            {subscriptionStatus ? (
+              <BedrockSubscriptionBadge status={subscriptionStatus} />
+            ) : null}
+            {canSubscribe ? (
+              <Button
+                className="h-6 shrink-0 px-2 text-xs"
+                disabled={disabled || subscribePending}
+                onClick={async () => {
+                  setSubscribePending(true)
+                  try {
+                    await onSubscribe(model)
+                  } finally {
+                    setSubscribePending(false)
+                  }
+                }}
+                size="sm"
+                variant="outline"
+              >
+                {subscribePending ? (
+                  <Loader2 className="mr-1 size-3 animate-spin" />
+                ) : null}
+                Subscribe
+              </Button>
+            ) : null}
           </div>
           {displayName ? (
-            <p className="truncate text-xs text-muted-foreground">
+            <p
+              className="truncate text-xs text-muted-foreground"
+              title={model.model_name}
+            >
               {model.model_name}
             </p>
           ) : null}
@@ -1321,8 +1498,11 @@ function ProviderConnectionItem({
   onEditCatalogModel,
   onEnableAllModels,
   onExpandedChange,
+  onRefreshModels,
+  onSubscribeModel,
   onToggleModel,
   provider,
+  refreshPending = false,
 }: {
   canManageModels: boolean
   disabled: boolean
@@ -1330,6 +1510,9 @@ function ProviderConnectionItem({
   isExpanded: boolean
   onAddCatalogModel?: (provider: string) => void
   onConfigureProvider: (provider: string) => void
+  onRefreshModels?: (provider: string) => void
+  onSubscribeModel?: (model: BuiltInCatalogEntry) => Promise<void>
+  refreshPending?: boolean
   onDeleteCatalogModel?: (model: BuiltInCatalogEntry) => void
   onDeleteCredentials: (provider: string, label: string) => Promise<void>
   onDisableAllModels: (provider: string, label: string) => Promise<void>
@@ -1357,6 +1540,7 @@ function ProviderConnectionItem({
       const sourceName = getModelSourceLabel(model)
       return (
         model.model_name.toLowerCase().includes(normalizedQuery) ||
+        model.metadata_display_name?.toLowerCase().includes(normalizedQuery) ||
         model.model_provider.toLowerCase().includes(normalizedQuery) ||
         sourceName.toLowerCase().includes(normalizedQuery)
       )
@@ -1394,6 +1578,19 @@ function ProviderConnectionItem({
             <ProviderMetaPill active={enabledSelectableProviderCount > 0}>
               {enabledSelectableProviderCount} enabled
             </ProviderMetaPill>
+          ) : null}
+          {onRefreshModels && provider.credentials_configured ? (
+            <Button
+              disabled={disabled || refreshPending}
+              onClick={() => onRefreshModels(provider.provider)}
+              size="sm"
+              variant="outline"
+            >
+              {refreshPending ? (
+                <Loader2 className="mr-2 size-3.5 animate-spin" />
+              ) : null}
+              Refresh models
+            </Button>
           ) : null}
           {onAddCatalogModel && provider.credentials_configured ? (
             <Button
@@ -1590,6 +1787,7 @@ function ProviderConnectionItem({
                       model={model}
                       onDelete={onDeleteCatalogModel}
                       onEdit={onEditCatalogModel}
+                      onSubscribe={onSubscribeModel}
                       showCapabilityColumns={showCapabilityColumns}
                       onToggle={async (nextModel) => {
                         const nextCountDelta = nextModel.enabled ? -1 : 1
@@ -1712,7 +1910,7 @@ function CloudCatalogModelDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent size="lg" className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? `Edit ${label} model` : `Add ${label} model`}
@@ -1731,175 +1929,169 @@ function CloudCatalogModelDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <FormField
-              control={form.control}
-              name="model_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Model name</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      disabled={isEdit}
-                      placeholder="e.g. claude-sonnet-4"
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Catalog identifier exposed to presets and default-model
-                    selection. Cannot be changed after creation.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="model_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Model name</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={isEdit}
+                        placeholder="e.g. claude-sonnet-4"
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Catalog identifier exposed to presets and default-model
+                      selection. Cannot be changed after creation.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="display_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Display name</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      value={field.value ?? ""}
-                      placeholder="Optional friendly label"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="display_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display name</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ""}
+                        placeholder="Optional friendly label"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {provider === "bedrock" ? (
-              <>
-                <FormField
-                  control={form.control}
-                  name="inference_profile_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Inference profile ID</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          value={field.value ?? ""}
-                          placeholder="us.anthropic.claude-sonnet-4-20250514-v1:0"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Required for newer models. Provide either this or a
-                        direct model ID.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="model_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Model ID</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          value={field.value ?? ""}
-                          placeholder="anthropic.claude-3-haiku-20240307-v1:0"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Direct model ID for older on-demand models.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="use_converse"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
-                      <div className="space-y-1">
-                        <FormLabel className="text-sm">
-                          Use Converse API
-                        </FormLabel>
+              {provider === "bedrock" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="inference_profile_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Inference profile ID</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            value={field.value ?? ""}
+                            placeholder="us.anthropic.claude-sonnet-4-20250514-v1:0"
+                          />
+                        </FormControl>
                         <FormDescription>
-                          Force the Bedrock Converse API instead of InvokeModel.
-                          Enable this for models that require the Converse API.
+                          Required for newer models. Provide either this or a
+                          direct model ID.
                         </FormDescription>
-                      </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="model_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Model ID</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            value={field.value ?? ""}
+                            placeholder="anthropic.claude-3-haiku-20240307-v1:0"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Direct model ID for older on-demand models.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="use_converse"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
+                        <div className="space-y-1">
+                          <FormLabel className="text-sm">
+                            Use Converse API
+                          </FormLabel>
+                          <FormDescription>
+                            Force the Bedrock Converse API instead of
+                            InvokeModel. Enable this for models that require the
+                            Converse API.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : null}
+
+              {provider === "azure_openai" ? (
+                <FormField
+                  control={form.control}
+                  name="deployment_name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Deployment name</FormLabel>
                       <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
+                        <Input {...field} placeholder="gpt-4o" />
                       </FormControl>
+                      <FormMessage />
                     </FormItem>
                   )}
                 />
-              </>
-            ) : null}
+              ) : null}
 
-            {provider === "azure_openai" ? (
-              <FormField
-                control={form.control}
-                name="deployment_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Deployment name</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="gpt-4o" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : null}
+              {provider === "azure_ai" ? (
+                <FormField
+                  control={form.control}
+                  name="azure_ai_model_name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Azure AI model name</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="claude-sonnet-4-5" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
 
-            {provider === "azure_ai" ? (
-              <FormField
-                control={form.control}
-                name="azure_ai_model_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Azure AI model name</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="claude-sonnet-4-5" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : null}
-
-            {provider === "vertex_ai" ? (
-              <FormField
-                control={form.control}
-                name="vertex_model"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vertex model</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="gemini-3-flash" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : null}
-
+              {provider === "vertex_ai" ? (
+                <FormField
+                  control={form.control}
+                  name="vertex_model"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Vertex model</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="gemini-3-flash" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+            </DialogBody>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={saveMutation.isPending}
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saveMutation.isPending}>
+              <Button size="sm" type="submit" disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? (
                   <Loader2 className="mr-2 size-4 animate-spin" />
                 ) : null}
@@ -2070,8 +2262,13 @@ export function OrgSettingsAgentForm() {
         // list prevents a duplicate card.
         (providerConfig) => providerConfig.provider !== "custom-model-provider"
       )
-      .sort((left, right) => left.label.localeCompare(right.label))
-      .map((providerConfig): BuiltInProviderConnection => {
+      .map((providerConfig, index) => ({ providerConfig, index }))
+      .sort(
+        (left, right) =>
+          providerDisplayRank(left.providerConfig.provider, left.index) -
+          providerDisplayRank(right.providerConfig.provider, right.index)
+      )
+      .map(({ providerConfig }): BuiltInProviderConnection => {
         const credentialsConfigured =
           providersStatus?.[providerConfig.provider] ?? false
         const discoveredModels = [
@@ -2104,6 +2301,10 @@ export function OrgSettingsAgentForm() {
                 entry.model_metadata,
                 "display_name"
               ),
+              bedrock_subscription_status:
+                entry.model_provider === "bedrock"
+                  ? getBedrockSubscriptionStatus(entry.model_metadata)
+                  : null,
               readiness_message: credentialsConfigured
                 ? null
                 : "Connect this provider before allowing its platform models.",
@@ -2244,6 +2445,24 @@ export function OrgSettingsAgentForm() {
     meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateOrganizationAgentQueries()
+    },
+  })
+  const refreshBuiltInProviderMutation = useMutation({
+    mutationFn: async (provider: string) =>
+      await agentRefreshProviderModels({ provider }),
+    meta: { suppressErrorToast: true },
+    onSuccess: () => {
+      invalidateOrganizationAgentQueries()
+      invalidateBuiltInAgentQueries()
+    },
+  })
+  const subscribeBedrockModelMutation = useMutation({
+    mutationFn: async (catalogId: string) =>
+      await agentSubscribeBedrockModel({ catalogId }),
+    meta: { suppressErrorToast: true },
+    onSuccess: () => {
+      invalidateOrganizationAgentQueries()
+      invalidateBuiltInAgentQueries()
     },
   })
   const deleteCustomProviderMutation = useMutation({
@@ -2445,6 +2664,55 @@ export function OrgSettingsAgentForm() {
         variant: "destructive",
       })
       throw error
+    }
+  }
+
+  async function handleRefreshBuiltInProvider(provider: string) {
+    const label = getProviderDisplayLabel(provider)
+    try {
+      const result = await refreshBuiltInProviderMutation.mutateAsync(provider)
+      toast({
+        title: `${label} models refreshed`,
+        description: `Discovered ${result.models_discovered} models.`,
+      })
+    } catch (error) {
+      toast({
+        title: `Failed to refresh ${label} models`,
+        description:
+          getApiErrorDetail(error) ??
+          (provider === "bedrock"
+            ? "Unable to list models from AWS Bedrock."
+            : "Unable to reach the provider's /models endpoint."),
+        variant: "destructive",
+      })
+    }
+  }
+
+  async function handleSubscribeBedrockModel(model: BuiltInCatalogEntry) {
+    if (!model.id) {
+      return
+    }
+    const name = model.metadata_display_name || model.model_name
+    try {
+      const result = await subscribeBedrockModelMutation.mutateAsync(model.id)
+      toast({
+        title:
+          result.status === "subscribed"
+            ? `Subscribed to ${name}`
+            : `Subscription requested for ${name}`,
+        description:
+          result.status === "subscribed"
+            ? "The model is ready to use."
+            : "AWS can take a few minutes to activate model access.",
+      })
+    } catch (error) {
+      toast({
+        title: `Failed to subscribe to ${name}`,
+        description:
+          getApiErrorDetail(error) ??
+          "Check that the AWS credentials allow aws-marketplace:Subscribe.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -2739,8 +3007,19 @@ export function OrgSettingsAgentForm() {
                     onExpandedChange={(expanded) => {
                       setExpandedProvider(expanded ? provider.provider : null)
                     }}
+                    onRefreshModels={
+                      supportsModelRefresh(provider.provider)
+                        ? handleRefreshBuiltInProvider
+                        : undefined
+                    }
+                    onSubscribeModel={
+                      provider.provider === "bedrock"
+                        ? handleSubscribeBedrockModel
+                        : undefined
+                    }
                     onToggleModel={handleModelToggle}
                     provider={provider}
+                    refreshPending={refreshBuiltInProviderMutation.isPending}
                   />
                 )
               })}
@@ -2760,8 +3039,8 @@ export function OrgSettingsAgentForm() {
               Custom sources
             </h3>
             <p className="text-sm text-muted-foreground">
-              Add custom sources like Ollama, vLLM, or other OpenAI-compatible
-              gateways.
+              Add any other OpenAI-compatible gateway. Ollama, vLLM, LiteLLM,
+              and OpenRouter are available as built-in providers above.
             </p>
           </div>
           <Button
@@ -2955,7 +3234,7 @@ export function OrgSettingsAgentForm() {
               }}
               variant="destructive"
             >
-              Delete source
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3000,7 +3279,7 @@ export function OrgSettingsAgentForm() {
               }}
               variant="destructive"
             >
-              Delete model
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

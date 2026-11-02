@@ -1,0 +1,77 @@
+# Bundled skill library: platform groups, local skills, and upstream pins.
+# Managed by `just skill-library`; sync and update rewrite upstream skills only.
+
+[groups.AWS]
+summary = "IAM review and incident response for AWS"
+description = "Amazon Web Services. Skills for securing and investigating AWS accounts: accurate IAM policy and trust reasoning, plus incident response for leaked credentials, STS session abuse, and API compromise."
+
+[groups.Feedly]
+summary = "Turn threat intelligence into detections and reports"
+description = "Threat intelligence platform. Skills that turn intelligence into action: Sigma detections drafted from reports, OWASP-scored risk reduction reports, and structured intelligence requirements for CTI teams."
+
+[groups."Google SecOps"]
+summary = "Triage, investigate, hunt, and detect in SecOps"
+description = "Google's SIEM and SOAR platform. Skills for the SOC workflow in SecOps: alert triage, deep entity investigation, proactive threat hunting, and YARA-L detection engineering."
+
+[[source]]
+kind = "upstream"
+group = "AWS"
+repo = "aws/agent-toolkit-for-aws"
+commit = "34b3eccfd8b619ea0cb4ba04a9be9dfefebd94e7"
+license = "Apache-2.0"
+tree_sha256 = "49742bffd7c9bd345e7cbe20e335bc47045823ee99b798865a299251f2474847"
+
+[source.skills]
+aws-iam = "plugins/aws-core/skills/aws-iam"
+
+[[source]]
+kind = "local"
+group = "AWS"
+provider = "Tracecat"
+license = "AGPL-3.0-only"
+
+[source.skills]
+aws-incident-response = "skills/aws-incident-response"
+
+[[source]]
+kind = "upstream"
+group = "Feedly"
+repo = "feedly/skills"
+commit = "d721c993e537141126308053881861e6610f0105"
+license = "MIT"
+exclude = ["assets/*.pptx"]
+tree_sha256 = "2d0563b3e90334f632f92317f2ddbfc171e83354987bc1be5bc869cd047186a7"
+
+[source.skills]
+create-sigma-rule = "skills/create-sigma-rule"
+cti-risk-reduction-report = "skills/cti-risk-reduction-report"
+intelligence-requirements-builder = "skills/intelligence-requirements-builder"
+
+[[source]]
+kind = "upstream"
+group = "Google SecOps"
+repo = "google/skills"
+commit = "55cada3c7084d69a788467ac6437cecf4baecdfa"
+license = "Apache-2.0"
+tree_sha256 = "74f8166783ba0aefc15705e1d1e4887d540ea3d896b1fd6f000f709d1b586905"
+
+[source.skills]
+secops-detection-engineering = "skills/cloud/secops-detection-engineering"
+secops-hunt = "skills/cloud/secops-hunt"
+secops-investigate = "skills/cloud/secops-investigate"
+secops-triage = "skills/cloud/secops-triage"
+
+[[source]]
+kind = "upstream"
+provider = "Cloudflare"
+repo = "cloudflare/security-audit-skill"
+commit = "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8"
+license = "MIT"
+exclude = ["*.test.cjs"]
+tree_sha256 = "9b00eb6b8c740d74c065cc614e8705fa8ecaad3b0d1c7eac7133c6b88c225fff"
+
+[source.skills]
+security-audit = "skills/security-audit"
+
+[source.summaries]
+security-audit = "Review code and services for vulnerabilities"

@@ -27,7 +27,7 @@ test.describe("workspace first run", () => {
     await page.getByRole("link", { name: "Workflows" }).click()
     await page.waitForURL(/\/workspaces\/[^/]+\/workflows(\/|$|\?)/)
 
-    await page.getByRole("button", { name: /Create new/i }).click()
+    await page.getByRole("button", { name: "Create", exact: true }).click()
     await page
       .getByRole("menuitem")
       .filter({ hasText: "Start from scratch" })

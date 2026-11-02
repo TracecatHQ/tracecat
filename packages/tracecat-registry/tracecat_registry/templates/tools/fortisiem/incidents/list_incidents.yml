@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: List incidents
+  description: Retrieve incidents from the FortiSIEM database for a time range.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/895612/json-api-incident-integration#fetch-incidents
+  namespace: tools.fortisiem
+  name: list_incidents
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    timeFrom:
+      type: int
+      description: Start of the time range, in epoch milliseconds.
+    timeTo:
+      type: int
+      description: End of the time range, in epoch milliseconds.
+    status:
+      type: list[int] | None
+      description: Incident status filter. 0 = Active, 1 = Automatically cleared, 2 = Manually cleared, 3 = System cleared.
+      default: null
+    incidentId:
+      type: list[int] | None
+      description: Incident IDs to retrieve.
+      default: null
+    start:
+      type: int | None
+      description: Offset of the first incident to return.
+      default: null
+    size:
+      type: int | None
+      description: Number of incidents to return. By default, 500 incidents are returned each time.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/pub/incident
+        method: GET
+        params:
+          status: ${{ inputs.status }}
+          incidentId: ${{ inputs.incidentId }}
+          timeFrom: ${{ inputs.timeFrom }}
+          timeTo: ${{ inputs.timeTo }}
+          start: ${{ inputs.start }}
+          size: ${{ inputs.size }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: List address groups
+  description: List address groups. Calls GET /config/objects/v1/address-groups directly; page with limit and offset.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/objects/list-address-groups/
+  namespace: tools.pan_strata
+  name: list_address_groups
+  secrets:
+  - type: oauth
+    provider_id: pan_strata
+    grant_type: client_credentials
+  expects:
+    folder:
+      type: str | None
+      description: Folder that contains the configuration, e.g. Shared or All Firewalls. Provide exactly one of folder, snippet, or device.
+      default: null
+    snippet:
+      type: str | None
+      description: Snippet that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    device:
+      type: str | None
+      description: Device (serial number) that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of results per page. SCM defaults to 200.
+      default: null
+    offset:
+      type: int | None
+      description: Number of results to skip before the first returned result. Use the response's total to page.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+  - ref: list
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/objects/v1/address-groups
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        folder: ${{ inputs.folder }}
+        snippet: ${{ inputs.snippet }}
+        device: ${{ inputs.device }}
+        limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
+  returns: ${{ steps.list.result }}

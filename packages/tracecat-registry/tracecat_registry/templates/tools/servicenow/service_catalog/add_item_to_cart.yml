@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Add item to cart
+  description: Add a catalog item to the caller's cart.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html#servicecat-POST-items-add_to_cart
+  namespace: tools.servicenow
+  name: add_item_to_cart
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    sys_id:
+      type: str
+      description: sys_id of the catalog item.
+    sysparm_quantity:
+      type: int
+      description: Quantity of the item.
+      default: 1
+    variables:
+      type: dict[str, Any] | None
+      description: Form variable values keyed by variable name. Use get_catalog_item to list an item's variables.
+      default: null
+    sysparm_requested_for:
+      type: str | None
+      description: sys_id of the user to order the item for.
+      default: null
+    sysparm_also_request_for:
+      type: str | None
+      description: Comma-separated sys_ids of additional users to order the item for.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: build_body
+    action: core.script.run_python
+    args:
+      inputs:
+        fields: null
+        values:
+          sysparm_quantity: ${{ inputs.sysparm_quantity }}
+          variables: ${{ inputs.variables }}
+          sysparm_requested_for: ${{ inputs.sysparm_requested_for }}
+          sysparm_also_request_for: ${{ inputs.sysparm_also_request_for }}
+      script: |
+        def main(fields, values):
+            body = dict(fields or {})
+            body.update({k: v for k, v in values.items() if v is not None})
+            return body
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_sc/servicecatalog/items/${{ FN.url_encode(inputs.sys_id) }}/add_to_cart
+      method: POST
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      payload: ${{ steps.build_body.result }}
+  returns: ${{ steps.request.result }}

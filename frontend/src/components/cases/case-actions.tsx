@@ -15,6 +15,7 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
+import { caseHref } from "@/lib/cases/urls"
 import { useCaseTagCatalog } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -80,7 +81,7 @@ export function CaseActions({
         asChild
       >
         <Link
-          href={`/workspaces/${workspaceId}/cases/${item.id}`}
+          href={caseHref(workspaceId, item.id)}
           target="_blank"
           rel="noopener noreferrer"
         >

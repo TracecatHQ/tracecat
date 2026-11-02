@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
+from tests._db_error_utils import unique_violation
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentTag, AgentTagLink
@@ -249,10 +249,10 @@ async def test_list_tags_for_preset_paginated_uses_cursor_pages(
 
 
 @pytest.mark.anyio
-async def test_list_tags_for_preset_paginated_invalid_cursor_raises_validation(
+async def test_list_tags_invalid_cursor_raises_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Invalid preset tag cursors should surface app-level validation errors."""
+    """Invalid tag cursors should surface app-level validation errors."""
     service = AgentTagsService(
         session=AsyncMock(),
         role=_role_with_scopes(frozenset({"agent:read"})),
@@ -266,6 +266,9 @@ async def test_list_tags_for_preset_paginated_invalid_cursor_raises_validation(
         await service.list_tags_for_preset_paginated(
             uuid4(), CursorPaginationParams(cursor="invalid")
         )
+
+    with pytest.raises(TracecatValidationError, match="Invalid cursor for agent tags"):
+        await service.list_tags_paginated(CursorPaginationParams(cursor="invalid"))
 
 
 @pytest.mark.anyio
@@ -310,21 +313,6 @@ async def test_get_tag_missing_raises_tracecat_not_found(
 
 
 @pytest.mark.anyio
-async def test_list_tags_paginated_invalid_cursor_raises_tracecat_validation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Invalid tag cursors should surface app-level validation errors."""
-    service = AgentTagsService(
-        session=AsyncMock(),
-        role=_role_with_scopes(frozenset({"agent:read"})),
-    )
-    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
-
-    with pytest.raises(TracecatValidationError, match="Invalid cursor for agent tags"):
-        await service.list_tags_paginated(CursorPaginationParams(cursor="invalid"))
-
-
-@pytest.mark.anyio
 async def test_update_tag_commit_conflict_raises_tracecat_conflict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -335,11 +323,7 @@ async def test_update_tag_commit_conflict_raises_tracecat_conflict(
     result.one_or_none.return_value = None
     session = AsyncMock()
     session.execute.return_value = result
-    session.commit.side_effect = IntegrityError(
-        statement="UPDATE agent_tag",
-        params={},
-        orig=Exception("duplicate key"),
-    )
+    session.commit.side_effect = unique_violation("uq_agent_tag_name_workspace")
     service = AgentTagsService(
         session=session,
         role=_role_with_scopes(frozenset({"agent:update"})),

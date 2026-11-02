@@ -276,6 +276,12 @@ function ArtifactFields({ artifact }: { artifact: WorkspaceChatArtifact }) {
           <ArtifactField label="Run ID" value={artifact.id} monospace />
         </dl>
       )
+    case "form":
+      return (
+        <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2">
+          <ArtifactField label="Status" value={artifact.status ?? "unknown"} />
+        </dl>
+      )
     case "generic":
       return (
         <pre className="max-h-96 overflow-auto rounded-sm border bg-muted/30 p-3 text-xs">

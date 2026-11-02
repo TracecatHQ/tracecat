@@ -8,6 +8,7 @@ import { ColorPicker } from "@/components/color-picker"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -96,14 +97,17 @@ export function CreateTagDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(handleCreateTag)}>
-            <div className="space-y-4">
+          <form
+            onSubmit={methods.handleSubmit(handleCreateTag)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <FormField
                 key="name"
                 control={methods.control}
@@ -147,12 +151,12 @@ export function CreateTagDialog({
                   </FormItem>
                 )}
               />
-              <DialogFooter>
-                <Button className="ml-auto" type="submit">
-                  Create tag
-                </Button>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button size="sm" type="submit">
+                Create tag
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

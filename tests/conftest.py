@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import importlib.util
 import os
 import socket
 import subprocess
@@ -33,7 +34,7 @@ import redis
 import tracecat_registry.integrations.aws_boto3 as boto3_module
 from minio import Minio
 from minio.error import S3Error
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, delete, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -42,6 +43,7 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
+from tests.support.executor_backend import TestBackend
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import (
@@ -63,11 +65,14 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     Workspace,
 )
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.executor import backends as executor_backends
 from tracecat.executor.backends import ExecutorBackend
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -112,6 +117,47 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
 
 # Port configuration - reads from environment for worktree cluster support
 # Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
+
+
+MCP_TOKEN_REVOKER_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "alembic"
+    / "versions"
+    / "c4e8a2f6d9b1_revoke_mcp_refresh_tokens_on_any_granted_org.py"
+)
+
+
+def _install_membership_token_revoker(conn: Any) -> None:
+    """Install the production trigger that revokes MCP tokens on member removal.
+
+    The function SQL comes from the migration that defines it, so tests cannot
+    drift from what deployments run.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "mcp_token_revoker_migration", MCP_TOKEN_REVOKER_MIGRATION
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load {MCP_TOKEN_REVOKER_MIGRATION}")
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    conn.execute(text(migration.REVOKER_FUNCTION_SQL))
+    conn.execute(text(migration.REVOKER_PRIVILEGES_SQL))
+    conn.execute(
+        text(
+            "DROP TRIGGER IF EXISTS trg_organization_membership_revoke_mcp_tokens "
+            "ON organization_membership"
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TRIGGER trg_organization_membership_revoke_mcp_tokens
+            AFTER DELETE ON organization_membership
+            FOR EACH ROW
+            EXECUTE FUNCTION revoke_mcp_tokens_on_membership_delete()
+            """
+        )
+    )
 
 
 def _install_case_number_allocator(conn: Any) -> None:
@@ -416,8 +462,13 @@ def db() -> Iterator[None]:
         test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
+            # Each isolated test database needs its own extension registration.
+            conn.execute(
+                text("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+            )
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
+            _install_membership_token_revoker(conn)
         yield
     finally:
         if test_engine is not None:
@@ -453,6 +504,7 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
             _lock_test_db_setup(conn, sync_db_uri)
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
+            _install_membership_token_revoker(conn)
 
         with Session(sync_engine) as session:
             base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
@@ -752,7 +804,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "options": {"required_entitlements": ["case_addons"]},
             }
 
-            # ai.agent preset CRUD actions (agent add-on gated)
+            # ai.agent preset CRUD actions
             agent_preset_actions = {
                 "create_preset": {
                     "description": "Create an agent preset",
@@ -791,7 +843,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     "display_group": "Agent Presets",
                     "interface": {"expects": {}, "returns": None},
                     "implementation": preset_impl,
-                    "options": {"required_entitlements": ["agent_addons"]},
+                    "options": {},
                 }
 
             # core.table.lookup
@@ -1227,6 +1279,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
                 "git_sync": True,
                 "agent_addons": True,
                 "case_addons": True,
+                "multi_workspace": True,
             }
         ),
     )
@@ -1294,10 +1347,16 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "TRACECAT__ACTION_GATEWAY_SOCKET",
         str(ACTION_GATEWAY_TEST_SOCKET),
     )
-    # Use TestBackend for in-process executor (no sandbox overhead) unless overridden
+    # Use TestBackend for in-process executor (no sandbox overhead) unless overridden.
+    # Isolation checks see the direct backend; only worker backend creation changes.
     if not IN_DOCKER:
-        monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "test")
-        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
+        monkeysession.setattr(
+            config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+        )
+        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT)
+        monkeysession.setattr(
+            executor_backends, "_create_backend", lambda _backend_type: TestBackend()
+        )
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     service_key = os.environ["TRACECAT__SERVICE_KEY"]
     monkeysession.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
@@ -1596,6 +1655,9 @@ async def db_session_with_repo(test_role):
                 logger.error("Error cleaning up repo", e=e)
 
 
+_svc_org_committed = False
+
+
 @pytest.fixture
 async def svc_organization(session: AsyncSession) -> AsyncGenerator[Organization, None]:
     """Service test fixture. Create an organization for service tests."""
@@ -1615,24 +1677,28 @@ async def svc_organization(session: AsyncSession) -> AsyncGenerator[Organization
         await session.commit()
         await session.refresh(org)
 
-    # Also ensure the organization exists in the default engine
-    async with get_async_session_context_manager() as global_session:
-        await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
-        await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
-        result = await global_session.execute(
-            select(Organization).where(Organization.id == TEST_ORG_ID)
-        )
-        existing = result.scalar_one_or_none()
-        if existing is None:
-            global_session.add(
-                Organization(
-                    id=TEST_ORG_ID,
-                    name="Test Organization",
-                    slug=f"test-org-{TEST_ORG_ID.hex[:8]}",
-                    is_active=True,
-                )
+    # Also ensure the organization exists in the default engine. It is committed
+    # and never deleted, so one check per xdist worker is enough.
+    global _svc_org_committed
+    if not _svc_org_committed:
+        async with get_async_session_context_manager() as global_session:
+            await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
+            result = await global_session.execute(
+                select(Organization).where(Organization.id == TEST_ORG_ID)
             )
-            await global_session.commit()
+            existing = result.scalar_one_or_none()
+            if existing is None:
+                global_session.add(
+                    Organization(
+                        id=TEST_ORG_ID,
+                        name="Test Organization",
+                        slug=f"test-org-{TEST_ORG_ID.hex[:8]}",
+                        is_active=True,
+                    )
+                )
+                await global_session.commit()
+        _svc_org_committed = True
 
     yield org
 
@@ -1685,48 +1751,16 @@ async def svc_workspace(
                 await global_cleanup_session.execute(
                     text("SET LOCAL statement_timeout = '30s'")
                 )
-                result = await global_cleanup_session.execute(
-                    select(Workspace).where(Workspace.id == workspace.id)
+                # Core DELETE lets FK ON DELETE CASCADE do the work in one
+                # statement instead of the ORM loading every child collection.
+                await global_cleanup_session.execute(
+                    delete(Workspace).where(Workspace.id == workspace.id)
                 )
-                global_workspace = result.scalar_one_or_none()
-                if global_workspace:
-                    await global_cleanup_session.delete(global_workspace)
-                    await global_cleanup_session.commit()
-                    logger.debug("Cleaned up workspace from global session")
+                await global_cleanup_session.commit()
         except Exception as e:
             logger.error(f"Error cleaning up workspace from global session: {e}")
-
-        # Clean up workspace from test session
-        try:
-            if session.is_active:
-                # Reset transaction state in case it was aborted
-                try:
-                    # Try to roll back any active transaction first
-                    await session.rollback()
-                    # Then delete and commit in a fresh transaction
-                    await session.delete(workspace)
-                    await session.commit()
-                except Exception as inner_e:
-                    logger.error(f"Failed to clean up in existing session: {inner_e}")
-                    # If that fails, try with a completely new session
-                    await session.close()
-                    async with get_async_session_context_manager() as new_session:
-                        # Set timeouts to avoid deadlocks with parallel workers
-                        await new_session.execute(text("SET LOCAL lock_timeout = '5s'"))
-                        await new_session.execute(
-                            text("SET LOCAL statement_timeout = '30s'")
-                        )
-                        # Fetch the workspace again in the new session by logical ID
-                        result = await new_session.execute(
-                            select(Workspace).where(Workspace.id == workspace.id)
-                        )
-                        db_workspace = result.scalar_one_or_none()
-                        if db_workspace:
-                            await new_session.delete(db_workspace)
-                            await new_session.commit()
-        except Exception as e:
-            # Log the error but don't raise it to prevent test teardown failures
-            logger.error(f"Error during workspace cleanup: {e}")
+        # The test-session copy is discarded when the `session` fixture rolls
+        # back its outer transaction, so no explicit delete is needed here.
 
 
 @pytest.fixture
@@ -1956,6 +1990,10 @@ async def test_worker_factory(
         """Create a worker with the same configuration as production."""
 
         activities = get_activities() if activities is None else activities
+        # DSL workers always need the dependency compilation bootstrap activity.
+        compile_activity = DSLActivities.compile_dsl_dependencies_activity
+        if compile_activity not in activities:
+            activities = [*activities, compile_activity]
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],

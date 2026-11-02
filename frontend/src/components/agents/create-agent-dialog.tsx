@@ -1,13 +1,17 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMemo } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
+import { Spinner } from "@/components/loading/spinner"
+import { useSettingsModal } from "@/components/settings/settings-modal-context"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -24,12 +28,14 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { toast } from "@/components/ui/use-toast"
 import {
   useCreateAgentPreset,
   useMoveAgentPreset,
 } from "@/hooks/use-agent-presets"
-import { useAgentDefaultModel, useWorkspaceAgentModels } from "@/lib/hooks"
+import { useEntitlements } from "@/hooks/use-entitlements"
+import { uniqueAgentPresetName } from "@/lib/agent-preset-name"
+import { useUserScopes, useWorkspaceAgentModels } from "@/lib/hooks"
+import { hasGrantedScope } from "@/lib/scopes"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createAgentSchema = z.object({
@@ -47,12 +53,21 @@ interface CreateAgentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentPath?: string | null
+  /** Installed library skills to bind to the new agent. */
+  librarySkills?: string[]
+  /** Prefilled agent name. */
+  defaultName?: string
+  /** When set, a taken name is numbered instead of rejected. */
+  takenSlugs?: string[]
 }
 
 export function CreateAgentDialog({
   open,
   onOpenChange,
   currentPath,
+  librarySkills,
+  defaultName,
+  takenSlugs,
 }: CreateAgentDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -60,6 +75,9 @@ export function CreateAgentDialog({
         <CreateAgentDialogContent
           currentPath={currentPath}
           onOpenChange={onOpenChange}
+          librarySkills={librarySkills}
+          defaultName={defaultName}
+          takenSlugs={takenSlugs}
         />
       ) : null}
     </Dialog>
@@ -69,74 +87,78 @@ export function CreateAgentDialog({
 function CreateAgentDialogContent({
   currentPath,
   onOpenChange,
+  librarySkills,
+  defaultName,
+  takenSlugs,
 }: {
   currentPath?: string | null
   onOpenChange: (open: boolean) => void
+  librarySkills?: string[]
+  defaultName?: string
+  takenSlugs?: string[]
 }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
-  const { models, providers, modelsLoading } =
-    useWorkspaceAgentModels(workspaceId)
-  const { defaultModel, defaultModelSelection, defaultModelLoading } =
-    useAgentDefaultModel()
+  const { setOpen: setSettingsOpen, setActiveSection } = useSettingsModal()
+  const { userScopes } = useUserScopes()
+  const canAdministerOrg = hasGrantedScope(
+    "org:update",
+    new Set(userScopes?.scopes ?? [])
+  )
+  const { userScopes: workspaceScopes } = useUserScopes(workspaceId)
+  const canAdministerWorkspace = hasGrantedScope(
+    "workspace:update",
+    new Set(workspaceScopes?.scopes ?? [])
+  )
+  const {
+    models,
+    defaultCatalogId,
+    hasOrgDefault,
+    modelsLoading,
+    modelsError,
+  } = useWorkspaceAgentModels(workspaceId)
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset, moveAgentPresetIsPending } =
     useMoveAgentPreset(workspaceId)
+  const { hasEntitlement } = useEntitlements()
+  const foldersEnabled = hasEntitlement("agent_addons")
 
   const initialAgentModel = useMemo(() => {
-    if (!models) return null
-    return (
-      (defaultModelSelection
-        ? models.find((model) => model.id === defaultModelSelection.catalog_id)
-        : null) ??
-      (defaultModel
-        ? models.find((model) => model.model_name === defaultModel)
-        : null) ??
-      models[0] ??
-      null
-    )
-  }, [defaultModel, defaultModelSelection, models])
-
-  const initialAgentModelBaseUrl = useMemo(() => {
-    if (!initialAgentModel?.custom_provider_id) return null
-    return (
-      providers?.find(
-        (provider) => provider.id === initialAgentModel.custom_provider_id
-      )?.base_url ?? null
-    )
-  }, [initialAgentModel, providers])
+    // The server resolves legacy settings and workspace access; null means no usable default.
+    if (!models || !defaultCatalogId) return null
+    return models.find((model) => model.id === defaultCatalogId) ?? null
+  }, [defaultCatalogId, models])
 
   const methods = useForm<CreateAgentFormValues>({
     resolver: zodResolver(createAgentSchema),
     defaultValues: {
-      name: "",
+      name: defaultName ?? "",
       description: "",
     },
   })
 
   const handleSubmit = async (values: CreateAgentFormValues) => {
     if (!initialAgentModel) {
-      toast({
-        title: "Agent model required",
-        description:
-          "Enable an agent model in organization settings before creating an agent.",
-        variant: "destructive",
-      })
       return
     }
 
     try {
       const preset = await createAgentPreset({
-        name: values.name,
+        name: takenSlugs
+          ? uniqueAgentPresetName(values.name, takenSlugs)
+          : values.name,
         model_provider: initialAgentModel.model_provider,
         model_name: initialAgentModel.model_name,
         catalog_id: initialAgentModel.id,
-        base_url: initialAgentModelBaseUrl ?? undefined,
+        base_url: initialAgentModel.custom_provider_base_url ?? undefined,
         description: values.description || undefined,
+        library_skills: librarySkills?.length ? librarySkills : undefined,
       })
       const targetFolderPath =
-        currentPath && currentPath !== "/" ? currentPath : null
+        foldersEnabled && currentPath && currentPath !== "/"
+          ? currentPath
+          : null
       if (targetFolderPath) {
         try {
           await moveAgentPreset({
@@ -155,18 +177,109 @@ function CreateAgentDialogContent({
     }
   }
 
+  if (modelsError) {
+    return (
+      <DialogContent size="sm" className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Unable to load models</DialogTitle>
+          <DialogDescription>
+            We couldn&apos;t load the models available for this workspace.
+            Please try again later.
+          </DialogDescription>
+        </DialogHeader>
+      </DialogContent>
+    )
+  }
+
+  if (modelsLoading || !models) {
+    return (
+      <DialogContent size="sm" className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Loading models</DialogTitle>
+          <DialogDescription>
+            Loading the models available for this workspace.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex justify-center py-4" aria-label="Loading models">
+            <Spinner className="size-6" />
+          </div>
+        </DialogBody>
+      </DialogContent>
+    )
+  }
+
+  if (!initialAgentModel) {
+    // A legacy name may remain after its model is disabled organization-wide.
+    let description: string
+    if (hasOrgDefault) {
+      description = canAdministerWorkspace
+        ? "The organization default model is not enabled for this workspace. Enable it in workspace AI model settings before creating an agent."
+        : "The organization default model is not enabled for this workspace. Ask a workspace administrator to enable it before creating an agent."
+    } else {
+      description = canAdministerOrg
+        ? "Choose a default model in organization settings before creating an agent."
+        : "Ask an organization administrator to configure a default model before creating an agent."
+    }
+
+    return (
+      <DialogContent size="sm" className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {hasOrgDefault
+              ? "Enable the default model"
+              : "Set up model provider"}
+          </DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        {hasOrgDefault && canAdministerWorkspace ? (
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                onOpenChange(false)
+                setActiveSection("workspace-models")
+                setSettingsOpen(true)
+              }}
+            >
+              Configure workspace models
+            </Button>
+          </DialogFooter>
+        ) : null}
+        {!hasOrgDefault && canAdministerOrg ? (
+          <DialogFooter>
+            <Button asChild variant="outline">
+              <Link
+                href="/organization/settings/agent"
+                onClick={() => onOpenChange(false)}
+              >
+                Configure models
+              </Link>
+            </Button>
+          </DialogFooter>
+        ) : null}
+      </DialogContent>
+    )
+  }
+
   return (
-    <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+    <DialogContent size="lg" className="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>Create agent</DialogTitle>
         <DialogDescription>
           Give the agent a name and optional description. You can change its
           model after creation.
+          {librarySkills?.length
+            ? ` It starts with ${librarySkills.join(", ")} attached.`
+            : null}
         </DialogDescription>
       </DialogHeader>
       <Form {...methods}>
-        <form onSubmit={methods.handleSubmit(handleSubmit)}>
-          <div className="grid gap-4">
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={methods.handleSubmit(handleSubmit)}
+        >
+          <DialogBody>
             <FormField
               control={methods.control}
               name="name"
@@ -204,20 +317,20 @@ function CreateAgentDialogContent({
                 </FormItem>
               )}
             />
-            <DialogFooter>
-              <Button
-                type="submit"
-                disabled={
-                  createAgentPresetIsPending ||
-                  moveAgentPresetIsPending ||
-                  modelsLoading ||
-                  defaultModelLoading
-                }
-              >
-                Create agent
-              </Button>
-            </DialogFooter>
-          </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              size="sm"
+              type="submit"
+              disabled={
+                createAgentPresetIsPending ||
+                moveAgentPresetIsPending ||
+                modelsLoading
+              }
+            >
+              Create agent
+            </Button>
+          </DialogFooter>
         </form>
       </Form>
     </DialogContent>

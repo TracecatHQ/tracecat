@@ -45,6 +45,17 @@ export interface AgentPresetToolApproval {
 }
 
 /**
+ * A tool's tunnel, normalized from `Record<string, string>` into a sortable
+ * list for the same reason as {@link AgentPresetToolApproval}.
+ */
+export interface AgentPresetToolTunnel {
+  /** Fully qualified tool name. */
+  tool: string
+  /** Workspace tunnel the tool's calls go through. */
+  tunnel: string
+}
+
+/**
  * A subagent attachment as rendered in the document.
  *
  * `preset_id` / `preset_version_id` are intentionally excluded: they are opaque
@@ -105,10 +116,14 @@ export interface AgentPresetDocumentInput {
   mcpIntegrations: string[]
   /** Tool approvals, sorted by tool name. */
   toolApprovals: AgentPresetToolApproval[]
+  /** Tool tunnels, sorted by tool name. Restore copies them, so they diff. */
+  toolTunnels: AgentPresetToolTunnel[]
   /** Attached subagents, sorted by name then preset. */
   subagents: AgentPresetSubagentEntry[]
   /** Attached skills with their version pins, sorted by name then version. */
   skills: AgentPresetSkillEntry[]
+  /** Attached Tracecat library skill slugs, deduplicated and sorted. */
+  librarySkills: string[]
   /** Retry budget. */
   retries: number
   /** Whether extended thinking is enabled. */
@@ -185,6 +200,14 @@ function normalizeToolApprovals(
   }
   return Object.entries(toolApprovals)
     .map(([tool, allow]) => ({ tool, allow }))
+    .sort((left, right) => left.tool.localeCompare(right.tool))
+}
+
+function normalizeToolTunnels(
+  toolTunnels: { [key: string]: string } | null | undefined
+): AgentPresetToolTunnel[] {
+  return Object.entries(toolTunnels ?? {})
+    .map(([tool, tunnel]) => ({ tool, tunnel }))
     .sort((left, right) => left.tool.localeCompare(right.tool))
 }
 
@@ -275,8 +298,10 @@ function agentPresetExecutionFieldsToDocumentInput(
     namespaces: sortStrings(fields.namespaces ?? []),
     mcpIntegrations: sortStrings(fields.mcp_integrations ?? []),
     toolApprovals: normalizeToolApprovals(fields.tool_approvals),
+    toolTunnels: normalizeToolTunnels(fields.tool_tunnels),
     subagents,
     skills: normalizeSkills(skillBindings, skillNamesById),
+    librarySkills: sortStrings([...new Set(fields.library_skills ?? [])]),
     // `form.getValues()` returns raw input and `retries` is a `z.coerce.number()`
     // field, so mid-edit it can still be the string "3".
     retries: Number(fields.retries ?? DEFAULT_RETRIES),
@@ -309,11 +334,11 @@ export function agentPresetVersionToDocumentInput(
 /**
  * Normalizes a draft create/update payload into the shared document input.
  *
- * The draft form tracks only `skill_id`, so each skill's pinned version is
- * resolved from `headBindingsBySkillId` — the CURRENT preset head's bindings,
- * keyed by `skill_id`. A skill already attached resolves to the version the
- * backend currently has pinned; a skill the user just attached in the form has
- * no pin yet and renders as `version: null`.
+ * The draft form tracks only `skill_id`, so each skill's version is resolved
+ * from `headBindingsBySkillId` — the CURRENT preset head's bindings, keyed by
+ * `skill_id`. A skill already attached resolves to its current published
+ * version; a skill the user just attached in the form has no binding yet and
+ * renders as `version: null`.
  */
 export function agentPresetPayloadToDocumentInput(
   payload: AgentPresetCreate,
@@ -392,6 +417,10 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
       tool: approval.tool,
       allow: approval.allow,
     })),
+    tool_tunnels: input.toolTunnels.map((entry) => ({
+      tool: entry.tool,
+      tunnel: entry.tunnel,
+    })),
     subagents: {
       agents: input.subagents.map((subagent) => ({
         name: subagent.name,
@@ -404,6 +433,7 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
       name: skill.name,
       version: skill.version,
     })),
+    library_skills: input.librarySkills,
     runtime: {
       retries: input.retries,
       enable_thinking: input.enableThinking,

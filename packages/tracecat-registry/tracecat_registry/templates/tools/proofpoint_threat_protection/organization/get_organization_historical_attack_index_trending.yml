@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: "Get organization historical attack index trending"
+  description: "Get historical attack index trend data with comparison against selected benchmarks. Calls GET /api/v1/dash/reports/organization-reports/historical-attack-index-trending."
+  display_group: Proofpoint Threat Protection
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Reports_API
+  namespace: tools.proofpoint_threat_protection
+  name: get_organization_historical_attack_index_trending
+  secrets:
+    - type: oauth
+      provider_id: proofpoint_threat_protection
+      grant_type: client_credentials
+  expects:
+    interval:
+      type: str
+      description: "Time interval for trending data. Valid values: 1Y, MAX."
+    comparison:
+      type: list[str] | None
+      description: "List of comparison benchmarks (e.g., industry verticals, CUSTOMER_YEAR_OVER_YEAR). Maximum 4 options allowed. Valid vertical names or CUSTOMER_YEAR_OVER_YEAR. Note: CUSTOMER_YEAR_OVER_YEAR is only allowed when interval=1Y."
+      default: null
+    base_url:
+      type: str | None
+      description: "Proofpoint Threat Protection API base URL. Defaults to https://threatprotection-api.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_threat_protection.base_url || "https://threatprotection-api.proofpoint.com" }}/api/v1/dash/reports/organization-reports/historical-attack-index-trending
+        method: GET
+        params:
+          interval: ${{ inputs.interval }}
+          comparison: ${{ inputs.comparison }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.proofpoint_threat_protection_oauth.PROOFPOINT_THREAT_PROTECTION_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

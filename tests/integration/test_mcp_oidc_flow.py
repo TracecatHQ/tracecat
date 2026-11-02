@@ -32,14 +32,14 @@ from tracecat.db.models import User
 from tracecat.mcp.oidc import config as oidc_config
 from tracecat.mcp.oidc import signing
 from tracecat.mcp.oidc.endpoints import router
-from tracecat.mcp.oidc.refresh_tokens import RefreshTokenError
+from tracecat.mcp.oidc.refresh_tokens import GrantResolver, RefreshTokenError
 from tracecat.mcp.oidc.schemas import (
     AuthCodeData,
     RefreshTokenContext,
     RefreshTokenMetadata,
     ResumeTransaction,
 )
-from tracecat.mcp.oidc.session import SessionResult
+from tracecat.mcp.oidc.session import OrganizationOption, SessionResult
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -175,9 +175,19 @@ class _InMemoryOIDCStorage:
         *,
         token: str,
         client_id: str,
+        resolve_grant: GrantResolver,
     ) -> tuple[RefreshTokenContext, str]:
         ctx = await self.consume_refresh_token(
             session, token=token, client_id=client_id
+        )
+        primary_org_id, granted_org_ids = await resolve_grant(ctx)
+        ctx = ctx.model_copy(
+            update={
+                "organization_id": primary_org_id,
+                "metadata": ctx.metadata.model_copy(
+                    update={"organization_ids": granted_org_ids}
+                ),
+            }
         )
         new_token = await self.issue_refresh_token(
             session,
@@ -317,6 +327,16 @@ def app(
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
         mem_storage.rotate_refresh_token,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.lock_mcp_refresh_token_users", AsyncMock()
+    )
+    # The token endpoint narrows the consented orgs to current memberships.
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.list_active_organizations",
+        AsyncMock(
+            return_value=[OrganizationOption(id=org_id, name="Test org", slug="test")]
+        ),
     )
 
     # Mock session resolution to return the test user + org

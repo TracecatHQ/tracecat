@@ -111,6 +111,7 @@ class TriggerType(StrEnum):
     SCHEDULED = "scheduled"
     WEBHOOK = "webhook"
     CASE = "case"
+    FORM = "form"
 
     def to_temporal_search_attr_pair(self) -> SearchAttributePair[str]:
         return TemporalSearchAttr.TRIGGER_TYPE.create_pair(self.value)

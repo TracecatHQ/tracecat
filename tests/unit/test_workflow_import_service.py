@@ -119,22 +119,6 @@ class TestWorkflowImportService:
     """Test WorkflowImportService functionality."""
 
     @pytest.mark.anyio
-    async def test_import_workflows_atomic_empty_list(
-        self, import_service: WorkflowImportService
-    ):
-        """Test importing an empty list of workflows."""
-        result = await import_service.import_workflows_atomic(
-            remote_workflows=[], commit_sha="abc123"
-        )
-
-        assert result.success is True
-        assert result.workflows_found == 0
-        assert result.workflows_imported == 0
-        assert result.commit_sha == "abc123"
-        assert len(result.diagnostics) == 0
-        assert "No workflows found" in result.message
-
-    @pytest.mark.anyio
     async def test_import_single_new_workflow(
         self,
         import_service: WorkflowImportService,
@@ -337,37 +321,6 @@ class TestWorkflowImportService:
         mock_sync.assert_awaited_once()
 
     @pytest.mark.anyio
-    async def test_import_workflow_overwrite_behavior(
-        self,
-        import_service: WorkflowImportService,
-        remote_workflow_definition: RemoteWorkflowDefinition,
-        session: AsyncSession,
-    ):
-        """Test that existing workflows are overwritten on re-import."""
-        # First import
-        result1 = await import_service.import_workflows_atomic(
-            remote_workflows=[remote_workflow_definition],
-            commit_sha="abc123",
-        )
-        assert result1.success is True
-        assert result1.workflows_imported == 1
-
-        # Second import with same workflow - should overwrite
-        result2 = await import_service.import_workflows_atomic(
-            remote_workflows=[remote_workflow_definition],
-            commit_sha="def456",
-        )
-        assert result2.success is True
-        assert result2.workflows_imported == 1  # Still reports imported
-
-        # Verify workflow still exists and wasn't duplicated
-        wf_id = WorkflowUUID.new("wf_testworkflow001")
-        stmt = select(Workflow).where(Workflow.id == wf_id)
-        result = await session.execute(stmt)
-        workflow = result.scalars().first()
-        assert workflow is not None
-
-    @pytest.mark.anyio
     async def test_import_workflow_overwrite_existing(
         self,
         import_service: WorkflowImportService,
@@ -408,6 +361,8 @@ class TestWorkflowImportService:
             commit_sha="def456",
         )
         assert result.success is True
+        assert result.workflows_imported == 1
+        assert len(result.diagnostics) == 0
 
         # Verify the workflow was updated
         wf_id = WorkflowUUID.new("wf_testworkflow001")
@@ -507,33 +462,6 @@ class TestWorkflowImportService:
         assert built_dsl.returns == updated_dsl.returns
         assert built_dsl.config == updated_dsl.config
         assert built_dsl.error_handler == "new_error_handler"
-
-    @pytest.mark.anyio
-    async def test_import_workflow_overwrite_default_behavior(
-        self,
-        import_service: WorkflowImportService,
-        remote_workflow_definition: RemoteWorkflowDefinition,
-    ):
-        """Test that re-importing workflows uses overwrite behavior by default."""
-        # First import
-        result1 = await import_service.import_workflows_atomic(
-            remote_workflows=[remote_workflow_definition],
-            commit_sha="abc123",
-        )
-        assert result1.success is True
-        assert result1.workflows_imported == 1
-
-        # Second import with same workflow - should succeed with overwrite behavior
-        result2 = await import_service.import_workflows_atomic(
-            remote_workflows=[remote_workflow_definition],
-            commit_sha="def456",
-        )
-
-        # Should succeed as import service uses overwrite behavior by default
-        assert result2.success is True
-        assert result2.workflows_imported == 1
-        assert len(result2.diagnostics) == 0
-        assert "Successfully imported 1 workflows" in result2.message
 
     @pytest.mark.anyio
     async def test_create_actions_from_dsl(
@@ -701,32 +629,6 @@ class TestWorkflowImportService:
         # Verify statuses
         schedule_statuses = {s.status for s in new_schedules}
         assert "online" in schedule_statuses
-
-    @pytest.mark.anyio
-    async def test_schedule_handling_empty_schedules(
-        self,
-        import_service: WorkflowImportService,
-        remote_workflow_definition: RemoteWorkflowDefinition,
-        session: AsyncSession,
-    ):
-        """Test schedule handling when workflow has no schedules."""
-        # Remove schedules from remote workflow
-        no_schedule_remote = remote_workflow_definition.model_copy()
-        no_schedule_remote.schedules = None
-
-        result = await import_service.import_workflows_atomic(
-            remote_workflows=[no_schedule_remote],
-            commit_sha="abc123",
-        )
-        assert result.success is True
-
-        # Verify no schedules were created
-        wf_id = WorkflowUUID.new("wf_testworkflow001")
-
-        stmt = select(Schedule).where(Schedule.workflow_id == wf_id)
-        result = await session.execute(stmt)
-        schedules = result.scalars().all()
-        assert len(schedules) == 0
 
     @pytest.mark.anyio
     async def test_import_validation_error(self):
@@ -1023,6 +925,7 @@ class TestWorkflowImportService:
         assert "non-existent-workflow" in diagnostic.message
         assert "Unknown workflow alias" in diagnostic.message
         assert diagnostic.details["workflow_alias"] == "non-existent-workflow"
+        assert diagnostic.details["action_ref"] == "call_missing"
 
     @pytest.mark.anyio
     async def test_cross_workflow_integrity_valid_existing_alias(
@@ -1123,136 +1026,112 @@ class TestWorkflowImportService:
         assert result.workflows_imported == 1
         assert len(result.diagnostics) == 0
 
-    @pytest.mark.anyio
-    async def test_cross_workflow_integrity_multiple_references(
-        self, import_service: WorkflowImportService
-    ):
-        """Test validation with multiple child workflow references."""
-        # Create workflow with multiple child workflow calls
-        parent_dsl = DSLInput(
-            title="Multi-Child Workflow",
-            description="Calls multiple child workflows",
-            entrypoint=DSLEntrypoint(ref="call_first"),
-            actions=[
-                ActionStatement(
-                    ref="call_first",
-                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
-                    args={"workflow_alias": "child-one"},
-                    description="Call first child",
-                ),
-                ActionStatement(
-                    ref="call_second",
-                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
-                    args={"workflow_alias": "child-two"},
-                    description="Call second child",
-                    depends_on=["call_first"],
-                ),
-                ActionStatement(
-                    ref="call_missing",
-                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
-                    args={"workflow_alias": "missing-child"},  # This will fail
-                    description="Call missing child",
-                    depends_on=["call_second"],
-                ),
-            ],
-        )
 
-        # Create only two child workflows (missing the third)
-        child_one_dsl = DSLInput(
-            title="Child One",
-            description="First child",
-            entrypoint=DSLEntrypoint(ref="action1"),
-            actions=[
-                ActionStatement(
-                    ref="action1",
-                    action="core.transform.transform",
-                    args={"value": "child1_data"},
-                    description="Child 1 action",
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "alias",
+    [
+        ["synthetic-private-alias"],
+        {"name": "synthetic-private-alias"},
+        42,
+        True,
+        [],
+        {},
+    ],
+)
+async def test_malformed_child_alias_is_sanitized_validation_diagnostic(
+    import_service, sample_dsl, monkeypatch, alias
+):
+    action = sample_dsl.actions[0].model_copy(
+        update={
+            "action": PlatformAction.CHILD_WORKFLOW_EXECUTE,
+            "args": {"workflow_alias": alias},
+        }
+    )
+    definition = sample_dsl.model_copy(update={"actions": [action]})
+    remote = RemoteWorkflowDefinition(
+        id="wf_parent001", alias="parent-workflow", definition=definition
+    )
+    resolve = AsyncMock()
+    monkeypatch.setattr(import_service.wf_mgmt, "resolve_workflow_alias", resolve)
+    diagnostics = await import_service._validate_cross_workflow_integrity([remote])
+    assert len(diagnostics) == 1
+    diagnostic = diagnostics[0]
+    assert diagnostic.error_type == "validation"
+    assert diagnostic.message == "Child workflow alias must be a string"
+    assert diagnostic.details == {"action_ref": action.ref}
+    assert "synthetic-private-alias" not in str(diagnostic)
+    resolve.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("legacy_state", ["missing_system_resources", "stale_edges"])
+async def test_legacy_workflow_import_stays_in_caller_transaction(
+    import_service: WorkflowImportService,
+    remote_workflow_definition: RemoteWorkflowDefinition,
+    session: AsyncSession,
+    legacy_state: str,
+) -> None:
+    remote = remote_workflow_definition
+    await import_service.import_workflows([remote], sync_schedules=False)
+    await session.commit()
+    workflow_id = WorkflowUUID.new(remote.id)
+    workflow = await import_service.wf_mgmt.get_workflow(workflow_id, normalize=False)
+    assert workflow is not None
+    original_title, original_alias = workflow.title, workflow.alias
+    if legacy_state == "missing_system_resources":
+        assert workflow.webhook is not None
+        assert workflow.case_trigger is not None
+        await session.delete(workflow.webhook)
+        await session.delete(workflow.case_trigger)
+    else:
+        workflow.actions[0].upstream_edges = [
+            {"source_id": "missing-action", "source_type": "udf"}
+        ]
+    await session.commit()
+    session.expire_all()
+    modified = remote.model_copy(deep=True)
+    modified.alias = "changed-alias"
+    modified.definition.title = "Changed title"
+
+    with pytest.raises(RuntimeError, match="Failure before receipt"):
+        async with session.begin_nested():
+            # Represents a non-workflow resource flushed before workflow import.
+            session.add(
+                WorkflowTag(
+                    workspace_id=import_service.workspace_id,
+                    name="uncommitted-tag",
+                    ref="uncommitted_tag",
                 )
-            ],
+            )
+            await session.flush()
+            await import_service.import_workflows([modified], sync_schedules=False)
+            normalized = await import_service.wf_mgmt.get_workflow(
+                workflow_id, normalize=False
+            )
+            assert normalized is not None
+            assert normalized.webhook is not None
+            assert normalized.case_trigger is not None
+            raise RuntimeError("Failure before receipt")
+    await session.rollback()
+    restored = await import_service.wf_mgmt.get_workflow(workflow_id, normalize=False)
+    assert restored is not None
+    assert (restored.title, restored.alias) == (original_title, original_alias)
+    if legacy_state == "missing_system_resources":
+        assert restored.webhook is None
+        assert restored.case_trigger is None
+    else:
+        assert any(
+            edge.get("source_id") == "missing-action"
+            for action in restored.actions
+            for edge in action.upstream_edges
         )
-
-        child_two_dsl = DSLInput(
-            title="Child Two",
-            description="Second child",
-            entrypoint=DSLEntrypoint(ref="action2"),
-            actions=[
-                ActionStatement(
-                    ref="action2",
-                    action="core.transform.transform",
-                    args={"value": "child2_data"},
-                    description="Child 2 action",
-                )
-            ],
+    assert (
+        await session.scalar(
+            select(WorkflowTag).where(
+                WorkflowTag.workspace_id == import_service.workspace_id,
+                WorkflowTag.name == "uncommitted-tag",
+            )
         )
-
-        parent_remote = RemoteWorkflowDefinition(
-            id="wf_parent001",
-            alias="parent-workflow",
-            definition=parent_dsl,
-        )
-
-        child_one_remote = RemoteWorkflowDefinition(
-            id="wf_child001",
-            alias="child-one",
-            definition=child_one_dsl,
-        )
-
-        child_two_remote = RemoteWorkflowDefinition(
-            id="wf_child002",
-            alias="child-two",
-            definition=child_two_dsl,
-        )
-
-        # Import should fail due to missing third child
-        result = await import_service.import_workflows_atomic(
-            remote_workflows=[parent_remote, child_one_remote, child_two_remote],
-            commit_sha="abc123",
-        )
-
-        assert result.success is False
-        assert result.workflows_imported == 0
-        assert len(result.diagnostics) == 1
-
-        diagnostic = result.diagnostics[0]
-        assert diagnostic.error_type == "validation"
-        assert "missing-child" in diagnostic.message
-        assert diagnostic.details["workflow_alias"] == "missing-child"
-        assert diagnostic.details["action_ref"] == "call_missing"
-
-    @pytest.mark.anyio
-    async def test_cross_workflow_integrity_validation_exception_handling(
-        self, import_service: WorkflowImportService
-    ):
-        """Test that exceptions during cross-workflow validation are properly handled."""
-        # Create a workflow with malformed args (not a dict)
-        parent_dsl = DSLInput(
-            title="Malformed Workflow",
-            description="Has malformed action args",
-            entrypoint=DSLEntrypoint(ref="malformed_action"),
-            actions=[
-                ActionStatement(
-                    ref="malformed_action",
-                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
-                    args={},  # Empty dict to test edge case
-                    description="Malformed action",
-                )
-            ],
-        )
-
-        parent_remote = RemoteWorkflowDefinition(
-            id="wf_malformed001",
-            alias="malformed-workflow",
-            definition=parent_dsl,
-        )
-
-        # Import should succeed despite malformed args (validation skips non-dict args)
-        result = await import_service.import_workflows_atomic(
-            remote_workflows=[parent_remote],
-            commit_sha="abc123",
-        )
-
-        # Should succeed because validation gracefully handles non-dict args
-        assert result.success is True
-        assert result.workflows_imported == 1
-        assert len(result.diagnostics) == 0
+        is None
+    )

@@ -8,17 +8,18 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType
 from tracecat.core.schemas import Schema
 from tracecat.db.models import Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.common import DSLInput, DSLRunArgs, apply_expects_order
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
+from tracecat.mcp.schemas import WorkflowEditDocument
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
@@ -133,6 +134,26 @@ class WorkflowDefinitionRead(Schema):
         ):
             return value
         return {"origins": value, "actions": {}}
+
+    @field_validator("content")
+    @classmethod
+    def apply_stored_expects_order(
+        cls, content: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Return inputs in the author's order and drop the internal order key.
+
+        Stored content keeps ``entrypoint.expects_order`` next to ``expects``
+        because JSONB does not keep key order. The key is storage detail and
+        never leaves the API.
+        """
+        match content:
+            case {"entrypoint": {"expects_order": order, **entrypoint}}:
+                if isinstance(expects := entrypoint.get("expects"), dict):
+                    entrypoint["expects"] = apply_expects_order(expects, order)
+                # A new dict: the stored content must not be changed.
+                return content | {"entrypoint": entrypoint}
+            case _:
+                return content
 
     @computed_field
     @property
@@ -479,7 +500,33 @@ class WorkflowEntrypointValidationResponse(BaseModel):
 
 
 class WorkflowMoveToFolder(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     folder_path: str | None = None
+
+
+class WorkflowDraftRead(BaseModel):
+    """Canonical editable draft document plus its content-hash revision."""
+
+    workflow_id: WorkflowIDShort
+    draft_revision: str
+    document: WorkflowEditDocument
+
+
+class WorkflowDraftUpdate(BaseModel):
+    """Wholesale replacement of a workflow draft.
+
+    ``document`` is the full desired draft state (metadata, definition, layout,
+    schedules, case trigger). ``schedules`` is optional: when omitted, the
+    workflow's existing schedules are left untouched so they can be owned by
+    the standalone ``/schedules`` resource; when present, they are replaced.
+    Other omitted sections fall back to their defaults and are treated as
+    changed. When ``base_revision`` is set, the update is rejected with 409 if
+    the current draft revision differs.
+    """
+
+    document: WorkflowEditDocument
+    base_revision: str | None = None
 
 
 # =============================================================================
@@ -512,6 +559,7 @@ class GraphOperationType(StrEnum):
     MOVE_NODES = "move_nodes"
     UPDATE_TRIGGER_POSITION = "update_trigger_position"
     UPDATE_VIEWPORT = "update_viewport"
+    AUTO_LAYOUT = "auto_layout"
 
 
 class GraphOperation(Schema):

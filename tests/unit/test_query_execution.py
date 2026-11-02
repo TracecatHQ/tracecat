@@ -27,12 +27,14 @@ def _wrapped_driver_error(driver_error: BaseException) -> RuntimeError:
 @pytest.mark.anyio
 async def test_query_execution_sets_transaction_local_timeout() -> None:
     session = AsyncMock(spec=AsyncSession)
+    session.scalar.return_value = "5min"
 
     async with query_execution_context(session, statement_timeout_ms=1234):
         pass
 
-    statement = session.execute.await_args.args[0]
+    statement = session.execute.await_args_list[0].args[0]
     assert str(statement) == "SET LOCAL statement_timeout = 1234"
+    assert session.execute.await_args_list[1].args[1] == {"timeout": "5min"}
 
 
 @pytest.mark.anyio
@@ -48,7 +50,7 @@ async def test_query_execution_reads_configured_default_at_runtime(
     async with query_execution_context(session):
         pass
 
-    statement = session.execute.await_args.args[0]
+    statement = session.execute.await_args_list[0].args[0]
     assert str(statement) == "SET LOCAL statement_timeout = 4321"
 
 
@@ -70,6 +72,7 @@ async def test_query_execution_rejects_unsafe_timeout_values(
             pass
 
     session.execute.assert_not_awaited()
+    session.scalar.assert_not_awaited()
 
 
 @pytest.mark.parametrize("wrapped", [False, True], ids=["direct", "adapter-wrapped"])
@@ -94,6 +97,8 @@ async def test_query_execution_maps_query_cancellation_by_type(
         ),
     }
     assert exc_info.value.__cause__ is sqlalchemy_error
+    # The caller must roll back before SQL can be executed again.
+    session.execute.assert_awaited_once()
 
 
 @pytest.mark.parametrize("wrapped", [False, True], ids=["direct", "adapter-wrapped"])

@@ -185,8 +185,10 @@ describe("buildAgentPresetVirtualFiles round-trip symmetry", () => {
       "namespaces",
       "mcp_integrations",
       "tool_approvals",
+      "tool_tunnels",
       "subagents",
       "skills",
+      "library_skills",
       "runtime",
     ])
   })
@@ -209,6 +211,14 @@ describe("buildAgentPresetVirtualFiles determinism", () => {
       })
     ).config
     expect(shuffled).toBe(baseline)
+  })
+
+  it("shows a change that only reroutes a tool", () => {
+    const rerouted = renderPayload(
+      buildPayload({ tool_tunnels: { "tools.aws.list_buckets": "onprem" } })
+    ).config
+    expect(rerouted).not.toBe(baseline)
+    expect(rerouted).toContain("tunnel: onprem")
   })
 
   it("ignores tool approval key order", () => {
@@ -254,6 +264,30 @@ describe("buildAgentPresetVirtualFiles determinism", () => {
       })
     ).config
     expect(shuffled).toBe(baseline)
+  })
+
+  it("ignores library skill order and duplicates", () => {
+    const sorted = renderPayload(
+      buildPayload({ library_skills: ["incident-summary", "phishing-triage"] })
+    ).config
+    const shuffled = renderPayload(
+      buildPayload({
+        library_skills: [
+          "phishing-triage",
+          "incident-summary",
+          "phishing-triage",
+        ],
+      })
+    ).config
+    expect(shuffled).toBe(sorted)
+  })
+
+  it("surfaces a library skill change as a config difference", () => {
+    const withLibrary = renderPayload(
+      buildPayload({ library_skills: ["phishing-triage"] })
+    ).config
+    expect(withLibrary).not.toBe(baseline)
+    expect(withLibrary).toContain("- phishing-triage")
   })
 
   it("ignores metadata-only changes", () => {
@@ -365,9 +399,11 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
         "namespaces: []",
         "mcp_integrations: []",
         "tool_approvals: []",
+        "tool_tunnels: []",
         "subagents:",
         "  agents: []",
         "skills: []",
+        "library_skills: []",
         "runtime:",
         "  retries: 3",
         "  enable_thinking: false",

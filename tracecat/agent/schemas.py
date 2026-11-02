@@ -12,8 +12,7 @@ from typing import (
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tracecat.agent.common.types import MCPServerConfig
-from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.agent.bedrock import BedrockSubscriptionStatus
 from tracecat.agent.types import AgentConfig, DeferredToolResults
 from tracecat.chat.schemas import ChatMessage
 
@@ -25,6 +24,13 @@ class DefaultModelSelection(BaseModel):
     model_name: str = Field(..., min_length=1, max_length=500)
     model_provider: str = Field(..., min_length=1, max_length=120)
     custom_provider_id: uuid.UUID | None = Field(default=None)
+
+
+class BedrockSubscriptionRead(BaseModel):
+    """AWS Marketplace subscription status for a Bedrock foundation model."""
+
+    status: BedrockSubscriptionStatus
+    checked_at: str
 
 
 class DefaultModelSelectionUpdate(BaseModel):
@@ -136,8 +142,8 @@ class ProviderCredentialField(BaseModel):
         min_length=1,
         max_length=200,
     )
-    type: Literal["text", "password"] = Field(
-        ..., description="Input type: 'text' or 'password'"
+    type: Literal["text", "password", "boolean"] = Field(
+        ..., description="Input type: 'text', 'password', or 'boolean'"
     )
     description: str = Field(
         ...,
@@ -146,6 +152,11 @@ class ProviderCredentialField(BaseModel):
         max_length=500,
     )
     required: bool = Field(default=True, description="Whether this field is required")
+    default: str | None = Field(
+        default=None,
+        description="Default value pre-filled when no credential is stored yet",
+        max_length=500,
+    )
 
 
 class ProviderCredentialConfig(BaseModel):
@@ -209,64 +220,3 @@ class AgentOutput(BaseModel):
 class ToolFilters(BaseModel):
     actions: list[str] | None = None
     namespaces: list[str] | None = None
-
-
-# Pinned registry contract; do not change until all pre-removal locks expire.
-class AgentConfigSchema(BaseModel):
-    """Agent configuration for request validation."""
-
-    model_name: str
-    model_provider: str
-    catalog_id: uuid.UUID | None = None
-    base_url: str | None = None
-    instructions: str | None = None
-    output_type: Any | None = None
-    actions: list[str] | None = None
-    namespaces: list[str] | None = None
-    tool_approvals: dict[str, bool] | None = None
-    model_settings: dict[str, Any] | None = None
-    mcp_servers: list[MCPServerConfig] | None = None
-    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
-    retries: int = Field(default=20)
-    enable_thinking: bool = Field(default=True)
-
-
-class RankableItemSchema(TypedDict):
-    """Item that can be ranked."""
-
-    id: str | int
-    text: str
-
-
-class InternalRunAgentRequest(BaseModel):
-    """Request body for /internal/agent/run endpoint."""
-
-    user_prompt: str
-    config: AgentConfigSchema | None = None
-    preset_slug: str | None = None
-    preset_version: int | None = None
-    max_requests: int = Field(default=120, le=120)
-    max_tool_calls: int | None = Field(default=None, le=40)
-
-    @model_validator(mode="after")
-    def validate_config_or_preset(self) -> InternalRunAgentRequest:
-        """Ensure either config or preset_slug is provided."""
-        if self.config is None and self.preset_slug is None:
-            raise ValueError("Either 'config' or 'preset_slug' must be provided")
-        return self
-
-
-class InternalRankItemsRequest(BaseModel):
-    """Request body for /internal/agent/rank and /rank-pairwise. Extra pairwise fields are ignored."""
-
-    items: list[RankableItemSchema]
-    criteria_prompt: str
-    model_name: str
-    model_provider: str
-    catalog_id: uuid.UUID | None = None
-    model_settings: dict[str, Any] | None = None
-    max_requests: int = 5
-    retries: int = 3
-    base_url: str | None = None
-    min_items: int | None = None
-    max_items: int | None = None

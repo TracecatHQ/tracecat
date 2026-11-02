@@ -13,17 +13,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.organizations.schemas import AdminOrgInvitationCreate
 from tracecat_ee.admin.organizations.service import AdminOrgService
 
+from tests.support.membership import grant_org_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
+    Invitation,
+    InvitationGrant,
     Organization,
-    OrganizationInvitation,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import RESEND_COOLDOWN, accept_invitation_for_user
 from tracecat.pagination import CursorPaginationParams
 
 
@@ -107,7 +111,7 @@ async def test_create_organization_invitation_defaults_to_owner_role(
     assert invitation.created_by_platform_admin is True
 
     db_invitation = await session.scalar(
-        select(OrganizationInvitation).where(OrganizationInvitation.id == invitation.id)
+        select(Invitation).where(Invitation.id == invitation.id)
     )
     assert db_invitation is not None
     assert db_invitation.created_by_platform_admin is True
@@ -136,9 +140,11 @@ async def test_create_organization_invitation_rejects_duplicate_pending_invite(
 
     invitations = (
         await session.execute(
-            select(OrganizationInvitation).where(
-                OrganizationInvitation.organization_id == org.id,
-                OrganizationInvitation.role_id == org_roles["organization-admin"].id,
+            select(Invitation)
+            .join(InvitationGrant, InvitationGrant.invitation_id == Invitation.id)
+            .where(
+                Invitation.organization_id == org.id,
+                InvitationGrant.role_id == org_roles["organization-admin"].id,
             )
         )
     ).scalars()
@@ -163,7 +169,7 @@ async def test_create_organization_invitation_rejects_existing_member(
     )
     session.add(member)
     await session.flush()
-    session.add(OrganizationMembership(user_id=member.id, organization_id=org.id))
+    await grant_org_membership(session, user_id=member.id, organization_id=org.id)
     await session.commit()
 
     service = AdminOrgService(session, platform_role)
@@ -175,11 +181,11 @@ async def test_create_organization_invitation_rejects_existing_member(
             org.id,
             AdminOrgInvitationCreate(
                 email=member.email,
-                role_slug="organization-member",
+                role_slug="organization-admin",
             ),
         )
 
-    assert org_roles["organization-member"].organization_id == org.id
+    assert org_roles["organization-admin"].organization_id == org.id
 
 
 @pytest.mark.anyio
@@ -206,17 +212,15 @@ async def test_create_organization_invitation_allows_existing_superuser(
         org.id,
         AdminOrgInvitationCreate(
             email=superuser.email,
-            role_slug="organization-member",
+            role_slug="organization-admin",
         ),
     )
 
     invitation_id = await session.scalar(
-        select(OrganizationInvitation.id).where(
-            OrganizationInvitation.email == superuser.email
-        )
+        select(Invitation.id).where(Invitation.email == superuser.email)
     )
     assert invitation_id == invitation.id
-    assert org_roles["organization-member"].organization_id == org.id
+    assert org_roles["organization-admin"].organization_id == org.id
 
 
 @pytest.mark.anyio
@@ -231,14 +235,19 @@ async def test_list_organization_invitations_only_returns_platform_created(
         org.id,
         AdminOrgInvitationCreate(email="platform@example.com"),
     )
-    tenant_invitation = OrganizationInvitation(
+    tenant_invitation = Invitation(
         organization_id=org.id,
         email="tenant@example.com",
-        role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
         expires_at=datetime.now(UTC) + timedelta(days=7),
         status=InvitationStatus.PENDING,
         created_by_platform_admin=False,
+        grants=[
+            InvitationGrant(
+                organization_id=org.id,
+                role_id=org_roles["organization-owner"].id,
+            )
+        ],
     )
     session.add(tenant_invitation)
     await session.commit()
@@ -297,16 +306,21 @@ async def test_list_organization_invitations_reverse_paginates_in_canonical_orde
 ) -> None:
     base_time = datetime(2026, 1, 1, tzinfo=UTC)
     invitations = [
-        OrganizationInvitation(
+        Invitation(
             id=uuid.uuid4(),
             organization_id=org.id,
             email=f"reverse-page-{idx}@example.com",
-            role_id=org_roles["organization-member"].id,
             token=secrets.token_urlsafe(32),
             expires_at=base_time + timedelta(days=7),
             status=InvitationStatus.PENDING,
             created_by_platform_admin=True,
             created_at=base_time + timedelta(minutes=idx),
+            grants=[
+                InvitationGrant(
+                    organization_id=org.id,
+                    role_id=org_roles["organization-owner"].id,
+                )
+            ],
         )
         for idx in range(5)
     ]
@@ -377,14 +391,19 @@ async def test_token_endpoint_only_exposes_platform_created_invitations(
         org.id,
         AdminOrgInvitationCreate(email="token@example.com"),
     )
-    tenant_invitation = OrganizationInvitation(
+    tenant_invitation = Invitation(
         organization_id=org.id,
         email="tenant-token@example.com",
-        role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
         expires_at=datetime.now(UTC) + timedelta(days=7),
         status=InvitationStatus.PENDING,
         created_by_platform_admin=False,
+        grants=[
+            InvitationGrant(
+                organization_id=org.id,
+                role_id=org_roles["organization-owner"].id,
+            )
+        ],
     )
     session.add(tenant_invitation)
     await session.commit()
@@ -414,21 +433,24 @@ async def test_revoke_organization_invitation_only_revokes_pending_platform_invi
 
     await service.revoke_organization_invitation(org.id, platform_invitation.id)
     db_invitation = await session.scalar(
-        select(OrganizationInvitation).where(
-            OrganizationInvitation.id == platform_invitation.id
-        )
+        select(Invitation).where(Invitation.id == platform_invitation.id)
     )
     assert db_invitation is not None
     assert db_invitation.status == InvitationStatus.REVOKED
 
-    tenant_invitation = OrganizationInvitation(
+    tenant_invitation = Invitation(
         organization_id=org.id,
         email="tenant-revoke@example.com",
-        role_id=org_roles["organization-member"].id,
         token=secrets.token_urlsafe(32),
         expires_at=datetime.now(UTC) + timedelta(days=7),
         status=InvitationStatus.PENDING,
         created_by_platform_admin=False,
+        grants=[
+            InvitationGrant(
+                organization_id=org.id,
+                role_id=org_roles["organization-owner"].id,
+            )
+        ],
     )
     session.add(tenant_invitation)
     await session.commit()
@@ -438,3 +460,144 @@ async def test_revoke_organization_invitation_only_revokes_pending_platform_invi
 
     with pytest.raises(TracecatValidationError, match="Cannot revoke invitation"):
         await service.revoke_organization_invitation(org.id, platform_invitation.id)
+
+
+@pytest.mark.anyio
+async def test_resend_organization_invitation_resets_claim_and_keeps_sent_timestamp(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+    smtp_configured: None,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="resend@example.com"),
+    )
+    db_invitation = await session.scalar(
+        select(Invitation).where(Invitation.id == invitation.id)
+    )
+    assert db_invitation is not None
+    db_invitation.email_claimed_at = datetime.now(UTC) - timedelta(minutes=5)
+    emailed_at = datetime.now(UTC) - timedelta(minutes=5)
+    db_invitation.email_sent_at = emailed_at
+    db_invitation.email_attempts = 2
+    await session.commit()
+
+    resent = await service.resend_organization_invitation(org.id, invitation.id)
+
+    assert resent.last_emailed_at == emailed_at
+    # The ORM-enabled UPDATE synchronizes the loaded instance without a refresh.
+    assert db_invitation.email_claimed_at is None
+    assert db_invitation.email_sent_at == emailed_at
+    assert db_invitation.email_attempts == 0
+
+    # The reset must be committed, not just flushed, or the poller never sees it.
+    await session.rollback()
+    await session.refresh(db_invitation)
+    assert db_invitation.email_claimed_at is None
+    assert db_invitation.email_attempts == 0
+
+
+@pytest.mark.anyio
+async def test_resend_organization_invitation_rejects_unknown_and_non_pending(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+    smtp_configured: None,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+
+    with pytest.raises(NoResultFound):
+        await service.resend_organization_invitation(org.id, uuid.uuid4())
+
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="resend-revoked@example.com"),
+    )
+    await service.revoke_organization_invitation(org.id, invitation.id)
+
+    with pytest.raises(TracecatValidationError, match="Cannot resend invitation"):
+        await service.resend_organization_invitation(org.id, invitation.id)
+
+
+@pytest.mark.anyio
+async def test_resend_organization_invitation_requires_email_delivery(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+    smtp_unconfigured: None,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="resend-nosmtp@example.com"),
+    )
+
+    with pytest.raises(
+        TracecatValidationError, match="Email delivery is not configured"
+    ):
+        await service.resend_organization_invitation(org.id, invitation.id)
+
+
+@pytest.mark.anyio
+async def test_resend_organization_invitation_enforces_cooldown(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+    smtp_configured: None,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="resend-cooldown@example.com"),
+    )
+    db_invitation = await session.scalar(
+        select(Invitation).where(Invitation.id == invitation.id)
+    )
+    assert db_invitation is not None
+
+    db_invitation.email_claimed_at = datetime.now(UTC) - (RESEND_COOLDOWN / 2)
+    await session.commit()
+    with pytest.raises(TracecatConflictError):
+        await service.resend_organization_invitation(org.id, invitation.id)
+
+    db_invitation.email_claimed_at = datetime.now(UTC) - (
+        RESEND_COOLDOWN + timedelta(seconds=1)
+    )
+    await session.commit()
+    resent = await service.resend_organization_invitation(org.id, invitation.id)
+    assert resent.id == invitation.id
+
+
+@pytest.mark.anyio
+async def test_member_invitation_admits_without_persisting_role(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    issued = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(
+            email="baseline@example.com", role_slug="organization-member"
+        ),
+    )
+    assert issued.role_slug == "organization-member"
+    user = User(id=uuid.uuid4(), email="baseline@example.com", hashed_password="test")
+    session.add(user)
+    await session.flush()
+    await accept_invitation_for_user(session, user_id=user.id, token=issued.token)
+    await session.flush()
+    assert await session.get(OrganizationMembership, (user.id, org.id)) is not None
+    assert (
+        await session.scalar(
+            select(UserRoleAssignment.id).where(UserRoleAssignment.user_id == user.id)
+        )
+        is None
+    )

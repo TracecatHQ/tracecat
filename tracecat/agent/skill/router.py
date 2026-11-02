@@ -8,11 +8,13 @@ from typing import Never
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
+from tracecat.agent.skill.folders.service import SkillFolderService
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftFileRead,
     SkillDraftPatch,
     SkillDraftRead,
+    SkillMoveToFolder,
     SkillRead,
     SkillReadMinimal,
     SkillUpload,
@@ -120,6 +122,35 @@ async def get_skill(
             detail=f"Skill '{skill_id}' not found",
         )
     return skill
+
+
+@router.post("/{skill_id}/move", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:update")
+async def move_skill(
+    *,
+    skill_id: uuid.UUID,
+    params: SkillMoveToFolder,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> None:
+    """Move a skill to a folder or the workspace root."""
+
+    folder_service = SkillFolderService(session, role=role)
+    folder = None
+    if params.folder_path is not None and params.folder_path != "/":
+        folder = await folder_service.get_folder_by_path(params.folder_path)
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path {params.folder_path} not found",
+            )
+    try:
+        await folder_service.move_skill(skill_id, folder)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/{skill_id}/draft", response_model=SkillDraftRead)

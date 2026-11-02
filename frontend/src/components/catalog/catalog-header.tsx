@@ -1,9 +1,8 @@
 "use client"
 
 import type { LucideIcon } from "lucide-react"
-import { Search } from "lucide-react"
 import type { ReactNode } from "react"
-import { Input } from "@/components/ui/input"
+import { ListHeaderSearch } from "@/components/list-header-search"
 import {
   Select,
   SelectContent,
@@ -67,28 +66,15 @@ export function CatalogHeader<TPillValue extends string = string>({
     <div className="w-full shrink-0 border-b">
       <header
         className={cn(
-          "flex h-10 w-full items-center pl-3 pr-4",
+          "flex h-10 w-full items-center gap-3 pl-3 pr-4",
           hasFilterRow && "border-b"
         )}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-            <Search className="size-4 text-muted-foreground" />
-          </div>
-          <Input
-            type="text"
-            placeholder={searchPlaceholder}
-            value={searchQuery}
-            onChange={(event) => onSearchChange(event.target.value)}
-            className={cn(
-              "h-7 w-48 border-none bg-transparent p-0",
-              "text-sm",
-              "shadow-none outline-none",
-              "placeholder:text-muted-foreground",
-              "focus-visible:ring-0 focus-visible:ring-offset-0"
-            )}
-          />
-        </div>
+        <ListHeaderSearch
+          placeholder={searchPlaceholder}
+          value={searchQuery}
+          onChange={(event) => onSearchChange(event.target.value)}
+        />
 
         {displayCount !== undefined && countLabel ? (
           <div className="ml-auto flex items-center gap-2">

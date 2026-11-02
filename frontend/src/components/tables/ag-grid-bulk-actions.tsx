@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -222,54 +223,54 @@ function BulkEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Edit {selectedCount} row(s)</DialogTitle>
           <DialogDescription>
             Select a column and set the new value to apply to all selected rows.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Column</label>
-            <Select value={selectedColumn} onValueChange={setSelectedColumn}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a column" />
-              </SelectTrigger>
-              <SelectContent>
-                {columns.map((col) => (
-                  <SelectItem key={col.name} value={col.name}>
-                    <span className="flex items-center gap-2">
-                      {col.name}
-                      <SqlTypeBadge type={col.type as SqlType} />
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <DialogBody>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Column</label>
+              <Select value={selectedColumn} onValueChange={setSelectedColumn}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a column" />
+                </SelectTrigger>
+                <SelectContent>
+                  {columns.map((col) => (
+                    <SelectItem key={col.name} value={col.name}>
+                      <span className="flex items-center gap-2">
+                        {col.name}
+                        <SqlTypeBadge type={col.type as SqlType} />
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {column && (
+              <Form {...form}>
+                <FormField
+                  control={form.control}
+                  name={selectedColumn}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>New value</FormLabel>
+                      <FormControl>
+                        <DynamicInput column={column} field={field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </Form>
+            )}
           </div>
-          {column && (
-            <Form {...form}>
-              <FormField
-                control={form.control}
-                name={selectedColumn}
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>New value</FormLabel>
-                    <FormControl>
-                      <DynamicInput column={column} field={field} />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            </Form>
-          )}
-        </div>
+        </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>
-            Cancel
-          </Button>
           <Button
+            size="sm"
             onClick={handleApply}
             disabled={!selectedColumn || batchUpdateRowsIsPending}
           >

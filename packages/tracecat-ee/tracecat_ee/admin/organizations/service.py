@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.orm import selectinload
 
@@ -18,19 +17,25 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
+from tracecat.authz.membership import lock_role_changes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
+    Invitation,
     Organization,
     OrganizationDomain,
-    OrganizationInvitation,
-    OrganizationMembership,
     RegistryRepository,
     RegistryVersion,
-    User,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
+from tracecat.invitations.service import (
+    create_invitation_row,
+    reset_invitation_email,
+    revoke_invitation_row,
+)
 from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import (
     create_organization_with_defaults,
@@ -102,9 +107,13 @@ class AdminOrgService(BasePlatformService):
             raise ValueError(f"Organization {org_id} not found")
         return OrgRead.model_validate(org)
 
-    async def _require_organization(self, org_id: uuid.UUID) -> None:
+    async def _require_organization(
+        self, org_id: uuid.UUID, *, for_update: bool = False
+    ) -> None:
         """Ensure an organization exists."""
         stmt = select(Organization.id).where(Organization.id == org_id)
+        if for_update:
+            stmt = stmt.with_for_update()
         if await self.session.scalar(stmt) is None:
             raise ValueError(f"Organization {org_id} not found")
 
@@ -126,6 +135,8 @@ class AdminOrgService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
+            if not is_unique_violation(e, "ix_organization_slug"):
+                raise
             raise ValueError(f"Organization slug '{org.slug}' already exists") from e
         await self.session.refresh(org)
         return OrgRead.model_validate(org)
@@ -167,64 +178,30 @@ class AdminOrgService(BasePlatformService):
         """Create a platform-scoped invitation for an organization."""
         await self._require_organization(org_id)
         role_obj = await self._get_org_invitation_role(org_id, params.role_slug)
+        # SCIM activation sweeps invitations under this lock; don't land mid-sweep.
+        await lock_role_changes(self.session, org_id)
 
-        existing_member_stmt = (
-            select(OrganizationMembership)
-            .join(User, OrganizationMembership.user_id == User.id)
-            .where(
-                OrganizationMembership.organization_id == org_id,
-                func.lower(User.email) == params.email.lower(),
-            )
-        )
-        existing_member = await self.session.scalar(existing_member_stmt)
-        if existing_member is not None:
-            raise TracecatValidationError(
-                f"{params.email} is already a member of this organization"
-            )
-
-        existing_stmt = select(OrganizationInvitation).where(
-            OrganizationInvitation.organization_id == org_id,
-            func.lower(OrganizationInvitation.email) == params.email.lower(),
-        )
-        existing = await self.session.scalar(existing_stmt)
-        if existing is not None:
-            if (
-                existing.status == InvitationStatus.PENDING
-                and existing.expires_at >= datetime.now(UTC)
-            ):
-                raise TracecatValidationError(
-                    f"An invitation already exists for {params.email} in this organization"
-                )
-            await self.session.delete(existing)
-            await self.session.flush()
-
-        invitation = OrganizationInvitation(
+        invitation = await create_invitation_row(
+            self.session,
             organization_id=org_id,
-            email=params.email,
-            role_id=role_obj.id,
+            params=InvitationCreate(
+                email=params.email,
+                grants=[InvitationGrant(workspace_id=None, role_id=role_obj.id)],
+            ),
             invited_by=self.role.user_id,
-            token=secrets.token_urlsafe(32),
-            expires_at=datetime.now(UTC) + timedelta(days=7),
-            status=InvitationStatus.PENDING,
             created_by_platform_admin=True,
         )
-        self.session.add(invitation)
-
-        try:
-            await self.session.commit()
-        except IntegrityError as exc:
-            await self.session.rollback()
-            raise TracecatValidationError(
-                f"An invitation already exists for {params.email} in this organization"
-            ) from exc
+        await self.session.commit()
 
         result = await self.session.execute(
-            select(OrganizationInvitation)
-            .where(OrganizationInvitation.id == invitation.id)
-            .options(selectinload(OrganizationInvitation.role_obj))
+            select(Invitation)
+            .where(Invitation.id == invitation.id)
+            .options(selectinload(Invitation.grants))
         )
         invitation = result.scalar_one()
-        return self._serialize_invitation_create(invitation)
+        return self._serialize_invitation_create(
+            invitation, (role_obj.id, role_obj.name, role_obj.slug)
+        )
 
     async def list_organization_invitations(
         self,
@@ -237,15 +214,15 @@ class AdminOrgService(BasePlatformService):
         await self._require_organization(org_id)
         paginator = BaseCursorPaginator(self.session)
         stmt = (
-            select(OrganizationInvitation)
+            select(Invitation)
             .where(
-                OrganizationInvitation.organization_id == org_id,
-                OrganizationInvitation.created_by_platform_admin.is_(True),
+                Invitation.organization_id == org_id,
+                Invitation.created_by_platform_admin.is_(True),
             )
-            .options(selectinload(OrganizationInvitation.role_obj))
+            .options(selectinload(Invitation.grants))
         )
         if status is not None:
-            stmt = stmt.where(OrganizationInvitation.status == status)
+            stmt = stmt.where(Invitation.status == status)
         if pagination.cursor:
             try:
                 cursor_data = paginator.decode_cursor(pagination.cursor)
@@ -262,31 +239,31 @@ class AdminOrgService(BasePlatformService):
                 )
 
             cursor_predicate = sa.or_(
-                OrganizationInvitation.created_at > cursor_created_at,
+                Invitation.created_at > cursor_created_at,
                 sa.and_(
-                    OrganizationInvitation.created_at == cursor_created_at,
-                    OrganizationInvitation.id > cursor_id,
+                    Invitation.created_at == cursor_created_at,
+                    Invitation.id > cursor_id,
                 ),
             )
             if not pagination.reverse:
                 cursor_predicate = sa.or_(
-                    OrganizationInvitation.created_at < cursor_created_at,
+                    Invitation.created_at < cursor_created_at,
                     sa.and_(
-                        OrganizationInvitation.created_at == cursor_created_at,
-                        OrganizationInvitation.id < cursor_id,
+                        Invitation.created_at == cursor_created_at,
+                        Invitation.id < cursor_id,
                     ),
                 )
             stmt = stmt.where(cursor_predicate)
 
         if pagination.reverse:
             stmt = stmt.order_by(
-                OrganizationInvitation.created_at.asc(),
-                OrganizationInvitation.id.asc(),
+                Invitation.created_at.asc(),
+                Invitation.id.asc(),
             )
         else:
             stmt = stmt.order_by(
-                OrganizationInvitation.created_at.desc(),
-                OrganizationInvitation.id.desc(),
+                Invitation.created_at.desc(),
+                Invitation.id.desc(),
             )
         stmt = stmt.limit(pagination.limit + 1)
 
@@ -319,8 +296,14 @@ class AdminOrgService(BasePlatformService):
             next_cursor, prev_cursor = prev_cursor, next_cursor
             has_more, has_previous = has_previous, has_more
 
+        roles = await self._invitation_roles(items)
         return CursorPaginatedResponse(
-            items=[self._serialize_invitation(invitation) for invitation in items],
+            items=[
+                self._serialize_invitation(
+                    invitation, self._resolved_role(invitation, roles)
+                )
+                for invitation in items
+            ],
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
@@ -352,8 +335,27 @@ class AdminOrgService(BasePlatformService):
             raise TracecatValidationError(
                 f"Cannot revoke invitation with status '{invitation.status}'"
             )
-        invitation.status = InvitationStatus.REVOKED
+        await revoke_invitation_row(self.session, invitation)
         await self.session.commit()
+
+    @audit_log(
+        resource_type="organization_invitation",
+        action="resend",
+        resource_id_attr="invitation_id",
+    )
+    async def resend_organization_invitation(
+        self,
+        org_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ) -> AdminOrgInvitationRead:
+        """Re-enter a pending platform-created invitation into the email outbox."""
+        invitation = await self._get_platform_invitation(org_id, invitation_id)
+        await reset_invitation_email(self.session, invitation)
+        await self.session.commit()
+        roles = await self._invitation_roles([invitation])
+        return self._serialize_invitation(
+            invitation, self._resolved_role(invitation, roles)
+        )
 
     async def _get_org_invitation_role(
         self,
@@ -379,50 +381,95 @@ class AdminOrgService(BasePlatformService):
         self,
         org_id: uuid.UUID,
         invitation_id: uuid.UUID,
-    ) -> OrganizationInvitation:
+    ) -> Invitation:
         """Get a platform-created invitation by ID and organization."""
         await self._require_organization(org_id)
         stmt = (
-            select(OrganizationInvitation)
+            select(Invitation)
             .where(
-                OrganizationInvitation.id == invitation_id,
-                OrganizationInvitation.organization_id == org_id,
-                OrganizationInvitation.created_by_platform_admin.is_(True),
+                Invitation.id == invitation_id,
+                Invitation.organization_id == org_id,
+                Invitation.created_by_platform_admin.is_(True),
             )
-            .options(selectinload(OrganizationInvitation.role_obj))
+            .options(selectinload(Invitation.grants))
         )
         invitation = await self.session.scalar(stmt)
         if invitation is None:
             raise NoResultFound
         return invitation
 
+    @staticmethod
+    def _first_grant_role_id(invitation: Invitation) -> uuid.UUID | None:
+        """The role id of an invitation's first grant, if it has one."""
+        # Platform-created invitations carry exactly one org-wide grant (see
+        # create_organization_invitation); a grants list here would need the
+        # listing to serialize all of them.
+        if not invitation.grants:
+            return None
+        return invitation.grants[0].role_id
+
+    async def _invitation_roles(
+        self, invitations: Sequence[Invitation]
+    ) -> dict[uuid.UUID, tuple[str, str | None]]:
+        """Resolve each invitation's first-grant role name and slug in one query."""
+        role_ids = {
+            role_id
+            for invitation in invitations
+            if (role_id := self._first_grant_role_id(invitation)) is not None
+        }
+        if not role_ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                select(DBRole.id, DBRole.name, DBRole.slug).where(
+                    DBRole.id.in_(role_ids)
+                )
+            )
+        ).tuples()
+        return {row[0]: (row[1], row[2]) for row in rows}
+
+    def _resolved_role(
+        self,
+        invitation: Invitation,
+        roles: dict[uuid.UUID, tuple[str, str | None]],
+    ) -> tuple[uuid.UUID, str, str | None]:
+        """Pair an invitation's first-grant role id with its resolved name and slug."""
+        role_id = self._first_grant_role_id(invitation)
+        if role_id is None:
+            raise NoResultFound("Invitation has no grants")
+        name, slug = roles[role_id]
+        return role_id, name, slug
+
     def _serialize_invitation(
         self,
-        invitation: OrganizationInvitation,
+        invitation: Invitation,
+        role: tuple[uuid.UUID, str, str | None],
     ) -> AdminOrgInvitationRead:
         """Serialize an organization invitation for platform admin APIs."""
         return AdminOrgInvitationRead(
             id=invitation.id,
             organization_id=invitation.organization_id,
             email=invitation.email,
-            role_id=invitation.role_id,
-            role_name=invitation.role_obj.name,
-            role_slug=invitation.role_obj.slug,
+            role_id=role[0],
+            role_name=role[1],
+            role_slug=role[2],
             status=invitation.status,
             invited_by=invitation.invited_by,
             expires_at=invitation.expires_at,
             created_at=invitation.created_at,
             accepted_at=invitation.accepted_at,
             created_by_platform_admin=invitation.created_by_platform_admin,
+            last_emailed_at=invitation.email_sent_at,
         )
 
     def _serialize_invitation_create(
         self,
-        invitation: OrganizationInvitation,
+        invitation: Invitation,
+        role: tuple[uuid.UUID, str, str | None],
     ) -> AdminOrgInvitationCreateResponse:
         """Serialize a newly created platform admin invitation with its token."""
         return AdminOrgInvitationCreateResponse(
-            **self._serialize_invitation(invitation).model_dump(),
+            **self._serialize_invitation(invitation, role).model_dump(),
             token=invitation.token,
         )
 
@@ -447,7 +494,7 @@ class AdminOrgService(BasePlatformService):
         self, org_id: uuid.UUID, params: OrgDomainCreate
     ) -> OrgDomainRead:
         """Create and assign a domain to an organization."""
-        await self._require_organization(org_id)
+        await self._require_organization(org_id, for_update=True)
         normalized = normalize_domain(params.domain)
         await self._audit_domain_event(action="create", status=AuditEventStatus.ATTEMPT)
 
@@ -481,9 +528,11 @@ class AdminOrgService(BasePlatformService):
                 action="create",
                 status=AuditEventStatus.FAILURE,
             )
-            raise self._domain_integrity_error(
+            if conflict := self._domain_integrity_error(
                 exc, normalized.normalized_domain
-            ) from exc
+            ):
+                raise conflict from exc
+            raise
 
         await self._audit_domain_event(
             action="create",
@@ -497,6 +546,7 @@ class AdminOrgService(BasePlatformService):
         self, org_id: uuid.UUID, domain_id: uuid.UUID, params: OrgDomainUpdate
     ) -> OrgDomainRead:
         """Update primary/active state for an organization domain."""
+        await self._require_organization(org_id, for_update=True)
         domain = await self._get_org_domain(org_id=org_id, domain_id=domain_id)
         previous_primary = domain.is_primary
         previous_active = domain.is_active
@@ -523,29 +573,28 @@ class AdminOrgService(BasePlatformService):
         if not next_active:
             next_primary = False
 
-        domain.is_active = next_active
-        domain.is_primary = next_primary
-
-        if next_primary:
-            domain.is_active = True
-            await self._demote_active_primaries(org_id=org_id, keep_domain_id=domain.id)
-
-        if not domain.is_active:
-            domain.is_primary = False
-
-        self.session.add(domain)
-        await self._ensure_primary_invariant(org_id=org_id)
-
+        normalized_domain = domain.normalized_domain
         try:
+            # Demote first: autoflush would otherwise write two active primaries.
+            if next_primary:
+                await self._demote_active_primaries(
+                    org_id=org_id, keep_domain_id=domain.id
+                )
+            domain.is_active = next_active
+            domain.is_primary = next_primary
+            self.session.add(domain)
+            await self._ensure_primary_invariant(org_id=org_id)
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
             await self._audit_domain_event(
                 action="update",
-                resource_id=domain.id,
+                resource_id=domain_id,
                 status=AuditEventStatus.FAILURE,
             )
-            raise self._domain_integrity_error(exc, domain.normalized_domain) from exc
+            if conflict := self._domain_integrity_error(exc, normalized_domain):
+                raise conflict from exc
+            raise
 
         await self.session.refresh(domain)
 
@@ -568,6 +617,7 @@ class AdminOrgService(BasePlatformService):
 
     async def delete_org_domain(self, org_id: uuid.UUID, domain_id: uuid.UUID) -> None:
         """Delete an assigned organization domain."""
+        await self._require_organization(org_id, for_update=True)
         domain = await self._get_org_domain(org_id=org_id, domain_id=domain_id)
         await self._audit_domain_event(
             action="delete",
@@ -575,16 +625,16 @@ class AdminOrgService(BasePlatformService):
             status=AuditEventStatus.ATTEMPT,
         )
 
-        await self.session.delete(domain)
-        await self.session.flush()
-        await self._ensure_primary_invariant(org_id=org_id)
         try:
+            await self.session.delete(domain)
+            await self.session.flush()
+            await self._ensure_primary_invariant(org_id=org_id)
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
             await self._audit_domain_event(
                 action="delete",
-                resource_id=domain.id,
+                resource_id=domain_id,
                 status=AuditEventStatus.FAILURE,
             )
             raise ValueError("Failed to delete organization domain") from exc
@@ -627,6 +677,7 @@ class AdminOrgService(BasePlatformService):
         for existing_primary in result.scalars().all():
             existing_primary.is_primary = False
             self.session.add(existing_primary)
+        await self.session.flush()
 
     async def _ensure_primary_invariant(self, *, org_id: uuid.UUID) -> None:
         """Ensure at most one active primary and deterministic fallback promotion."""
@@ -677,18 +728,15 @@ class AdminOrgService(BasePlatformService):
 
     def _domain_integrity_error(
         self, error: IntegrityError, normalized_domain: str
-    ) -> ValueError:
+    ) -> ValueError | None:
         """Translate domain-related integrity errors into user-facing messages."""
-        message = (
-            str(error.orig).lower() if error.orig is not None else str(error).lower()
-        )
-        if "ix_org_domain_normalized_domain_active_unique" in message:
+        if is_unique_violation(error, "ix_org_domain_normalized_domain_active_unique"):
             return ValueError(
                 f"Domain {normalized_domain!r} is already assigned to another organization"
             )
-        if "ix_org_domain_org_primary_active_unique" in message:
+        if is_unique_violation(error, "ix_org_domain_org_primary_active_unique"):
             return ValueError("Organization already has an active primary domain")
-        return ValueError("Organization domain operation failed")
+        return None
 
     # Org Registry Methods
 

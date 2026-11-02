@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
@@ -17,6 +17,7 @@ from tracecat.dsl.schemas import RunContext
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.executor.secret_preprocessors import (
     _AWS_ROLE_ARN_PATTERN,
+    AwsAssumeRoleSecretPreprocessor,
     _assume_role_via_irsa,
     project_secret_env,
 )
@@ -32,6 +33,7 @@ _TEMP_CREDS = {
     "AccessKeyId": "ASIA_TEMP_KEY",
     "SecretAccessKey": "temp_secret",
     "SessionToken": "temp_token",
+    "Expiration": datetime(2030, 1, 1, tzinfo=UTC),
 }
 
 _IRSA_PATCH = "tracecat.executor.secret_preprocessors._assume_role_via_irsa"
@@ -75,36 +77,19 @@ def _mock_assume_role() -> AsyncMock:
     return AsyncMock(return_value=_TEMP_CREDS)
 
 
-class TestAWSRoleArnPattern:
-    """Unit tests for the AWS role ARN validation regex."""
-
-    def test_valid_arn(self) -> None:
-        """Standard commercial AWS role ARNs should match."""
-        assert _AWS_ROLE_ARN_PATTERN.match("arn:aws:iam::123456789012:role/my-role")
-
-    def test_valid_govcloud_arn(self) -> None:
-        """GovCloud AWS role ARNs should match."""
-        assert _AWS_ROLE_ARN_PATTERN.match(
-            "arn:aws-us-gov:iam::123456789012:role/my-role"
-        )
-
-    def test_valid_china_arn(self) -> None:
-        """China partition AWS role ARNs should match."""
-        assert _AWS_ROLE_ARN_PATTERN.match("arn:aws-cn:iam::123456789012:role/my-role")
-
-    def test_valid_arn_with_path(self) -> None:
-        """Role ARNs with nested paths should match."""
-        assert _AWS_ROLE_ARN_PATTERN.match(
-            "arn:aws:iam::123456789012:role/path/to/role"
-        )
-
-    def test_invalid_arn_missing_prefix(self) -> None:
-        """Strings without the ARN prefix should not match."""
-        assert not _AWS_ROLE_ARN_PATTERN.match("123456789012:role/my-role")
-
-    def test_invalid_arn_wrong_service(self) -> None:
-        """ARNs for non-IAM services should not match the role pattern."""
-        assert not _AWS_ROLE_ARN_PATTERN.match("arn:aws:s3:::my-bucket")
+@pytest.mark.parametrize(
+    ("arn", "valid"),
+    [
+        ("arn:aws:iam::123456789012:role/my-role", True),
+        ("arn:aws-us-gov:iam::123456789012:role/my-role", True),
+        ("arn:aws-cn:iam::123456789012:role/my-role", True),
+        ("arn:aws:iam::123456789012:role/path/to/role", True),
+        ("123456789012:role/my-role", False),
+        ("arn:aws:s3:::my-bucket", False),
+    ],
+)
+def test_aws_role_arn_pattern(arn: str, valid: bool) -> None:
+    assert bool(_AWS_ROLE_ARN_PATTERN.match(arn)) is valid
 
 
 class TestAssumeRoleViaIrsa:
@@ -135,56 +120,6 @@ class TestAssumeRoleViaIrsa:
                 run_id=str(uuid.uuid4()),
             )
 
-    @pytest.mark.anyio
-    async def test_success_returns_temp_creds(self) -> None:
-        """Successful STS responses should return the temp credential mapping."""
-        mock_sts_client = AsyncMock()
-        mock_sts_client.assume_role = AsyncMock(
-            return_value={"Credentials": _TEMP_CREDS}
-        )
-
-        with patch(
-            "tracecat.executor.secret_preprocessors.aioboto3.Session"
-        ) as mock_session_cls:
-            mock_session = mock_session_cls.return_value
-            mock_session.client.return_value.__aenter__.return_value = mock_sts_client
-
-            result = await _assume_role_via_irsa(
-                role_arn=_VALID_ROLE_ARN,
-                external_id=_EXTERNAL_ID,
-                workspace_id=str(_WORKSPACE_ID),
-                run_id=str(uuid.uuid4()),
-            )
-
-        assert result["AccessKeyId"] == "ASIA_TEMP_KEY"
-        assert result["SecretAccessKey"] == "temp_secret"
-        assert result["SessionToken"] == "temp_token"
-
-    @pytest.mark.anyio
-    async def test_region_name_is_used_for_sts_session(self) -> None:
-        """Custom AWS regions should be used when assuming roles via STS."""
-        mock_sts_client = AsyncMock()
-        mock_sts_client.assume_role = AsyncMock(
-            return_value={"Credentials": _TEMP_CREDS}
-        )
-
-        with patch(
-            "tracecat.executor.secret_preprocessors.aioboto3.Session"
-        ) as mock_session_cls:
-            mock_session = mock_session_cls.return_value
-            mock_session.client.return_value.__aenter__.return_value = mock_sts_client
-
-            await _assume_role_via_irsa(
-                role_arn=_VALID_ROLE_ARN,
-                external_id=_EXTERNAL_ID,
-                workspace_id=str(_WORKSPACE_ID),
-                run_id=str(uuid.uuid4()),
-                region_name="us-gov-west-1",
-            )
-
-        mock_session_cls.assert_called_once_with(region_name="us-gov-west-1")
-        mock_session.client.assert_called_once_with("sts")
-
 
 class TestProjectSecretEnv:
     @pytest.mark.anyio
@@ -211,11 +146,12 @@ class TestProjectSecretEnv:
         }
 
     @pytest.mark.anyio
-    async def test_s3_role_arn_rewrites_projected_env(
-        self, role: Role, run_context: RunContext
+    @pytest.mark.parametrize("secret_name", ["amazon_s3", "aws"])
+    async def test_role_arn_rewrites_projected_env(
+        self, role: Role, run_context: RunContext, secret_name: str
     ) -> None:
-        """S3 role ARNs should be replaced with temporary session credentials."""
-        secrets = _base_aws_secrets()
+        """Role ARNs should be replaced with temporary session credentials."""
+        secrets = _base_aws_secrets(secret_name=secret_name)
         original_secrets = copy.deepcopy(secrets)
 
         with patch(_IRSA_PATCH, _mock_assume_role()):
@@ -235,29 +171,57 @@ class TestProjectSecretEnv:
         assert "temp_token" in projection.mask_values
 
     @pytest.mark.anyio
-    async def test_boto3_role_arn_rewrites_projected_env(
+    async def test_preprocessed_credentials_report_expiry_and_hide_from_repr(
         self, role: Role, run_context: RunContext
     ) -> None:
-        """Generic AWS secrets should also rewrite role ARNs into temp creds."""
-        secrets = _base_aws_secrets(secret_name="aws")
-
+        """Minted STS credentials carry their expiry and stay out of repr."""
         with patch(_IRSA_PATCH, _mock_assume_role()):
+            preprocessed = await AwsAssumeRoleSecretPreprocessor().preprocess(
+                secrets=_base_aws_secrets(), role=role, run_context=run_context
+            )
             projection = await project_secret_env(
-                secrets=secrets,
-                role=role,
-                run_context=run_context,
+                secrets=_base_aws_secrets(), role=role, run_context=run_context
             )
 
-        assert projection.env["AWS_ACCESS_KEY_ID"] == "ASIA_TEMP_KEY"
-        assert "AWS_ROLE_ARN" not in projection.env
+        assert preprocessed.expires_at == _TEMP_CREDS["Expiration"]
+        assert projection.expires_at == _TEMP_CREDS["Expiration"]
+        assert "temp_secret" not in repr(preprocessed)
+        assert "temp_token" not in repr(preprocessed)
 
     @pytest.mark.anyio
-    async def test_custom_role_session_name_is_forwarded(
-        self, role: Role, run_context: RunContext
+    @pytest.mark.parametrize(
+        ("overrides", "role_session_name", "region_name"),
+        [
+            pytest.param(
+                {"AWS_ROLE_SESSION_NAME": "custom-audit-session"},
+                "custom-audit-session",
+                "us-east-1",
+                id="custom_role_session_name",
+            ),
+            pytest.param(
+                {"AWS_ROLE_SESSION_NAME": "  custom-audit-session  "},
+                "custom-audit-session",
+                "us-east-1",
+                id="trimmed_role_session_name",
+            ),
+            pytest.param(
+                {"AWS_REGION": " us-gov-west-1 "},
+                None,
+                "us-gov-west-1",
+                id="aws_region",
+            ),
+        ],
+    )
+    async def test_assume_role_options_are_forwarded(
+        self,
+        role: Role,
+        run_context: RunContext,
+        overrides: dict[str, str],
+        role_session_name: str | None,
+        region_name: str,
     ) -> None:
-        """Custom AWS role session names should be forwarded to AssumeRole."""
         secrets = _base_aws_secrets()
-        secrets["amazon_s3"]["AWS_ROLE_SESSION_NAME"] = "custom-audit-session"
+        secrets["amazon_s3"].update(overrides)
         mock_assume_role = _mock_assume_role()
 
         with patch(_IRSA_PATCH, mock_assume_role):
@@ -272,58 +236,8 @@ class TestProjectSecretEnv:
             external_id=_EXTERNAL_ID,
             workspace_id=str(_WORKSPACE_ID),
             run_id=str(run_context.wf_run_id),
-            role_session_name="custom-audit-session",
-            region_name="us-east-1",
-        )
-
-    @pytest.mark.anyio
-    async def test_role_session_name_is_trimmed_before_forwarding(
-        self, role: Role, run_context: RunContext
-    ) -> None:
-        """Whitespace around AWS_ROLE_SESSION_NAME should be trimmed first."""
-        secrets = _base_aws_secrets()
-        secrets["amazon_s3"]["AWS_ROLE_SESSION_NAME"] = "  custom-audit-session  "
-        mock_assume_role = _mock_assume_role()
-
-        with patch(_IRSA_PATCH, mock_assume_role):
-            await project_secret_env(
-                secrets=secrets,
-                role=role,
-                run_context=run_context,
-            )
-
-        mock_assume_role.assert_awaited_once_with(
-            role_arn=_VALID_ROLE_ARN,
-            external_id=_EXTERNAL_ID,
-            workspace_id=str(_WORKSPACE_ID),
-            run_id=str(run_context.wf_run_id),
-            role_session_name="custom-audit-session",
-            region_name="us-east-1",
-        )
-
-    @pytest.mark.anyio
-    async def test_aws_region_is_forwarded_to_assume_role(
-        self, role: Role, run_context: RunContext
-    ) -> None:
-        """AWS_REGION should select the STS region during role preprocessing."""
-        secrets = _base_aws_secrets()
-        secrets["amazon_s3"]["AWS_REGION"] = " us-gov-west-1 "
-        mock_assume_role = _mock_assume_role()
-
-        with patch(_IRSA_PATCH, mock_assume_role):
-            await project_secret_env(
-                secrets=secrets,
-                role=role,
-                run_context=run_context,
-            )
-
-        mock_assume_role.assert_awaited_once_with(
-            role_arn=_VALID_ROLE_ARN,
-            external_id=_EXTERNAL_ID,
-            workspace_id=str(_WORKSPACE_ID),
-            run_id=str(run_context.wf_run_id),
-            role_session_name=None,
-            region_name="us-gov-west-1",
+            role_session_name=role_session_name,
+            region_name=region_name,
         )
 
     @pytest.mark.anyio
@@ -404,41 +318,20 @@ class TestProjectSecretEnv:
             )
 
     @pytest.mark.anyio
-    async def test_blank_aws_profile_is_treated_as_unset(
-        self, role: Role, run_context: RunContext
+    @pytest.mark.parametrize(
+        "blank_key",
+        [
+            pytest.param({"AWS_PROFILE": ""}, id="blank_aws_profile"),
+            pytest.param({"AWS_ROLE_ARN": " "}, id="blank_role_arn"),
+        ],
+    )
+    async def test_blank_value_is_treated_as_unset(
+        self, role: Role, run_context: RunContext, blank_key: dict[str, str]
     ) -> None:
-        """Blank AWS_PROFILE values should be removed and otherwise ignored."""
+        """Blank AWS_PROFILE and AWS_ROLE_ARN values should be treated as absent."""
         secrets = {
             "amazon_s3": {
-                "AWS_PROFILE": "",
-                "AWS_ACCESS_KEY_ID": "AKIA_STATIC",
-                "AWS_SECRET_ACCESS_KEY": "static_secret",
-                "AWS_REGION": "us-west-2",
-            },
-            "TRACECAT_AWS_EXTERNAL_ID": _EXTERNAL_ID,
-        }
-
-        projection = await project_secret_env(
-            secrets=secrets,
-            role=role,
-            run_context=run_context,
-        )
-
-        assert projection.env == {
-            "AWS_ACCESS_KEY_ID": "AKIA_STATIC",
-            "AWS_SECRET_ACCESS_KEY": "static_secret",
-            "AWS_REGION": "us-west-2",
-            "TRACECAT_AWS_EXTERNAL_ID": _EXTERNAL_ID,
-        }
-
-    @pytest.mark.anyio
-    async def test_blank_role_arn_is_treated_as_unset(
-        self, role: Role, run_context: RunContext
-    ) -> None:
-        """Blank AWS_ROLE_ARN values should be treated as absent."""
-        secrets = {
-            "amazon_s3": {
-                "AWS_ROLE_ARN": " ",
+                **blank_key,
                 "AWS_ACCESS_KEY_ID": "AKIA_STATIC",
                 "AWS_SECRET_ACCESS_KEY": "static_secret",
                 "AWS_REGION": "us-west-2",
@@ -525,3 +418,58 @@ class TestProjectSecretEnv:
         )
 
         assert projection.env["API_KEY"] == "some-key"
+
+
+class TestSecretValuesNeverEchoed:
+    """Preprocessor errors name the key, never the value.
+
+    Masks are exact-substring on the raw leaf; a stripped or escaped copy of
+    the value does not match, so the only safe message is a constant one.
+    """
+
+    def test_invalid_role_arn_error_omits_the_value(self) -> None:
+        padded = "  SUPERSECRET-not-an-arn  "
+        with pytest.raises(TracecatCredentialsError) as exc_info:
+            AwsAssumeRoleSecretPreprocessor()._get_role_arn(
+                {"AWS_ROLE_ARN": padded}, "aws"
+            )
+        assert padded.strip() not in str(exc_info.value)
+        assert "AWS_ROLE_ARN" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_sts_failure_error_omits_the_role_arn(self) -> None:
+        role_arn = "arn:aws:iam::123456789012:role/SUPERSECRET-role"
+        error = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDenied",
+                    "Message": f"not authorized to assume {role_arn}",
+                }
+            },
+            "AssumeRole",
+        )
+        fake_sts = AsyncMock()
+        fake_sts.assume_role = AsyncMock(side_effect=error)
+        with (
+            patch(
+                "tracecat.executor.secret_preprocessors.aioboto3.Session"
+            ) as mock_session_cls,
+            pytest.raises(TracecatCredentialsError) as exc_info,
+        ):
+            mock_session = mock_session_cls.return_value
+            mock_session.client.return_value.__aenter__.return_value = fake_sts
+            await _assume_role_via_irsa(
+                role_arn=role_arn,
+                external_id="ext",
+                workspace_id=str(uuid.uuid4()),
+                run_id=str(uuid.uuid4()),
+            )
+        assert role_arn not in str(exc_info.value)
+        assert "AccessDenied" in str(exc_info.value)
+
+    def test_collect_mask_values_covers_stripped_form(self) -> None:
+        from tracecat.executor.secret_preprocessors import collect_mask_values
+
+        masks = collect_mask_values([{"aws": {"AWS_ROLE_ARN": "  padded-value \n"}}])
+        assert "padded-value" in masks
+        assert "  padded-value \n" in masks

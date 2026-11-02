@@ -56,6 +56,16 @@ pages:
       - id: core.http_request
         examples:
           - http-request-basic
+        info: |
+          ### Private services
+
+          To call a host on a private or on-premises network, such as
+          `http://splunk.internal:8089`, route the action through a
+          [tunnel](/manage-platform/tunnels). The request uses the same `url`,
+          with `http://` or `https://`. The host and port must be in the
+          tunnel's allowed targets, otherwise the request fails with `403`.
+          HTTPS stays encrypted end to end; add an internal CA with the
+          `ca_cert` secret.
       - id: core.http_poll
         info: |
           ### Poll condition examples
@@ -153,7 +163,7 @@ pages:
 
           Set `allow_network: true` when your script makes outbound network
           requests. When the executor runs with
-          `TRACECAT__EXECUTOR_SANDBOX_ENABLED=true`, deployment-wide
+          `TRACECAT__EXECUTOR_BACKEND=nsjail`, deployment-wide
           [CA certificates](/self-hosting/tls#trust-an-internal-ca-for-outbound-connections)
           do not reach sandboxed scripts.
 
@@ -403,6 +413,7 @@ pages:
         examples:
           - sql-duckdb-query
           - sql-duckdb-s3
+          - sql-duckdb-s3-cross-account
 
   - slug: request-actions/ssh
     title: SSH
@@ -436,6 +447,20 @@ pages:
       - id: core.cases.search_cases
         examples:
           - cases-search
+      - id: core.cases.aggregate_cases
+        info: |
+          The example counts `new` and `in_progress` cases by priority and day.
+          It includes cases created on or after August 1, 2026 whose priority
+          is `high` or `critical`, or whose region is `emea`.
+
+          Before running it, create a TEXT custom case field named `region`.
+
+          Use `ACTIONS.cases_by_priority_per_day.result.groups` to read the results.
+          Each item contains a priority, a date, and a case count.
+          If `ACTIONS.cases_by_priority_per_day.result.truncated` is `true`,
+          the result reached the group limit and omitted some groups.
+        examples:
+          - cases-aggregate
       - id: core.cases.list_case_events
         examples:
           - cases-list-events
@@ -470,6 +495,9 @@ pages:
       - id: core.cases.update_comment
         examples:
           - cases-update-comment
+      - id: core.cases.delete_comment
+        examples:
+          - cases-delete-comment
       - id: core.cases.list_comments
         examples:
           - cases-list-comments
@@ -520,6 +548,9 @@ pages:
       - id: core.cases.update_task
         examples:
           - cases-update-task
+      - id: core.cases.run_task
+        examples:
+          - cases-run-task
       - id: core.cases.delete_task
         examples:
           - cases-delete-task
@@ -553,6 +584,11 @@ pages:
           <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
           - cases-get-linked-rows
+      - id: core.cases.list_cases_by_row
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+        examples:
+          - cases-list-cases-by-row
 
   - slug: memory-actions/tables
     title: Tables
@@ -724,6 +760,23 @@ pages:
       - id: core.table.search_rows
         examples:
           - tables-search
+      - id: core.table.aggregate_rows
+        info: |
+          The example groups alerts by source and hour, then calculates the
+          alert count, total bytes, and median duration for each group.
+
+          Before running it, create an `alerts` table with these columns:
+
+          - `source`: TEXT.
+          - `disposition`: TEXT.
+          - `bytes_out`: INTEGER.
+          - `duration_ms`: NUMERIC.
+
+          Use `ACTIONS.bytes_by_source_hourly.result.groups` to read the results.
+          If `ACTIONS.bytes_by_source_hourly.result.truncated` is `true`,
+          the result reached the group limit and omitted some groups.
+        examples:
+          - tables-aggregate
 
   - slug: memory-actions/rows
     title: Rows
@@ -754,3 +807,31 @@ pages:
       - id: core.require
         examples:
           - require-check
+
+  - slug: form-actions/forms
+    title: Forms
+    info: |
+      Read and edit [forms](/automations/triggers/forms) and manage their
+      submissions from a workflow.
+    actions:
+      - id: core.forms.list_forms
+        examples:
+          - forms-list-forms
+      - id: core.forms.get_form
+        examples:
+          - forms-get-form
+      - id: core.forms.update_form
+        examples:
+          - forms-update-form
+      - id: core.forms.list_submissions
+        examples:
+          - forms-list-submissions
+      - id: core.forms.get_submission
+        examples:
+          - forms-get-submission
+      - id: core.forms.delete_submission
+        examples:
+          - forms-delete-submission
+      - id: core.forms.download_file
+        examples:
+          - forms-download-file

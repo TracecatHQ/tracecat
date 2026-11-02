@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Get InsightAppSec app
+  description: "Get app. Calls GET /ias/v1/apps/{app_id} directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/get-app
+  namespace: tools.rapid7
+  name: get_appsec_app
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    app_id:
+      type: str
+      description: "The identifier of the app."
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/ias/v1/apps/${{ FN.url_encode(inputs.app_id) }}
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+  returns: ${{ steps.request.result }}

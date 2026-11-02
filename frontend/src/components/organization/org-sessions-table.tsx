@@ -29,6 +29,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { getRelativeTime } from "@/lib/event-history"
 import { useSessions } from "@/lib/hooks"
 
@@ -100,6 +105,70 @@ export function OrgSessionsTable() {
                 )
               },
               enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "last_seen_at",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Last seen" />
+              ),
+              cell: ({ row }) => {
+                const lastSeenAt =
+                  row.getValue<SessionRead["last_seen_at"]>("last_seen_at")
+                if (!lastSeenAt) {
+                  return <div className="text-xs text-muted-foreground">-</div>
+                }
+                const date = new Date(lastSeenAt)
+                return (
+                  <div className="space-x-2 text-xs">
+                    <span>{date.toLocaleString()}</span>
+                    <span className="text-muted-foreground">
+                      ({getRelativeTime(date)})
+                    </span>
+                  </div>
+                )
+              },
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "ip_address",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="IP address" />
+              ),
+              cell: ({ row }) => (
+                <div className="font-mono text-xs">
+                  {row.getValue<SessionRead["ip_address"]>("ip_address") ?? "-"}
+                </div>
+              ),
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "user_agent",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="User agent" />
+              ),
+              cell: ({ row }) => {
+                const userAgent =
+                  row.getValue<SessionRead["user_agent"]>("user_agent")
+                if (!userAgent) {
+                  return <div className="text-xs text-muted-foreground">-</div>
+                }
+                return (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="max-w-[240px] truncate text-xs">
+                        {userAgent}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[480px] break-all">
+                      {userAgent}
+                    </TooltipContent>
+                  </Tooltip>
+                )
+              },
+              enableSorting: false,
               enableHiding: false,
             },
             {

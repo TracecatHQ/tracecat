@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Update lookup table data
+  description: Update a lookup table item identified by its primary key.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/516391/lookup-table-integration#put-pub-lookuptable-lookuptableid-data
+  namespace: tools.fortisiem
+  name: update_lookup_table_data
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    lookupTableId:
+      type: int
+      description: Lookup table ID.
+    key:
+      type: dict[str, Any]
+      description: 'The primary key column of the item and its value, e.g. {"url": "http://example.com"}.'
+    item:
+      type: dict[str, Any]
+      description: 'Lookup table column names and their new values, e.g. {"url": "www.test.com", "wfCategoryID": 30, "score": 0.50119}.'
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/pub/lookupTable/${{ inputs.lookupTableId }}/data
+        method: PUT
+        params:
+          key: ${{ FN.serialize_json(inputs.key) }}
+        payload: ${{ inputs.item }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

@@ -1,0 +1,105 @@
+type: action
+definition:
+  title: Create incident
+  description: >-
+    Create a new incident. Calls POST /v2/incidents directly. Requires API key scope:
+    incidents.create.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incidents-v2/create
+  namespace: tools.incident_io
+  name: create_incident
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    custom_field_entries:
+      type: list[dict[str, Any]] | None
+      description: Set the incident's custom fields to these values
+      default: null
+    idempotency_key:
+      type: str
+      description: Unique string used to de-duplicate incident create requests
+    incident_role_assignments:
+      type: list[dict[str, Any]] | None
+      description: Assign incident roles to these people
+      default: null
+    incident_status_id:
+      type: str | None
+      description: Incident status to assign to the incident
+      default: null
+    incident_timestamp_values:
+      type: list[dict[str, Any]] | None
+      description: Assign the incident's timestamps to these values
+      default: null
+    incident_type_id:
+      type: str | None
+      description: Incident type to create this incident as
+      default: null
+    mode:
+      type: str | None
+      description: >-
+        Whether the incident is real, a test, a tutorial, or importing as a retrospective
+        incident. Allowed values: `standard`, `retrospective`, `test`, `tutorial`.
+      default: null
+    name:
+      type: str | None
+      description: Explanation of the incident
+      default: null
+    retrospective_incident_options:
+      type: dict[str, Any] | None
+      description: >-
+        `retrospective_incident_options` object. Fields: external_id, postmortem_document_url,
+        slack_channel_id.
+      default: null
+    severity_id:
+      type: str | None
+      description: Severity to create incident as
+      default: null
+    slack_channel_name_override:
+      type: str | None
+      description: Name of the Slack channel to create for this incident
+      default: null
+    slack_team_id:
+      type: str | None
+      description: Slack Team to create the incident in
+      default: null
+    summary:
+      type: str | None
+      description: Detailed description of the incident
+      default: null
+    visibility:
+      type: str
+      description: >-
+        Whether the incident should be open to anyone in your Slack workspace (public), or
+        invite-only (private). For more information on Private Incidents see our
+        [docs](https://docs.incident.io/incidents/sensitive-incidents). Allowed values: `public`,
+        `private`.
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incidents
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          custom_field_entries: ${{ inputs.custom_field_entries }}
+          idempotency_key: ${{ inputs.idempotency_key }}
+          incident_role_assignments: ${{ inputs.incident_role_assignments }}
+          incident_status_id: ${{ inputs.incident_status_id }}
+          incident_timestamp_values: ${{ inputs.incident_timestamp_values }}
+          incident_type_id: ${{ inputs.incident_type_id }}
+          mode: ${{ inputs.mode }}
+          name: ${{ inputs.name }}
+          retrospective_incident_options: ${{ inputs.retrospective_incident_options }}
+          severity_id: ${{ inputs.severity_id }}
+          slack_channel_name_override: ${{ inputs.slack_channel_name_override }}
+          slack_team_id: ${{ inputs.slack_team_id }}
+          summary: ${{ inputs.summary }}
+          visibility: ${{ inputs.visibility }}
+  returns: ${{ steps.request.result }}

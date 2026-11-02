@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: List catalogs
+  description: List service catalogs available to the caller.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html#servicecat-GET-catalogs
+  namespace: tools.servicenow
+  name: list_catalogs
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    sysparm_text:
+      type: str | None
+      description: Search text.
+      default: null
+    sysparm_limit:
+      type: int | None
+      description: Maximum number of records to return.
+      default: null
+    sysparm_offset:
+      type: int | None
+      description: Number of records to skip, for pagination.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_sc/servicecatalog/catalogs
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        sysparm_text: ${{ inputs.sysparm_text }}
+        sysparm_limit: ${{ inputs.sysparm_limit }}
+        sysparm_offset: ${{ inputs.sysparm_offset }}
+  returns: ${{ steps.request.result }}

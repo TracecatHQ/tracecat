@@ -3,17 +3,17 @@
 import {
   Cpu,
   FileIcon,
-  GitBranchIcon,
-  LockIcon,
   LogOut,
   Palette,
   Settings2,
+  ShieldCheck,
   UserIcon,
   WorkflowIcon,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { ProfileSettings } from "@/components/settings/profile-settings"
+import { SecuritySettings } from "@/components/settings/security-settings"
 import {
   type SettingsSection,
   useSettingsModal,
@@ -28,7 +28,6 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuthActions } from "@/hooks/use-auth"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import { useUserScopes, useWorkspaceManager } from "@/lib/hooks"
 import { hasGrantedScope } from "@/lib/scopes"
 import { cn } from "@/lib/utils"
@@ -56,7 +55,6 @@ interface NavItemProps {
   section: SettingsSection
   activeSection: SettingsSection
   onSelect: (section: SettingsSection) => void
-  blocked?: boolean
 }
 
 function NavItem({
@@ -65,7 +63,6 @@ function NavItem({
   section,
   activeSection,
   onSelect,
-  blocked = false,
 }: NavItemProps) {
   const isActive = activeSection === section
   return (
@@ -75,14 +72,12 @@ function NavItem({
         "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium",
         isActive
           ? "bg-muted"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-        blocked && !isActive && "opacity-70"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
       onClick={() => onSelect(section)}
     >
       <Icon className="size-4" />
       {label}
-      {blocked && <LockIcon className="ml-auto size-3.5 opacity-70" />}
     </button>
   )
 }
@@ -90,7 +85,6 @@ function NavItem({
 function SettingsModalContent() {
   const { setOpen, activeSection, setActiveSection } = useSettingsModal()
   const { logout } = useAuthActions()
-  const { hasEntitlement } = useEntitlements()
 
   const contextWorkspaceId = useOptionalWorkspaceId()
   const { clearLastWorkspaceId, getLastWorkspaceId, workspaces } =
@@ -171,13 +165,14 @@ function SettingsModalContent() {
 
   const showWorkspaceNav = !!workspaceId && canAdministerWorkspace
   const isAccountSection =
-    activeSection === "profile" || activeSection === "appearance"
+    activeSection === "profile" ||
+    activeSection === "appearance" ||
+    activeSection === "security"
   const canDisplaySection = isAccountSection || canAdministerWorkspace
   const displayedSection =
     isAccountSection || (showWorkspaceNav && canDisplaySection)
       ? activeSection
       : "profile"
-  const showSyncNav = hasEntitlement("git_sync")
 
   function renderSection() {
     if (displayedSection === "profile") {
@@ -185,6 +180,9 @@ function SettingsModalContent() {
     }
     if (displayedSection === "appearance") {
       return <AppearanceSettings />
+    }
+    if (displayedSection === "security") {
+      return <SecuritySettings />
     }
     if (workspaceId) {
       return (
@@ -204,10 +202,8 @@ function SettingsModalContent() {
         <DialogDescription className="sr-only">
           Manage your account and workspace settings
         </DialogDescription>
-        {/* `min-w-0` keeps this grid item from flooring the dialog's implicit
-            grid track at its own min-content width. Without it, unbreakable
-            tokens in the git-sync diff preview widen the track past the
-            dialog's max-width and get clipped by `overflow-hidden`. */}
+        {/* `min-w-0` keeps unbreakable content from widening the dialog's
+            implicit grid track past its max-width. */}
         <div className="flex h-full min-w-0">
           {/* Left nav panel */}
           <div className="flex w-[200px] shrink-0 flex-col border-r">
@@ -226,6 +222,13 @@ function SettingsModalContent() {
                 icon={Palette}
                 label="Appearance"
                 section="appearance"
+                activeSection={displayedSection}
+                onSelect={setActiveSection}
+              />
+              <NavItem
+                icon={ShieldCheck}
+                label="Security"
+                section="security"
                 activeSection={displayedSection}
                 onSelect={setActiveSection}
               />
@@ -264,14 +267,6 @@ function SettingsModalContent() {
                         section="workspace-files"
                         activeSection={displayedSection}
                         onSelect={setActiveSection}
-                      />
-                      <NavItem
-                        icon={GitBranchIcon}
-                        label="Git sync"
-                        section="workspace-sync"
-                        activeSection={displayedSection}
-                        onSelect={setActiveSection}
-                        blocked={!showSyncNav}
                       />
                     </>
                   )}

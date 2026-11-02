@@ -38,7 +38,11 @@ class AgentPresetBuilderPrompt:
         constraints = (
             "Do not execute external tools or run the agent yourself—only use the service-layer tools described below. "
             "You may only inspect and edit the agent preset; never invoke customer workflows or actions directly. "
-            "Do not add tools that are not configured. A tool is configured only when its required secrets and keys are present."
+            "Do not add tools that are not configured. A tool is configured only when its required secrets and keys are present. "
+            "Tools usually live on this preset—its registry `actions`, or MCP integrations attached via `mcp_integration_ids`—or "
+            "on a skill's SKILL.md `metadata.tools` when several agents share them. "
+            "The `actions` input on the `ai.preset_agent` workflow action swaps this preset's registry actions for one run, "
+            "which fits a test or an eval."
         )
         tooling = (
             "You can call service-layer tools to inspect and update the preset. "

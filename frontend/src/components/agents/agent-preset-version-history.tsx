@@ -51,6 +51,10 @@ export type AgentPresetVersionHistoryProps = {
   getDraftPayload: () => AgentPresetCreate | null
   /** Disables the trigger button. */
   disabled?: boolean
+  /** Show the current version as a `vN` chip instead of the clock icon. */
+  versionChip?: boolean
+  /** Horizontal alignment of the dropdown relative to the trigger. */
+  align?: "start" | "end"
 }
 
 /**
@@ -272,6 +276,8 @@ export function AgentPresetVersionHistory({
   currentVersionId,
   getDraftPayload,
   disabled,
+  versionChip = false,
+  align,
 }: AgentPresetVersionHistoryProps) {
   const { preset } = useAgentPreset(workspaceId, presetId)
   const { versions, versionsIsLoading, versionsError } = useAgentPresetVersions(
@@ -349,9 +355,20 @@ export function AgentPresetVersionHistory({
     await restoreAgentPresetVersion({ presetId, versionId })
   }
 
+  const currentVersionNumber = getAgentPresetVersionNumber(
+    versions,
+    currentVersionId
+  )
+  const triggerLabel =
+    versionChip && currentVersionNumber !== null
+      ? `v${currentVersionNumber}`
+      : undefined
+
   return (
     <VersionHistoryMenu
       document={documentDescriptor}
+      triggerLabel={triggerLabel}
+      align={align}
       entityLabel="agent"
       versions={entries}
       isLoading={versionsIsLoading}

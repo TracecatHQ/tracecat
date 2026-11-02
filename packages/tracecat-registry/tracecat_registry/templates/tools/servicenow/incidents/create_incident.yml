@@ -1,0 +1,119 @@
+type: action
+definition:
+  title: Create incident
+  description: Create an incident with the Table API.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_TableAPI.html#table-POST
+  namespace: tools.servicenow
+  name: create_incident
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    short_description:
+      type: str
+      description: Brief summary of the incident.
+    description:
+      type: str | None
+      description: Detailed description of the incident.
+      default: null
+    caller_id:
+      type: str | None
+      description: sys_id (or display value with sysparm_input_display_value) of the user reporting the incident.
+      default: null
+    category:
+      type: str | None
+      description: Incident category, e.g. inquiry, software, hardware, network.
+      default: null
+    subcategory:
+      type: str | None
+      description: Incident subcategory.
+      default: null
+    impact:
+      type: enum["1", "2", "3"] | None
+      description: 'Impact: 1 (High), 2 (Medium), 3 (Low).'
+      default: null
+    urgency:
+      type: enum["1", "2", "3"] | None
+      description: 'Urgency: 1 (High), 2 (Medium), 3 (Low).'
+      default: null
+    assignment_group:
+      type: str | None
+      description: sys_id of the assignment group (sys_user_group).
+      default: null
+    assigned_to:
+      type: str | None
+      description: sys_id of the assignee (sys_user).
+      default: null
+    cmdb_ci:
+      type: str | None
+      description: sys_id of the affected configuration item (cmdb_ci).
+      default: null
+    contact_type:
+      type: str | None
+      description: Channel the incident was reported through, e.g. email, phone, self-service.
+      default: null
+    fields:
+      type: dict[str, Any] | None
+      description: 'Additional incident field values keyed by field name, e.g. {"u_custom_field": "value"}.'
+      default: null
+    sysparm_display_value:
+      type: enum["true", "false", "all"] | None
+      description: Return display values (true), actual values (false), or both (all).
+      default: null
+    sysparm_exclude_reference_link:
+      type: bool | None
+      description: Exclude Table API links for reference fields.
+      default: null
+    sysparm_input_display_value:
+      type: bool | None
+      description: Set field values using display values instead of actual values.
+      default: null
+    sysparm_fields:
+      type: str | None
+      description: Comma-separated list of fields to return.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: build_body
+    action: core.script.run_python
+    args:
+      inputs:
+        fields: ${{ inputs.fields }}
+        values:
+          short_description: ${{ inputs.short_description }}
+          description: ${{ inputs.description }}
+          caller_id: ${{ inputs.caller_id }}
+          category: ${{ inputs.category }}
+          subcategory: ${{ inputs.subcategory }}
+          impact: ${{ inputs.impact }}
+          urgency: ${{ inputs.urgency }}
+          assignment_group: ${{ inputs.assignment_group }}
+          assigned_to: ${{ inputs.assigned_to }}
+          cmdb_ci: ${{ inputs.cmdb_ci }}
+          contact_type: ${{ inputs.contact_type }}
+      script: |
+        def main(fields, values):
+            body = dict(fields or {})
+            body.update({k: v for k, v in values.items() if v is not None})
+            return body
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/table/incident
+      method: POST
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      params:
+        sysparm_display_value: ${{ inputs.sysparm_display_value }}
+        sysparm_exclude_reference_link: ${{ inputs.sysparm_exclude_reference_link }}
+        sysparm_input_display_value: ${{ inputs.sysparm_input_display_value }}
+        sysparm_fields: ${{ inputs.sysparm_fields }}
+      payload: ${{ steps.build_body.result }}
+  returns: ${{ steps.request.result }}

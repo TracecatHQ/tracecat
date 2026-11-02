@@ -7,15 +7,18 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from tracecat.agent.skill.schemas import SkillName
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
+from tracecat.identifiers.workflow import WorkflowIDShort
 from tracecat.tags.schemas import TagRead
 
 if TYPE_CHECKING:
+    from tracecat.agent.preset.types import EffectivePresetTools
     from tracecat.db.models import AgentPreset
 
 
@@ -23,6 +26,32 @@ type AgentPresetCapability = Literal["approvals", "subagents", "internet_access"
 type AgentPresetSubagentEligibilityReason = Literal[
     "subagents_attached", "tool_approvals"
 ]
+
+
+class AgentPresetValidationErrorDetail(BaseModel):
+    """Structured details for agent preset validation failures."""
+
+    message: str
+    code: str | None = Field(default=None)
+    tool_count: int | None = Field(default=None)
+    max_tools: int | None = Field(default=None)
+    missing_skill_ids: list[str] | None = Field(default=None)
+    skill_id: str | None = Field(default=None)
+    skill_names: list[str] | None = Field(default=None)
+    skills: list[str] | None = Field(default=None)
+    skill_version_id: str | None = Field(default=None)
+    skill_version_ids: list[str] | None = Field(default=None)
+    preset_id: str | None = Field(default=None)
+    preset_version_id: str | None = Field(default=None)
+    mcp_integration_id: str | None = Field(default=None)
+    mcp_integration_ids: list[str] | None = Field(default=None)
+    tool_ids: list[str] | None = Field(default=None)
+
+
+class AgentPresetValidationErrorResponse(BaseModel):
+    """HTTP response body for agent preset validation failures."""
+
+    detail: str | AgentPresetValidationErrorDetail
 
 
 class AgentPresetSubagentEligibility(BaseModel):
@@ -34,7 +63,11 @@ class AgentPresetSubagentEligibility(BaseModel):
 
 
 class AgentPresetSkillBindingBase(Schema):
-    """Shared fields for preset skill bindings."""
+    """Shared fields for preset skill bindings.
+
+    Bindings reference a skill only; presets always run its latest published
+    version, so there is no version to pin.
+    """
 
     skill_id: uuid.UUID
 
@@ -89,7 +122,9 @@ class AgentPresetExecutionConfig(Schema):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    library_skills: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
@@ -108,7 +143,9 @@ class AgentPresetExecutionConfigWrite(Schema):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    library_skills: list[SkillName] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
@@ -119,6 +156,7 @@ class AgentPresetBase(AgentPresetExecutionConfigWrite):
     """Shared fields for agent preset mutations."""
 
     description: str | None = Field(default=None, max_length=1000)
+    use_in_chat: bool = Field(default=False)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
 
@@ -139,6 +177,7 @@ class AgentPresetUpdate(BaseModel):
     """Payload for updating an existing agent preset."""
 
     name: PresetName | None = None
+    use_in_chat: bool | None = Field(default=None)
     slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
@@ -150,12 +189,63 @@ class AgentPresetUpdate(BaseModel):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    library_skills: list[SkillName] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> AgentPresetUpdate:
+        non_nullable = {
+            "use_in_chat": self.use_in_chat,
+            "retries": self.retries,
+            "enable_thinking": self.enable_thinking,
+            "enable_internet_access": self.enable_internet_access,
+        }
+        for field_name, value in non_nullable.items():
+            if field_name in self.model_fields_set and value is None:
+                raise ValueError(
+                    f"{field_name} cannot be null; omit the field to leave it unchanged"
+                )
+        return self
+
+
+class AgentPresetToolSummary(Schema):
+    """Effective registry tool count and tool sources for preset list UIs."""
+
+    tool_count: int = Field(default=0)
+    namespaces: list[str] = Field(default_factory=list)
+    mcp_slugs: list[str] = Field(default_factory=list)
+
+
+def build_agent_preset_tool_summary(
+    policy: EffectivePresetTools,
+) -> AgentPresetToolSummary:
+    """Build a tool summary from a resolved preset policy.
+
+    Args:
+        policy: Effective registry tools and MCP grants after policy filtering.
+
+    Returns:
+        Registry tool count, distinct sorted namespaces, and granted MCP slugs.
+    """
+    return AgentPresetToolSummary(
+        tool_count=len(policy.actions),
+        namespaces=sorted({action.rpartition(".")[0] for action in policy.actions}),
+        mcp_slugs=list(policy.mcp_slugs),
+    )
+
+
+class AgentPresetWorkflowReference(Schema):
+    """A workflow whose draft runs a preset through `ai.preset_agent`."""
+
+    preset_id: uuid.UUID
+    workflow_id: WorkflowIDShort
+    workflow_title: str
 
 
 class AgentPresetReadMinimal(Schema):
@@ -166,12 +256,18 @@ class AgentPresetReadMinimal(Schema):
     name: str
     slug: str
     description: str | None
+    use_in_chat: bool = Field(default=False)
     model_provider: str
     model_name: str
     folder_id: uuid.UUID | None = None
     tags: list[TagRead] = Field(default_factory=list)
     current_version_id: uuid.UUID | None = None
     capabilities: list[AgentPresetCapability] = Field(default_factory=list)
+    tool_summary: AgentPresetToolSummary = Field(default_factory=AgentPresetToolSummary)
+    skill_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        description="Workspace skills bound to the preset head.",
+    )
     current_version_subagent_eligibility: AgentPresetSubagentEligibility = Field(
         default_factory=AgentPresetSubagentEligibility
     )
@@ -181,8 +277,16 @@ class AgentPresetReadMinimal(Schema):
 
 def build_agent_preset_read_minimal(
     preset: AgentPreset,
+    *,
+    supports_subagent_approvals: bool,
 ) -> AgentPresetReadMinimal:
-    """Build a minimal preset response without exposing approval rule details."""
+    """Build a minimal preset response without exposing approval rule details.
+
+    Args:
+        preset: The preset head to read.
+        supports_subagent_approvals: Whether enabled backends support
+            approval-gated subagents.
+    """
     read = AgentPresetReadMinimal.model_validate(preset)
     agents_config = cast(
         AgentSubagentsConfig | Mapping[str, object] | None, preset.agents
@@ -198,6 +302,7 @@ def build_agent_preset_read_minimal(
             "current_version_subagent_eligibility": build_subagent_eligibility(
                 agents_config=agents_config,
                 tool_approvals=tool_approvals,
+                supports_subagent_approvals=supports_subagent_approvals,
             ),
         }
     )
@@ -226,14 +331,22 @@ def build_subagent_eligibility(
     *,
     agents_config: AgentSubagentsConfig | Mapping[str, object] | None,
     tool_approvals: Mapping[str, bool] | None,
+    supports_subagent_approvals: bool,
 ) -> AgentPresetSubagentEligibility:
-    """Return whether this preset version can be attached as a subagent."""
+    """Return whether this preset version can be attached as a subagent.
+
+    Args:
+        agents_config: The version's own subagents.
+        tool_approvals: The version's effective approval rules.
+        supports_subagent_approvals: Whether enabled backends support
+            approval-gated subagents.
+    """
 
     reasons: list[AgentPresetSubagentEligibilityReason] = []
     agents = AgentSubagentsConfig.model_validate(agents_config or {})
     if agents.subagents:
         reasons.append("subagents_attached")
-    if has_manual_tool_approvals(tool_approvals):
+    if not supports_subagent_approvals and has_manual_tool_approvals(tool_approvals):
         reasons.append("tool_approvals")
     return AgentPresetSubagentEligibility(
         eligible=not reasons,
@@ -264,12 +377,49 @@ def _subagent_eligibility_message(
     )
 
 
+class PresetToolSourceRead(Schema):
+    """The authored or skill origin of a policy-affected tool."""
+
+    tool_id: str
+    skill_id: uuid.UUID | None = None
+    skill_name: str | None = None
+
+
+class AgentPresetToolPolicyRead(Schema):
+    """Non-secret effective policy for rendering preset configuration."""
+
+    actions: list[str] = Field(default_factory=list)
+    skill_actions: list[str] = Field(
+        default_factory=list,
+        description="Effective registry actions granted by attached skills.",
+    )
+    max_tools: int | None = Field(default=None)
+    requires_internet_access: bool = False
+    has_approvals: bool = False
+    blocked_tools: list[PresetToolSourceRead] = Field(default_factory=list)
+    internet_sources: list[PresetToolSourceRead] = Field(default_factory=list)
+
+
+class AgentPresetToolPolicyPreview(Schema):
+    """Unsaved tool selections to evaluate using the runtime policy pipeline."""
+
+    actions: list[str] = Field(default_factory=list)
+    namespaces: list[str] = Field(default_factory=list)
+    mcp_integrations: list[str] = Field(default_factory=list)
+    skill_ids: list[uuid.UUID] = Field(default_factory=list)
+    tool_approvals: dict[str, bool] = Field(default_factory=dict)
+
+
 class AgentPresetRead(AgentPresetExecutionConfig):
     """API model for reading agent presets."""
 
+    tool_policy: AgentPresetToolPolicyRead = Field(
+        default_factory=AgentPresetToolPolicyRead
+    )
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
+    use_in_chat: bool = Field(default=False)
     slug: str
     description: str | None = Field(default=None, max_length=1000)
     current_version_id: uuid.UUID | None = None
@@ -293,10 +443,12 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             actions=self.actions,
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
+            tool_tunnels=self.tool_tunnels,
             agents=self.agents,
             retries=self.retries,
             enable_thinking=self.enable_thinking,
             enable_internet_access=self.enable_internet_access,
+            library_skills=self.library_skills,
         )
 
 
@@ -330,6 +482,9 @@ class AgentPresetVersionReadMinimal(Schema):
 class AgentPresetVersionRead(AgentPresetExecutionConfig):
     """Full response model for an immutable preset version."""
 
+    tool_policy: AgentPresetToolPolicyRead = Field(
+        default_factory=AgentPresetToolPolicyRead
+    )
     id: uuid.UUID
     preset_id: uuid.UUID
     workspace_id: WorkspaceID
@@ -370,6 +525,14 @@ class ToolApprovalFieldChange(BaseModel):
     new_value: bool | None = None
 
 
+class ToolTunnelFieldChange(BaseModel):
+    """Tunnel routing diff for a single tool."""
+
+    tool: str
+    old_value: str | None = None
+    new_value: str | None = None
+
+
 class AgentPresetVersionDiff(BaseModel):
     """Structured diff between two preset versions."""
 
@@ -383,5 +546,6 @@ class AgentPresetVersionDiff(BaseModel):
     scalar_changes: list[ScalarFieldChange] = Field(default_factory=list)
     list_changes: list[StringListFieldChange] = Field(default_factory=list)
     tool_approval_changes: list[ToolApprovalFieldChange] = Field(default_factory=list)
+    tool_tunnel_changes: list[ToolTunnelFieldChange] = Field(default_factory=list)
     skill_changes: list[AgentPresetSkillBindingChange] = Field(default_factory=list)
     total_changes: int = 0

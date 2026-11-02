@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
@@ -174,6 +174,16 @@ class BaseRegistrySyncService[
 
     @classmethod
     def _storage_namespace(cls) -> str | None:
+        return None
+
+    async def _reject_shadowed_platform_actions(
+        self, *, origin: str, manifest: RegistryVersionManifest
+    ) -> None:
+        """Reject manifests whose action names collide with platform registries.
+
+        The base implementation accepts every manifest; org-scoped services
+        override this so a custom registry cannot shadow a builtin action.
+        """
         return None
 
     async def _resolve_sync_version(
@@ -410,6 +420,8 @@ class BaseRegistrySyncService[
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")
 
+        await self._reject_shadowed_platform_actions(origin=origin, manifest=manifest)
+
         if target_version is None:
             target_version = self._generate_version_string(
                 origin=origin, commit_sha=commit_sha
@@ -643,10 +655,11 @@ class BaseRegistrySyncService[
         commit: bool = True,
         promote: bool = True,
     ) -> BaseSyncResult[VersionT]:
-        from temporalio.common import RetryPolicy
-
         from tracecat.dsl.client import get_temporal_client
-        from tracecat.registry.sync.workflow import RegistrySyncWorkflow
+        from tracecat.registry.sync.workflow import (
+            REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT,
+            RegistrySyncWorkflow,
+        )
 
         origin = str(db_repo.origin)
         repo_id = db_repo.id
@@ -718,11 +731,7 @@ class BaseRegistrySyncService[
                 request,
                 id=workflow_id,
                 task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-                execution_timeout=timedelta(minutes=20),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(seconds=5),
-                ),
+                execution_timeout=REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT,
             )
         except WorkflowFailureError as exc:
             validation_failure = next(
@@ -774,6 +783,7 @@ class BaseRegistrySyncService[
         )
 
         manifest = RegistryVersionManifest.from_actions(actions)
+        await self._reject_shadowed_platform_actions(origin=origin, manifest=manifest)
 
         if target_version is None:
             target_version = workflow_target_version or self._generate_version_string(

@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Get table columns
+  description: List the field definitions (form fields) of a table from the sys_dictionary table. Fields inherited from a parent table, such as task for incident, are defined on the parent table.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_TableAPI.html#table-GET
+  namespace: tools.servicenow
+  name: get_table_columns
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    table_name:
+      type: str
+      description: Table name, e.g. incident or task.
+    sysparm_fields:
+      type: str | None
+      description: Comma-separated list of fields to return, e.g. element,column_label,internal_type,mandatory,reference.
+      default: null
+    sysparm_limit:
+      type: int | None
+      description: Maximum number of records to return.
+      default: null
+    sysparm_offset:
+      type: int | None
+      description: Number of records to skip, for pagination.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/table/sys_dictionary
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        sysparm_query: name=${{ inputs.table_name }}^elementISNOTEMPTY
+        sysparm_fields: ${{ inputs.sysparm_fields }}
+        sysparm_limit: ${{ inputs.sysparm_limit }}
+        sysparm_offset: ${{ inputs.sysparm_offset }}
+  returns: ${{ steps.request.result }}

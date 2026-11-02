@@ -13,6 +13,13 @@ WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
         "case:create",
         "case:update",
         "case:delete",
+        "form:read",
+        "form:create",
+        "form:update",
+        "form:delete",
+        "form:submit",
+        "form:submission:read",
+        "form:submission:delete",
         "integration:read",
         "integration:create",
         "integration:update",
@@ -37,6 +44,10 @@ WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
         "variable:create",
         "variable:update",
         "variable:delete",
+        "tunnel:read",
+        "tunnel:create",
+        "tunnel:update",
+        "tunnel:delete",
         "workflow:read",
         "workflow:sync",
         "workspace_sync:sync",
@@ -59,6 +70,8 @@ ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
     | frozenset(
         {
             "org:read",
+            # Lets access-review tools list organization members.
+            "org:member:read",
             "org:secret:read",
             "org:secret:create",
             "org:secret:update",
@@ -68,6 +81,8 @@ ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
             "org:settings:delete",
             "org:workspace:read",
             "workspace:create",
+            # Lets CI pipelines sync custom registry repositories.
+            "org:registry:update",
             # RBAC management — lets a service account mirror user/role
             # assignments across workspaces (e.g. membership-sync principals).
             "org:rbac:read",

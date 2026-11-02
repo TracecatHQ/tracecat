@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Resolve incident
+  description: Resolve an incident by setting state to 6 (Resolved) with a resolution code and notes.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_TableAPI.html#table-PATCH
+  namespace: tools.servicenow
+  name: resolve_incident
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    sys_id:
+      type: str
+      description: sys_id of the incident.
+    close_code:
+      type: str
+      description: Resolution code. Choices vary by instance; use get_choice_values with table incident and element close_code.
+    close_notes:
+      type: str
+      description: Resolution notes.
+    state:
+      type: str
+      description: Target incident state. OOTB 6 is Resolved.
+      default: '6'
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/table/incident/${{ FN.url_encode(inputs.sys_id) }}
+      method: PATCH
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        state: ${{ inputs.state }}
+        close_code: ${{ inputs.close_code }}
+        close_notes: ${{ inputs.close_notes }}
+  returns: ${{ steps.request.result }}

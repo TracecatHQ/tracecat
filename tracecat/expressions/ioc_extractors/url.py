@@ -69,6 +69,7 @@ def extract_urls(
             # Domain defanging
             "[.]": ".",
             "(.)": ".",
+            "\\.": ".",
             "[dot]": ".",
             "(dot)": ".",
             " dot ": ".",

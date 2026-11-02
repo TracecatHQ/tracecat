@@ -185,6 +185,17 @@ def coerce_numeric_value(value: Any) -> Decimal:
     return decimal_value
 
 
+def coerce_boolean_value(value: Any) -> bool:
+    """Normalize booleans, 0/1, and their case-insensitive string forms."""
+    match str(value).lower():
+        case "true" | "1":
+            return True
+        case "false" | "0":
+            return False
+        case _:
+            raise TypeError("Expected a boolean, 0/1, or a string true/false/0/1")
+
+
 def _compile_sql_literal(value: Any, sql_type: sa.types.TypeEngine) -> str:
     expr = sa.literal(value, type_=sql_type)
     compiled = expr.compile(
@@ -337,17 +348,9 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
                 key=name, value=coerced, type_=sa.TIMESTAMP(timezone=True)
             )
         case SqlType.BOOLEAN:
-            # Allow bool, 1, 0 as valid boolean values
-            match str(value).lower():
-                case "true" | "1":
-                    bool_value = True
-                case "false" | "0":
-                    bool_value = False
-                case _:
-                    raise TypeError(
-                        f"Expected bool or 0/1, got {type(value).__name__}: {value}"
-                    )
-            return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
+            return sa.bindparam(
+                key=name, value=coerce_boolean_value(value), type_=sa.Boolean
+            )
         case SqlType.INTEGER:
             coerced = None if value is None else coerce_integer_value(value)
             return sa.bindparam(key=name, value=coerced, type_=sa.BigInteger)

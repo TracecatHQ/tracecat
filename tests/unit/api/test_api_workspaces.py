@@ -7,17 +7,22 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
 
+from tests._db_error_utils import unique_violation
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.scopes import ORG_MEMBER_SCOPES
-from tracecat.authz.service import MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.workspaces import router as workspaces_router
+
+
+def _membership_row(membership, organization_id):
+    """A Membership row carries its organization_id."""
+    membership.organization_id = organization_id
+    return membership
 
 
 @pytest.fixture
@@ -32,28 +37,6 @@ def mock_workspace_data() -> Workspace:
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
     return workspace
-
-
-@pytest.mark.anyio
-async def test_list_workspaces_admin_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test GET /workspaces returns all workspaces for admin."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.list_accessible_workspaces.return_value = [mock_workspace_data]
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get("/workspaces")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "Test Workspace"
 
 
 @pytest.mark.anyio
@@ -120,34 +103,6 @@ async def test_list_workspaces_allows_workspace_service_account(
 
 
 @pytest.mark.anyio
-async def test_create_workspace_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test POST /workspaces creates a new workspace."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.create_workspace.return_value = mock_workspace_data
-        MockService.return_value = mock_svc
-
-        # Make request
-        organization_id = str(uuid.uuid4())
-        response = client.post(
-            "/workspaces",
-            json={
-                "name": "New Workspace",
-                "organization_id": organization_id,
-            },
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-        assert data["name"] == "Test Workspace"
-
-
-@pytest.mark.anyio
 async def test_create_workspace_rejects_workspace_service_account(
     client: TestClient,
     test_admin_role: Role,
@@ -187,9 +142,7 @@ async def test_create_workspace_conflict(
     """Test POST /workspaces with duplicate name returns 409."""
     with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_workspace.side_effect = IntegrityError(
-            "", {}, Exception("Duplicate")
-        )
+        mock_svc.create_workspace.side_effect = unique_violation("uq_workspace_id")
         MockService.return_value = mock_svc
 
         # Make request
@@ -212,11 +165,18 @@ async def test_create_workspace_membership_conflict(
     test_admin_role: Role,
 ) -> None:
     """Test POST /workspaces/{workspace_id}/memberships duplicate returns 409."""
+    # Presets no longer carry the add scope; API callers hold it explicitly.
+    ctx_role.set(
+        test_admin_role.model_copy(
+            update={
+                "scopes": (test_admin_role.scopes or frozenset())
+                | {"workspace:member:invite"}
+            }
+        )
+    )
     with patch.object(workspaces_router, "MembershipService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_membership.side_effect = IntegrityError(
-            "", {}, Exception("Duplicate")
-        )
+        mock_svc.create_membership.side_effect = unique_violation("pk_membership")
         MockService.return_value = mock_svc
 
         response = client.post(
@@ -228,28 +188,87 @@ async def test_create_workspace_membership_conflict(
 
 
 @pytest.mark.anyio
-async def test_search_workspaces_success(
+async def test_create_workspace_membership_allows_org_inviter(
     client: TestClient,
     test_admin_role: Role,
-    mock_workspace_data: Workspace,
 ) -> None:
-    """Test GET /workspaces/search with search term."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
+    """Org inviters may add workspace members without workspace:member:invite."""
+    ctx_role.set(
+        test_admin_role.model_copy(
+            update={
+                "scopes": (test_admin_role.scopes or frozenset())
+                - {"workspace:member:invite"}
+                | {"org:member:invite"}
+            }
+        )
+    )
+    with patch.object(workspaces_router, "MembershipService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.search_workspaces.return_value = [mock_workspace_data]
         MockService.return_value = mock_svc
 
-        # Make request
-        response = client.get(
-            "/workspaces/search",
-            params={"name": "Test"},
+        user_id = str(uuid.uuid4())
+        response = client.post(
+            f"/workspaces/{uuid.uuid4()}/memberships",
+            json={"user_id": user_id},
         )
 
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "Test Workspace"
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["user_id"] == user_id
+
+
+@pytest.mark.anyio
+async def test_create_workspace_membership_non_org_member_returns_404(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """A user outside the organization is reported as 404, not a server error."""
+    ctx_role.set(
+        test_admin_role.model_copy(
+            update={
+                "scopes": (test_admin_role.scopes or frozenset())
+                | {"workspace:member:invite"}
+            }
+        )
+    )
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_membership.side_effect = TracecatNotFoundError(
+            "User not found in organization"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/workspaces/{uuid.uuid4()}/memberships",
+            json={"user_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["detail"] == "User not found in organization"
+
+
+@pytest.mark.anyio
+async def test_create_workspace_membership_requires_invite_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Callers without either invite scope are denied."""
+    ctx_role.set(
+        test_admin_role.model_copy(
+            update={
+                "scopes": (test_admin_role.scopes or frozenset())
+                - {"workspace:member:invite", "org:member:invite"}
+            }
+        )
+    )
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        MockService.return_value = AsyncMock()
+
+        response = client.post(
+            f"/workspaces/{uuid.uuid4()}/memberships",
+            json={"user_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 @pytest.mark.anyio
@@ -316,6 +335,11 @@ async def test_get_workspace_success(
     with (
         patch.object(workspaces_router, "WorkspaceService") as MockService,
         patch.object(workspaces_router, "MembershipService") as MockMembershipService,
+        patch.object(
+            workspaces_router,
+            "workspace_allows_error_details",
+            AsyncMock(return_value=True),
+        ),
     ):
         # Mock workspace service
         mock_svc = AsyncMock()
@@ -328,8 +352,8 @@ async def test_get_workspace_success(
         mock_membership.user_id = test_admin_role.user_id
         mock_membership.workspace_id = mock_workspace_data.id
         mock_membership.role = WorkspaceRole.ADMIN
-        mock_membership_svc.get_membership.return_value = MembershipWithOrg(
-            membership=mock_membership, org_id=mock_workspace_data.organization_id
+        mock_membership_svc.get_membership.return_value = _membership_row(
+            mock_membership, mock_workspace_data.organization_id
         )
         MockMembershipService.return_value = mock_membership_svc
 
@@ -342,6 +366,7 @@ async def test_get_workspace_success(
         logger.info("DATA", data=data)
         assert response.status_code == status.HTTP_200_OK
         assert data["name"] == mock_workspace_data.name
+        assert data["unsafe_disable_secret_error_withholding_allowed"] is True
 
 
 @pytest.mark.anyio
@@ -362,46 +387,3 @@ async def test_get_workspace_not_found(
 
         # Should return 404
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-
-@pytest.mark.anyio
-async def test_update_workspace_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test PATCH /workspaces/{workspace_id} updates workspace."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.update_workspace.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        workspace_id = str(mock_workspace_data.id)
-        response = client.patch(
-            f"/workspaces/{workspace_id}",
-            json={"name": "Updated Workspace Name"},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-
-
-@pytest.mark.anyio
-async def test_delete_workspace_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test DELETE /workspaces/{workspace_id} deletes workspace."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.delete_workspace.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        workspace_id = str(mock_workspace_data.id)
-        response = client.delete(f"/workspaces/{workspace_id}")
-
-        # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT

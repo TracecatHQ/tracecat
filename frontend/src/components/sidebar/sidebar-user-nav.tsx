@@ -1,12 +1,13 @@
 "use client"
 
 import type { LucideIcon } from "lucide-react"
-import { BookText, Settings, ShieldCheckIcon } from "lucide-react"
+import { BookText, LockIcon, Settings, ShieldCheckIcon } from "lucide-react"
 import Link from "next/link"
 import { useSettingsModal } from "@/components/settings/settings-modal-context"
 import { Separator } from "@/components/ui/separator"
 import {
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
@@ -24,6 +25,7 @@ type SidebarUserNavManageItem = {
   href: string
   icon: LucideIcon
   isActive?: boolean
+  locked?: boolean
 }
 
 export function SidebarUserNav({
@@ -61,6 +63,12 @@ export function SidebarUserNav({
               <span>{item.title}</span>
             </Link>
           </SidebarMenuButton>
+          {item.locked ? (
+            <SidebarMenuBadge>
+              <LockIcon aria-hidden="true" className="size-3.5" />
+              <span className="sr-only">Requires upgrade</span>
+            </SidebarMenuBadge>
+          ) : null}
         </SidebarMenuItem>
       ))}
 

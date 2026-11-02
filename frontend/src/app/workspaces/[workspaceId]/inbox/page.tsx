@@ -3,21 +3,21 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { ActivityLayout } from "@/components/inbox"
-import { CenteredSpinner } from "@/components/loading/spinner"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { type InboxOrderBy, useInbox } from "@/hooks/use-inbox"
 import { getInboxHrefWithoutCaseFilter, parseInboxCaseId } from "@/lib/inbox"
 
 export default function InboxPage() {
-  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const canReadInbox = useScopeCheck("inbox:read")
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const caseId = parseInboxCaseId(searchParams?.get("caseId") ?? null)
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const requestedCaseId = parseInboxCaseId(searchParams?.get("caseId") ?? null)
+  // Case-filtered agent runs require case add-ons; ignore the param otherwise.
+  const caseId =
+    requestedCaseId && hasEntitlement("case_addons") ? requestedCaseId : null
 
   // Sort is applied server-side so it orders every page of a group globally,
   // not just the rows already loaded in the browser.
@@ -38,7 +38,9 @@ export default function InboxPage() {
     setUpdatedAfter,
     setCreatedAfter,
   } = useInbox({
-    enabled: agentAddonsEnabled && canReadInbox,
+    enabled:
+      canReadInbox === true &&
+      (requestedCaseId === null || !entitlementsLoading),
     caseId,
     orderBy,
     sort,
@@ -63,25 +65,8 @@ export default function InboxPage() {
     document.title = "Inbox"
   }, [])
 
-  if (entitlementsLoading) {
-    return <CenteredSpinner />
-  }
-
   if (!canReadInbox) {
     return null
-  }
-
-  if (!agentAddonsEnabled) {
-    return (
-      <div className="size-full overflow-auto">
-        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 items-center justify-center py-12">
-          <EntitlementRequiredEmptyState
-            title="Enterprise only"
-            description="Advanced AI agents (human-in-the-loop and subagents) are only available on enterprise plans."
-          />
-        </div>
-      </div>
-    )
   }
 
   return (

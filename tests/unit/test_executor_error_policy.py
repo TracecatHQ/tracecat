@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import pytest
 
-from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ExecutionError,
+    LoopExecutionError,
+    TracecatExpressionError,
+)
 from tracecat.executor.error_policy import classify_execute_action_error
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheLeaseContentionError,
 )
 from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.expressions.eval import get_iterables_from_expression
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -196,3 +202,15 @@ def test_resource_limit_envelope_code_reaches_classification_without_text() -> N
         action_name="core.script.run_python",
     )
     assert classification.kind is RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED
+
+
+def test_invalid_for_each_expression_is_user_owned_expression_error() -> None:
+    with pytest.raises(TracecatExpressionError) as exc_info:
+        get_iterables_from_expression(expr="${{ [1, 2] }}", operand={})
+
+    result = classify_execute_action_error(exc_info.value, action_name="test_action")
+
+    assert result.owner is RuntimeErrorOwner.USER
+    assert result.kind is RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID
+    assert result.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert result.cause_type == "TracecatExpressionError"

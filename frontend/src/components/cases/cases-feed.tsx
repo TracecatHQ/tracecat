@@ -27,13 +27,15 @@ import {
   CommentUpdatedEvent,
   DropdownValueChangedEvent,
   EventActor,
-  EventCreatedAt,
   EventIcon,
   FieldsChangedEvent,
+  ParentChangedEvent,
   PayloadChangedEvent,
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
+  SubCasesAddedEvent,
+  SubCasesRemovedEvent,
   TagAddedEvent,
   TagRemovedEvent,
   TaskAssigneeChangedEvent,
@@ -43,6 +45,7 @@ import {
   TaskStatusChangedEvent,
   TaskWorkflowChangedEvent,
 } from "@/components/cases/cases-feed-event"
+import { CreatedAtTimestamp } from "@/components/timestamps"
 import {
   Empty,
   EmptyDescription,
@@ -96,6 +99,9 @@ const HANDLED_FEED_EVENT_TYPES = new Set([
   "table_row_unlinked",
   "tag_added",
   "tag_removed",
+  "parent_changed",
+  "sub_cases_added",
+  "sub_cases_removed",
 ])
 
 function CaseFeedEvent({
@@ -260,6 +266,18 @@ function CaseFeedEvent({
           <TagRemovedEvent event={event} actor={actor} />
         )}
 
+        {event.type === "parent_changed" && (
+          <ParentChangedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "sub_cases_added" && (
+          <SubCasesAddedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "sub_cases_removed" && (
+          <SubCasesRemovedEvent event={event} actor={actor} />
+        )}
+
         {event.type && !HANDLED_FEED_EVENT_TYPES.has(event.type) && (
           <div className="flex items-center space-x-2 text-xs">
             <EventIcon icon={PlusIcon} />
@@ -271,7 +289,7 @@ function CaseFeedEvent({
         {/* Add a dot separator */}
         <InlineDotSeparator />
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <EventCreatedAt createdAt={event.created_at} />
+          <CreatedAtTimestamp createdAt={event.created_at} />
           {event.wf_exec_id && (
             <WorkflowExecutionInfo wfExecId={event.wf_exec_id} />
           )}

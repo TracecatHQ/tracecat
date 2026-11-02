@@ -15,6 +15,12 @@ global.TransformStream = TransformStream
 global.ReadableStream = ReadableStream
 global.WritableStream = WritableStream
 
+// jsdom does not expose structuredClone (used by @shadcn/helpers)
+if (typeof global.structuredClone !== "function") {
+  const v8 = require("node:v8")
+  global.structuredClone = (value) => v8.deserialize(v8.serialize(value))
+}
+
 // jsdom does not implement scrollIntoView (used by cmdk selection)
 if (typeof Element !== "undefined") {
   Element.prototype.scrollIntoView = jest.fn()

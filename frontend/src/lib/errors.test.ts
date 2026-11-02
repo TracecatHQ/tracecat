@@ -1,6 +1,7 @@
 import {
   chainError,
   getApiErrorDetail,
+  isManagedResourceLockedError,
   showFallbackErrorToast,
 } from "@/lib/errors"
 
@@ -50,6 +51,64 @@ describe("getApiErrorDetail", () => {
       })
     )
   })
+
+  it("shows every validation message with its file path without JSON metadata", () => {
+    const error = Object.assign(new Error("Bad Request"), {
+      body: {
+        detail: {
+          code: "skill_draft_tool_validation_failed",
+          errors: [
+            {
+              code: "unknown_skill_tools",
+              path: "SKILL.md",
+              message: "Tool not found.",
+            },
+            {
+              code: "invalid_path",
+              path: "notes.txt",
+              message: "File is invalid.",
+            },
+            null,
+            { message: 42 },
+            { message: " " },
+          ],
+        },
+      },
+    })
+
+    expect(getApiErrorDetail(error)).toBe(
+      "SKILL.md: Tool not found.\nnotes.txt: File is invalid."
+    )
+  })
+
+  it("reads request validation arrays and structured message details", () => {
+    const error = Object.assign(new Error("Unprocessable Entity"), {
+      body: {
+        detail: [
+          { loc: ["body", "name"], msg: "Name is required.", type: "missing" },
+        ],
+      },
+    })
+    expect(getApiErrorDetail(error)).toBe("Name is required.")
+
+    const messageError = Object.assign(new Error("Bad Request"), {
+      body: {
+        detail: {
+          code: "invalid_skill",
+          message: "Fix the skill before publishing.",
+        },
+      },
+    })
+    expect(getApiErrorDetail(messageError)).toBe(
+      "Fix the skill before publishing."
+    )
+  })
+
+  it("preserves the fallback for structured details without readable messages", () => {
+    const detail = { code: "invalid_skill", errors: [{ message: null }] }
+    const error = Object.assign(new Error("Bad Request"), { body: { detail } })
+    expect(getApiErrorDetail(error)).toBe(JSON.stringify(detail))
+  })
 })
 
 describe("chainError", () => {
@@ -57,7 +116,7 @@ describe("chainError", () => {
     mockToast.mockClear()
   })
 
-  it("handles globally matched errors before invoking the local handler", () => {
+  it("swallows forbidden errors while still invoking the local handler", () => {
     const local = jest.fn()
     const error = Object.assign(new Error("Forbidden"), {
       status: 403,
@@ -69,15 +128,36 @@ describe("chainError", () => {
     expect(local).toHaveBeenCalledWith(error, "workflow-123", undefined, {
       client: true,
     })
-    expect(mockToast).toHaveBeenCalledTimes(1)
+    expect(mockToast).not.toHaveBeenCalled()
+  })
+
+  it("does not show the fallback for forbidden errors without a local handler", () => {
+    const error = Object.assign(new Error("Forbidden"), {
+      status: 403,
+      body: { detail: { entitlement: "case_addons" } },
+    })
+
+    chainError()(error)
+
+    expect(mockToast).not.toHaveBeenCalled()
+  })
+
+  it("toasts the managed resource lock message without a local handler", () => {
+    const error = Object.assign(new Error("Forbidden"), {
+      status: 403,
+      body: {
+        detail: "Managed by Tracecat. Detach to edit.",
+        error: { code: "managed_resource_locked" },
+      },
+    })
+
+    expect(isManagedResourceLockedError(error)).toBe(true)
+    chainError()(error)
+
     expect(mockToast).toHaveBeenCalledWith({
-      title: "Permission denied",
-      description: "Missing workspace:read scope",
+      description: "Managed by Tracecat. Detach to edit.",
       variant: "destructive",
     })
-    expect(mockToast.mock.invocationCallOrder[0]).toBeLessThan(
-      local.mock.invocationCallOrder[0]
-    )
   })
 
   it("forwards unmatched errors and all callback arguments locally", () => {

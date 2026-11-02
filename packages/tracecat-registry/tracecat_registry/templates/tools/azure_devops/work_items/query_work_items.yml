@@ -1,0 +1,91 @@
+type: action
+definition:
+  title: Query work items (WIQL)
+  description: "Run a WIQL query and return matching work item references."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/wiql/query-by-wiql?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: query_work_items
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    team:
+      type: str | None
+      description: "Team ID or name to scope the query to."
+      default: null
+    query:
+      type: str
+      description: "WIQL query text, e.g. `SELECT [System.Id] FROM WorkItems WHERE [System.State] = 'Active'`."
+    time_precision:
+      type: bool | None
+      description: "Use time precision in date comparisons."
+      default: null
+    top:
+      type: int | None
+      description: "Maximum number of results to return."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            timePrecision: ${{ inputs.time_precision }}
+            $top: ${{ inputs.top }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.2"
+              return query
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          fields:
+            query: ${{ inputs.query }}
+        script: |
+          def main(fields):
+              return {k: v for k, v in fields.items() if v is not None}
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          organization: ${{ inputs.organization }}
+          project: ${{ inputs.project }}
+          team: ${{ inputs.team }}
+        script: |
+          from urllib.parse import quote
+
+          def main(organization, project, team):
+              path = f"/{quote(organization, safe='')}/{quote(project, safe='')}"
+              if team:
+                  path += f"/{quote(team, safe='')}"
+              return path + "/_apis/wit/wiql"
+    - ref: query_work_items
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}${{ steps.build_path.result }}
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        params: ${{ steps.build_params.result }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.query_work_items.result }}

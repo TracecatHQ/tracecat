@@ -10,6 +10,7 @@ import type { VariableReadMinimal, VariableUpdate } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useWorkspaceVariables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -64,6 +66,10 @@ export function EditVariableDialog({
   const { updateVariableById } = useWorkspaceVariables(workspaceId, {
     listEnabled: false,
   })
+  // A managed variable only accepts new values for its existing keys.
+  const { isManaged, isLoading: managedLoading } =
+    useManagedResources(workspaceId)
+  const valuesOnly = isManaged("variable", selectedVariable?.id)
 
   const methods = useForm<UpdateVariableFormData>({
     resolver: zodResolver(updateVariableFormSchema),
@@ -143,19 +149,23 @@ export function EditVariableDialog({
   return (
     <Dialog {...props}>
       {children}
-      <DialogContent className={className}>
+      <DialogContent size="lg" className={className}>
         <DialogHeader>
           <DialogTitle>Edit variable</DialogTitle>
           <DialogDescription className="flex flex-col">
             <span>
-              Leave a field blank to keep its existing value. You must update
-              all values at once.
+              {valuesOnly
+                ? "Managed by Tracecat. Only values can be changed."
+                : "Leave a field blank to keep its existing value. You must update all values at once."}
             </span>
           </DialogDescription>
         </DialogHeader>
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
-            <div className="space-y-4">
+          <form
+            className="flex min-h-0 flex-1 flex-col"
+            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+          >
+            <DialogBody>
               <FormField
                 key="name"
                 control={control}
@@ -168,6 +178,7 @@ export function EditVariableDialog({
                       <Input
                         className="text-sm"
                         placeholder={selectedVariable?.name || "Name"}
+                        disabled={valuesOnly}
                         {...register("name")}
                       />
                     </FormControl>
@@ -191,6 +202,7 @@ export function EditVariableDialog({
                         placeholder={
                           selectedVariable?.description || "Description"
                         }
+                        disabled={valuesOnly}
                         {...register("description")}
                       />
                     </FormControl>
@@ -215,6 +227,7 @@ export function EditVariableDialog({
                         placeholder={
                           selectedVariable?.environment || "Environment"
                         }
+                        disabled={valuesOnly}
                         {...register("environment")}
                       />
                     </FormControl>
@@ -246,6 +259,7 @@ export function EditVariableDialog({
                                 id={`key-${index}`}
                                 className="text-sm"
                                 placeholder={"Key"}
+                                readOnly={valuesOnly}
                                 {...field}
                               />
                             </FormControl>
@@ -278,6 +292,7 @@ export function EditVariableDialog({
                       <Button
                         type="button"
                         variant="ghost"
+                        disabled={valuesOnly}
                         onClick={() => remove(index)}
                       >
                         <Trash2Icon className="size-3.5" />
@@ -288,26 +303,28 @@ export function EditVariableDialog({
               <Button
                 type="button"
                 variant="outline"
+                disabled={valuesOnly}
                 onClick={() => append({ key: "", value: "" })}
                 className="w-full space-x-2 text-xs text-foreground/80"
               >
                 <PlusCircle className="mr-2 size-4" />
-                Add Item
+                Add item
               </Button>
               {fields.length === 0 && (
                 <span className="text-xs text-foreground/50">
                   Values will be left unchanged.
                 </span>
               )}
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="ml-auto space-x-2" type="submit">
-                    <SaveIcon className="mr-2 size-4" />
-                    Save
-                  </Button>
-                </DialogClose>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <DialogClose asChild>
+                {/* Wait for the managed lookup so locked fields are known. */}
+                <Button size="sm" type="submit" disabled={managedLoading}>
+                  <SaveIcon className="mr-2 size-4" />
+                  Save
+                </Button>
+              </DialogClose>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

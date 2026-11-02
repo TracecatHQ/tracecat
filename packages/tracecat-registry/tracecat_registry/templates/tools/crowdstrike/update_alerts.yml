@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Update alerts
+  description: >-
+    Perform actions on Falcon alerts identified by composite ID, such as changing
+    status, assigning, tagging, or commenting. Requires the Alerts: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/alerts/#patchentitiesalertsv3
+  namespace: tools.crowdstrike
+  name: update_alerts
+  expects:
+    composite_ids:
+      type: list[str]
+      description: Composite IDs of the alerts to update.
+    action_parameters:
+      type: list[dict[str, str]]
+      description: >-
+        Actions to apply, as `{"name": ..., "value": ...}` objects. Documented names:
+        update_status (new, in_progress, closed, reopened), assign_to_uuid,
+        assign_to_name, assign_to_user_id, unassign, append_comment, add_tag,
+        remove_tag, remove_tags_by_prefix, show_in_ui, new_behavior_processed.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: update_alerts
+      action: tools.falconpy.call_command
+      args:
+        operation_id: PatchEntitiesAlertsV3
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            composite_ids: ${{ inputs.composite_ids }}
+            action_parameters: ${{ inputs.action_parameters }}
+  returns: ${{ steps.update_alerts.result }}

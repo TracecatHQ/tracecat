@@ -1,24 +1,25 @@
 import {
   BracesIcon,
-  ClockPlusIcon,
   EyeIcon,
+  ListTreeIcon,
   type LucideIcon,
   MessageSquareIcon,
   PaperclipIcon,
   PencilIcon,
-  PencilLineIcon,
   PlusIcon,
   TagIcon,
   TrashIcon,
   UserIcon,
   UserXIcon,
 } from "lucide-react"
+import Link from "next/link"
 import { Fragment } from "react"
 import type {
   AssigneeChangedEventRead,
   AttachmentCreatedEventRead,
   AttachmentDeletedEventRead,
   CaseEventRead,
+  CaseRef,
   ClosedEventRead,
   CommentCreatedEventRead,
   CommentDeletedEventRead,
@@ -28,11 +29,14 @@ import type {
   CommentUpdatedEventRead,
   DropdownValueChangedEventRead,
   FieldChangedEventRead,
+  ParentChangedEventRead,
   PayloadChangedEventRead,
   PriorityChangedEventRead,
   ReopenedEventRead,
   SeverityChangedEventRead,
   StatusChangedEventRead,
+  SubCasesAddedEventRead,
+  SubCasesRemovedEventRead,
   TagAddedEventRead,
   TagRemovedEventRead,
   TaskAssigneeChangedEventRead,
@@ -57,7 +61,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { User } from "@/lib/auth"
+import { caseHref } from "@/lib/cases/urls"
 import { cn, formatFileSize } from "@/lib/utils"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function EventIcon({
   icon: Icon,
@@ -87,57 +93,6 @@ export function EventActor({ user }: { user: User }) {
         {user.getDisplayName()}
       </span>
     </UserHoverCard>
-  )
-}
-
-function shortTimeAgo(date: Date): string {
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-  const diffWeeks = Math.floor(diffDays / 7)
-  const diffMonths = Math.floor(diffDays / 30)
-
-  if (diffMins < 1) return "now"
-  if (diffMins < 60) return `${diffMins}m`
-  if (diffHours < 24) return `${diffHours}h`
-  if (diffDays < 7) return `${diffDays}d`
-  if (diffDays < 30) return `${diffWeeks}w`
-  return `${diffMonths}mo`
-}
-
-export function EventCreatedAt({ createdAt }: { createdAt: string }) {
-  const date = new Date(createdAt)
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <ClockPlusIcon className="size-3" />
-            {shortTimeAgo(date)}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>{date.toLocaleString()}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
-}
-
-export function EventUpdatedAt({ updatedAt }: { updatedAt: string }) {
-  const date = new Date(updatedAt)
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <PencilLineIcon className="size-3" />
-            {shortTimeAgo(date)}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>Updated: {date.toLocaleString()}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
   )
 }
 
@@ -792,6 +747,116 @@ export function TaskWorkflowChangedEvent({
 }
 
 // Tag events
+
+function CaseRefLink({ caseRef }: { caseRef: CaseRef }) {
+  const workspaceId = useWorkspaceId()
+  return (
+    <Link
+      href={caseHref(workspaceId, caseRef.id)}
+      className="font-medium hover:underline"
+    >
+      {caseRef.short_id}
+    </Link>
+  )
+}
+
+function CaseRefList({ caseRefs }: { caseRefs: CaseRef[] }) {
+  const shown = caseRefs.slice(0, 3)
+  return (
+    <>
+      {shown.map((caseRef, index) => (
+        <Fragment key={caseRef.id}>
+          {index > 0 && ", "}
+          <CaseRefLink caseRef={caseRef} />
+        </Fragment>
+      ))}
+      {caseRefs.length > shown.length &&
+        ` and ${caseRefs.length - shown.length} more`}
+    </>
+  )
+}
+
+function ParentChangeDescription({ event }: { event: ParentChangedEventRead }) {
+  if (event.new && event.old) {
+    return (
+      <>
+        moved this case from <CaseRefLink caseRef={event.old} /> to{" "}
+        <CaseRefLink caseRef={event.new} />
+      </>
+    )
+  }
+  if (event.new) {
+    return (
+      <>
+        grouped this case under <CaseRefLink caseRef={event.new} />
+      </>
+    )
+  }
+  if (event.old) {
+    return (
+      <>
+        removed this case from <CaseRefLink caseRef={event.old} />
+      </>
+    )
+  }
+  return <>removed this case from its parent</>
+}
+
+/** Activity row for a case being grouped under, moved to, or removed from a parent. */
+export function ParentChangedEvent({
+  event,
+  actor,
+}: {
+  event: ParentChangedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={ListTreeIcon} />
+      <span>
+        <EventActor user={actor} /> <ParentChangeDescription event={event} />
+      </span>
+    </div>
+  )
+}
+
+export function SubCasesAddedEvent({
+  event,
+  actor,
+}: {
+  event: SubCasesAddedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={ListTreeIcon} />
+      <span>
+        <EventActor user={actor} /> added sub-case
+        {event.sub_cases.length === 1 ? " " : "s "}
+        <CaseRefList caseRefs={event.sub_cases} />
+      </span>
+    </div>
+  )
+}
+
+export function SubCasesRemovedEvent({
+  event,
+  actor,
+}: {
+  event: SubCasesRemovedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={ListTreeIcon} className="text-red-600 bg-red-50" />
+      <span>
+        <EventActor user={actor} /> removed sub-case
+        {event.sub_cases.length === 1 ? " " : "s "}
+        <CaseRefList caseRefs={event.sub_cases} />
+      </span>
+    </div>
+  )
+}
 
 export function TagAddedEvent({
   event,

@@ -2,7 +2,8 @@ import uuid
 from collections.abc import Sequence
 
 from slugify import slugify
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import NoResultFound
 
 from tracecat.cases.enums import CaseEventType
@@ -10,8 +11,10 @@ from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseTag, CaseTagLink, CaseTrigger
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class CaseTagsService(BaseWorkspaceService):
@@ -39,7 +42,10 @@ class CaseTagsService(BaseWorkspaceService):
         tag: CaseTag,
         event_type: CaseEventType,
     ) -> None:
-        from tracecat.cases.schemas import TagAddedEvent, TagRemovedEvent
+        from tracecat.cases.event_schemas import (
+            TagAddedEvent,
+            TagRemovedEvent,
+        )
         from tracecat.cases.service import CaseEventsService
 
         match event_type:
@@ -141,6 +147,7 @@ class CaseTagsService(BaseWorkspaceService):
         workspace_id = self.role.workspace_id
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
+        await hold_for_customer_write(self.session, workspace_id)
 
         ref = slugify(params.name)
 
@@ -163,8 +170,40 @@ class CaseTagsService(BaseWorkspaceService):
         await self.session.refresh(tag)
         return tag
 
+    async def _create_tag_if_missing(self, name: str) -> CaseTag:
+        await hold_for_customer_write(self.session, self.workspace_id)
+        params = TagCreate(name=name)
+        ref = slugify(params.name)
+        # Concurrent requests may create the same tag; reuse whichever won.
+        await self.session.execute(
+            pg_insert(CaseTag)
+            .values(
+                name=params.name,
+                ref=ref,
+                workspace_id=self.workspace_id,
+            )
+            .on_conflict_do_nothing()
+        )
+        # A synced tag can hold this name under a different ref.
+        result = await self.session.scalars(
+            select(CaseTag)
+            .where(
+                CaseTag.workspace_id == self.workspace_id,
+                or_(CaseTag.ref == ref, CaseTag.name == params.name),
+            )
+            .order_by((CaseTag.ref == ref).desc())
+            .limit(1)
+        )
+        return result.one()
+
     async def update_tag(self, tag: CaseTag, params: TagUpdate) -> CaseTag:
         """Update an existing case tag."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_TAG,
+            local_id=tag.id,
+        )
         original_ref = tag.ref
         if params.name and params.name != tag.name:
             new_ref = slugify(params.name)
@@ -227,6 +266,12 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def delete_tag(self, tag: CaseTag) -> None:
         """Delete a case tag definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_TAG,
+            local_id=tag.id,
+        )
         await self.session.delete(tag)
         await self.session.commit()
 
@@ -288,23 +333,17 @@ class CaseTagsService(BaseWorkspaceService):
         except NoResultFound:
             if not create_if_missing:
                 raise
-            # Create the tag
-            tag = await self.create_tag(TagCreate(name=tag_identifier))
+            tag = await self._create_tag_if_missing(tag_identifier)
 
-        # Check if already exists
-        stmt = select(CaseTagLink).where(
-            CaseTagLink.case_id == case_id,
-            CaseTagLink.tag_id == tag.id,
+        # Concurrent adds of the same tag keep the first link and its event.
+        linked = await self.session.scalar(
+            pg_insert(CaseTagLink)
+            .values(case_id=case_id, tag_id=tag.id)
+            .on_conflict_do_nothing()
+            .returning(CaseTagLink.tag_id)
         )
-        result = await self.session.execute(stmt)
-        existing = result.scalar_one_or_none()
-
-        if existing:
-            return tag  # Already exists, return tag
-
-        # Create new
-        case_tag = CaseTagLink(case_id=case_id, tag_id=tag.id)
-        self.session.add(case_tag)
+        if linked is None:
+            return tag
 
         await self._create_tag_event(
             case=case, tag=tag, event_type=CaseEventType.TAG_ADDED
@@ -321,7 +360,9 @@ class CaseTagsService(BaseWorkspaceService):
 
         case_tag = await self.get_case_tag(case_id, tag.id)
         if not case_tag:
-            raise ValueError(f"Tag {tag_identifier} not found on case {case_id}")
+            raise TracecatNotFoundError(
+                f"Tag {tag_identifier} not found on case {case_id}"
+            )
         await self.session.delete(case_tag)
         await self._create_tag_event(
             case=case, tag=tag, event_type=CaseEventType.TAG_REMOVED

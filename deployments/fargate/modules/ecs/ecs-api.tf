@@ -74,6 +74,8 @@ resource "aws_ecs_service" "tracecat_api" {
   task_definition      = aws_ecs_task_definition.api_task_definition.arn
   desired_count        = var.api_desired_count
   force_new_deployment = var.force_new_deployment
+  # Dependent services must wait for migration success and healthy API tasks.
+  wait_for_steady_state = true
 
   network_configuration {
     subnets = var.private_subnet_ids
@@ -92,7 +94,8 @@ resource "aws_ecs_service" "tracecat_api" {
       port_name      = "api"
       discovery_name = "api-service"
       timeout {
-        per_request_timeout_seconds = 3600
+        # Chat SSE streams stay open for a full agent turn.
+        per_request_timeout_seconds = max(3600, tonumber(var.agent_sandbox_timeout) + 60)
         idle_timeout_seconds        = 3600
       }
       client_alias {

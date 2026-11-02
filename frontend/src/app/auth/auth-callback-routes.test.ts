@@ -77,3 +77,37 @@ describe("authentication callback attribution", () => {
     expect(headers.get("x-tracecat-service-key")).toBe("synthetic-service-key")
   })
 })
+
+describe("OAuth callback failures", () => {
+  function forbiddenResponse(detail: unknown): Response {
+    return Response.json({ detail }, { status: 403 })
+  }
+
+  async function redirectLocation(detail: unknown): Promise<string | null> {
+    jest
+      .spyOn(global, "fetch")
+      .mockResolvedValueOnce(forbiddenResponse(detail))
+      .mockResolvedValueOnce(infoResponse())
+    jest.spyOn(console, "error").mockImplementation(() => {})
+    const request = new NextRequest(
+      "http://localhost/auth/oauth/callback?code=synthetic"
+    )
+    const response = await oauthCallback(request)
+    return response.headers.get("location")
+  }
+
+  it("carries the SAML enforcement code to the error page", async () => {
+    await expect(
+      redirectLocation({ code: "saml_enforced", message: "synthetic" })
+    ).resolves.toBe("http://localhost/auth/error?code=saml_enforced")
+  })
+
+  it.each([
+    "SAML authentication is enforced for this organization",
+    { code: "unknown_code" },
+  ])("falls back to the generic error page for %p", async (detail) => {
+    await expect(redirectLocation(detail)).resolves.toBe(
+      "http://localhost/auth/error"
+    )
+  })
+})

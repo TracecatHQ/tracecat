@@ -31,11 +31,14 @@ class WorkflowFolderMove(BaseModel):
 
 class WorkflowFolderDelete(BaseModel):
     recursive: bool = False
+    delete_workflows: bool = False
+    """With `recursive`, delete contained workflows instead of moving them to root."""
 
 
 class FolderDirectoryItem(WorkflowFolderRead):
     type: Literal["folder"]
     num_items: int
+    num_workflows: int
 
 
 class WorkflowDirectoryItem(WorkflowReadMinimal):

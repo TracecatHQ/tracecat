@@ -26,6 +26,7 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -127,6 +128,70 @@ def _make_template_manifest(
     }
 
 
+async def _add_org_version(
+    session: AsyncSession,
+    role: Role,
+    origin: str,
+    version: str,
+    manifest: dict,
+    *,
+    current: bool = True,
+) -> RegistryVersion:
+    """Add an org registry version, creating the repository if needed."""
+    repo = await session.scalar(
+        select(RegistryRepository).where(
+            RegistryRepository.organization_id == role.organization_id,
+            RegistryRepository.origin == origin,
+        )
+    )
+    if repo is None:
+        repo = RegistryRepository(organization_id=role.organization_id, origin=origin)
+        session.add(repo)
+        await session.flush()
+    registry_version = RegistryVersion(
+        organization_id=role.organization_id,
+        repository_id=repo.id,
+        version=version,
+        manifest=manifest,
+        tarball_uri=f"s3://org/{version}.tar.gz",
+    )
+    session.add(registry_version)
+    await session.flush()
+    if current:
+        repo.current_version_id = registry_version.id
+        session.add(repo)
+    return registry_version
+
+
+async def _add_platform_version(
+    session: AsyncSession,
+    origin: str,
+    version: str,
+    manifest: dict,
+) -> PlatformRegistryVersion:
+    """Add a current platform registry version, creating the repository if needed."""
+    repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == origin,
+        )
+    )
+    if repo is None:
+        repo = PlatformRegistryRepository(origin=origin)
+        session.add(repo)
+        await session.flush()
+    platform_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version=version,
+        manifest=manifest,
+        tarball_uri=f"s3://platform/{version}.tar.gz",
+    )
+    session.add(platform_version)
+    await session.flush()
+    repo.current_version_id = platform_version.id
+    session.add(repo)
+    return platform_version
+
+
 @pytest.fixture(autouse=True)
 async def seed_builtin_platform_registry(session: AsyncSession) -> None:
     """Seed the builtin platform registry unless a test explicitly clears it."""
@@ -161,42 +226,20 @@ async def test_resolve_lock_uses_current_version(
     session: AsyncSession,
 ) -> None:
     """Test that lock resolution uses current_version_id, not newest row wins."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin="test_origin",
+    await _add_org_version(
+        session, svc_role, "test_origin", "1.0.0", _make_manifest(["test.action_a"])
     )
-    session.add(repo)
-    await session.flush()
-
-    # Create version 1 with action_a
-    version1 = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action_a"]),
-        tarball_uri="s3://test/v1.tar.gz",
+    # Version 2 is newer, but not current
+    await _add_org_version(
+        session,
+        svc_role,
+        "test_origin",
+        "2.0.0",
+        _make_manifest(["test.action_b"]),
+        current=False,
     )
-    session.add(version1)
-    await session.flush()
-
-    # Create version 2 with action_b (newer, but not current)
-    version2 = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action_b"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add(version2)
-    await session.flush()
-
-    # Set version 1 as current (not the newest)
-    repo.current_version_id = version1.id
-    session.add(repo)
     await session.commit()
 
-    # Resolve lock for action_a (in v1)
     service = RegistryLockService(session, role=svc_role)
     lock = await service.resolve_lock_with_bindings({"test.action_a"})
 
@@ -215,28 +258,14 @@ async def test_resolve_lock_queries_platform_registry(
     session: AsyncSession,
 ) -> None:
     """Test that platform registries are available to organizations."""
-    # Create a platform repository with action
-    platform_repo = PlatformRegistryRepository(
-        origin="platform_registry",
+    platform_version = await _add_platform_version(
+        session,
+        "platform_registry",
+        "1.0.0",
+        _make_manifest(["platform.shared_action"]),
     )
-    session.add(platform_repo)
-    await session.flush()
-
-    platform_version = PlatformRegistryVersion(
-        repository_id=platform_repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["platform.shared_action"]),
-        tarball_uri="s3://platform/v1.tar.gz",
-    )
-    session.add(platform_version)
-    await session.flush()
-
-    # Set as current version
-    platform_repo.current_version_id = platform_version.id
-    session.add(platform_repo)
     await session.commit()
 
-    # Resolve lock - org should see platform actions
     service = RegistryLockService(session, role=svc_role)
     lock = await service.resolve_lock_with_bindings({"platform.shared_action"})
 
@@ -251,58 +280,65 @@ async def test_resolve_lock_queries_platform_registry(
 
 
 @pytest.mark.anyio
-async def test_resolve_lock_org_overrides_platform(
+async def test_resolve_lock_raises_ambiguous_error_for_shadowed_builtin_action(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
-    """Test that org registries take precedence over platform for same origin."""
-    origin = "shared_origin"
-
-    # Create platform repository
-    platform_repo = PlatformRegistryRepository(origin=origin)
-    session.add(platform_repo)
-    await session.flush()
-
-    platform_version = PlatformRegistryVersion(
-        repository_id=platform_repo.id,
-        version="platform-1.0",
-        manifest=_make_manifest(["shared.action"]),
-        tarball_uri="s3://platform/v1.tar.gz",
+    """A custom registry redefining a builtin action name is a typed collision."""
+    custom_origin = "git+ssh://git@example.com/acme/custom-registry.git"
+    await _add_org_version(
+        session,
+        svc_role,
+        custom_origin,
+        "1.0.0",
+        _make_manifest(["core.transform.reshape"]),
     )
-    session.add(platform_version)
-    await session.flush()
-
-    platform_repo.current_version_id = platform_version.id
-    session.add(platform_repo)
-
-    # Create org repository with same origin
-    org_repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin=origin,
-    )
-    session.add(org_repo)
-    await session.flush()
-
-    org_version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=org_repo.id,
-        version="org-2.0",
-        manifest=_make_manifest(["shared.action"]),
-        tarball_uri="s3://org/v2.tar.gz",
-    )
-    session.add(org_version)
-    await session.flush()
-
-    org_repo.current_version_id = org_version.id
-    session.add(org_repo)
     await session.commit()
 
-    # Resolve lock - should use org version (overrides platform)
     service = RegistryLockService(session, role=svc_role)
-    lock = await service.resolve_lock_with_bindings({"shared.action"})
+    with pytest.raises(RegistryLockAmbiguousActionError) as exc_info:
+        await service.resolve_lock_with_bindings({"core.transform.reshape"})
 
-    # The org version should be used
-    assert lock.origins[origin] == "org-2.0"
+    assert exc_info.value.action_name == "core.transform.reshape"
+    assert set(exc_info.value.origins) == {custom_origin, DEFAULT_REGISTRY_ORIGIN}
+    assert "defined in multiple registries" in str(exc_info.value)
+    assert isinstance(exc_info.value, RegistryLockInvalidDataError)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("custom_registry_enabled", "expected_version"),
+    [
+        pytest.param(True, "org-2.0", id="org_overrides_platform"),
+        pytest.param(False, "platform-1.0", id="platform_when_custom_disabled"),
+    ],
+)
+async def test_resolve_lock_shared_origin_precedence(
+    svc_role: Role,
+    session: AsyncSession,
+    custom_registry_enabled: bool,
+    expected_version: str,
+) -> None:
+    """Org registries override platform for the same origin unless custom
+    registries are disabled."""
+    origin = "shared_origin"
+    action_name = "shared.action"
+    await _add_platform_version(
+        session, origin, "platform-1.0", _make_manifest([action_name])
+    )
+    await _add_org_version(
+        session, svc_role, origin, "org-2.0", _make_manifest([action_name])
+    )
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    if not custom_registry_enabled:
+        service.has_entitlement = AsyncMock(return_value=False)  # pyright: ignore[reportAttributeAccessIssue]
+
+    lock = await service.resolve_lock_with_bindings({action_name})
+
+    assert lock.origins[origin] == expected_version
+    assert lock.actions[action_name] == origin
 
 
 @pytest.mark.anyio
@@ -311,25 +347,13 @@ async def test_resolve_lock_requires_entitlement_for_custom_only_action(
     session: AsyncSession,
 ) -> None:
     """Custom-only actions should require custom registry entitlement."""
-    org_repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin="git+ssh://git@github.com/acme/custom.git",
+    await _add_org_version(
+        session,
+        svc_role,
+        "git+ssh://git@github.com/acme/custom.git",
+        "1.0.0",
+        _make_manifest(["tools.custom.only_action"]),
     )
-    session.add(org_repo)
-    await session.flush()
-
-    org_version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=org_repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["tools.custom.only_action"]),
-        tarball_uri="s3://org/v1.tar.gz",
-    )
-    session.add(org_version)
-    await session.flush()
-
-    org_repo.current_version_id = org_version.id
-    session.add(org_repo)
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)
@@ -347,86 +371,21 @@ async def test_resolve_lock_requires_entitlement_for_custom_only_action(
 
 
 @pytest.mark.anyio
-async def test_resolve_lock_prefers_platform_when_custom_registry_disabled(
-    svc_role: Role,
-    session: AsyncSession,
-) -> None:
-    """When custom registry is disabled, org-scoped overrides should be ignored."""
-    origin = "shared_origin"
-    action_name = "shared.action"
-
-    platform_repo = PlatformRegistryRepository(origin=origin)
-    session.add(platform_repo)
-    await session.flush()
-
-    platform_version = PlatformRegistryVersion(
-        repository_id=platform_repo.id,
-        version="platform-1.0",
-        manifest=_make_manifest([action_name]),
-        tarball_uri="s3://platform/v1.tar.gz",
-    )
-    session.add(platform_version)
-    await session.flush()
-    platform_repo.current_version_id = platform_version.id
-    session.add(platform_repo)
-
-    org_repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin=origin,
-    )
-    session.add(org_repo)
-    await session.flush()
-
-    org_version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=org_repo.id,
-        version="org-2.0",
-        manifest=_make_manifest([action_name]),
-        tarball_uri="s3://org/v2.tar.gz",
-    )
-    session.add(org_version)
-    await session.flush()
-    org_repo.current_version_id = org_version.id
-    session.add(org_repo)
-    await session.commit()
-
-    service = RegistryLockService(session, role=svc_role)
-    service.has_entitlement = AsyncMock(return_value=False)  # pyright: ignore[reportAttributeAccessIssue]
-
-    lock = await service.resolve_lock_with_bindings({action_name})
-
-    assert lock.origins[origin] == "platform-1.0"
-    assert lock.actions[action_name] == origin
-
-
-@pytest.mark.anyio
 async def test_resolve_lock_fails_without_current_version(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
     """Test that lock resolution fails with helpful error when no current_version is set."""
-    # Create a repository without setting current_version_id
-    repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin="test_origin",
+    await _add_org_version(
+        session,
+        svc_role,
+        "test_origin",
+        "1.0.0",
+        _make_manifest(["test.action"]),
+        current=False,
     )
-    session.add(repo)
-    await session.flush()
-
-    # Create a version but don't set it as current
-    version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    session.add(version)
     await session.commit()
 
-    # Note: current_version_id is still None
-
-    # Resolve lock - should fail because action is not available
     service = RegistryLockService(session, role=svc_role)
     with pytest.raises(RegistryLockInvalidDataError, match="not found in any registry"):
         await service.resolve_lock_with_bindings({"test.action"})
@@ -438,50 +397,17 @@ async def test_resolve_lock_combines_platform_and_org(
     session: AsyncSession,
 ) -> None:
     """Test that lock can contain actions from both platform and org registries."""
-    # Create platform repository
-    platform_repo = PlatformRegistryRepository(origin="platform_origin")
-    session.add(platform_repo)
-    await session.flush()
-
-    platform_version = PlatformRegistryVersion(
-        repository_id=platform_repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["platform.action"]),
-        tarball_uri="s3://platform/v1.tar.gz",
+    await _add_platform_version(
+        session, "platform_origin", "1.0.0", _make_manifest(["platform.action"])
     )
-    session.add(platform_version)
-    await session.flush()
-
-    platform_repo.current_version_id = platform_version.id
-    session.add(platform_repo)
-
-    # Create org repository with different origin
-    org_repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin="org_origin",
+    await _add_org_version(
+        session, svc_role, "org_origin", "2.0.0", _make_manifest(["org.action"])
     )
-    session.add(org_repo)
-    await session.flush()
-
-    org_version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=org_repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["org.action"]),
-        tarball_uri="s3://org/v2.tar.gz",
-    )
-    session.add(org_version)
-    await session.flush()
-
-    org_repo.current_version_id = org_version.id
-    session.add(org_repo)
     await session.commit()
 
-    # Resolve lock for both actions
     service = RegistryLockService(session, role=svc_role)
     lock = await service.resolve_lock_with_bindings({"platform.action", "org.action"})
 
-    # Both should be in the lock
     assert "platform_origin" in lock.origins
     assert "org_origin" in lock.origins
     assert lock.actions["platform.action"] == "platform_origin"
@@ -499,36 +425,17 @@ async def test_resolve_lock_allows_template_step_with_run_python(
 
     # Use org-scoped origin override to avoid ambiguity with the built-in
     # `tracecat_registry` definition of `core.script.run_python`.
-    org_repo = await session.scalar(
-        select(RegistryRepository).where(
-            RegistryRepository.organization_id == svc_role.organization_id,
-            RegistryRepository.origin == "tracecat_registry",
-        )
-    )
-    if org_repo is None:
-        org_repo = RegistryRepository(
-            organization_id=svc_role.organization_id,
-            origin="tracecat_registry",
-        )
-        session.add(org_repo)
-        await session.flush()
-
-    org_version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=org_repo.id,
-        version="1.0.0",
-        manifest=_make_template_manifest(
+    await _add_org_version(
+        session,
+        svc_role,
+        "tracecat_registry",
+        "1.0.0",
+        _make_template_manifest(
             template_action=template_action,
             step_action=platform_action,
             include_step_action=True,
         ),
-        tarball_uri="s3://platform/v1.tar.gz",
     )
-    session.add(org_version)
-    await session.flush()
-
-    org_repo.current_version_id = org_version.id
-    session.add(org_repo)
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)
@@ -549,47 +456,20 @@ async def test_resolve_lock_always_includes_builtin_registry(
     so the ephemeral nsjail sandbox must always mount the builtin tarball —
     even when no workflow action directly resolves to it.
     """
-    # Reuse the seeded builtin platform repo when present; otherwise create one.
-    platform_repo = await session.scalar(
-        select(PlatformRegistryRepository).where(
-            PlatformRegistryRepository.origin == "tracecat_registry",
-        )
+    await _add_platform_version(
+        session,
+        "tracecat_registry",
+        "1.0.0-beta.39",
+        _make_manifest(["core.transform"]),
     )
-    if platform_repo is None:
-        platform_repo = PlatformRegistryRepository(origin="tracecat_registry")
-        session.add(platform_repo)
-        await session.flush()
-
-    platform_version = PlatformRegistryVersion(
-        repository_id=platform_repo.id,
-        version="1.0.0-beta.39",
-        manifest=_make_manifest(["core.transform"]),
-        tarball_uri="s3://platform/builtin.tar.gz",
-    )
-    session.add(platform_version)
-    await session.flush()
-    platform_repo.current_version_id = platform_version.id
-    session.add(platform_repo)
-
     # Org registry with a custom action that the workflow uses
-    org_repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin="git+ssh://git@github.com/acme/internal.git",
+    await _add_org_version(
+        session,
+        svc_role,
+        "git+ssh://git@github.com/acme/internal.git",
+        "abc123",
+        _make_manifest(["integrations.greetings.say_hello"]),
     )
-    session.add(org_repo)
-    await session.flush()
-
-    org_version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=org_repo.id,
-        version="abc123",
-        manifest=_make_manifest(["integrations.greetings.say_hello"]),
-        tarball_uri="s3://org/custom.tar.gz",
-    )
-    session.add(org_version)
-    await session.flush()
-    org_repo.current_version_id = org_version.id
-    session.add(org_repo)
     await session.commit()
 
     # Workflow uses only the custom action — does NOT map to tracecat_registry
@@ -618,52 +498,16 @@ async def test_resolve_lock_overwrites_builtin_origin_with_platform_version(
     session: AsyncSession,
 ) -> None:
     """Builtin lock origin should always resolve to the platform selected version."""
-    platform_repo = await session.scalar(
-        select(PlatformRegistryRepository).where(
-            PlatformRegistryRepository.origin == "tracecat_registry",
-        )
+    platform_version = await _add_platform_version(
+        session, "tracecat_registry", "2.0.0-beta.1", _make_manifest(["core.transform"])
     )
-    if platform_repo is None:
-        platform_repo = PlatformRegistryRepository(origin="tracecat_registry")
-        session.add(platform_repo)
-        await session.flush()
-
-    platform_version = PlatformRegistryVersion(
-        repository_id=platform_repo.id,
-        version="2.0.0-beta.1",
-        manifest=_make_manifest(["core.transform"]),
-        tarball_uri="s3://platform/builtin-v2.tar.gz",
+    await _add_org_version(
+        session,
+        svc_role,
+        "tracecat_registry",
+        "org-override-1",
+        _make_manifest(["tools.custom.same_origin"]),
     )
-    session.add(platform_version)
-    await session.flush()
-    platform_repo.current_version_id = platform_version.id
-    session.add(platform_repo)
-
-    org_repo = await session.scalar(
-        select(RegistryRepository).where(
-            RegistryRepository.organization_id == svc_role.organization_id,
-            RegistryRepository.origin == "tracecat_registry",
-        )
-    )
-    if org_repo is None:
-        org_repo = RegistryRepository(
-            organization_id=svc_role.organization_id,
-            origin="tracecat_registry",
-        )
-        session.add(org_repo)
-        await session.flush()
-
-    org_version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=org_repo.id,
-        version="org-override-1",
-        manifest=_make_manifest(["tools.custom.same_origin"]),
-        tarball_uri="s3://org/override.tar.gz",
-    )
-    session.add(org_version)
-    await session.flush()
-    org_repo.current_version_id = org_version.id
-    session.add(org_repo)
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)
@@ -696,24 +540,13 @@ async def test_resolve_lock_raises_when_platform_builtin_not_synced(
         session.add(seeded_platform_repo)
         await session.flush()
 
-    org_repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin="git+ssh://git@github.com/acme/internal.git",
+    await _add_org_version(
+        session,
+        svc_role,
+        "git+ssh://git@github.com/acme/internal.git",
+        "abc123",
+        _make_manifest(["integrations.greetings.say_hello"]),
     )
-    session.add(org_repo)
-    await session.flush()
-
-    org_version = RegistryVersion(
-        organization_id=svc_role.organization_id,
-        repository_id=org_repo.id,
-        version="abc123",
-        manifest=_make_manifest(["integrations.greetings.say_hello"]),
-        tarball_uri="s3://org/custom.tar.gz",
-    )
-    session.add(org_version)
-    await session.flush()
-    org_repo.current_version_id = org_version.id
-    session.add(org_repo)
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)
@@ -730,24 +563,15 @@ async def test_resolve_lock_rejects_template_step_with_other_platform_action(
     template_action = "tools.testing.template_with_subflow"
     platform_action = PlatformAction.CHILD_WORKFLOW_EXECUTE
 
-    platform_repo = PlatformRegistryRepository(origin="platform_registry")
-    session.add(platform_repo)
-    await session.flush()
-
-    platform_version = PlatformRegistryVersion(
-        repository_id=platform_repo.id,
-        version="1.0.0",
-        manifest=_make_template_manifest(
+    await _add_platform_version(
+        session,
+        "platform_registry",
+        "1.0.0",
+        _make_template_manifest(
             template_action=template_action,
             step_action=platform_action,
         ),
-        tarball_uri="s3://platform/v1.tar.gz",
     )
-    session.add(platform_version)
-    await session.flush()
-
-    platform_repo.current_version_id = platform_version.id
-    session.add(platform_repo)
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)

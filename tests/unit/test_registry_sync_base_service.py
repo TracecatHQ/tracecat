@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from packaging.version import Version
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ActivityError
@@ -14,7 +14,12 @@ from temporalio.exceptions import ActivityError
 from tests.shared import capture_application_error
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.db.models import Organization, PlatformRegistryVersion, RegistryRepository
+from tracecat.db.models import (
+    Organization,
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    RegistryRepository,
+)
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -34,7 +39,11 @@ from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
-from tracecat.registry.sync.service import RegistrySyncError, RegistrySyncService
+from tracecat.registry.sync.service import (
+    RegistryActionShadowsBuiltinError,
+    RegistrySyncError,
+    RegistrySyncService,
+)
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.runtime.errors import (
@@ -179,6 +188,105 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     assert len(versions) == 2
 
 
+@pytest.mark.anyio
+async def test_custom_sync_rejects_actions_that_shadow_builtin_registry(
+    session: AsyncSession,
+    mock_org_id: uuid.UUID,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom registry cannot redefine an action name the builtin registry owns."""
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+
+    session.add(
+        Organization(
+            id=mock_org_id,
+            name="Shadow Test Org",
+            slug=f"shadow-test-{mock_org_id.hex[:8]}",
+            is_active=True,
+        )
+    )
+    await session.flush()
+
+    platform_repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN
+        )
+    )
+    if platform_repo is None:
+        platform_repo = PlatformRegistryRepository(origin=DEFAULT_REGISTRY_ORIGIN)
+        session.add(platform_repo)
+        await session.flush()
+    builtin_actions = [
+        _make_action(repository_id=platform_repo.id, default_title="Builtin")
+    ]
+    platform_version = PlatformRegistryVersion(
+        repository_id=platform_repo.id,
+        version=f"builtin-{uuid.uuid4().hex[:8]}",
+        manifest=RegistryVersionManifest.from_actions(builtin_actions).model_dump(
+            mode="json"
+        ),
+        tarball_uri="s3://platform/builtin.squashfs",
+    )
+    session.add(platform_version)
+    await session.flush()
+    platform_repo.current_version_id = platform_version.id
+    session.add(platform_repo)
+    await session.flush()
+
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+    custom_origin = "git+ssh://git@example.com/acme/custom-registry.git"
+    repos_service = RegistryReposService(session, role)
+    repo = await repos_service.create_repository(
+        RegistryRepositoryCreate(origin=custom_origin)
+    )
+
+    shadowing_action = _make_action(repository_id=repo.id, default_title="Shadow")
+    distinct_action = _make_action(repository_id=repo.id, default_title="Distinct")
+    distinct_action.namespace = "tools.acme_custom"
+    mocker.patch(
+        "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
+        side_effect=[
+            SimpleNamespace(
+                actions=[shadowing_action, distinct_action],
+                commit_sha="abc123",
+                validation_errors={},
+            ),
+            SimpleNamespace(
+                actions=[distinct_action], commit_sha="abc123", validation_errors={}
+            ),
+        ],
+    )
+    mocker.patch.object(
+        RegistrySyncService,
+        "_build_and_upload_artifacts",
+        return_value=ArtifactsBuildResult(
+            artifact_uri="s3://test-bucket/custom/site-packages.squashfs"
+        ),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+    with pytest.raises(RegistryActionShadowsBuiltinError) as exc_info:
+        await sync_service.sync_repository_v2(repo, commit=False)
+
+    assert exc_info.value.shadowed_actions == ["core.transform.reshape"]
+    assert exc_info.value.origin == custom_origin
+    assert isinstance(exc_info.value, RegistrySyncError)
+    assert repo.current_version_id is None
+    versions_service = RegistryVersionsService(session, role)
+    assert await versions_service.list_versions(repository_id=repo.id) == []
+
+    result = await sync_service.sync_repository_v2(repo, commit=False)
+    assert set(result.version.manifest["actions"]) == {"tools.acme_custom.reshape"}
+    assert repo.current_version_id == result.version.id
+
+
 @pytest.mark.parametrize(
     "base_version",
     [
@@ -315,11 +423,15 @@ async def test_platform_builtin_sync_uploads_squashfs_artifact(
 
 
 @pytest.mark.anyio
-async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
+@pytest.mark.parametrize(
+    "conversion_fails", [False, True], ids=["prebuilt", "fallback"]
+)
+async def test_platform_builtin_sync_uses_prebuilt_manifest_or_falls_back(
     session: AsyncSession,
     tmp_path: Path,
     mocker,
     monkeypatch: pytest.MonkeyPatch,
+    conversion_fails: bool,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
     monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
@@ -331,62 +443,8 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
 
     repos_service = PlatformRegistryReposService(session)
     repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
-    manifest = RegistryVersionManifest.from_actions(
-        [_make_action(repository_id=repo.id, default_title="Prebuilt title")]
-    )
-    artifact_dir = get_artifact_local_dir(
-        root=tmp_path,
-        organization_id="platform",
-        repository_origin=DEFAULT_REGISTRY_ORIGIN,
-        version="1.2.3",
-    )
-    write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
-
-    fetch_actions_from_subprocess = mocker.patch(
-        "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
-        mocker.AsyncMock(),
-    )
-    mocker.patch.object(
-        PlatformRegistrySyncService,
-        "_build_and_upload_artifacts",
-        mocker.AsyncMock(),
-    )
-
-    sync_service = PlatformRegistrySyncService(session)
-    result = await sync_service.sync_repository_v2(
-        repo,
-        target_version="1.2.3",
-        bypass_temporal=True,
-        defer_artifact_build=True,
-        commit=False,
-    )
-
-    assert result.num_actions == 1
-    assert result.actions[0].default_title == "Prebuilt title"
-    assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
-    assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest
-    fetch_actions_from_subprocess.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_platform_builtin_sync_falls_back_when_prebuilt_manifest_conversion_fails(
-    session: AsyncSession,
-    tmp_path: Path,
-    mocker,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
-    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
-        str(tmp_path),
-    )
-
-    repos_service = PlatformRegistryReposService(session)
-    repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
-    prebuilt_manifest = RegistryVersionManifest.from_actions(
-        [_make_action(repository_id=repo.id, default_title="Prebuilt title")]
+    prebuilt_action = _make_action(
+        repository_id=repo.id, default_title="Prebuilt title"
     )
     artifact_dir = get_artifact_local_dir(
         root=tmp_path,
@@ -396,7 +454,7 @@ async def test_platform_builtin_sync_falls_back_when_prebuilt_manifest_conversio
     )
     write_prebuilt_registry_manifest(
         artifact_dir=artifact_dir,
-        manifest=prebuilt_manifest,
+        manifest=RegistryVersionManifest.from_actions([prebuilt_action]),
     )
 
     fallback_action = _make_action(
@@ -413,15 +471,21 @@ async def test_platform_builtin_sync_falls_back_when_prebuilt_manifest_conversio
             )
         ),
     )
-
-    def raise_conversion_error(*_args, **_kwargs) -> list[RegistryActionCreate]:
-        raise ValueError("bad prebuilt action payload")
-
-    monkeypatch.setattr(
-        RegistryVersionManifest,
-        "to_action_creates",
-        raise_conversion_error,
+    mocker.patch.object(
+        PlatformRegistrySyncService,
+        "_build_and_upload_artifacts",
+        mocker.AsyncMock(),
     )
+    if conversion_fails:
+
+        def raise_conversion_error(*_args, **_kwargs) -> list[RegistryActionCreate]:
+            raise ValueError("bad prebuilt action payload")
+
+        monkeypatch.setattr(
+            RegistryVersionManifest,
+            "to_action_creates",
+            raise_conversion_error,
+        )
 
     sync_service = PlatformRegistrySyncService(session)
     result = await sync_service.sync_repository_v2(
@@ -432,13 +496,14 @@ async def test_platform_builtin_sync_falls_back_when_prebuilt_manifest_conversio
         commit=False,
     )
 
+    expected_action = fallback_action if conversion_fails else prebuilt_action
     assert result.num_actions == 1
-    assert result.actions[0].default_title == "Recovered title"
+    assert result.actions[0].default_title == expected_action.default_title
     assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
     assert RegistryVersionManifest.model_validate(
         result.version.manifest
-    ) == RegistryVersionManifest.from_actions([fallback_action])
-    fetch_actions_from_subprocess.assert_awaited_once()
+    ) == RegistryVersionManifest.from_actions([expected_action])
+    assert fetch_actions_from_subprocess.await_count == int(conversion_fails)
 
 
 @pytest.mark.anyio

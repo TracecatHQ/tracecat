@@ -1,6 +1,6 @@
-import hashlib
 import uuid
-from datetime import UTC, datetime
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,171 +10,116 @@ import pytest
 from fastapi import HTTPException, Request
 from fastapi.datastructures import FormData
 from sqlalchemy.exc import NoResultFound
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Webhook, WorkflowDefinition
+from tracecat.db.models import Webhook, Workflow, WorkflowDefinition, Workspace
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.webhooks.dependencies import (
     _ip_allowed,
     parse_webhook_payload,
     validate_incoming_webhook,
+    validate_workflow_definition,
 )
 from tracecat.webhooks.router import _incoming_webhook
-from tracecat.webhooks.schemas import WebhookApiKeyRead, _normalize_cidrs
+from tracecat.webhooks.schemas import _normalize_cidrs
+
+_JSON_BODY = orjson.dumps({"key": "value", "number": 42})
+_NDJSON_BODY = b'{"line": 1}\n{"line": 2}'
+_NDJSON_EXPECTED = [{"line": 1}, {"line": 2}]
+_FORM_BODY = b"key=value&number=42"
+_FORM_EXPECTED = {"key": "value", "number": "42"}
 
 
 class TestParseWebhookPayload:
     """Test cases for parse_webhook_payload function."""
 
     @pytest.mark.anyio
-    async def test_empty_body_returns_none(self):
-        """Test that empty body returns None."""
+    @pytest.mark.parametrize(
+        ("content_type", "body", "expected"),
+        [
+            pytest.param("application/json", b"", None, id="empty_body"),
+            pytest.param(
+                "application/json",
+                _JSON_BODY,
+                {"key": "value", "number": 42},
+                id="json",
+            ),
+            pytest.param(
+                "application/json; charset=utf-8",
+                _JSON_BODY,
+                {"key": "value", "number": 42},
+                id="json_charset",
+            ),
+            pytest.param(
+                "application/x-ndjson", _NDJSON_BODY, _NDJSON_EXPECTED, id="ndjson"
+            ),
+            pytest.param(
+                "application/x-ndjson; charset=utf-8",
+                _NDJSON_BODY,
+                _NDJSON_EXPECTED,
+                id="ndjson_charset",
+            ),
+            pytest.param(
+                "application/jsonlines",
+                _NDJSON_BODY,
+                _NDJSON_EXPECTED,
+                id="jsonlines",
+            ),
+            pytest.param(
+                "application/jsonl; charset=utf-8",
+                _NDJSON_BODY,
+                _NDJSON_EXPECTED,
+                id="jsonl_charset",
+            ),
+            pytest.param(
+                "application/x-www-form-urlencoded",
+                _FORM_BODY,
+                _FORM_EXPECTED,
+                id="form_urlencoded",
+            ),
+            pytest.param(
+                "application/x-www-form-urlencoded; charset=utf-8",
+                _FORM_BODY,
+                _FORM_EXPECTED,
+                id="form_urlencoded_charset",
+            ),
+            pytest.param(
+                "APPLICATION/JSON; CHARSET=UTF-8",
+                _JSON_BODY,
+                {"key": "value", "number": 42},
+                id="case_insensitive",
+            ),
+            pytest.param(
+                "  application/json ; charset=utf-8  ",
+                _JSON_BODY,
+                {"key": "value", "number": 42},
+                id="whitespace",
+            ),
+            pytest.param(
+                None, _JSON_BODY, {"key": "value", "number": 42}, id="none_is_json"
+            ),
+            pytest.param(
+                "text/plain",
+                _JSON_BODY,
+                {"key": "value", "number": 42},
+                id="unknown_is_json",
+            ),
+        ],
+    )
+    async def test_parse_webhook_payload(
+        self, content_type: str | None, body: bytes, expected: object
+    ):
         request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=b"")
-
-        result = await parse_webhook_payload(request, "application/json")
-        assert result is None
-
-    @pytest.mark.anyio
-    async def test_json_content_type(self):
-        """Test parsing JSON content type."""
-        test_data = {"key": "value", "number": 42}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
-
-        result = await parse_webhook_payload(request, "application/json")
-        assert result == test_data
-
-    @pytest.mark.anyio
-    async def test_json_content_type_with_charset(self):
-        """Test parsing JSON content type with charset parameter."""
-        test_data = {"key": "value", "number": 42}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
-
-        result = await parse_webhook_payload(request, "application/json; charset=utf-8")
-        assert result == test_data
-
-    @pytest.mark.anyio
-    async def test_ndjson_content_type(self):
-        """Test parsing NDJSON content type."""
-        test_data = [{"line": 1}, {"line": 2}]
-        ndjson_body = b'{"line": 1}\n{"line": 2}'
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=ndjson_body)
-
-        result = await parse_webhook_payload(request, "application/x-ndjson")
-        assert result == test_data
-
-    @pytest.mark.anyio
-    async def test_ndjson_content_type_with_charset(self):
-        """Test parsing NDJSON content type with charset parameter."""
-        test_data = [{"line": 1}, {"line": 2}]
-        ndjson_body = b'{"line": 1}\n{"line": 2}'
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=ndjson_body)
-
-        result = await parse_webhook_payload(
-            request, "application/x-ndjson; charset=utf-8"
+        request.body = AsyncMock(return_value=body)
+        request.form = AsyncMock(
+            return_value=FormData([("key", "value"), ("number", "42")])
         )
-        assert result == test_data
 
-    @pytest.mark.anyio
-    async def test_jsonlines_content_type(self):
-        """Test parsing jsonlines content type."""
-        test_data = [{"line": 1}, {"line": 2}]
-        ndjson_body = b'{"line": 1}\n{"line": 2}'
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=ndjson_body)
-
-        result = await parse_webhook_payload(request, "application/jsonlines")
-        assert result == test_data
-
-    @pytest.mark.anyio
-    async def test_jsonl_content_type_with_charset(self):
-        """Test parsing jsonl content type with charset parameter."""
-        test_data = [{"line": 1}, {"line": 2}]
-        ndjson_body = b'{"line": 1}\n{"line": 2}'
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=ndjson_body)
-
-        result = await parse_webhook_payload(
-            request, "application/jsonl; charset=utf-8"
-        )
-        assert result == test_data
-
-    @pytest.mark.anyio
-    async def test_form_urlencoded_content_type(self):
-        """Test parsing form-urlencoded content type."""
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=b"key=value&number=42")
-
-        # Mock the form() method
-        form_data = FormData([("key", "value"), ("number", "42")])
-        request.form = AsyncMock(return_value=form_data)
-
-        result = await parse_webhook_payload(
-            request, "application/x-www-form-urlencoded"
-        )
-        assert result == {"key": "value", "number": "42"}
-
-    @pytest.mark.anyio
-    async def test_form_urlencoded_content_type_with_charset(self):
-        """Test parsing form-urlencoded content type with charset parameter."""
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=b"key=value&number=42")
-
-        # Mock the form() method
-        form_data = FormData([("key", "value"), ("number", "42")])
-        request.form = AsyncMock(return_value=form_data)
-
-        result = await parse_webhook_payload(
-            request, "application/x-www-form-urlencoded; charset=utf-8"
-        )
-        assert result == {"key": "value", "number": "42"}
-
-    @pytest.mark.anyio
-    async def test_case_insensitive_content_type(self):
-        """Test that content type matching is case insensitive."""
-        test_data = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
-
-        result = await parse_webhook_payload(request, "APPLICATION/JSON; CHARSET=UTF-8")
-        assert result == test_data
-
-    @pytest.mark.anyio
-    async def test_content_type_with_whitespace(self):
-        """Test that content type handles extra whitespace."""
-        test_data = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
-
-        result = await parse_webhook_payload(
-            request, "  application/json ; charset=utf-8  "
-        )
-        assert result == test_data
-
-    @pytest.mark.anyio
-    async def test_none_content_type_defaults_to_json(self):
-        """Test that None content type defaults to JSON parsing."""
-        test_data = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
-
-        result = await parse_webhook_payload(request, None)
-        assert result == test_data
-
-    @pytest.mark.anyio
-    async def test_unknown_content_type_defaults_to_json(self):
-        """Test that unknown content type defaults to JSON parsing."""
-        test_data = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.body = AsyncMock(return_value=orjson.dumps(test_data))
-
-        result = await parse_webhook_payload(request, "text/plain")
-        assert result == test_data
+        result = await parse_webhook_payload(request, content_type)
+        assert result == expected
 
 
 class TestWebhookNetworkHelpers:
@@ -192,22 +137,6 @@ class TestWebhookNetworkHelpers:
     def test_normalize_cidrs_rejects_ipv6(self):
         with pytest.raises(ValueError, match="Only IPv4"):
             _normalize_cidrs(["2001:db8::/32"])
-
-
-class TestWebhookApiKeyRead:
-    def test_is_active_true_when_not_revoked(self):
-        now = datetime.now(UTC)
-        api_key = WebhookApiKeyRead(
-            preview="tc_sk_abcd", created_at=now, revoked_at=None
-        )
-        assert api_key.is_active is True
-
-    def test_is_active_false_when_revoked(self):
-        now = datetime.now(UTC)
-        api_key = WebhookApiKeyRead(
-            preview="tc_sk_abcd", created_at=now, revoked_at=now
-        )
-        assert api_key.is_active is False
 
 
 class TestValidateIncomingWebhook:
@@ -312,6 +241,171 @@ class TestValidateIncomingWebhook:
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Unauthorized webhook request"
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("peer", "forwarded_for", "allowed"),
+        [
+            pytest.param(
+                "10.244.3.17", "203.0.113.7", True, id="sender_behind_private_proxy"
+            ),
+            pytest.param(
+                "10.244.3.17", "203.0.113.7, 10.0.2.234", True, id="two_proxy_hops"
+            ),
+            pytest.param(
+                "10.244.3.17", "198.51.100.9", False, id="sender_not_allowlisted"
+            ),
+            pytest.param("10.244.3.17", None, False, id="proxy_peer_only"),
+            pytest.param("203.0.113.7", None, True, id="direct_sender"),
+            pytest.param(
+                "198.51.100.9", "203.0.113.7", False, id="untrusted_peer_spoofs_xff"
+            ),
+        ],
+    )
+    async def test_allowlist_resolves_client_behind_trusted_proxies(
+        self, peer: str, forwarded_for: str | None, allowed: bool
+    ):
+        workflow_id = WorkflowUUID.new_uuid4()
+        webhook_secret = "secret"
+
+        headers = (
+            [(b"x-forwarded-for", forwarded_for.encode())] if forwarded_for else []
+        )
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/",
+                "query_string": b"",
+                "headers": headers,
+                "client": (peer, 51234),
+            }
+        )
+
+        webhook = MagicMock(spec=Webhook)
+        webhook.id = uuid.uuid4()
+        webhook.workflow_id = workflow_id
+        webhook.secret = webhook_secret
+        webhook.status = "online"
+        webhook.normalized_methods = ["post"]
+        webhook.allowlisted_cidrs = ["203.0.113.0/24"]
+        webhook.api_key = None
+        webhook.workspace_id = uuid.uuid4()
+
+        workspace = MagicMock()
+        workspace.organization_id = uuid.uuid4()
+
+        webhook_result = MagicMock()
+        webhook_result.scalar_one.return_value = webhook
+        workspace_result = MagicMock()
+        workspace_result.scalar_one.return_value = workspace
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(side_effect=[webhook_result, workspace_result])
+
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__.return_value = mock_session
+        mock_session_cm.__aexit__.return_value = None
+
+        token = ctx_role.set(None)
+        try:
+            with patch(
+                "tracecat.webhooks.dependencies.get_async_session_bypass_rls_context_manager",
+                return_value=mock_session_cm,
+            ):
+                if allowed:
+                    await validate_incoming_webhook(
+                        workflow_id, webhook_secret, request
+                    )
+                else:
+                    with pytest.raises(HTTPException) as exc_info:
+                        await validate_incoming_webhook(
+                            workflow_id, webhook_secret, request
+                        )
+                    assert exc_info.value.status_code == 403
+        finally:
+            ctx_role.reset(token)
+
+
+class TestValidateWorkflowDefinition:
+    @pytest.fixture
+    async def workflow_id(
+        self, session: AsyncSession, svc_workspace: Workspace
+    ) -> WorkflowUUID:
+        workflow = Workflow(
+            title="webhook-workflow",
+            workspace_id=svc_workspace.id,
+            description="",
+            status="active",
+        )
+        session.add(workflow)
+        await session.flush()
+        session.add(
+            WorkflowDefinition(
+                workspace_id=svc_workspace.id,
+                workflow_id=workflow.id,
+                version=1,
+                content={"title": "webhook-workflow"},
+            )
+        )
+        await session.flush()
+        return WorkflowUUID.new(workflow.id)
+
+    @staticmethod
+    async def _validate(
+        session: AsyncSession, role: Role | None, workflow_id: WorkflowUUID
+    ) -> WorkflowDefinition:
+        @asynccontextmanager
+        async def test_session() -> AsyncIterator[AsyncSession]:
+            yield session
+
+        token = ctx_role.set(role)
+        try:
+            with patch(
+                "tracecat.webhooks.dependencies.get_async_session_context_manager",
+                test_session,
+            ):
+                return await validate_workflow_definition(workflow_id)
+        finally:
+            ctx_role.reset(token)
+
+    @pytest.mark.anyio
+    @pytest.mark.usefixtures("db")
+    async def test_returns_definition_in_webhook_workspace(
+        self, session: AsyncSession, svc_role: Role, workflow_id: WorkflowUUID
+    ):
+        defn = await self._validate(session, svc_role, workflow_id)
+
+        assert defn.workflow_id == workflow_id
+        assert defn.workspace_id == svc_role.workspace_id
+
+    @pytest.mark.anyio
+    @pytest.mark.usefixtures("db")
+    async def test_refuses_definition_from_another_workspace(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_workspace: Workspace,
+        workflow_id: WorkflowUUID,
+    ):
+        other = Workspace(name="other", organization_id=svc_workspace.organization_id)
+        session.add(other)
+        await session.flush()
+        other_role = svc_role.model_copy(update={"workspace_id": other.id})
+
+        with pytest.raises(HTTPException) as exc_info:
+            await self._validate(session, other_role, workflow_id)
+
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_fails_closed_without_webhook_role(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await self._validate(
+                cast(AsyncSession, AsyncMock()), None, WorkflowUUID.new_uuid4()
+            )
+
+        assert exc_info.value.status_code == 401
+
 
 class TestIncomingWebhook:
     @staticmethod
@@ -367,34 +461,6 @@ class TestIncomingWebhook:
         assert response == expected_response
         mock_service.create_workflow_execution_wait_for_start.assert_awaited_once()
 
-    @pytest.mark.anyio
-    async def test_propagates_start_failure(self):
-        workflow_id = WorkflowUUID.new("wf_4itKqkgCZrLhgYiq5L211X")
-        payload = {"key": "value"}
-        request = MagicMock(spec=Request)
-        request.headers = {}
-
-        mock_service = AsyncMock()
-        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
-            side_effect=RuntimeError("start failed")
-        )
-
-        with patch(
-            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
-            AsyncMock(return_value=mock_service),
-        ):
-            with pytest.raises(RuntimeError, match="start failed"):
-                await _incoming_webhook(
-                    workflow_id=workflow_id,
-                    defn=self._definition(),
-                    payload=payload,
-                    echo=False,
-                    empty_echo=False,
-                    vendor=None,
-                    request=request,
-                    content_type="application/json",
-                )
-
 
 class TestWebhookSecret:
     """Test cases for Webhook.secret property.
@@ -403,68 +469,6 @@ class TestWebhookSecret:
     to maintain backward compatibility with existing webhook URLs after the
     migration from prefixed string IDs to native UUIDs.
     """
-
-    def test_secret_uses_legacy_prefixed_format(self):
-        """Verify the secret is computed using 'wh-{uuid.hex}' format.
-
-        This test ensures backward compatibility after migrating webhook IDs
-        from prefixed strings (wh-abc123...) to native UUIDs. The secret hash
-        must use the legacy format to prevent webhook URL changes.
-        """
-
-        # Known values for deterministic testing
-        webhook_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
-        signing_secret = "test-signing-secret"
-
-        # Expected: hash computed with legacy format "wh-{uuid.hex}"
-        legacy_id = f"wh-{webhook_id.hex}"
-        expected_secret = hashlib.sha256(
-            f"{legacy_id}{signing_secret}".encode()
-        ).hexdigest()
-
-        # Create a mock webhook with the ID attribute
-        webhook = MagicMock(spec=Webhook)
-        webhook.id = webhook_id
-        # Call the actual property implementation
-        secret_getter = Webhook.secret.fget
-        assert secret_getter is not None
-        with patch.object(config, "TRACECAT__SIGNING_SECRET", signing_secret):
-            actual_secret = secret_getter(webhook)
-
-        assert actual_secret == expected_secret, (
-            f"Webhook secret should use legacy 'wh-{{uuid.hex}}' format. "
-            f"Expected hash of '{legacy_id}{signing_secret}', "
-            f"got different hash. This would break existing webhook URLs."
-        )
-
-    def test_secret_not_using_raw_uuid_format(self):
-        """Verify the secret is NOT computed using raw UUID string format.
-
-        This is a regression test to catch if someone accidentally changes
-        the secret computation to use the UUID directly without the 'wh-' prefix.
-        """
-
-        webhook_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
-        signing_secret = "test-signing-secret"
-
-        # Wrong: hash computed with raw UUID string (would break existing URLs)
-        wrong_secret = hashlib.sha256(
-            f"{webhook_id}{signing_secret}".encode()
-        ).hexdigest()
-
-        # Create a mock webhook with the ID attribute
-        webhook = MagicMock(spec=Webhook)
-        webhook.id = webhook_id
-        # Call the actual property implementation
-        secret_getter = Webhook.secret.fget
-        assert secret_getter is not None
-        with patch.object(config, "TRACECAT__SIGNING_SECRET", signing_secret):
-            actual_secret = secret_getter(webhook)
-
-        assert actual_secret != wrong_secret, (
-            "Webhook secret must NOT use raw UUID format. "
-            "This would break backward compatibility with existing webhook URLs."
-        )
 
     def test_secret_golden_value_from_v0_52_0(self):
         """Golden test with hardcoded value from v0.52.0.

@@ -10,6 +10,26 @@ describe("MultiTagCommandInput", () => {
     }
   })
 
+  it("gives selected-tag remove buttons accessible names", () => {
+    render(
+      <MultiTagCommandInput
+        value={["tools.alpha.run"]}
+        suggestions={[
+          {
+            id: "alpha",
+            label: "Alpha tool",
+            value: "tools.alpha.run",
+          },
+        ]}
+        searchKeys={["value", "label"]}
+      />
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Remove Alpha tool" })
+    ).toBeInTheDocument()
+  })
+
   it("invokes the locked suggestion handler when clicking the action row", () => {
     const handleLockedSelect = jest.fn()
 
@@ -73,6 +93,44 @@ describe("MultiTagCommandInput", () => {
 
     expect(handleChange).toHaveBeenCalledWith([unsafeValue])
   })
+
+  it.each(["disabled", "disableSuggestions"])(
+    "stays closed after %s is cleared until the user opens it again",
+    (prop) => {
+      const onChange = jest.fn()
+      function input(blocked: boolean) {
+        return (
+          <MultiTagCommandInput
+            onChange={onChange}
+            disabled={blocked && prop === "disabled"}
+            disableSuggestions={blocked && prop === "disableSuggestions"}
+            suggestions={[
+              { id: "alpha", value: "tools.alpha.run", label: "Alpha tool" },
+            ]}
+            searchKeys={["label", "value"]}
+          />
+        )
+      }
+      const { rerender } = render(input(false))
+      const textbox = screen.getByRole("textbox")
+      fireEvent.focus(textbox)
+      fireEvent.change(textbox, { target: { value: "alpha" } })
+      fireEvent.keyDown(textbox, { key: "ArrowDown" })
+      expect(screen.getByRole("option")).toBeInTheDocument()
+
+      rerender(input(true))
+      expect(screen.queryByRole("option")).not.toBeInTheDocument()
+      rerender(input(false))
+      expect(screen.queryByRole("option")).not.toBeInTheDocument()
+      fireEvent.keyDown(textbox, { key: "Enter" })
+      expect(onChange).not.toHaveBeenCalled()
+
+      fireEvent.change(textbox, { target: { value: "alpha tool" } })
+      expect(screen.getByRole("option")).toBeInTheDocument()
+      fireEvent.keyDown(textbox, { key: "Enter" })
+      expect(onChange).toHaveBeenCalledWith(["tools.alpha.run"])
+    }
+  )
 
   describe("keyboard selection", () => {
     const suggestions = [
@@ -238,4 +296,26 @@ describe("MultiTagCommandInput", () => {
       expect(handleChange).toHaveBeenCalledWith(["zzzzqqqq"])
     })
   })
+})
+
+it("distinguishes removal buttons for whole-server grants", () => {
+  const onChange = jest.fn()
+  render(
+    <MultiTagCommandInput
+      value={["mcp.alpha", "mcp.beta"]}
+      searchKeys={["value", "label"]}
+      onChange={onChange}
+      suggestions={["alpha", "beta"].map((slug) => ({
+        id: slug,
+        value: `mcp.${slug}`,
+        label: "All tools",
+        tagLabel: "All tools",
+        tagGroup: slug,
+      }))}
+    />
+  )
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove beta · All tools" })
+  )
+  expect(onChange).toHaveBeenCalledWith(["mcp.alpha"])
 })

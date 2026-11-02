@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Lookup IP address
+  description: >-
+    Retrieve the Spur IP Context Object for an IPv4 or IPv6 address, or the context for a past
+    date when `dt` is set. Calls GET /v2/context/{ip} directly.
+  display_group: Spur (Context API)
+  doc_url: https://docs.spur.us/context-api/endpoints#lookup-an-ip-address
+  namespace: tools.spur
+  name: lookup_ip
+  secrets:
+    - name: spur
+      keys: ["SPUR_TOKEN"]
+  expects:
+    ip:
+      type: str
+      description: Public IPv4 or IPv6 address to look up.
+    dt:
+      type: str | None
+      description: >-
+        A datetime in the format YYYYmmdd. Only valid for tokens with the Context API Historical
+        Query permission (Pro plans and above); other tokens get a 401.
+      default: null
+    mmgeo:
+      type: int | None
+      description: >-
+        A boolean value, that when set to 1, will return MaxMind's GeoLite2 geolocation data
+        instead of Spur's geolocation data in the location object.
+      default: null
+    base_url:
+      type: str | None
+      description: Spur API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.spur.base_url || "https://api.spur.us" }}/v2/context/${{ FN.url_encode(inputs.ip) }}
+        method: GET
+        headers:
+          Token: ${{ SECRETS.spur.SPUR_TOKEN }}
+          Accept: application/json
+        params:
+          dt: ${{ inputs.dt }}
+          mmgeo: ${{ inputs.mmgeo }}
+  returns: ${{ steps.request.result }}

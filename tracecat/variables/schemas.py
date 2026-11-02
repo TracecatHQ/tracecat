@@ -3,13 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from tracecat.db.models import WorkspaceVariable
 from tracecat.identifiers import VariableID, WorkspaceID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
-VariableName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
+VariableName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]+$")]
 """Validator for a variable name. e.g. 'api_config'"""
 
 VariableKey = Annotated[
@@ -47,6 +53,14 @@ class VariableUpdate(BaseModel):
     tags: dict[str, str] | None = Field(default=None, min_length=0, max_length=1000)
     environment: str | None = Field(default=None, min_length=1, max_length=100)
 
+    @model_validator(mode="after")
+    def reject_null_values(self) -> VariableUpdate:
+        if "values" in self.model_fields_set and self.values is None:
+            raise ValueError(
+                "values cannot be null; omit the field to leave it unchanged"
+            )
+        return self
+
 
 class VariableSearch(BaseModel):
     names: set[VariableName] | None = None
@@ -56,7 +70,7 @@ class VariableSearch(BaseModel):
 
 class VariableReadMinimal(BaseModel):
     id: VariableID
-    name: VariableName
+    name: str
     description: str | None
     values: dict[str, Any]
     environment: str
@@ -64,7 +78,7 @@ class VariableReadMinimal(BaseModel):
 
 class VariableRead(BaseModel):
     id: VariableID
-    name: VariableName
+    name: str
     description: str | None
     values: dict[str, Any]
     environment: str

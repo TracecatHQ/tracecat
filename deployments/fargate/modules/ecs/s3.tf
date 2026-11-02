@@ -72,11 +72,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "attachments" {
       storage_class = "STANDARD_IA"
     }
 
-    transition {
-      days          = 90
-      storage_class = "GLACIER"
-    }
-
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
@@ -197,14 +192,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "registry" {
 
     filter {}
 
+    # Registry artifacts must remain immediately readable by executors.
     transition {
       days          = 30
       storage_class = "STANDARD_IA"
-    }
-
-    transition {
-      days          = 90
-      storage_class = "GLACIER"
     }
 
     noncurrent_version_expiration {

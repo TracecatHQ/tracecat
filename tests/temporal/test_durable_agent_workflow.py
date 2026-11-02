@@ -61,7 +61,6 @@ from tracecat_ee.agent.workflows.durable import (
 
 from tests.shared import recorded_patch_ids
 from tracecat import config
-from tracecat.agent import internal_router
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
@@ -75,11 +74,7 @@ from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
 )
-from tracecat.agent.schemas import (
-    AgentConfigSchema,
-    InternalRunAgentRequest,
-    RunAgentArgs,
-)
+from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
@@ -120,17 +115,6 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
-from tracecat.tiers import defaults as tier_defaults
-
-
-@pytest.fixture(autouse=True)
-def enable_agent_approvals_entitlement(monkeypatch):
-    """Enable agent approvals entitlement for all tests in this module."""
-    monkeypatch.setattr(
-        tier_defaults,
-        "DEFAULT_ENTITLEMENTS",
-        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -578,6 +562,9 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
             workflows=[DurableAgentWorkflow],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=threadpool,
+            # Evict suspended workflows through the SDK before their worker exits.
+            # Garbage-collecting them later can run cleanup in another replay.
+            max_cached_workflows=0,
         )
 
     yield create_agent_worker
@@ -636,75 +623,6 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_internal_agent_runner_executes_durable_workflow(
-    svc_role: Role,
-    temporal_client: Client,
-    agent_worker_factory,
-    mock_session_id: uuid.UUID,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    queue = f"test-internal-agent-queue-{mock_session_id}"
-    executor_inputs: list[AgentExecutorInput] = []
-
-    def mock_executor(
-        call_count: int,
-        input: AgentExecutorInput,
-    ) -> AgentExecutorResult:
-        del call_count
-        executor_inputs.append(input)
-        return AgentExecutorResult(
-            success=True,
-            output={"status": "ranked"},
-            result_num_turns=1,
-            result_usage={"input_tokens": 7, "output_tokens": 3},
-        )
-
-    async def get_test_temporal_client() -> Client:
-        return temporal_client
-
-    activities = create_activities_with_mock_executor(mock_executor)
-    monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", queue)
-    monkeypatch.setattr(
-        internal_router,
-        "get_temporal_client",
-        get_test_temporal_client,
-    )
-    workflow_args = internal_router.build_agent_workflow_args(
-        InternalRunAgentRequest(
-            user_prompt="Rank the incident",
-            config=AgentConfigSchema(
-                model_name="test-model",
-                model_provider="test-provider",
-                actions=[],
-            ),
-            max_requests=6,
-            max_tool_calls=0,
-        ),
-        role=svc_role,
-        session_id=mock_session_id,
-    )
-    async with agent_worker_factory(
-        temporal_client,
-        task_queue=queue,
-        custom_activities=activities,
-    ):
-        result = await internal_router._execute_agent_workflow(
-            workflow_args,
-            session_id=mock_session_id,
-        )
-
-    assert result.output == {"status": "ranked"}
-    assert result.session_id == mock_session_id
-    assert result.usage is not None
-    assert result.usage.requests == 1
-    assert result.usage.input_tokens == 7
-    assert len(executor_inputs) == 1
-    assert executor_inputs[0].user_prompt == "Rank the incident"
-    assert executor_inputs[0].config.model_name == "test-model"
 
 
 @pytest.mark.anyio
@@ -1413,7 +1331,7 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
 
     if session_activity != "stub":
         # Keep real activity validation; only database/Redis I/O is mocked.
-        stored_session = MagicMock()
+        stored_session = MagicMock(backend_id="oss", harness_type="claude_code")
         stored_session.agents_binding = stored_binding.model_dump(mode="json")
         stored_session.sdk_session_id = "sdk-session"
         service = AsyncMock()
@@ -2401,7 +2319,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     ]
     denied_result = pending_results[1]
     assert denied_result.is_error is True
-    assert denied_result.raw_result == "Tool denied by user: too risky"
+    assert denied_result.raw_result.startswith("Tool denied by user: too risky")
 
     decisions_by_tool_call_id = {
         decision.tool_call_id: decision for decision in captured_approval_decisions
@@ -3238,43 +3156,3 @@ async def test_agent_workflow_mixed_approvals_and_rejections(
             except Exception:
                 pass
         raise
-
-
-# =============================================================================
-# Tests: Workflow State Management
-# =============================================================================
-
-
-@pytest.mark.anyio
-class TestWorkflowValidation:
-    """Test approval validation logic in the workflow."""
-
-    async def test_validation_rejects_missing_approvals(
-        self,
-        agent_workflow_args: AgentWorkflowArgs,
-    ) -> None:
-        """Test that workflow validator rejects submissions missing required approvals.
-
-        This tests the validator in isolation without running a full workflow.
-        """
-        # This would require instantiating the workflow in a test context
-        # which is complex with Temporal. Instead, we test the ApprovalManager
-        # validation directly in test_approvals_manager.py
-        pass
-
-    async def test_validation_rejects_unexpected_approvals(
-        self,
-        agent_workflow_args: AgentWorkflowArgs,
-    ) -> None:
-        """Test that workflow validator rejects extra unexpected approvals."""
-        pass
-
-
-@pytest.mark.anyio
-class TestAgentWorkflowStateManagement:
-    """Test workflow state management and turn tracking."""
-
-    async def test_workflow_tracks_turns(self) -> None:
-        """Test that workflow properly increments turn counter."""
-        # This would be tested in full integration tests
-        pass

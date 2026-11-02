@@ -5,11 +5,12 @@ from typing import Annotated, NoReturn, cast
 from urllib.parse import urlencode
 
 import httpx
+from authlib.integrations.base_client.errors import OAuthError
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
+from tracecat.auth.credentials import RoleACL, compute_effective_scopes
 from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
@@ -65,15 +66,14 @@ from tracecat.integrations.schemas import (
 )
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
+    IntegrationConflictError,
     IntegrationService,
     PlatformMCPCatalogConnectResult,
     ProviderConfigurationRequiredError,
 )
-from tracecat.integrations.types import MCPServerType
+from tracecat.integrations.types import MCPServerType, TokenResponse
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
-from tracecat.tiers.access import is_org_entitled
-from tracecat.tiers.enums import Entitlement
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 """Routes for managing dynamic integration states."""
@@ -102,6 +102,7 @@ def _mcp_integration_read(
         server_uri=mcp_integration.server_uri,
         auth_type=mcp_integration.auth_type,
         oauth_integration_id=mcp_integration.oauth_integration_id,
+        tunnel_id=mcp_integration.tunnel_id,
         state=state,
         created_at=mcp_integration.created_at,
         updated_at=mcp_integration.updated_at,
@@ -196,6 +197,10 @@ def _raise_mcp_connect_http_error(exc: Exception) -> NoReturn:
     Bad input or insecure/unconfigured providers map to 400; an unreachable
     upstream OAuth server maps to 502.
     """
+    if isinstance(exc, IntegrationConflictError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     if isinstance(
         exc,
         ProviderConfigurationRequiredError | InsecureOAuthEndpointError | ValueError,
@@ -221,6 +226,39 @@ def _oauth_callback_redirect_url(
         "mcp-servers" if issubclass(provider_impl, MCPAuthProvider) else "integrations"
     )
     return f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{workspace_id}/{target_page}"
+
+
+async def _exchange_oauth_code_for_token(
+    provider: AuthorizationCodeOAuthProvider,
+    code: str,
+    state: str,
+    code_verifier: str | None,
+) -> TokenResponse:
+    """Translate expected token exchange failures without exposing provider details."""
+    try:
+        return await provider.exchange_code_for_token(code, state, code_verifier)
+    except OAuthError:
+        logger.warning(
+            "OAuth provider rejected token exchange",
+            provider=provider.id,
+            grant_type=provider.grant_type,
+        )
+        error = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth provider rejected authorization. Check the integration credentials and reconnect.",
+        )
+    except httpx.HTTPError:
+        logger.warning(
+            "OAuth token endpoint request failed",
+            provider=provider.id,
+            grant_type=provider.grant_type,
+        )
+        error = HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not complete token exchange with the OAuth provider. Try connecting again.",
+        )
+    # Raise outside the handler so provider errors cannot leak via __context__.
+    raise error
 
 
 @oauth_router.get("/callback")
@@ -277,6 +315,9 @@ async def oauth_callback(
     # Overwrite role with workspace context from validated state
     # This is always authorization code
     role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    # The route authenticates without a workspace, so its scopes are org-level
+    # only. Re-resolve them so workspace role grants apply.
+    role = role.model_copy(update={"scopes": await compute_effective_scopes(role)})
     ctx_role.set(role)
     if config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE:
         await set_rls_context_from_role(session, role)
@@ -431,8 +472,8 @@ async def oauth_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Provider configuration or credentials are not available",
         ) from exc
-    token_result = await provider.exchange_code_for_token(
-        code, str(state), code_verifier
+    token_result = await _exchange_oauth_code_for_token(
+        provider, code, str(state), code_verifier
     )
 
     # Store integration tokens for this user
@@ -498,6 +539,7 @@ async def list_integrations(
         IntegrationReadMinimal(
             id=integration.id,
             provider_id=integration.provider_id,
+            grant_type=integration.grant_type,
             status=integration.status,
             is_expired=integration.is_expired,
         )
@@ -785,7 +827,7 @@ async def test_connection(
             success=False,
             provider_id=impl.id,
             message="Failed to connect using client credentials",
-            error=str(e),
+            error=str(e) if isinstance(e, ValueError) else "Connection test failed",
         )
 
 
@@ -854,6 +896,10 @@ async def create_custom_provider(
     svc = IntegrationService(session, role=role)
     try:
         provider = await svc.create_custom_provider(params=params)
+    except IntegrationConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except InsecureOAuthEndpointError as exc:
         logger.warning(
             "Rejected insecure OAuth endpoint on custom provider create",
@@ -988,6 +1034,10 @@ async def create_mcp_integration(
     svc = IntegrationService(session, role=role)
     try:
         mcp_integration = await svc.create_mcp_integration(params=params)
+    except IntegrationConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1063,13 +1113,9 @@ async def list_platform_mcp_catalog(
             detail="Organization ID is required",
         )
 
-    agent_addons_entitled = await is_org_entitled(
-        session, role.organization_id, Entitlement.AGENT_ADDONS
-    )
     svc = PlatformMCPCatalogService(session)
     items, next_cursor = await svc.list_catalog(
         workspace_id=role.workspace_id,
-        agent_addons_entitled=agent_addons_entitled,
         q=q,
         category=category,
         status=catalog_status,

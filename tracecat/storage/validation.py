@@ -226,8 +226,9 @@ class FileSecurityValidator:
     def _validate_magic_number(self, content: bytes, declared_mime_type: str) -> bool:
         """Validate file type via polyfile magic matching with generic errors.
 
-        We trust polyfile's detection and intentionally avoid custom fallbacks
-        or leaking detailed types in error messages.
+        We trust polyfile's detection and intentionally avoid custom fallbacks.
+        Type errors report the declared and detected MIME types so callers can
+        see why their content was rejected.
         """
         if not content:
             # Generic user-facing message
@@ -265,10 +266,13 @@ class FileSecurityValidator:
                 declared_mime_type=declared_base,
                 detected_types=list(detected_types),
             )
+            detected = sorted(detected_types)
             raise FileMimeTypeError(
-                "Unknown or unsupported file type",
+                f"File content does not match declared MIME type {declared_base} "
+                f"(detected: {', '.join(detected)})",
                 declared_base,
                 self.allowed_mime_types,
+                detected_types=detected,
             )
 
         allowed = {t.lower() for t in self.allowed_mime_types}
@@ -276,7 +280,8 @@ class FileSecurityValidator:
         if detected_equiv & allowed_equiv:
             return True
 
-        representative = next(iter(detected_types))
+        detected = sorted(detected_types)
+        representative = detected[0]
         logger.error(
             "Detected MIME type is not allowed",
             declared_mime_type=declared_base,
@@ -284,9 +289,10 @@ class FileSecurityValidator:
             allowed_types=self.allowed_mime_types,
         )
         raise FileMimeTypeError(
-            "Unknown or unsupported file type",
+            f"Detected MIME type {', '.join(detected)} is not allowed",
             representative,
             self.allowed_mime_types,
+            detected_types=detected,
         )
 
     def _sanitize_filename(self, filename: str) -> str:

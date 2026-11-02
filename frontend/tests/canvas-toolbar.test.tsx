@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import type { RegistryActionReadMinimal } from "@/client"
 import { CanvasToolbar } from "@/components/builder/canvas/canvas-toolbar"
 import { useBuilderRegistryActions } from "@/lib/hooks"
@@ -6,6 +7,38 @@ import { useBuilderRegistryActions } from "@/lib/hooks"
 jest.mock("@/lib/hooks", () => ({
   useBuilderRegistryActions: jest.fn(),
 }))
+
+// jsdom has no layout; give the virtualized list a viewport to render into.
+let originalHeight: PropertyDescriptor | undefined
+let originalWidth: PropertyDescriptor | undefined
+let originalScrollTo: typeof HTMLElement.prototype.scrollTo
+beforeAll(() => {
+  originalWidth = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "offsetWidth"
+  )
+  originalScrollTo = HTMLElement.prototype.scrollTo
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get: () => 1000,
+  })
+  HTMLElement.prototype.scrollTo = () => {}
+  originalHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "offsetHeight"
+  )
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get: () => 300,
+  })
+})
+afterAll(() => {
+  if (originalHeight)
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalHeight)
+  if (originalWidth)
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalWidth)
+  HTMLElement.prototype.scrollTo = originalScrollTo
+})
 
 const mockUseBuilderRegistryActions =
   useBuilderRegistryActions as jest.MockedFunction<
@@ -98,13 +131,43 @@ describe("CanvasToolbar", () => {
     expect(screen.getByText("Loop end")).toBeInTheDocument()
   })
 
-  it("shows Ansible actions in the Tools dropdown", () => {
-    render(<CanvasToolbar onAddAction={jest.fn()} />)
+  it("adds the actions picked in the Tools dialog on Done", async () => {
+    const user = userEvent.setup()
+    const onAddActions = jest.fn()
+    render(
+      <CanvasToolbar onAddAction={jest.fn()} onAddActions={onAddActions} />
+    )
 
-    const toolbarButtons = screen.getAllByRole("button")
-    fireEvent.click(toolbarButtons[toolbarButtons.length - 1])
+    await user.click(screen.getByRole("button", { name: "Tools" }))
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("option", { name: /HTTP request/ })
+    ).not.toBeInTheDocument()
 
-    expect(screen.getByText("Run Ansible playbook")).toBeInTheDocument()
-    expect(screen.getByText("tools.ansible.run_playbook")).toBeInTheDocument()
+    await user.click(
+      await screen.findByRole("option", { name: /Run Ansible playbook/ })
+    )
+    await user.click(screen.getByRole("button", { name: "Done" }))
+
+    expect(onAddActions).toHaveBeenCalledWith([
+      expect.objectContaining({ action: "tools.ansible.run_playbook" }),
+    ])
+  })
+
+  it("falls back to onAddAction per picked tool", async () => {
+    const user = userEvent.setup()
+    const onAddAction = jest.fn()
+    render(<CanvasToolbar onAddAction={onAddAction} />)
+
+    await user.click(screen.getByRole("button", { name: "Tools" }))
+    await user.click(
+      await screen.findByRole("option", { name: /Run Ansible playbook/ })
+    )
+    await user.click(screen.getByRole("button", { name: "Done" }))
+
+    expect(onAddAction).toHaveBeenCalledTimes(1)
+    expect(onAddAction).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "tools.ansible.run_playbook" })
+    )
   })
 })

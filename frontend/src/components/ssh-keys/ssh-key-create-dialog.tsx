@@ -12,6 +12,7 @@ import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -46,7 +47,7 @@ interface CreateSSHKeyDialogProps
     description?: FieldConfig
     environment?: FieldConfig
   }
-  /** Dialog heading. Defaults to "Create new SSH key". */
+  /** Dialog heading. Defaults to "Create SSH key". */
   title?: string
   /** Copy under the heading. */
   description?: string
@@ -75,7 +76,7 @@ export function CreateSSHKeyDialog({
   className,
   handler,
   fieldConfig,
-  title = "Create new SSH key",
+  title = "Create SSH key",
   description = "Create a new SSH key that can be used to authenticate into your private actions registry.",
   submitLabel = "Create SSH key",
   open,
@@ -129,7 +130,7 @@ export function CreateSSHKeyDialog({
   return (
     <Dialog open={showDialog} onOpenChange={setShowDialog}>
       {children}
-      <DialogContent className={className}>
+      <DialogContent size="md" className={className}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <div className="flex text-sm leading-relaxed text-muted-foreground">
@@ -137,8 +138,11 @@ export function CreateSSHKeyDialog({
           </div>
         </DialogHeader>
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
-            <div className="space-y-4">
+          <form
+            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <FormField
                 key="name"
                 control={control}
@@ -207,17 +211,13 @@ export function CreateSSHKeyDialog({
                 register={register}
                 name="private_key"
               />
-              <DialogFooter>
-                <Button
-                  className="ml-auto space-x-2"
-                  type="submit"
-                  disabled={isSubmitting}
-                >
-                  <KeyRoundIcon className="mr-2 size-4" />
-                  {submitLabel}
-                </Button>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button size="sm" type="submit" disabled={isSubmitting}>
+                <KeyRoundIcon className="mr-2 size-4" />
+                {submitLabel}
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

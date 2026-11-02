@@ -16,6 +16,7 @@ import type {
   CaseFieldReadMinimal,
 } from "@/client"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
+import { tracecatSyntaxHighlighting } from "@/components/editor/codemirror/syntax-highlight"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/command"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -181,7 +183,11 @@ export function CaseClosureDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg" {...nonDismissableDialogProps}>
+      <DialogContent
+        size="md"
+        className="max-w-lg"
+        {...nonDismissableDialogProps}
+      >
         <DialogHeader>
           <DialogTitle>{statusLabel} case</DialogTitle>
           <DialogDescription>
@@ -190,72 +196,73 @@ export function CaseClosureDialog({
             {isBulk ? `${selectedCount} cases` : "this case"}.
           </DialogDescription>
         </DialogHeader>
+        <DialogBody>
+          {isBulk && (
+            <Alert>
+              <AlertTriangle className="size-4" />
+              <AlertDescription>
+                These values will override existing field and dropdown values
+                for all {selectedCount} selected{" "}
+                {selectedCount === 1 ? "case" : "cases"}.
+              </AlertDescription>
+            </Alert>
+          )}
 
-        {isBulk && (
-          <Alert>
-            <AlertTriangle className="size-4" />
-            <AlertDescription>
-              These values will override existing field and dropdown values for
-              all {selectedCount} selected{" "}
-              {selectedCount === 1 ? "case" : "cases"}.
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-          {requiredFields.map((field) => (
-            <ClosureFieldInput
-              key={field.id}
-              field={field}
-              value={fieldValues[field.id] ?? null}
-              onChange={(val) =>
-                setFieldValues((prev) => ({ ...prev, [field.id]: val }))
-              }
-              onValidationChange={(hasError) =>
-                setFieldErrors((prev) => {
-                  const next = new Set(prev)
-                  if (hasError) next.add(field.id)
-                  else next.delete(field.id)
-                  return next
-                })
-              }
-            />
-          ))}
-
-          {requiredDropdowns.map((dd) => (
-            <div key={dd.id} className="space-y-1.5">
-              <Label className="text-sm">{dd.name}</Label>
-              <Select
-                value={dropdownValues[dd.id] ?? ""}
-                onValueChange={(val) =>
-                  setDropdownValues((prev) => ({ ...prev, [dd.id]: val }))
+          <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+            {requiredFields.map((field) => (
+              <ClosureFieldInput
+                key={field.id}
+                field={field}
+                value={fieldValues[field.id] ?? null}
+                onChange={(val) =>
+                  setFieldValues((prev) => ({ ...prev, [field.id]: val }))
                 }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select an option..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {dd.options?.map((opt) => (
-                    <SelectItem key={opt.id} value={opt.id}>
-                      <span className="flex items-center gap-2">
-                        {opt.color && (
-                          <span
-                            className="size-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: opt.color }}
-                          />
-                        )}
-                        {opt.label}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ))}
-        </div>
+                onValidationChange={(hasError) =>
+                  setFieldErrors((prev) => {
+                    const next = new Set(prev)
+                    if (hasError) next.add(field.id)
+                    else next.delete(field.id)
+                    return next
+                  })
+                }
+              />
+            ))}
 
+            {requiredDropdowns.map((dd) => (
+              <div key={dd.id} className="space-y-1.5">
+                <Label className="text-sm">{dd.name}</Label>
+                <Select
+                  value={dropdownValues[dd.id] ?? ""}
+                  onValueChange={(val) =>
+                    setDropdownValues((prev) => ({ ...prev, [dd.id]: val }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select an option..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dd.options?.map((opt) => (
+                      <SelectItem key={opt.id} value={opt.id}>
+                        <span className="flex items-center gap-2">
+                          {opt.color && (
+                            <span
+                              className="size-2.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: opt.color }}
+                            />
+                          )}
+                          {opt.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        </DialogBody>
         <DialogFooter>
           <Button
+            size="sm"
             variant="outline"
             disabled={!isValid || isSubmitting}
             onClick={handleSubmit}
@@ -643,6 +650,7 @@ function JsonField({
   const extensions = useMemo(
     () => [
       json(),
+      tracecatSyntaxHighlighting,
       lintGutter(),
       linter(jsonLinter),
       history(),

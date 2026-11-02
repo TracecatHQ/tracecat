@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 from collections.abc import Callable
-from typing import ParamSpec, TypeVar
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from tracecat_registry._internal.constants import DEFAULT_NAMESPACE
-from tracecat_registry._internal.models import RegistrySecretType
+
+if TYPE_CHECKING:
+    from tracecat_registry._internal.models import RegistrySecretType
 
 P = ParamSpec("P")
 R = TypeVar("R")

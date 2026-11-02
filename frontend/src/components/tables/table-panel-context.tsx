@@ -3,12 +3,27 @@
 import type React from "react"
 import { createContext, useCallback, useContext, useState } from "react"
 
-type TablePanelMode = "view-json" | "edit-text" | "edit-json"
+/** What the cell panel shows: a read-only view or an editor, per value kind. */
+export type TablePanelMode =
+  | "view-json"
+  | "view-text"
+  | "edit-text"
+  | "edit-json"
+
+/** Fallback panel heading per mode, for hosts with nothing more specific. */
+export const TABLE_PANEL_TITLES: Record<TablePanelMode, string> = {
+  "view-json": "View JSON",
+  "view-text": "View text",
+  "edit-text": "Edit text",
+  "edit-json": "Edit JSON",
+}
 
 interface TablePanelContent {
   mode: TablePanelMode
   value: unknown
   onSave?: (value: unknown) => void
+  /** Name of the column the value belongs to, for hosts that title the panel. */
+  title?: string
 }
 
 interface TablePanelContextValue {

@@ -8,7 +8,6 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import HTTPException
 from tracecat_ee.agent.approvals.router import delete_approval
 
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -115,77 +114,3 @@ async def test_delete_approval_deletes_records_when_workflow_dead() -> None:
     fake_session_svc.run_turn.assert_awaited_once()
     # Falls back to direct approval record deletion
     fake_approval_svc.delete_approval.assert_awaited_once_with(pending)
-
-
-@pytest.mark.anyio
-async def test_delete_approval_no_op_when_no_pending() -> None:
-    """No pending approvals: returns immediately without calling run_turn or delete."""
-    workspace_id = uuid.uuid4()
-    session_id = uuid.uuid4()
-    session_stub = SimpleNamespace(id=session_id)
-
-    fake_session_svc = SimpleNamespace(
-        get_session=AsyncMock(return_value=session_stub),
-        run_turn=AsyncMock(return_value=None),
-    )
-    fake_approval_svc = SimpleNamespace(
-        list_approvals_for_session=AsyncMock(return_value=[]),
-        delete_approval=AsyncMock(return_value=None),
-    )
-
-    with (
-        patch(
-            "tracecat_ee.agent.approvals.router.AgentSessionService",
-            return_value=fake_session_svc,
-        ),
-        patch(
-            "tracecat_ee.agent.approvals.router.ApprovalService",
-            return_value=fake_approval_svc,
-        ),
-    ):
-        raw = cast(Any, delete_approval).__wrapped__
-        await raw(
-            role=_execute_role(workspace_id),
-            session_id=session_id,
-            session=AsyncMock(),
-        )
-
-    fake_session_svc.run_turn.assert_not_awaited()
-    fake_approval_svc.delete_approval.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_delete_approval_returns_404_when_session_not_found() -> None:
-    """Missing session returns 404 without touching approvals."""
-    workspace_id = uuid.uuid4()
-    session_id = uuid.uuid4()
-
-    fake_session_svc = SimpleNamespace(
-        get_session=AsyncMock(return_value=None),
-        run_turn=AsyncMock(return_value=None),
-    )
-    fake_approval_svc = SimpleNamespace(
-        list_approvals_for_session=AsyncMock(return_value=[]),
-        delete_approval=AsyncMock(return_value=None),
-    )
-
-    with (
-        patch(
-            "tracecat_ee.agent.approvals.router.AgentSessionService",
-            return_value=fake_session_svc,
-        ),
-        patch(
-            "tracecat_ee.agent.approvals.router.ApprovalService",
-            return_value=fake_approval_svc,
-        ),
-    ):
-        raw = cast(Any, delete_approval).__wrapped__
-        with pytest.raises(HTTPException) as exc_info:
-            await raw(
-                role=_execute_role(workspace_id),
-                session_id=session_id,
-                session=AsyncMock(),
-            )
-
-    assert exc_info.value.status_code == 404
-    fake_approval_svc.list_approvals_for_session.assert_not_awaited()

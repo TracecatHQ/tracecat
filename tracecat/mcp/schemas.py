@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
-from typing import Annotated, Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    TypeAdapter,
     field_validator,
     model_validator,
 )
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, DSLConfig
-from tracecat.interactions.schemas import ApprovalInteraction, ResponseInteraction
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
 
 T = TypeVar("T")
@@ -147,26 +145,6 @@ class _StrictWorkflowEditActionRetryPolicy(ActionRetryPolicy):
     model_config = ConfigDict(extra="forbid")
 
 
-class _StrictWorkflowEditResponseInteraction(ResponseInteraction):
-    model_config = ConfigDict(extra="forbid")
-
-
-class _StrictWorkflowEditApprovalInteraction(ApprovalInteraction):
-    model_config = ConfigDict(extra="forbid")
-
-
-type _StrictWorkflowEditActionInteraction = Annotated[
-    _StrictWorkflowEditResponseInteraction | _StrictWorkflowEditApprovalInteraction,
-    Field(
-        discriminator="type",
-        description="An interaction configuration",
-    ),
-]
-_STRICT_WORKFLOW_EDIT_ACTION_INTERACTION_ADAPTER: TypeAdapter[
-    _StrictWorkflowEditActionInteraction
-] = TypeAdapter(_StrictWorkflowEditActionInteraction)
-
-
 class _StrictWorkflowEditAction(ActionStatement):
     model_config = ConfigDict(extra="forbid")
 
@@ -177,10 +155,6 @@ class _StrictWorkflowEditAction(ActionStatement):
             return value
         if (retry_policy := value.get("retry_policy")) is not None:
             _StrictWorkflowEditActionRetryPolicy.model_validate(retry_policy)
-        if (interaction := value.get("interaction")) is not None:
-            _STRICT_WORKFLOW_EDIT_ACTION_INTERACTION_ADAPTER.validate_python(
-                interaction
-            )
         return value
 
 
@@ -301,12 +275,70 @@ class WorkflowEditRequest(BaseModel):
     validate_only: bool = False
 
 
+class WorkflowActionIndexEntry(BaseModel):
+    """Position of an action inside ``draft_document.definition.actions``."""
+
+    index: int
+    ref: str
+
+
+class WorkflowActionSummary(WorkflowActionIndexEntry):
+    """Compact per-action row returned by ``list_workflow_actions``."""
+
+    action: str
+    depends_on: list[str] = Field(default_factory=list)
+    has_run_if: bool = False
+    has_for_each: bool = False
+    environment: str | None = None
+    locked_execution_id: str | None = None
+
+
+class WorkflowActionListResponse(BaseModel):
+    workflow_id: str
+    draft_revision: str
+    entrypoint: DSLEntrypoint
+    actions: list[WorkflowActionSummary] = Field(default_factory=list)
+
+
+class WorkflowActionDetailResponse(BaseModel):
+    workflow_id: str
+    draft_revision: str
+    index: int
+    action: ActionStatement
+    layout: LayoutActionPosition | None = None
+
+
 class WorkflowEditResponse(BaseModel):
     message: str
     workflow_id: str
     draft_revision: str
     valid: bool | None = None
     validate_only: bool = False
+    actions: list[WorkflowActionIndexEntry] = Field(default_factory=list)
+
+
+class WorkflowGraphAction(BaseModel):
+    """Control-flow view of one action returned by ``get_workflow_graph``."""
+
+    ref: str
+    depends_on: list[str] = Field(default_factory=list)
+    run_if: str | None = None
+    join_strategy: Literal["all", "any"] = "all"
+    gated_by: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Upstream ancestor refs with their own `run_if` that must have run "
+            "for this action to run. An `any` join runs when one parent "
+            "succeeds, so it keeps only conditions on every path into it."
+        ),
+    )
+
+
+class WorkflowGraphResponse(BaseModel):
+    workflow_id: str
+    draft_revision: str
+    mermaid: str
+    actions: list[WorkflowGraphAction] = Field(default_factory=list)
 
 
 class WorkflowAuthoringContextRequest(BaseModel):
@@ -391,3 +423,27 @@ class MCPTruncationInfo(BaseModel):
 
 class MCPTruncationSummary(BaseModel):
     collections: dict[str, MCPTruncationInfo] = Field(default_factory=dict)
+
+
+class WorkflowActionLockResponse(BaseModel):
+    workflow_id: str
+    ref: str
+    locked_execution_id: str | None = None
+
+
+class WorkflowActionRunEntry(BaseModel):
+    execution_id: str
+    execution_type: str | None = None
+    start_time: Any = None
+    run_status: str
+    action_status: str | None = None
+    lockable: bool = False
+    locked: bool = False
+
+
+class WorkflowActionRunsResponse(BaseModel):
+    workflow_id: str
+    ref: str
+    locked_execution_id: str | None = None
+    locked_run_available: bool | None = None
+    runs: list[WorkflowActionRunEntry] = Field(default_factory=list)

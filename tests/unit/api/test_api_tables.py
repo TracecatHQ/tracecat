@@ -2,21 +2,23 @@
 
 import uuid
 from datetime import UTC, datetime
+from types import ModuleType
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from asyncpg import DuplicateTableError
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Table, Workspace
+from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tables import internal_router as internal_tables_router
 from tracecat.tables import router as tables_router
 from tracecat.tables.enums import SqlType
-from tracecat.tables.schemas import TableRowRead
+from tracecat.tables.exceptions import TableRowError
 
 
 @pytest.fixture
@@ -34,336 +36,373 @@ def mock_table(test_workspace: Workspace) -> Table:
 
 
 @pytest.mark.anyio
-async def test_list_tables_success(
+async def test_create_column_with_is_index_returns_indexed_column(
     client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
-    """Test GET /tables returns list of tables."""
+    column = TableColumn(
+        id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeef"),
+        table_id=mock_table.id,
+        name="email",
+        type=SqlType.TEXT.value,
+        nullable=False,
+        default=None,
+        options=None,
+    )
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.list_tables.return_value = [mock_table]
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.create_column.return_value = column
+        mock_svc.get_index.return_value = ["email"]
         MockService.return_value = mock_svc
 
-        # Make request
-        response = client.get(
-            "/tables",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "test_table"
-        assert data[0]["created_at"] == "2024-01-01T00:00:00Z"
-        assert data[0]["updated_at"] == "2024-01-01T00:00:00Z"
-
-
-@pytest.mark.anyio
-async def test_create_table_success(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test POST /tables creates a new table."""
-    with patch.object(tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.create_table.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
         response = client.post(
-            "/tables",
+            f"/tables/{mock_table.id}/columns",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
-                "name": "new_table",
-                "description": "New test table",
-                "columns": [
-                    {"name": "id", "type": SqlType.TEXT.value},
-                    {"name": "value", "type": SqlType.TEXT.value},
-                ],
+                "name": "email",
+                "type": SqlType.TEXT.value,
+                "nullable": False,
+                "is_index": True,
             },
         )
 
-        # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(column.id)
+        assert data["is_index"] is True
+        assert mock_svc.create_column.await_args is not None
+        assert mock_svc.create_column.await_args.args[1].is_index is True
+
+
+def _duplicate_table_error() -> ProgrammingError:
+    duplicate_error = DuplicateTableError("Table already exists")
+    programming_error = ProgrammingError("", {}, duplicate_error)
+    programming_error.__cause__ = duplicate_error
+    return programming_error
 
 
 @pytest.mark.anyio
-async def test_create_table_duplicate(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test POST /tables with duplicate name returns 409."""
-    with patch.object(tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        # Create a nested exception chain to match the actual code
-        duplicate_error = DuplicateTableError("Table already exists")
-        programming_error = ProgrammingError("", {}, duplicate_error)
-        programming_error.__cause__ = duplicate_error
-        mock_svc.create_table.side_effect = programming_error
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.post(
+@pytest.mark.parametrize(
+    ("method", "path", "payload", "service_method", "error", "status_code"),
+    [
+        pytest.param(
+            "POST",
             "/tables",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={
+            {
                 "name": "duplicate_table",
                 "description": "Duplicate table",
                 "columns": [{"name": "id", "type": SqlType.TEXT.value}],
             },
+            "create_table",
+            _duplicate_table_error(),
+            status.HTTP_409_CONFLICT,
+            id="create-duplicate",
+        ),
+        pytest.param(
+            "GET",
+            f"/tables/{uuid.uuid4()}",
+            None,
+            "get_table",
+            TracecatNotFoundError("Table not found"),
+            status.HTTP_404_NOT_FOUND,
+            id="get-not-found",
+        ),
+    ],
+)
+async def test_table_errors_map_to_http_status(
+    client: TestClient,
+    test_admin_role: Role,
+    method: str,
+    path: str,
+    payload: dict[str, object] | None,
+    service_method: str,
+    error: Exception,
+    status_code: int,
+) -> None:
+    with patch.object(tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        getattr(mock_svc, service_method).side_effect = error
+        MockService.return_value = mock_svc
+
+        response = client.request(
+            method,
+            path,
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
         )
 
-        # Should return 409
-        assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.status_code == status_code
+
+
+_TABLE_SURFACE_PARAMS = [
+    pytest.param(
+        "client",
+        tables_router,
+        "/tables/ffffffff-ffff-4fff-ffff-ffffffffffff",
+        "get_table",
+        id="public",
+    ),
+    pytest.param(
+        "action_gateway_client",
+        internal_tables_router,
+        "/internal/tables/test_table",
+        "get_table_by_name",
+        id="internal",
+    ),
+]
 
 
 @pytest.mark.anyio
-async def test_get_table_success(
-    client: TestClient,
+@pytest.mark.parametrize(
+    ("client_fixture", "router", "base_path", "get_table_method"),
+    _TABLE_SURFACE_PARAMS,
+)
+@pytest.mark.parametrize(
+    ("method", "suffix", "service_method", "message", "payload"),
+    [
+        pytest.param(
+            "POST",
+            "/rows",
+            "insert_row",
+            "Invalid numeric value: 'abc'",
+            {"data": {"score": "abc"}},
+            id="insert-invalid-numeric",
+        ),
+        pytest.param(
+            "PATCH",
+            f"/rows/{uuid.uuid4()}",
+            "update_row",
+            "Invalid integer value: '1.5'",
+            {"data": {"attempts": "1.5"}},
+            id="update-invalid-integer",
+        ),
+    ],
+)
+async def test_invalid_row_values_return_400(
+    request: pytest.FixtureRequest,
     test_admin_role: Role,
     mock_table: Table,
+    client_fixture: str,
+    router: ModuleType,
+    base_path: str,
+    get_table_method: str,
+    method: str,
+    suffix: str,
+    service_method: str,
+    message: str,
+    payload: dict[str, object],
 ) -> None:
-    """Test GET /tables/{table_id} returns table details."""
-    with patch.object(tables_router, "TablesService") as MockService:
+    """Invalid row input should be surfaced as a client error."""
+    http: TestClient = request.getfixturevalue(client_fixture)
+    with patch.object(router, "TablesService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.get_table.return_value = mock_table
-        mock_svc.get_index.return_value = []
+        getattr(mock_svc, get_table_method).return_value = mock_table
+        getattr(mock_svc, service_method).side_effect = ValueError(message)
         MockService.return_value = mock_svc
 
-        # Make request
-        table_id = str(mock_table.id)
-        response = client.get(
-            f"/tables/{table_id}",
+        response = http.request(
+            method,
+            base_path + suffix,
             params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["name"] == "test_table"
-        assert "columns" in data
-
-
-@pytest.mark.anyio
-async def test_get_table_not_found(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test GET /tables/{table_id} with non-existent ID returns 404."""
-    with patch.object(tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table.side_effect = TracecatNotFoundError("Table not found")
-        MockService.return_value = mock_svc
-
-        # Make request
-        fake_id = str(uuid.uuid4())
-        response = client.get(
-            f"/tables/{fake_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Should return 404
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-
-@pytest.mark.anyio
-async def test_update_table_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    """Test PATCH /tables/{table_id} updates table."""
-    with patch.object(tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table.return_value = mock_table
-        mock_svc.update_table.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        table_id = str(mock_table.id)
-        response = client.patch(
-            f"/tables/{table_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"description": "Updated description"},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-
-
-@pytest.mark.anyio
-async def test_delete_table_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    """Test DELETE /tables/{table_id} deletes table."""
-    with patch.object(tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.delete_table.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        table_id = str(mock_table.id)
-        response = client.delete(
-            f"/tables/{table_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-
-
-@pytest.mark.anyio
-async def test_insert_table_row_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    """Test POST /tables/{table_id}/rows inserts a row."""
-    with patch.object(tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table.return_value = mock_table
-        mock_svc.insert_row.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        table_id = str(mock_table.id)
-        response = client.post(
-            f"/tables/{table_id}/rows",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"data": {"id": "row-1", "value": "test"}},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_201_CREATED
-
-
-@pytest.mark.anyio
-async def test_insert_table_row_invalid_numeric_value_returns_400(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    """Invalid numeric row input should be surfaced as a client error."""
-    with patch.object(tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table.return_value = mock_table
-        mock_svc.insert_row.side_effect = ValueError("Invalid numeric value: 'abc'")
-        MockService.return_value = mock_svc
-
-        response = client.post(
-            f"/tables/{mock_table.id}/rows",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"data": {"score": "abc"}},
+            json=payload,
         )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
+    assert response.json()["detail"] == message
 
 
 @pytest.mark.anyio
-async def test_insert_table_rows_batch_success(
+@pytest.mark.parametrize(
+    ("client_fixture", "router", "base_path", "get_table_method"),
+    _TABLE_SURFACE_PARAMS,
+)
+@pytest.mark.parametrize("batch", [False, True])
+@pytest.mark.parametrize(
+    "error,expected_status",
+    [
+        (
+            TableRowError(
+                "missing_required_column",
+                "Required column 'record_key' is missing.",
+                column="record_key",
+            ),
+            400,
+        ),
+        (
+            TableRowError(
+                "null_not_allowed",
+                "Column 'record_key' cannot be null.",
+                column="record_key",
+            ),
+            400,
+        ),
+        (
+            TableRowError(
+                "unknown_column", "Column 'unknown' does not exist.", column="unknown"
+            ),
+            400,
+        ),
+        (
+            TableRowError(
+                "invalid_value",
+                "Column 'attempts' requires a valid INTEGER value.",
+                column="attempts",
+            ),
+            400,
+        ),
+        (
+            TableRowError(
+                "duplicate_value", "A value already exists in a unique column."
+            ),
+            409,
+        ),
+    ],
+)
+async def test_row_errors_have_structured_client_responses(
+    request: pytest.FixtureRequest,
+    test_admin_role: Role,
+    mock_table: Table,
+    client_fixture: str,
+    router: ModuleType,
+    base_path: str,
+    get_table_method: str,
+    batch: bool,
+    error: TableRowError,
+    expected_status: int,
+) -> None:
+    http: TestClient = request.getfixturevalue(client_fixture)
+    with patch.object(router, "TablesService") as service_type:
+        service = AsyncMock()
+        getattr(service, get_table_method).return_value = mock_table
+        service.insert_row.side_effect = error
+        service.batch_insert_rows.side_effect = error
+        service_type.return_value = service
+        payload = {"rows": [{}]} if batch else {"data": {}}
+        response = http.post(
+            f"{base_path}/rows" + ("/batch" if batch else ""),
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
+        )
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": error.detail}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("client_fixture", "router", "base_path", "get_table_method"),
+    _TABLE_SURFACE_PARAMS,
+)
+@pytest.mark.parametrize("batch", [False, True])
+async def test_unrecognized_row_database_errors_remain_server_errors(
+    request: pytest.FixtureRequest,
+    test_admin_role: Role,
+    mock_table: Table,
+    client_fixture: str,
+    router: ModuleType,
+    base_path: str,
+    get_table_method: str,
+    batch: bool,
+) -> None:
+    http: TestClient = request.getfixturevalue(client_fixture)
+    with patch.object(router, "TablesService") as service_type:
+        service = AsyncMock()
+        getattr(service, get_table_method).return_value = mock_table
+        error = IntegrityError(
+            "private SQL",
+            {"value": "private-test-value"},
+            RuntimeError("unknown failure"),
+        )
+        service.insert_row.side_effect = error
+        service.batch_insert_rows.side_effect = error
+        service_type.return_value = service
+        response = TestClient(http.app, raise_server_exceptions=False).post(
+            f"{base_path}/rows" + ("/batch" if batch else ""),
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"rows": [{}]} if batch else {"data": {}},
+        )
+    assert response.status_code == 500
+    assert "private SQL" not in response.text
+    assert "private-test-value" not in response.text
+
+
+@pytest.mark.anyio
+async def test_list_table_rows_passes_search_and_sort_params(
     client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
-    """Test POST /tables/{table_id}/rows/batch inserts multiple rows."""
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
-        mock_svc.batch_insert_rows.return_value = 2
+        mock_svc.list_rows.return_value = CursorPaginatedResponse(items=[])
         MockService.return_value = mock_svc
 
-        # Make request
-        table_id = str(mock_table.id)
-        response = client.post(
-            f"/tables/{table_id}/rows/batch",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={
-                "rows": [
-                    {"id": "row-1", "value": "test1"},
-                    {"id": "row-2", "value": "test2"},
-                ]
+        response = client.get(
+            f"/tables/{mock_table.id}/rows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "search_term": "alpha",
+                "search_column": "name",
+                "order_by": "name",
+                "sort": "asc",
             },
         )
 
-        # Assertions
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-        assert data["rows_inserted"] == 2
+    assert response.status_code == status.HTTP_200_OK
+    kwargs = mock_svc.list_rows.await_args.kwargs
+    assert kwargs == {
+        "search_term": "alpha",
+        "search_column": "name",
+        "order_by": "name",
+        "sort": "asc",
+    }
 
 
 @pytest.mark.anyio
-async def test_list_table_rows_success(
+async def test_list_table_rows_invalid_search_column_returns_400(
     client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
-    """Test GET /tables/{table_id}/rows returns table rows."""
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
-        row_id_1 = uuid.uuid4()
-        row_id_2 = uuid.uuid4()
-        mock_rows = [
-            TableRowRead(
-                id=row_id_1,
-                value="test1",  # pyright: ignore[reportCallIssue]
-                created_at=datetime(2024, 1, 1, tzinfo=UTC),
-                updated_at=datetime(2024, 1, 1, tzinfo=UTC),
-            ),
-            TableRowRead(
-                id=row_id_2,
-                value="test2",  # pyright: ignore[reportCallIssue]
-                created_at=datetime(2024, 1, 1, tzinfo=UTC),
-                updated_at=datetime(2024, 1, 1, tzinfo=UTC),
-            ),
-        ]
-        mock_response = CursorPaginatedResponse(
-            items=mock_rows,
-            next_cursor=None,
-            prev_cursor=None,
-            has_more=False,
-            has_previous=False,
-        )
         mock_svc.get_table.return_value = mock_table
-        mock_svc.list_rows.return_value = mock_response
+        mock_svc.list_rows.side_effect = ValueError("Invalid search_column: missing")
         MockService.return_value = mock_svc
 
-        # Make request
-        table_id = str(mock_table.id)
         response = client.get(
-            f"/tables/{table_id}/rows",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data["items"]) == 2
-        assert data["items"][0]["value"] == "test1"
-
-
-@pytest.mark.anyio
-async def test_update_table_row_invalid_integer_value_returns_400(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    """Invalid integer row input should be surfaced as a client error."""
-    with patch.object(tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table.return_value = mock_table
-        mock_svc.update_row.side_effect = ValueError("Invalid integer value: '1.5'")
-        MockService.return_value = mock_svc
-
-        response = client.patch(
-            f"/tables/{mock_table.id}/rows/{uuid.uuid4()}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"data": {"attempts": "1.5"}},
+            f"/tables/{mock_table.id}/rows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "search_term": "alpha",
+                "search_column": "missing",
+            },
         )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid integer value: '1.5'"
+    assert response.json()["detail"] == "Invalid search_column: missing"
+
+
+@pytest.mark.anyio
+async def test_list_table_rows_overlong_search_term_returns_422(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            f"/tables/{mock_table.id}/rows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "search_term": "a" * 1001,
+                "search_column": "name",
+            },
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_svc.list_rows.assert_not_awaited()

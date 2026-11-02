@@ -5,7 +5,6 @@ import {
   Position,
   useNodeId,
 } from "@xyflow/react"
-import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
 import React, { useCallback, useEffect, useMemo, useRef } from "react"
 import type { GraphOperation, RegistryActionReadMinimal } from "@/client"
@@ -13,17 +12,14 @@ import { isEphemeral } from "@/components/builder/canvas/canvas"
 import { getIcon } from "@/components/icons"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
+  ActionListbox,
+  type ActionSearchKey,
+  type ActionSearchResult,
+  HighlightedText,
+  useActionSearch,
+} from "@/components/registry/action-listbox"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import {
   useBuilderRegistryActions,
@@ -35,94 +31,16 @@ import { useWorkflowBuilder } from "@/providers/builder"
 
 export const SelectorTypename = "selector" as const
 
-const highlight = true
 const SEARCH_KEYS = [
   "action",
   "default_title",
   "display_group",
-] as const satisfies readonly (keyof RegistryActionReadMinimal)[]
-
-// Map key names to their index in SEARCH_KEYS for resilient result access
-const SEARCH_KEY_INDEX: Record<(typeof SEARCH_KEYS)[number], number> =
-  SEARCH_KEYS.reduce(
-    (acc, key, index) => {
-      acc[key] = index
-      return acc
-    },
-    {} as Record<(typeof SEARCH_KEYS)[number], number>
-  )
+] as const satisfies readonly ActionSearchKey[]
+const ACTION_MATCH = SEARCH_KEYS.indexOf("action")
+const TITLE_MATCH = SEARCH_KEYS.indexOf("default_title")
 
 function isLockedAction(action: RegistryActionReadMinimal): boolean {
   return action.availability?.locked ?? false
-}
-
-type ActionFilterResult = {
-  action: RegistryActionReadMinimal
-  actionResult: Fuzzysort.Result | null
-  titleResult: Fuzzysort.Result | null
-}
-
-function filterActions(
-  actions: RegistryActionReadMinimal[],
-  search: string
-): ActionFilterResult[] {
-  const normalizedSearch = search.trim()
-  if (!normalizedSearch) {
-    return actions.map((action) => ({
-      action,
-      actionResult: null,
-      titleResult: null,
-    }))
-  }
-
-  const results = fuzzysort.go<RegistryActionReadMinimal>(search, actions, {
-    all: true,
-    keys: SEARCH_KEYS as unknown as (keyof RegistryActionReadMinimal)[],
-  })
-  return results.map((result) => ({
-    action: result.obj,
-    actionResult: result[SEARCH_KEY_INDEX.action] ?? null,
-    titleResult: result[SEARCH_KEY_INDEX.default_title] ?? null,
-  }))
-}
-
-/**
- * Safely renders highlighted text using fuzzysort indexes.
- * Avoids dangerouslySetInnerHTML to prevent XSS vulnerabilities.
- * Uses code-unit based slicing to correctly handle emoji/combining characters.
- */
-function HighlightedText({
-  result,
-  text,
-}: {
-  result: Fuzzysort.Result | null
-  text: string
-}) {
-  if (!result || !result.indexes || result.indexes.length === 0) {
-    return <>{text}</>
-  }
-
-  // Sort indexes and build segments using code-unit positions
-  const sortedIndexes = [...result.indexes].sort((a, b) => a - b)
-  const segments: React.ReactNode[] = []
-  let lastEnd = 0
-
-  for (const idx of sortedIndexes) {
-    // Add non-highlighted segment before this match
-    if (idx > lastEnd) {
-      segments.push(text.slice(lastEnd, idx))
-    }
-    // Add highlighted character
-    segments.push(<b key={idx}>{text[idx]}</b>)
-    lastEnd = idx + 1
-  }
-
-  // Add remaining non-highlighted segment
-  if (lastEnd < text.length) {
-    segments.push(text.slice(lastEnd))
-  }
-
-  return <>{segments}</>
 }
 
 export type SelectorNodeData = {
@@ -174,10 +92,7 @@ export default React.memo(function SelectorNode({
 
   return (
     <div onWheelCapture={(e) => e.stopPropagation()}>
-      <Command
-        className="h-96 w-72 rounded-lg border shadow-sm"
-        shouldFilter={false}
-      >
+      <div className="flex h-96 w-72 flex-col overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-sm">
         <div className="w-full bg-muted-foreground/5 px-3 py-[2px]">
           <Label className="flex items-center text-xs text-muted-foreground">
             <span className="font-medium">Add a node</span>
@@ -194,32 +109,13 @@ export default React.memo(function SelectorNode({
           </Label>
         </div>
         <Separator />
-        <CommandInput
-          ref={inputRef}
-          className="!py-0 text-xs"
-          placeholder="Start typing to search for an action..."
-          onValueChange={(value) => {
-            // First update the value
-            setInputValue(value)
-            // Then force scroll to top of the list
-            requestAnimationFrame(() => {
-              const commandList = document.querySelector("[cmdk-list]")
-              if (commandList) {
-                commandList.scrollTop = 0
-              }
-            })
-          }}
-          autoFocus
+        <ActionCommandSelector
+          nodeId={id}
+          inputValue={inputValue}
+          onInputValueChange={setInputValue}
+          inputRef={inputRef}
         />
-        <CommandList className="border-b">
-          <CommandEmpty>
-            <span className="text-xs text-muted-foreground/70">
-              No results found.
-            </span>
-          </CommandEmpty>
-          <ActionCommandSelector nodeId={id} inputValue={inputValue} />
-        </CommandList>
-      </Command>
+      </div>
       <Handle
         type="target"
         position={targetPosition ?? Position.Top}
@@ -235,9 +131,13 @@ export default React.memo(function SelectorNode({
 function ActionCommandSelector({
   nodeId,
   inputValue,
+  onInputValueChange,
+  inputRef,
 }: {
   nodeId: string
   inputValue: string
+  onInputValueChange: (value: string) => void
+  inputRef: React.RefObject<HTMLInputElement>
 }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useBuilderRegistryActions({ includeLocked: true })
@@ -247,30 +147,8 @@ function ActionCommandSelector({
     }
     return [...registryActions].sort((a, b) => a.action.localeCompare(b.action))
   }, [registryActions])
-  const filterResults = useMemo(
-    () => filterActions(sortedActions, inputValue),
-    [sortedActions, inputValue]
-  )
+  const { results } = useActionSearch(sortedActions, inputValue, SEARCH_KEYS)
 
-  if (!registryActions || registryActionsIsLoading) {
-    return (
-      <ScrollArea className="h-full">
-        <CommandGroup heading="Loading actions..." className="text-xs">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <CommandItem key={index} className="text-xs">
-              <div className="w-full flex-col">
-                <div className="flex items-center justify-start">
-                  <Skeleton className="mr-2 size-5" />
-                  <Skeleton className="h-4 w-32" />
-                </div>
-                <Skeleton className="mt-1 h-3 w-24" />
-              </div>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </ScrollArea>
-    )
-  }
   if (registryActionsError) {
     console.error("Failed to load actions", registryActionsError)
     return (
@@ -281,26 +159,31 @@ function ActionCommandSelector({
   }
 
   return (
-    <ScrollArea className="h-full overflow-y-auto">
-      {filterResults.length > 0 && (
-        <ActionCommandGroup
-          group="Suggestions"
-          nodeId={nodeId}
-          filterResults={filterResults}
-        />
-      )}
-    </ScrollArea>
+    <ActionCommandGroup
+      nodeId={nodeId}
+      results={results}
+      inputValue={inputValue}
+      onInputValueChange={onInputValueChange}
+      inputRef={inputRef}
+      isLoading={!registryActions || registryActionsIsLoading}
+    />
   )
 }
 
 function ActionCommandGroup({
-  group,
   nodeId,
-  filterResults,
+  results,
+  inputValue,
+  onInputValueChange,
+  inputRef,
+  isLoading,
 }: {
-  group: string
   nodeId: string
-  filterResults: ActionFilterResult[]
+  results: ActionSearchResult[]
+  inputValue: string
+  onInputValueChange: (value: string) => void
+  inputRef: React.RefObject<HTMLInputElement>
+  isLoading: boolean
 }) {
   const {
     workspaceId,
@@ -501,66 +384,50 @@ function ActionCommandGroup({
         open={lockedFeatureOpen}
         onOpenChange={setLockedFeatureOpen}
       />
-      <CommandGroup heading={group} className="text-xs">
-        {filterResults.map((result) => {
-          const { action, actionResult, titleResult } = result
-          const isLocked = isLockedAction(action)
-
-          if (highlight) {
-            return (
-              <CommandItem
-                key={action.action}
-                className={cn(
-                  "flex w-full items-center gap-3 py-2 text-xs",
-                  isLocked && "text-muted-foreground"
-                )}
-                onSelect={async () => await handleSelect(action)}
-              >
-                {getIcon(action.action, {
-                  className: "size-8 rounded-md border p-1.5",
-                })}
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-xs font-medium">
-                    <HighlightedText
-                      result={titleResult}
-                      text={action.default_title ?? action.action}
-                    />
-                  </span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    <HighlightedText
-                      result={actionResult}
-                      text={action.action}
-                    />
-                  </span>
-                </div>
-              </CommandItem>
-            )
-          }
-
-          return (
-            <CommandItem
-              key={action.action}
-              className={cn(
-                "flex w-full items-center gap-3 py-2 text-xs",
-                isLocked && "text-muted-foreground"
-              )}
-              onSelect={async () => await handleSelect(action)}
-            >
-              {getIcon(action.action, {
-                className: "size-8 rounded-md border p-1.5",
-              })}
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-xs font-medium">
-                  {action.default_title}
-                </span>
-                <span className="truncate text-xs text-muted-foreground">
-                  {action.action}
-                </span>
-              </div>
-            </CommandItem>
-          )
-        })}
-      </CommandGroup>
+      <ActionListbox
+        results={results}
+        query={inputValue}
+        onQueryChange={onInputValueChange}
+        inputRef={inputRef}
+        autoFocus
+        fill
+        placeholder="Start typing to search for an action..."
+        inputClassName="py-0 text-xs"
+        heading="Suggestions"
+        label="Actions"
+        empty={
+          <span className="text-muted-foreground/70">
+            {isLoading ? "Loading actions..." : "No results found."}
+          </span>
+        }
+        onSelect={(action) => void handleSelect(action)}
+        renderItem={({ action, matches }) => (
+          <div
+            className={cn(
+              "flex w-full items-center gap-3 py-2 text-xs",
+              isLockedAction(action) && "text-muted-foreground"
+            )}
+          >
+            {getIcon(action.action, {
+              className: "size-8 rounded-md border p-1.5",
+            })}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-xs font-medium">
+                <HighlightedText
+                  result={matches[TITLE_MATCH]}
+                  text={action.default_title ?? action.action}
+                />
+              </span>
+              <span className="truncate text-xs text-muted-foreground">
+                <HighlightedText
+                  result={matches[ACTION_MATCH]}
+                  text={action.action}
+                />
+              </span>
+            </div>
+          </div>
+        )}
+      />
     </>
   )
 }

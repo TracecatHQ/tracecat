@@ -1,6 +1,7 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { format } from "date-fns"
 import {
   ChevronRight,
@@ -8,7 +9,7 @@ import {
   GitCommitHorizontal,
   HistoryIcon,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   RegistryActionReadMinimal,
   RegistryRepositoryReadMinimal,
@@ -38,11 +39,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -56,7 +52,6 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Tooltip,
   TooltipContent,
@@ -80,6 +75,10 @@ type TracecatVersionState =
   | { status: "error" }
 
 const PLATFORM_VERSION_FETCH_LIMIT = 200
+type InventoryRow =
+  | { kind: "group"; group: RegistryActionGroup; isExpanded: boolean }
+  | { kind: "action"; action: RegistryActionReadMinimal }
+
 type RegistryActionGroup = {
   origin: string
   label: string
@@ -255,7 +254,12 @@ export function WorkspaceActionsInventory() {
     useRegistryActions({ includeLocked: true })
   const { repos, reposIsLoading, reposError } = useRegistryRepositories()
   const { status: platformStatus, isLoading: platformStatusIsLoading } =
-    useAdminRegistryStatus({ enabled: canReadPlatformRegistryMetadata })
+    useAdminRegistryStatus({
+      enabled: canReadPlatformRegistryMetadata,
+      // Platform metadata is optional enrichment; a platform admin IP
+      // allowlist denial must not toast on workspace pages.
+      suppressErrorToast: true,
+    })
   const [searchQuery, setSearchQuery] = useState("")
   const [namespaceFilter, setNamespaceFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState<ActionTypeFilter>("all")
@@ -283,6 +287,7 @@ export function WorkspaceActionsInventory() {
           limit: PLATFORM_VERSION_FETCH_LIMIT,
         }),
       enabled: canReadPlatformRegistryMetadata,
+      meta: { suppressErrorToast: true },
     })),
   })
 
@@ -464,6 +469,43 @@ export function WorkspaceActionsInventory() {
     sortField,
   ])
 
+  const rows = useMemo(() => {
+    const flat: InventoryRow[] = []
+    for (const group of groupedActions) {
+      const isExpanded = expandedOrigins[group.origin] ?? true
+      flat.push({ kind: "group", group, isExpanded })
+      if (isExpanded) {
+        for (const action of group.actions) {
+          flat.push({ kind: "action", action })
+        }
+      }
+    }
+    return flat
+  }, [groupedActions, expandedOrigins])
+
+  const listRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: (i) => (rows[i]?.kind === "group" ? 33 : 45),
+    getItemKey: (i) => {
+      const row = rows[i]
+      return row.kind === "group" ? `group:${row.group.origin}` : row.action.id
+    },
+    overscan: 10,
+  })
+
+  const toggleOrigin = useCallback((origin: string) => {
+    setExpandedOrigins((current) => ({
+      ...current,
+      [origin]: !(current[origin] ?? true),
+    }))
+  }, [])
+  const openLockedFeatureDialog = useCallback(
+    () => setLockedFeatureDialogOpen(true),
+    []
+  )
+
   useEffect(() => {
     setExpandedOrigins((current) => {
       const next = { ...current }
@@ -582,196 +624,201 @@ export function WorkspaceActionsInventory() {
         countLabel="actions"
       />
 
-      <ScrollArea className="flex-1 min-h-0 [&>[data-radix-scroll-area-viewport]]:[scrollbar-width:none] [&>[data-radix-scroll-area-viewport]::-webkit-scrollbar]:hidden [&>[data-orientation=vertical]]:!hidden [&>[data-orientation=horizontal]]:!hidden">
-        <div className="w-full pb-10">
-          {groupedActions.map((group) => {
-            const isExpanded = expandedOrigins[group.origin] ?? true
-            const primaryLabel =
-              group.kind === "tracecat" ? group.origin : group.label
-            const showSecondaryOrigin = primaryLabel !== group.origin
-
-            return (
-              <Collapsible
-                key={group.origin}
-                open={isExpanded}
-                onOpenChange={(nextOpen) =>
-                  setExpandedOrigins((current) => ({
-                    ...current,
-                    [group.origin]: nextOpen,
-                  }))
-                }
-              >
-                <div className="border-b border-border/50">
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-2 px-3 py-1 text-left transition-colors hover:bg-muted/50 [&[data-state=open]_.chevron]:rotate-90"
-                    >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center">
-                        <ChevronRight className="chevron size-4 text-muted-foreground transition-transform duration-200" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-xs font-medium">
-                            {primaryLabel}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {group.actions.length}
-                          </span>
-                        </div>
-                        {showSecondaryOrigin ? (
-                          <div className="truncate text-xs text-muted-foreground">
-                            {group.origin}
-                          </div>
-                        ) : null}
-                      </div>
-                      <RegistryGroupMetadata group={group} />
-                    </button>
-                  </CollapsibleTrigger>
-
-                  <CollapsibleContent>
-                    <div className="divide-y divide-border/50">
-                      {group.actions.map((action) => {
-                        const typeLabel = actionTypeToLabel[action.type].label
-                        const actionTitle = getActionDisplayName(action)
-                        const isLocked = isLockedAction(action)
-
-                        const badges = (
-                          <>
-                            <Badge
-                              variant="secondary"
-                              className="h-5 px-2 text-[10px] font-normal"
-                            >
-                              {typeLabel}
-                            </Badge>
-                            <Badge
-                              variant="secondary"
-                              className="h-5 px-2 text-[10px] font-normal"
-                            >
-                              {action.namespace}
-                            </Badge>
-                          </>
-                        )
-
-                        const rowContent = (
-                          <>
-                            <ItemMedia
-                              className={cn(
-                                "translate-y-0 self-center",
-                                isLocked && "opacity-70"
-                              )}
-                            >
-                              {getIcon(action.action, {
-                                className: cn(
-                                  "size-6 rounded border",
-                                  isLocked && "opacity-70"
-                                ),
-                              })}
-                            </ItemMedia>
-                            <ItemContent className="min-w-0 gap-0">
-                              <ItemTitle
-                                className={cn(
-                                  "flex w-full min-w-0 items-center gap-2 text-xs",
-                                  isLocked && "text-muted-foreground"
-                                )}
-                              >
-                                <span className="truncate">{actionTitle}</span>
-                                {isLocked ? (
-                                  <button
-                                    type="button"
-                                    className="shrink-0 rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    onClick={() =>
-                                      setLockedFeatureDialogOpen(true)
-                                    }
-                                  >
-                                    <LockedFeatureChip />
-                                  </button>
-                                ) : null}
-                              </ItemTitle>
-                              <ItemDescription className="truncate font-mono text-[11px]">
-                                {action.action}
-                              </ItemDescription>
-                            </ItemContent>
-                            <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
-                              {badges}
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    className="size-8 p-0"
-                                  >
-                                    <span className="sr-only">Open menu</span>
-                                    <DotsHorizontalIcon className="size-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem
-                                    onSelect={async () => {
-                                      try {
-                                        await copyToClipboard({
-                                          value: action.action,
-                                        })
-                                        toast({
-                                          title: "Action name copied",
-                                          description: action.action,
-                                        })
-                                      } catch (error) {
-                                        console.error(error)
-                                        toast({
-                                          title: "Failed to copy action name",
-                                          description:
-                                            "Please try again or copy manually",
-                                          variant: "destructive",
-                                        })
-                                      }
-                                    }}
-                                  >
-                                    Copy action name
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </ItemActions>
-                          </>
-                        )
-
-                        if (isLocked) {
-                          return (
-                            <Item
-                              key={action.id}
-                              variant="default"
-                              size="sm"
-                              className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 text-left text-muted-foreground"
-                            >
-                              {rowContent}
-                            </Item>
-                          )
-                        }
-
-                        return (
-                          <Item
-                            key={action.id}
-                            variant="default"
-                            size="sm"
-                            className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 text-left"
-                          >
-                            {rowContent}
-                          </Item>
-                        )
-                      })}
-                    </div>
-                  </CollapsibleContent>
+      <div
+        ref={listRef}
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+      >
+        {groupedActions.length === 0 ? (
+          <div className="py-12 text-center text-sm text-muted-foreground">
+            No actions found matching your criteria.
+          </div>
+        ) : (
+          <div
+            className="relative w-full"
+            style={{ height: virtualizer.getTotalSize() + 40 }}
+          >
+            {virtualizer.getVirtualItems().map((item) => {
+              const row = rows[item.index]
+              return (
+                <div
+                  key={item.key}
+                  data-index={item.index}
+                  ref={virtualizer.measureElement}
+                  className="absolute left-0 top-0 w-full border-b border-border/50"
+                  style={{ transform: `translateY(${item.start}px)` }}
+                >
+                  {row.kind === "group" ? (
+                    <RegistryGroupHeader
+                      group={row.group}
+                      isExpanded={row.isExpanded}
+                      onToggle={toggleOrigin}
+                    />
+                  ) : (
+                    <RegistryActionRow
+                      action={row.action}
+                      onLockedClick={openLockedFeatureDialog}
+                    />
+                  )}
                 </div>
-              </Collapsible>
-            )
-          })}
-
-          {groupedActions.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No actions found matching your criteria.
-            </div>
-          ) : null}
-        </div>
-      </ScrollArea>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
+
+const RegistryGroupHeader = memo(function RegistryGroupHeader({
+  group,
+  isExpanded,
+  onToggle,
+}: {
+  group: RegistryActionGroup
+  isExpanded: boolean
+  onToggle: (origin: string) => void
+}) {
+  const primaryLabel = group.kind === "tracecat" ? group.origin : group.label
+  const showSecondaryOrigin = primaryLabel !== group.origin
+  return (
+    <button
+      type="button"
+      data-state={isExpanded ? "open" : "closed"}
+      aria-expanded={isExpanded}
+      onClick={() => onToggle(group.origin)}
+      className="flex w-full items-center gap-2 px-3 py-1 text-left transition-colors hover:bg-muted/50 [&[data-state=open]_.chevron]:rotate-90"
+    >
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center">
+        <ChevronRight className="chevron size-4 text-muted-foreground transition-transform duration-200" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-xs font-medium">{primaryLabel}</span>
+          <span className="text-xs text-muted-foreground">
+            {group.actions.length}
+          </span>
+        </div>
+        {showSecondaryOrigin ? (
+          <div className="truncate text-xs text-muted-foreground">
+            {group.origin}
+          </div>
+        ) : null}
+      </div>
+      <RegistryGroupMetadata group={group} />
+    </button>
+  )
+})
+
+const RegistryActionRow = memo(function RegistryActionRow({
+  action,
+  onLockedClick,
+}: {
+  action: RegistryActionReadMinimal
+  onLockedClick: () => void
+}) {
+  const typeLabel = actionTypeToLabel[action.type].label
+  const actionTitle = getActionDisplayName(action)
+  const isLocked = isLockedAction(action)
+
+  const badges = (
+    <>
+      <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
+        {typeLabel}
+      </Badge>
+      <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
+        {action.namespace}
+      </Badge>
+    </>
+  )
+
+  const rowContent = (
+    <>
+      <ItemMedia
+        className={cn("translate-y-0 self-center", isLocked && "opacity-70")}
+      >
+        {getIcon(action.action, {
+          className: cn("size-6 rounded border", isLocked && "opacity-70"),
+        })}
+      </ItemMedia>
+      <ItemContent className="min-w-0 gap-0">
+        <ItemTitle
+          className={cn(
+            "flex w-full min-w-0 items-center gap-2 text-xs",
+            isLocked && "text-muted-foreground"
+          )}
+        >
+          <span className="truncate">{actionTitle}</span>
+          {isLocked ? (
+            <button
+              type="button"
+              className="shrink-0 rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={onLockedClick}
+            >
+              <LockedFeatureChip />
+            </button>
+          ) : null}
+        </ItemTitle>
+        <ItemDescription className="truncate font-mono text-[11px]">
+          {action.action}
+        </ItemDescription>
+      </ItemContent>
+      <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
+        {badges}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="size-8 p-0">
+              <span className="sr-only">Open menu</span>
+              <DotsHorizontalIcon className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={async () => {
+                try {
+                  await copyToClipboard({
+                    value: action.action,
+                  })
+                  toast({
+                    title: "Action name copied",
+                    description: action.action,
+                  })
+                } catch (error) {
+                  console.error(error)
+                  toast({
+                    title: "Failed to copy action name",
+                    description: "Please try again or copy manually",
+                    variant: "destructive",
+                  })
+                }
+              }}
+            >
+              Copy action name
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </ItemActions>
+    </>
+  )
+
+  if (isLocked) {
+    return (
+      <Item
+        variant="default"
+        size="sm"
+        className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 text-left text-muted-foreground"
+      >
+        {rowContent}
+      </Item>
+    )
+  }
+
+  return (
+    <Item
+      variant="default"
+      size="sm"
+      className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 text-left"
+    >
+      {rowContent}
+    </Item>
+  )
+})

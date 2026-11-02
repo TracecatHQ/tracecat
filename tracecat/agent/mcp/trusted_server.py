@@ -17,9 +17,10 @@ import asyncio
 import hashlib
 import json
 import time
+import uuid
 from collections import OrderedDict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from fastmcp import FastMCP
@@ -27,13 +28,16 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.tools.base import Tool, ToolResult
 from fastmcp.utilities.versions import VersionSpec
+from mcp.types import CallToolRequest, CallToolResult, ServerResult, TextContent
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
+from temporalio.exceptions import is_cancelled_exception
 
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPToolDefinition,
     is_http_mcp_server,
+    is_stdio_mcp_server,
 )
 from tracecat.agent.mcp.executor import (
     ActionExecutionError,
@@ -49,15 +53,23 @@ from tracecat.agent.mcp.metadata import (
     build_registry_tool_schema,
     extract_proxy_tool_call_id,
 )
+from tracecat.agent.mcp.stdio_runner import (
+    StdioMCPRunnerUnsupportedError,
+    StdioMCPServer,
+    get_stdio_mcp_runner,
+    stdio_mcp_tool_definition,
+    usable_stdio_mcp_tools,
+)
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import (
-    LEGACY_REGISTRY_MCP_SERVER_NAME,
-    REGISTRY_MCP_SERVER_NAME,
     action_name_to_mcp_tool_name,
+    canonical_mcp_tool_name,
     fetch_tool_definitions,
     fetch_tool_definitions_for_lock,
+    flatten_mcp_content_blocks,
     mcp_tool_name_to_action_name,
     normalize_mcp_tool_name,
+    strip_tracecat_registry_server_prefix,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, verify_mcp_token
@@ -71,7 +83,12 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.integrations.mcp_validation import MCPSecretResolutionError
+from tracecat.integrations.mcp_tunnel import resolve_mcp_tunnel_proxy
+from tracecat.integrations.mcp_validation import (
+    MCPConfigurationError,
+    MCPSecretResolutionError,
+)
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 
@@ -81,6 +98,9 @@ _USER_MCP_DISCOVERY_CACHE_MAX_SIZE = 512
 
 
 class _UserMCPDiscoveryCacheKey(NamedTuple):
+    workspace_id: uuid.UUID | None
+    integration_id: str | None
+    tunnel_id: str | None
     server_name: str
     url: str
     transport: str
@@ -99,6 +119,23 @@ _USER_MCP_DISCOVERY_CACHE: dict[
     _UserMCPDiscoveryCacheEntry,
 ] = {}
 _USER_MCP_DISCOVERY_CACHE_LOCK = asyncio.Lock()
+
+
+@dataclass(frozen=True, slots=True)
+class _StdioMCPTarget:
+    """A claimed stdio MCP server, loaded from its workspace-scoped row."""
+
+    server: StdioMCPServer
+    tools: dict[str, MCPToolSummary]
+    """The saved tool list from the integration's last verification."""
+    env: dict[str, str] | None = field(default=None, repr=False)
+    """The resolved process env, credentials included. Set only for calls."""
+
+    def active_tool(self, tool_name: str) -> MCPToolSummary | None:
+        tool = self.tools.get(tool_name)
+        if tool is None or not tool.enabled or tool.status != "available":
+            return None
+        return tool
 
 
 class TracecatScopedTool(Tool):
@@ -128,6 +165,25 @@ class TokenScopedFastMCP(FastMCP[None]):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._tool_cache: OrderedDict[str, list[Tool]] = OrderedDict()
+        handlers = self._mcp_server.request_handlers
+        call_tool = handlers[CallToolRequest]
+
+        async def refuse_deferred_then_call(req: CallToolRequest) -> ServerResult:
+            # On a tool cache miss the SDK's call handler runs tools/list
+            # first, which builds the token's catalog: that resolves user MCP
+            # credentials and runs remote discovery. Refuse before it.
+            try:
+                _refuse_deferred_call(req.params.name)
+            except ToolError as e:
+                return ServerResult(
+                    CallToolResult(
+                        content=[TextContent(type="text", text=str(e))],
+                        isError=True,
+                    )
+                )
+            return await call_tool(req)
+
+        handlers[CallToolRequest] = refuse_deferred_then_call
 
     async def _tools_from_request(self) -> list[Tool]:
         authorization = _authorization_header_from_request()
@@ -196,11 +252,17 @@ def _safe_user_mcp_error_summary(exc: Exception) -> str:
 
 def _user_mcp_discovery_cache_key(
     config: MCPHttpServerConfig,
+    workspace_id: uuid.UUID | None,
 ) -> _UserMCPDiscoveryCacheKey:
-    # Key on the resolved config rather than the integration id: an edit to an
+    # Key on the resolved config as well as the integration id: an edit to an
     # integration's URL or credentials (same id/name) must miss the cache
     # immediately instead of serving the previous endpoint's tools for a TTL.
+    # The same URL can reach different servers through different tunnels, so
+    # workspace and tunnel identity are part of the key too.
     return _UserMCPDiscoveryCacheKey(
+        workspace_id=workspace_id,
+        integration_id=config.get("id"),
+        tunnel_id=config.get("tunnel_id"),
         server_name=config["name"],
         url=config["url"],
         transport=config.get("transport", "http"),
@@ -239,9 +301,10 @@ def _evict_user_mcp_discovery_cache(now: float) -> None:
 
 async def _get_cached_user_mcp_discovery(
     config: MCPHttpServerConfig,
+    workspace_id: uuid.UUID | None,
 ) -> dict[str, MCPToolDefinition] | None:
     now = time.monotonic()
-    cache_key = _user_mcp_discovery_cache_key(config)
+    cache_key = _user_mcp_discovery_cache_key(config, workspace_id)
     async with _USER_MCP_DISCOVERY_CACHE_LOCK:
         _evict_user_mcp_discovery_cache(now)
         if entry := _USER_MCP_DISCOVERY_CACHE.get(cache_key):
@@ -251,10 +314,11 @@ async def _get_cached_user_mcp_discovery(
 
 async def _set_cached_user_mcp_discovery(
     config: MCPHttpServerConfig,
+    workspace_id: uuid.UUID | None,
     definitions: dict[str, MCPToolDefinition],
 ) -> None:
     now = time.monotonic()
-    cache_key = _user_mcp_discovery_cache_key(config)
+    cache_key = _user_mcp_discovery_cache_key(config, workspace_id)
     entry = _UserMCPDiscoveryCacheEntry(
         expires_at=now + _USER_MCP_DISCOVERY_CACHE_TTL_SECONDS,
         definitions=dict(definitions),
@@ -302,10 +366,26 @@ def _authorization_header_from_request() -> str | None:
     return headers.get("authorization")
 
 
+def _refuse_deferred_call(tool_name: str) -> None:
+    """Refuse a deferred or ambiguously named call using only the request's token."""
+    claims = _claims_from_authorization_header(_authorization_header_from_request())
+    try:
+        action_name = canonical_mcp_tool_name(tool_name)
+    except ValueError as e:
+        # Listed names never use the ambiguous dotted user MCP spelling.
+        raise ToolError(str(e)) from e
+    _refuse_deferred_action(action_name, claims)
+
+
+def _listed_action_names(claims: MCPTokenClaims) -> list[str]:
+    """Actions the token may discover: executable ones, then deferred ones."""
+    return list(dict.fromkeys([*claims.allowed_actions, *claims.deferred_actions]))
+
+
 def _registry_action_names(claims: MCPTokenClaims) -> list[str]:
     return [
         name
-        for name in claims.allowed_actions
+        for name in _listed_action_names(claims)
         if not name.startswith("internal.")
         and UserMCPClient.parse_user_mcp_tool_name(name) is None
     ]
@@ -313,36 +393,16 @@ def _registry_action_names(claims: MCPTokenClaims) -> list[str]:
 
 def _internal_tool_names(claims: MCPTokenClaims) -> list[str]:
     names: list[str] = []
-    for name in claims.allowed_internal_tools:
+    for name in [*claims.allowed_internal_tools, *claims.deferred_actions]:
         if name.startswith("internal.") and name not in names:
             names.append(name)
     return names
 
 
-def _is_tracecat_registry_server_name(server_name: str) -> bool:
-    return (
-        server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
-        or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
-        or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
-    )
-
-
-def _strip_tracecat_registry_server_prefix(tool_name: str) -> str:
-    if tool_name.startswith("mcp__"):
-        parts = tool_name.split("__", 2)
-        if len(parts) == 3 and _is_tracecat_registry_server_name(parts[1]):
-            return parts[2]
-    if tool_name.startswith("mcp."):
-        parts = tool_name.split(".", 2)
-        if len(parts) == 3 and _is_tracecat_registry_server_name(parts[1]):
-            return parts[2]
-    return tool_name
-
-
 def _user_mcp_tool_names(claims: MCPTokenClaims) -> set[str]:
     return {
         name
-        for name in claims.allowed_actions
+        for name in _listed_action_names(claims)
         if UserMCPClient.parse_user_mcp_tool_name(name) is not None
     }
 
@@ -365,8 +425,15 @@ def _legacy_user_mcp_config(server: UserMCPServerClaim) -> MCPHttpServerConfig:
 async def _resolve_user_mcp_config(
     ref: UserMCPServerClaim,
     role: Role,
-) -> MCPHttpServerConfig:
-    """Resolve a user MCP claim into an executable HTTP config."""
+    *,
+    resolve_stdio_env: bool = False,
+) -> MCPHttpServerConfig | _StdioMCPTarget:
+    """Resolve a user MCP claim into an executable HTTP config or stdio target.
+
+    A stdio target carries its env only when ``resolve_stdio_env`` is set:
+    calls need it, listing doesn't. Its command, tool policy and env come
+    from one row read.
+    """
     if ref.id is None:
         # Legacy replay path: in-flight tokens minted before the refs-only
         # cutover. Use the inline url/headers from the claim. New tokens
@@ -375,13 +442,36 @@ async def _resolve_user_mcp_config(
 
     try:
         async with AgentPresetService.with_session(role=role) as svc:
-            refs = await svc.resolve_mcp_integration_refs([str(ref.id)])
-            if not refs:
-                raise ToolError(f"MCP integration {ref.id} not found")
-            metadata = refs[0]
+            # One workspace-scoped row read gives the address, the command,
+            # the tool policy and the credentials together.
+            integration = (await svc.load_mcp_integrations([ref.id])).get(ref.id)
+            if integration is None:
+                raise ToolError(
+                    f"MCP integration {ref.id} is unavailable: "
+                    "not found in this workspace"
+                )
+            metadata = svc.mcp_integration_refs([str(ref.id)], {ref.id: integration})[0]
+            if is_stdio_mcp_server(metadata):
+                snapshot = await svc.resolve_stdio_mcp_integration(
+                    integration, resolve_env=resolve_stdio_env
+                )
+                if snapshot is None or role.workspace_id is None:
+                    raise ToolError(f"MCP integration {ref.id} not found")
+                return _StdioMCPTarget(
+                    server=StdioMCPServer(
+                        workspace_id=role.workspace_id,
+                        mcp_integration_id=ref.id,
+                        name=ref.name,
+                        command=snapshot.config["command"],
+                        args=tuple(snapshot.config.get("args") or ()),
+                        timeout=snapshot.config.get("timeout"),
+                    ),
+                    tools=snapshot.tools,
+                    env=snapshot.env,
+                )
             if not is_http_mcp_server(metadata):
                 raise ToolError(f"User MCP server '{ref.name}' is not an HTTP server")
-            secrets = await svc.resolve_mcp_integration_secrets(ref.id)
+            secrets = await svc.resolve_loaded_mcp_integration_secrets(integration)
     except ToolError:
         raise
     except MCPSecretResolutionError as e:
@@ -412,7 +502,56 @@ async def _resolve_user_mcp_config(
     timeout = metadata.get("timeout")
     if timeout is not None:
         config["timeout"] = timeout
+    if tunnel_id := metadata.get("tunnel_id"):
+        if role.workspace_id is None or role.organization_id is None:
+            raise ToolError(f"MCP server '{ref.name}' tunnel cannot be used")
+        try:
+            config["tunnel_proxy"] = await resolve_mcp_tunnel_proxy(
+                workspace_id=role.workspace_id,
+                organization_id=role.organization_id,
+                tunnel_id=uuid.UUID(tunnel_id),
+                subject=f"mcp_integration:{ref.id}",
+            )
+        except MCPConfigurationError as e:
+            raise ToolError(str(e)) from None
+        config["tunnel_id"] = tunnel_id
     return config
+
+
+async def _call_stdio_mcp_tool(
+    target: _StdioMCPTarget,
+    tool_name: str,
+    args: dict[str, Any],
+) -> str:
+    """Call one tool on a stdio server through the installed runner."""
+    server = target.server
+    if target.active_tool(tool_name) is None:
+        # The token allowed it, but the integration has since disabled or
+        # lost the tool. Apply the integration's current policy.
+        raise ToolError(
+            f"Tool '{tool_name}' is not available on MCP server '{server.name}'"
+        )
+    try:
+        result = await get_stdio_mcp_runner().call_tool(
+            server, target.env, tool_name, args
+        )
+    except StdioMCPRunnerUnsupportedError as e:
+        raise ToolError(str(e)) from None
+    text = flatten_mcp_content_blocks(result.content)
+    if result.isError:
+        raise ToolError(text or f"User MCP tool '{tool_name}' failed")
+    return text
+
+
+def _stdio_mcp_tool_definitions(
+    target: _StdioMCPTarget,
+) -> dict[str, MCPToolDefinition]:
+    """List a stdio server's tools from its saved tool list."""
+    definitions = (
+        stdio_mcp_tool_definition(target.server.name, tool)
+        for tool in usable_stdio_mcp_tools(target.tools.values())
+    )
+    return {definition.name: definition for definition in definitions}
 
 
 def _build_scoped_tool(
@@ -503,18 +642,24 @@ async def _discover_allowed_user_mcp_tools(
     role = _set_role_context(claims)
     configs: list[MCPHttpServerConfig] = []
     failed_servers: dict[str, str] = {}
+    discovered: dict[str, MCPToolDefinition] = {}
     for server in claims.user_mcp_servers:
         if server.name not in expected_server_names:
             continue
         try:
-            configs.append(await _resolve_user_mcp_config(server, role))
+            resolved = await _resolve_user_mcp_config(server, role)
         except ToolError as e:
             failed_servers[server.name] = _safe_user_mcp_error_summary(e)
+            continue
+        if isinstance(resolved, _StdioMCPTarget):
+            # Stdio servers are not started to list tools: use the saved list.
+            discovered.update(_stdio_mcp_tool_definitions(resolved))
+        else:
+            configs.append(resolved)
 
-    discovered: dict[str, MCPToolDefinition] = {}
     uncached_configs: list[MCPHttpServerConfig] = []
     for config in configs:
-        cached = await _get_cached_user_mcp_discovery(config)
+        cached = await _get_cached_user_mcp_discovery(config, role.workspace_id)
         if cached is None:
             uncached_configs.append(config)
         else:
@@ -532,6 +677,7 @@ async def _discover_allowed_user_mcp_tools(
                 continue
             await _set_cached_user_mcp_discovery(
                 config,
+                role.workspace_id,
                 _user_mcp_definitions_for_server(discovery.definitions, server_name),
             )
 
@@ -611,7 +757,7 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
     unavailable_user_mcp_tool_names = expected_user_mcp_tool_names - set(
         user_mcp_definitions
     )
-    for tool_name in claims.allowed_actions:
+    for tool_name in _listed_action_names(claims):
         if definition := user_mcp_definitions.get(tool_name):
             tools.append(
                 _build_scoped_tool(
@@ -653,6 +799,18 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
     )
 
 
+def _refuse_deferred_action(action_name: str, claims: MCPTokenClaims) -> None:
+    """Reject a deferred action: only its minting service may execute it."""
+    if action_name not in claims.deferred_actions:
+        return
+    logger.warning(
+        "Deferred MCP action called with a discovery-only token",
+        action_name=action_name,
+        workspace_id=str(claims.workspace_id),
+    )
+    raise ToolError(f"Tool '{action_name}' requires approval")
+
+
 async def _execute_registry_action(
     action_name: str,
     args: dict[str, Any],
@@ -662,6 +820,7 @@ async def _execute_registry_action(
 ) -> str:
     """Execute one authorized registry action and return JSON text."""
     normalized_action_name = normalize_mcp_tool_name(action_name)
+    _refuse_deferred_action(normalized_action_name, claims)
     if normalized_action_name not in claims.allowed_actions:
         logger.warning(
             "Registry action not authorized",
@@ -715,6 +874,10 @@ async def _execute_registry_action(
     except ToolError:
         raise
     except Exception as e:
+        if is_cancelled_exception(e):
+            # FastMCP treats ordinary exceptions as tool failures. Preserve a
+            # remote Temporal cancellation as request cancellation instead.
+            raise asyncio.CancelledError() from e
         logger.error(
             "Action execution failed",
             action_name=normalized_action_name,
@@ -732,6 +895,7 @@ async def _execute_user_mcp(
 ) -> str:
     """Execute one authorized user MCP tool and return JSON text."""
     scoped_tool_name = f"mcp__{server_name}__{tool_name}"
+    _refuse_deferred_action(scoped_tool_name, claims)
     if scoped_tool_name not in claims.allowed_actions:
         logger.warning(
             "User MCP tool not authorized",
@@ -756,9 +920,12 @@ async def _execute_user_mcp(
         raise ToolError(f"User MCP server '{server_name}' not authorized") from None
 
     try:
-        config_dict = await _resolve_user_mcp_config(ref, role)
-        client = UserMCPClient([config_dict])
-        result = await client.call_tool(server_name, tool_name, args)
+        resolved = await _resolve_user_mcp_config(ref, role, resolve_stdio_env=True)
+        if isinstance(resolved, _StdioMCPTarget):
+            result = await _call_stdio_mcp_tool(resolved, tool_name, args)
+        else:
+            client = UserMCPClient([resolved])
+            result = await client.call_tool(server_name, tool_name, args)
 
         logger.info(
             "User MCP tool executed successfully",
@@ -793,6 +960,7 @@ async def _execute_internal(
     claims: MCPTokenClaims,
 ) -> str:
     """Execute one authorized internal tool and return JSON text."""
+    _refuse_deferred_action(tool_name, claims)
     _set_role_context(claims)
     if tool_name not in claims.allowed_internal_tools:
         logger.warning(
@@ -837,7 +1005,7 @@ async def call_token_scoped_tool(
 ) -> str:
     """Route one token-scoped concrete MCP tool call."""
     forwarded_args = dict(args)
-    routed_tool_name = _strip_tracecat_registry_server_prefix(tool_name)
+    routed_tool_name = strip_tracecat_registry_server_prefix(tool_name)
     if parsed := UserMCPClient.parse_user_mcp_tool_name(routed_tool_name):
         server_name, original_tool_name = parsed
         return await _execute_user_mcp(

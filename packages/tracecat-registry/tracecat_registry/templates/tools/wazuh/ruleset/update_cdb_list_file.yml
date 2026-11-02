@@ -1,0 +1,52 @@
+type: action
+definition:
+  name: update_cdb_list_file
+  namespace: tools.wazuh
+  title: Update CDB list file
+  description: "Upload or replace a CDB list file (e.g. add IOCs to a blocklist used by rules). Content uses one `key:value` entry per line. The manager must be restarted for changes to take effect."
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.cdb_list_controller.put_file
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
+  expects:
+    filename:
+      type: str
+      description: "CDB list file name (e.g. `malicious-ioc`)."
+    content:
+      type: str
+      description: "Full list content, one `key:value` entry per line (e.g. `1.2.3.4:malicious`)."
+    overwrite:
+      type: bool
+      description: "If false, fails when the file already exists."
+      default: false
+    base_url:
+      type: str | None
+      description: "Wazuh server API URL (e.g. https://wazuh-manager:55000). Defaults to the `wazuh.base_url` variable."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "If false, disables SSL verification for internal networks."
+      default: true
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/lists/files/${{ FN.url_encode(inputs.filename) }}
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
+          Content-Type: application/octet-stream
+        params:
+          overwrite: ${{ inputs.overwrite }}
+        content: ${{ inputs.content }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

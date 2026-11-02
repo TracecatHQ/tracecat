@@ -11,9 +11,12 @@ import tempfile
 import textwrap
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 import orjson
+from mcp.types import CallToolResult
 
+from tracecat import config
 from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PERSIST_ACTIVITY_NAME,
     MCP_STDIO_PROBE_ACTIVITY_NAME,
@@ -27,7 +30,13 @@ from tracecat.agent.mcp.stdio_probe_types import (
     build_stdio_mcp_probe_workflow_id,
     sanitize_stdio_probe_error,
 )
-from tracecat.agent.mcp.utils import STDIO_MCP_TOOL_NAME_RE
+from tracecat.agent.mcp.stdio_runner import (
+    StdioMCPRunnerUnsupportedError,
+    StdioMCPServer,
+)
+from tracecat.agent.mcp.utils import MCP_TOOL_NAME_RE
+from tracecat.agent.sandbox.cgroup import sandbox_cgroup
+from tracecat.agent.sandbox.config import AgentResourceLimits
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError
@@ -40,7 +49,7 @@ from tracecat.sandbox.types import (
     SandboxNetworkRequest,
     SandboxResult,
 )
-from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
+from tracecat.sandbox.utils import pid_namespace_available
 
 __all__ = [
     "MCP_STDIO_PERSIST_ACTIVITY_NAME",
@@ -48,6 +57,7 @@ __all__ = [
     "MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER",
     "MCP_STDIO_PROBE_TIMEOUT_CAP",
     "MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX",
+    "NsjailStdioMCPRunner",
     "StdioMCPPersistInput",
     "StdioMCPProbeInput",
     "StdioMCPProbeResult",
@@ -213,6 +223,7 @@ async def main() -> None:
                         {
                             "name": tool.name,
                             "description": tool.description,
+                            "input_schema": tool.inputSchema,
                         }
                         for tool in tools
                     ]
@@ -278,17 +289,19 @@ def _parse_probe_tools(output: object) -> list[MCPToolSummary]:
         name = raw_tool.get("name")
         if not isinstance(name, str) or not name:
             continue
-        if not STDIO_MCP_TOOL_NAME_RE.fullmatch(name):
+        if not MCP_TOOL_NAME_RE.fullmatch(name):
             logger.warning(
                 "Skipping stdio MCP tool with unsupported name",
                 tool_name=name,
             )
             continue
         description = raw_tool.get("description")
+        input_schema = raw_tool.get("input_schema")
         tools.append(
             MCPToolSummary(
                 name=name,
                 description=description if isinstance(description, str) else None,
+                input_schema=input_schema if isinstance(input_schema, dict) else None,
             )
         )
     return tools
@@ -307,7 +320,7 @@ async def _execute_probe_without_nsjail(
     *,
     timeout_seconds: int,
 ) -> SandboxResult:
-    """Run the probe with best-effort PID isolation when nsjail is unavailable.
+    """Run the probe with best-effort PID isolation for the direct backend.
 
     Mirrors ``UnsafePidExecutor``: ``unshare --pid --fork --kill-child`` when
     the host supports it, otherwise a plain subprocess in its own session so
@@ -385,10 +398,12 @@ async def probe_stdio_mcp_tools_in_sandbox(
     env: dict[str, str] | None,
     timeout: int,
 ) -> StdioMCPProbeResult:
-    """Run a stdio MCP server in a sandbox and list its tools.
+    """Run a stdio MCP server using the configured backend and list its tools.
 
-    Uses nsjail when available; otherwise falls back to the same best-effort
-    PID-level isolation that unsandboxed Python actions use.
+    TRACECAT__EXECUTOR_BACKEND selects nsjail or direct execution. The nsjail
+    backend returns probe failures without falling back to direct execution.
+    The direct backend uses the same best-effort PID-level isolation as
+    unsandboxed Python actions, regardless of nsjail availability.
     """
     timeout_seconds = timeout
     hard_timeout_seconds = timeout_seconds + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
@@ -408,14 +423,18 @@ async def probe_stdio_mcp_tools_in_sandbox(
             )
             (job_dir / "input.json").write_bytes(orjson.dumps(payload))
 
-            if is_nsjail_available():
-                sandbox = NsjailExecutor()
+            if config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
+                probe_limits = AgentResourceLimits(
+                    memory_mb=min(1024, config.TRACECAT__AGENT_SANDBOX_MEMORY_MB)
+                )
+                sandbox = NsjailExecutor(cgroup_mount=sandbox_cgroup())
                 result = await sandbox.execute(
                     job_dir,
                     SandboxConfig(
                         network=SandboxNetworkRequest(SandboxNetworkPurpose.AGENT),
                         resources=ResourceLimits(
-                            memory_mb=1024,
+                            memory_mb=probe_limits.memory_mb,
+                            address_space_mb=probe_limits.address_space_mb,
                             cpu_seconds=hard_timeout_seconds,
                             max_open_files=512,
                             max_processes=128,
@@ -475,3 +494,36 @@ async def probe_stdio_mcp_tools_in_sandbox(
         tools=tools,
         message=f"Connected successfully — {len(tools)} tools available",
     )
+
+
+class NsjailStdioMCPRunner:
+    """Built-in stdio MCP runner: probes under nsjail and refuses tool calls.
+
+    Runtimes that use the built-in runner start stdio servers themselves, so
+    the trusted MCP server never routes a stdio call here. Calls are refused
+    rather than run, because untrusted server code must not run in the
+    trusted plane.
+    """
+
+    async def list_tools(
+        self, server: StdioMCPServer, env: dict[str, str] | None
+    ) -> StdioMCPProbeResult:
+        return await probe_stdio_mcp_tools_in_sandbox(
+            command=server.command,
+            args=list(server.args),
+            env=env,
+            timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
+        )
+
+    async def call_tool(
+        self,
+        server: StdioMCPServer,
+        env: dict[str, str] | None,
+        tool: str,
+        args: dict[str, Any],
+    ) -> CallToolResult:
+        del env, tool, args
+        raise StdioMCPRunnerUnsupportedError(
+            f"Stdio MCP server '{server.name}' can't be called through the "
+            "Tracecat MCP server: no stdio MCP runner is installed"
+        )

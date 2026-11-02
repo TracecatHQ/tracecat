@@ -8,24 +8,55 @@ from typing import Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
 
 import boto3
+import httpx
+import orjson
 from aiocache import Cache
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import Request
+from fastapi import HTTPException, Request
 from litellm.caching.dual_cache import DualCache
+from litellm.exceptions import (
+    AuthenticationError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
+from litellm.types.router import RouterRateLimitError
 from litellm.types.utils import CallTypesLiteral
+from openai import RateLimitError as OpenAIRateLimitError
 
 from tracecat import config as app_config
+from tracecat.agent.diagnostics import parse_bounded_error_body
+from tracecat.agent.gateway_drain import (
+    GATEWAY_IDENTITY_HEADER,
+    gateway_identity,
+    install_drain_logging,
+)
+from tracecat.agent.gateway_outbound import (
+    OutboundLLMHTTPHandler,
+    install_outbound_http_policy,
+)
+from tracecat.agent.gateway_providers import (
+    CUSTOM_MODEL_PROVIDER_SLUG,
+    GATEWAY_PROVIDER_SPECS,
+    is_builtin_gateway_provider,
+    resolve_gateway_provider_config,
+    strip_openai_version_suffix,
+)
 from tracecat.agent.litellm_compat import apply_patch
+from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.exceptions import AgentModelNotEnabledError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.temporal.error_chain import iter_error_chain
 
 apply_patch()
+install_outbound_http_policy()
+install_drain_logging()
 
 _UNAUTHENTICATED_HEALTH_ROUTES = frozenset(
     {
@@ -201,6 +232,8 @@ async def _resolve_bedrock_runtime_credentials(
         except (BotoCoreError, ClientError, KeyError) as exc:
             raise ProxyException(
                 message="Failed to assume configured AWS role for Bedrock.",
+                # This broad SDK failure may be transport or service failure,
+                # so it does not establish that provider credentials are invalid.
                 type="auth_error",
                 param=None,
                 code=401,
@@ -216,7 +249,7 @@ async def _resolve_bedrock_runtime_credentials(
     if access_key or secret_key or session_token:
         raise ProxyException(
             message="Bedrock static credentials require AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.",
-            type="auth_error",
+            type="tracecat_llm_provider_auth_failed",
             param=None,
             code=401,
         )
@@ -226,7 +259,7 @@ async def _resolve_bedrock_runtime_credentials(
 
     raise ProxyException(
         message="Bedrock requires one of AWS_ROLE_ARN, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or AWS_BEARER_TOKEN_BEDROCK.",
-        type="auth_error",
+        type="tracecat_llm_provider_auth_failed",
         param=None,
         code=401,
     )
@@ -277,6 +310,13 @@ async def get_provider_credentials(
                         provider,
                         creds,
                     )
+        except AgentModelNotEnabledError as exc:
+            raise ProxyException(
+                message="The selected model is not enabled for this workspace.",
+                type="tracecat_llm_model_not_enabled",
+                param=None,
+                code=403,
+            ) from exc
         except ValueError as exc:
             raise ProxyException(
                 message=str(exc),
@@ -311,7 +351,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
         logger.warning("LLM token validation failed")
         raise ProxyException(
             message="Invalid or expired token",
-            type="auth_error",
+            type="tracecat_llm_token_invalid",
             param=None,
             code=401,
         ) from exc
@@ -354,8 +394,172 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
     )
 
 
+class _ProviderAuthHTTPException(HTTPException):
+    """Retain auth origin through LiteLLM's HTTPException serialization."""
+
+    type = "tracecat_llm_provider_auth_failed"
+
+
+class _ProviderSubscriptionHTTPException(HTTPException):
+    """Retain Bedrock Marketplace subscription denials through serialization."""
+
+    type = "tracecat_llm_provider_subscription_required"
+
+
+def _is_bedrock_marketplace_denial(exc: PermissionDeniedError) -> bool:
+    # Bedrock reports missing or in-progress Marketplace model subscriptions as
+    # AccessDenied naming the aws-marketplace actions it needs.
+    return str(exc.llm_provider).startswith("bedrock") and "aws-marketplace:" in str(
+        exc
+    )
+
+
+class _ProviderQuotaHTTPException(HTTPException):
+    """Retain structured provider quota evidence through gateway serialization."""
+
+    type = "budget_exceeded"
+
+
+class _ProviderRateLimitHTTPException(HTTPException):
+    """Retain generic provider throttling through gateway serialization."""
+
+    type = "throttling_error"
+
+
+class _GatewayUnavailableHTTPException(HTTPException):
+    """Distinguish router availability failures from upstream throttling."""
+
+    type = "tracecat_llm_deployment_unavailable"
+
+
+def _response_has_provider_quota_code(response: httpx.Response) -> bool:
+    if response.status_code != 429:
+        return False
+    try:
+        body = response.content
+    except httpx.ResponseNotRead:
+        return False
+    # Do not add an unbounded parse of a provider-controlled response.
+    match parse_bounded_error_body(body):
+        case {"error": {"code": "insufficient_quota"}} | {
+            "error": {"type": "insufficient_quota"}
+        }:
+            return True
+    return False
+
+
+def _is_provider_quota_exceeded(error: BaseException) -> bool:
+    # LiteLLM replaces the provider's code and response body, but retains the
+    # original SDK exception in the chain. Inspect only typed codes, never text.
+    for current in iter_error_chain(error):
+        if isinstance(current, OpenAIRateLimitError) and (
+            current.code == "insufficient_quota" or current.type == "insufficient_quota"
+        ):
+            return True
+        if isinstance(
+            current, httpx.HTTPStatusError
+        ) and _response_has_provider_quota_code(current.response):
+            return True
+    return False
+
+
+def _anthropic_error_message(error_type: str, message: str) -> str:
+    """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
+    return orjson.dumps(
+        {"type": "error", "error": {"type": error_type, "message": message}}
+    ).decode()
+
+
+def _trace_request_id(data: dict[str, Any]) -> str | None:
+    """Return the LLM socket proxy's ``X-Request-ID`` for log correlation."""
+    match data.get("proxy_server_request"):
+        case {"headers": {"x-request-id": str() as trace_request_id}}:
+            # The LLM socket proxy only forwards IDs up to 128 characters, so
+            # this cap bounds the log field without breaking the exact join.
+            return trace_request_id[:128]
+        case _:
+            return None
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._outbound_http_handler: OutboundLLMHTTPHandler | None = None
+
+    async def async_post_call_failure_hook(
+        self,
+        request_data: dict[str, Any],
+        original_exception: Exception,
+        user_api_key_dict: UserAPIKeyAuth,
+        traceback_str: str | None = None,
+    ) -> HTTPException | None:
+        """Label typed gateway and provider failures without copying details."""
+        del request_data, user_api_key_dict, traceback_str
+        if isinstance(original_exception, ProxyException):
+            if original_exception.type in {
+                "tracecat_llm_token_invalid",
+                "tracecat_llm_provider_auth_failed",
+                "tracecat_llm_model_not_enabled",
+                "tracecat_llm_provider_subscription_required",
+                "budget_exceeded",
+            }:
+                original_exception.message = _anthropic_error_message(
+                    original_exception.type, original_exception.message
+                )
+            return None
+        if isinstance(original_exception, RouterRateLimitError):
+            # LiteLLM otherwise serializes this ValueError as a 429. Its
+            # deployment-scoped cooldown state is shared across credentials;
+            # even a cached 401 cannot establish this caller's auth failure.
+            replacement = _GatewayUnavailableHTTPException(
+                status_code=503,
+                detail="The LLM gateway has no available deployment; retry later",
+            )
+        elif isinstance(
+            original_exception, PermissionDeniedError
+        ) and _is_bedrock_marketplace_denial(original_exception):
+            replacement = _ProviderSubscriptionHTTPException(
+                status_code=original_exception.status_code,
+                detail=(
+                    "AWS Bedrock model access is not active; subscribe to the "
+                    "model or grant the required AWS Marketplace permissions"
+                ),
+            )
+        elif isinstance(
+            original_exception, AuthenticationError | PermissionDeniedError
+        ):
+            replacement = _ProviderAuthHTTPException(
+                status_code=original_exception.status_code,
+                detail="The LLM provider rejected authentication or access",
+            )
+        elif isinstance(
+            original_exception, RateLimitError
+        ) and _is_provider_quota_exceeded(original_exception):
+            replacement = _ProviderQuotaHTTPException(
+                status_code=429,
+                detail="LLM provider quota exhausted; check billing or usage limits",
+            )
+        elif isinstance(original_exception, RateLimitError):
+            replacement = _ProviderRateLimitHTTPException(
+                status_code=429,
+                detail="LLM provider rate limit exceeded; retry later",
+            )
+        else:
+            return None
+
+        # /v1/messages ignores the replacement and normalizes the original
+        # message into an Anthropic envelope. Supply that envelope explicitly
+        # so its status-based mapping cannot erase auth origin or quota codes.
+        # RouterRateLimitError lacks these wire attributes; attach them for
+        # LiteLLM's duck-typed endpoint serializer.
+        original_exception.__dict__.update(
+            type=replacement.type,
+            message=_anthropic_error_message(replacement.type, str(replacement.detail)),
+            status_code=replacement.status_code,
+        )
+        return replacement
 
     async def async_pre_call_hook(
         self,
@@ -418,17 +622,19 @@ class TracecatCallbackHandler(CustomLogger):
         if not creds:
             raise ProxyException(
                 message=f"No {provider} API credentials configured. Add them in workspace settings.",
-                type="credential_error",
+                type="tracecat_llm_provider_auth_failed",
                 param=None,
                 code=401,
             )
 
         _inject_provider_credentials(data, provider, creds)
 
+        # Built-in gateway providers resolve api_base from their own
+        # credentials (Ollama needs the host root, not the /v1 base).
         if base_url and provider in {
             "openai",
             "anthropic",
-            "custom-model-provider",
+            CUSTOM_MODEL_PROVIDER_SLUG,
         }:
             data["api_base"] = base_url
 
@@ -441,6 +647,33 @@ class TracecatCallbackHandler(CustomLogger):
         )
         data.update(model_settings)
 
+        # LiteLLM's native Rust transport bypasses our guarded HTTPX factories.
+        # A request override takes precedence over process and environment flags.
+        data["rust"] = False
+
+        if provider == CUSTOM_MODEL_PROVIDER_SLUG:
+            # Custom providers expose the OpenAI-compatible protocol. Make the
+            # adapter explicit even for model IDs containing a vendor prefix,
+            # so LiteLLM cannot select another SDK and bypass this transport.
+            data["custom_llm_provider"] = "hosted_vllm"
+            # Route through the hosted_vllm/* deployment so a literal ID such
+            # as ``openrouter/...`` cannot match another provider's route;
+            # LiteLLM strips only this prefix before forwarding upstream.
+            data["model"] = f"hosted_vllm/{data['model']}"
+
+            if self._outbound_http_handler is None:
+                self._outbound_http_handler = OutboundLLMHTTPHandler()
+            data["client"] = self._outbound_http_handler
+
+        if provider == "azure_openai" and "gateway.ai.cloudflare.com" in data.get(
+            "api_base", ""
+        ):
+            # Match LiteLLM's special-case dispatch, including URLs containing
+            # this string outside the hostname; it skips the shared factory.
+            if self._outbound_http_handler is None:
+                self._outbound_http_handler = OutboundLLMHTTPHandler()
+            data["client"] = self._outbound_http_handler.azure_cloudflare_client(data)
+
         # Strip after model_settings merge so they can't be re-added
         if provider == "bedrock":
             _strip_bedrock_unsupported_params(data)
@@ -450,8 +683,21 @@ class TracecatCallbackHandler(CustomLogger):
             workspace_id=str(workspace_id),
             provider=provider,
             model=model,
+            trace_request_id=_trace_request_id(data),
         )
         return data
+
+    async def async_post_call_response_headers_hook(
+        self,
+        data: dict,
+        user_api_key_dict: UserAPIKeyAuth,
+        response: object,
+        request_headers: dict[str, str] | None = None,
+        litellm_call_info: dict[str, object] | None = None,
+    ) -> dict[str, str] | None:
+        """Tag every LLM response with the gateway worker that served it."""
+        del data, user_api_key_dict, response, request_headers, litellm_call_info
+        return {GATEWAY_IDENTITY_HEADER: gateway_identity()}
 
 
 callback_handler = TracecatCallbackHandler()
@@ -537,19 +783,62 @@ def _strip_bedrock_unsupported_params(data: dict) -> None:
     data.pop("reasoning_effort", None)
 
 
+# LiteLLM's OpenAI-compatible adapters construct an OpenAI client, which
+# refuses to start without an API key even when the upstream ignores it.
+_UNAUTHENTICATED_UPSTREAM_API_KEY = "sk-no-auth"
+
+
+def _inject_gateway_provider_credentials(
+    data: dict,
+    provider: str,
+    creds: dict[str, str],
+) -> None:
+    """Inject credentials for a built-in OpenAI-compatible gateway provider."""
+    spec = GATEWAY_PROVIDER_SPECS[provider]
+    runtime = resolve_gateway_provider_config(provider, creds)
+    if runtime is None or not runtime.base_url:
+        raise ProxyException(
+            message="Provider credentials incomplete",
+            type="tracecat_llm_provider_auth_failed",
+            param=None,
+            code=401,
+        )
+    if spec.requires_api_key and not runtime.api_key:
+        raise ProxyException(
+            message="Provider credentials incomplete",
+            type="tracecat_llm_provider_auth_failed",
+            param=None,
+            code=401,
+        )
+    data["api_key"] = runtime.api_key or _UNAUTHENTICATED_UPSTREAM_API_KEY
+    data["api_base"] = (
+        strip_openai_version_suffix(runtime.base_url)
+        if spec.litellm_api_base_strips_version
+        else runtime.base_url
+    )
+    data["model"] = get_litellm_route_model(
+        model_provider=provider,
+        model_name=data.get("model", ""),
+    )
+
+
 def _inject_provider_credentials(
     data: dict,
     provider: str,
     creds: dict[str, str],
 ) -> None:
     """Inject provider-specific credentials into a LiteLLM request dict."""
+    if is_builtin_gateway_provider(provider):
+        _inject_gateway_provider_credentials(data, provider, creds)
+        return
+
     match provider:
         case "openai":
             api_key = creds.get("OPENAI_API_KEY")
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -564,7 +853,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -579,7 +868,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -592,7 +881,7 @@ def _inject_provider_credentials(
             if not api_key:
                 raise ProxyException(
                     message="Provider credentials incomplete",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -633,7 +922,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Bedrock credentials must be resolved before request dispatch.",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -682,7 +971,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Azure OpenAI requires AZURE_API_KEY, AZURE_AD_TOKEN, or Azure Entra client credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET).",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )
@@ -708,7 +997,7 @@ def _inject_provider_credentials(
             else:
                 raise ProxyException(
                     message="Azure AI requires AZURE_API_KEY, AZURE_AD_TOKEN, or Azure Entra client credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET).",
-                    type="auth_error",
+                    type="tracecat_llm_provider_auth_failed",
                     param=None,
                     code=401,
                 )

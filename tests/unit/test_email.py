@@ -1,0 +1,323 @@
+"""Tests for the provider-neutral SMTP transport."""
+
+from __future__ import annotations
+
+import asyncio
+import socket
+from email.message import EmailMessage
+from unittest.mock import AsyncMock
+
+import aiosmtplib
+import pytest
+from aiosmtplib.response import SMTPResponse
+
+from tracecat import config
+from tracecat.email import transport as transport_module
+from tracecat.email.transport import (
+    OPERATION_TIMEOUT_SECONDS,
+    SEND_DEADLINE_SECONDS,
+    EmailDeliveryError,
+    OutboundEmail,
+    SMTPTransport,
+)
+from tracecat.invitations.service import RESEND_COOLDOWN
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """Local copy so this module runs standalone with --noconftest."""
+    return "asyncio"
+
+
+def _set_smtp_config(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    host: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
+    from_addr: str | None = None,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SMTP_HOST", host)
+    monkeypatch.setattr(config, "TRACECAT__SMTP_PORT", 587)
+    monkeypatch.setattr(config, "TRACECAT__SMTP_USER", user)
+    monkeypatch.setattr(config, "TRACECAT__SMTP_PASSWORD", password)
+    monkeypatch.setattr(config, "TRACECAT__EMAIL_FROM", from_addr)
+
+
+@pytest.mark.parametrize(
+    ("host", "user", "password", "from_addr", "expected"),
+    [
+        (None, None, None, None, False),
+        ("smtp.example.com", None, None, None, False),
+        ("smtp.example.com", "relay", "secret", None, False),
+        (
+            "smtp.example.com",
+            "relay",
+            "secret",
+            "Tracecat <no-reply@example.com>",
+            True,
+        ),
+    ],
+)
+def test_from_config_requires_every_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    host: str | None,
+    user: str | None,
+    password: str | None,
+    from_addr: str | None,
+    expected: bool,
+) -> None:
+    _set_smtp_config(
+        monkeypatch, host=host, user=user, password=password, from_addr=from_addr
+    )
+
+    assert (SMTPTransport.from_config() is not None) is expected
+
+
+def test_from_config_returns_configured_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_smtp_config(
+        monkeypatch,
+        host="smtp.example.com",
+        user="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    transport = SMTPTransport.from_config()
+
+    assert transport is not None
+    assert transport.host == "smtp.example.com"
+    assert transport.port == 587
+    assert transport.username == "relay"
+    assert transport.password == "secret"
+    assert transport.from_addr == "Tracecat <no-reply@example.com>"
+
+
+def _outbound(to: str = "invitee@example.com") -> OutboundEmail:
+    return OutboundEmail(
+        to=(to,),
+        subject="Invitation",
+        html="<p>Join</p>",
+        text="Join",
+    )
+
+
+@pytest.mark.parametrize(
+    ("port", "use_tls", "start_tls"),
+    [(587, False, True), (465, True, False)],
+)
+@pytest.mark.anyio
+async def test_smtp_transport_send_builds_mime_and_selects_tls(
+    monkeypatch: pytest.MonkeyPatch, port: int, use_tls: bool, start_tls: bool
+) -> None:
+    send = AsyncMock(return_value=({}, "OK"))
+    monkeypatch.setattr(transport_module.aiosmtplib, "send", send)
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=port,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    await transport.send(_outbound())
+
+    send.assert_awaited_once()
+    await_args = send.await_args
+    assert await_args is not None
+    mime = await_args.args[0]
+    assert isinstance(mime, EmailMessage)
+    assert await_args.kwargs == {
+        "hostname": "smtp.example.com",
+        "port": port,
+        "username": "relay",
+        "password": "secret",
+        "use_tls": use_tls,
+        "start_tls": start_tls,
+        "timeout": OPERATION_TIMEOUT_SECONDS,
+    }
+    assert mime["From"] == "Tracecat <no-reply@example.com>"
+    assert mime["To"] == "invitee@example.com"
+    assert mime["Subject"] == "Invitation"
+
+
+@pytest.mark.anyio
+async def test_smtp_transport_send_hides_host_and_recipient_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        transport_module.aiosmtplib,
+        "send",
+        AsyncMock(side_effect=RuntimeError("550 invitee@example.com rejected")),
+    )
+    transport = SMTPTransport(
+        host="smtp.customer.internal",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    message = str(exc_info.value)
+    assert "RuntimeError" in message
+    assert "587" in message
+    assert "smtp.customer.internal" not in message
+    assert "invitee@example.com" not in message
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__
+
+
+@pytest.mark.anyio
+async def test_partial_recipient_refusal_is_reported_as_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A relay that accepts one recipient and refuses another returns the
+    # refusals instead of raising.
+    refused = {"refused@example.com": SMTPResponse(550, "No such user here")}
+    monkeypatch.setattr(
+        transport_module.aiosmtplib,
+        "send",
+        AsyncMock(return_value=(refused, "OK")),
+    )
+    transport = SMTPTransport(
+        host="smtp.customer.internal",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(
+            OutboundEmail(
+                to=("accepted@example.com", "refused@example.com"),
+                subject="Invitation",
+                html="<p>Join</p>",
+                text="Join",
+            )
+        )
+
+    message = str(exc_info.value)
+    assert "550" in message
+    assert "587" in message
+    assert "refused@example.com" not in message
+    assert "No such user here" not in message
+    assert "smtp.customer.internal" not in message
+
+
+@pytest.mark.anyio
+async def test_send_succeeds_when_no_recipient_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        transport_module.aiosmtplib, "send", AsyncMock(return_value=({}, "OK"))
+    )
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    await transport.send(_outbound())
+
+
+@pytest.mark.parametrize(
+    ("error", "retryable"),
+    [
+        (aiosmtplib.SMTPConnectError("refused"), True),
+        (aiosmtplib.SMTPConnectTimeoutError("connect timed out"), True),
+        (ConnectionRefusedError("refused"), False),
+        (socket.gaierror("name resolution failed"), False),
+        (aiosmtplib.SMTPServerDisconnected("connection lost"), False),
+        (aiosmtplib.SMTPReadTimeoutError("response timed out"), False),
+        (OSError("transport failed"), False),
+        (aiosmtplib.SMTPAuthenticationError(535, "bad credentials"), False),
+        (aiosmtplib.SMTPRecipientsRefused([]), False),
+        (RuntimeError("boom"), False),
+    ],
+)
+@pytest.mark.anyio
+async def test_smtp_transport_marks_pre_send_failures_retryable(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, retryable: bool
+) -> None:
+    monkeypatch.setattr(
+        transport_module.aiosmtplib, "send", AsyncMock(side_effect=error)
+    )
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    assert exc_info.value.retryable is retryable
+
+
+@pytest.mark.anyio
+async def test_invalid_sender_header_is_retryable_and_never_connects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    send = AsyncMock()
+    monkeypatch.setattr(transport_module.aiosmtplib, "send", send)
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>\r\nBcc: attacker@example.com",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    # Retryable releases the claim; a raw ValueError would strand the row.
+    assert exc_info.value.retryable is True
+    send.assert_not_awaited()
+
+
+def test_email_delivery_error_defaults_to_non_retryable() -> None:
+    assert EmailDeliveryError("failed").retryable is False
+
+
+def test_send_deadline_stays_under_the_resend_cooldown() -> None:
+    """A send must not outlive the cooldown, or a resend double-sends."""
+    assert OPERATION_TIMEOUT_SECONDS < SEND_DEADLINE_SECONDS
+    assert SEND_DEADLINE_SECONDS < RESEND_COOLDOWN.total_seconds()
+
+
+@pytest.mark.anyio
+async def test_smtp_transport_send_is_bounded_by_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A relay that stalls past the deadline fails instead of running unbounded."""
+    monkeypatch.setattr(transport_module, "SEND_DEADLINE_SECONDS", 0.01)
+
+    async def stall(*args: object, **kwargs: object) -> None:
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(transport_module.aiosmtplib, "send", stall)
+    transport = SMTPTransport(
+        host="smtp.example.com",
+        port=587,
+        username="relay",
+        password="secret",
+        from_addr="Tracecat <no-reply@example.com>",
+    )
+
+    with pytest.raises(EmailDeliveryError) as exc_info:
+        await transport.send(_outbound())
+
+    # A deadline can fire after the relay accepted DATA, so a retry may duplicate.
+    assert exc_info.value.retryable is False
+    assert "TimeoutError" in str(exc_info.value)

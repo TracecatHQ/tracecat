@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from tracecat_registry.sdk.agents import AgentsClient
     from tracecat_registry.sdk.cases import CasesClient
     from tracecat_registry.sdk.deduplicate import DeduplicateClient
+    from tracecat_registry.sdk.forms import FormsClient
     from tracecat_registry.sdk.tables import TablesClient
     from tracecat_registry.sdk.variables import VariablesClient
     from tracecat_registry.sdk.workflows import WorkflowsClient
@@ -71,6 +72,7 @@ class TracecatClient:
         self._agents: AgentsClient | None = None
         self._cases: CasesClient | None = None
         self._deduplicate: DeduplicateClient | None = None
+        self._forms: FormsClient | None = None
         self._tables: TablesClient | None = None
         self._variables: VariablesClient | None = None
         self._workflows: WorkflowsClient | None = None
@@ -116,6 +118,15 @@ class TracecatClient:
 
             self._agents = AgentsClient(self)
         return self._agents
+
+    @property
+    def forms(self) -> FormsClient:
+        """Forms API client."""
+        if self._forms is None:
+            from tracecat_registry.sdk.forms import FormsClient
+
+            self._forms = FormsClient(self)
+        return self._forms
 
     @property
     def tables(self) -> TablesClient:

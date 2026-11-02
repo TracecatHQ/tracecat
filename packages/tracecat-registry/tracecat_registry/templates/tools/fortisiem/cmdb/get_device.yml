@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: Get device
+  description: Get full information FortiSIEM has discovered about one device, or one section of it. Returns XML.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/763422/get-full-information-about-one-device
+  namespace: tools.fortisiem
+  name: get_device
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    ip:
+      type: str
+      description: Device IP.
+    loadDepend:
+      type: bool
+      description: Load dependent device information.
+      default: true
+    fields:
+      type: str | None
+      description: Section to return. Options are applications, interfaces, processors or storages.
+      default: null
+    organization:
+      type: str | None
+      description: Organization name. Required for Service Provider deployments, e.g. ACME.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/cmdbDeviceInfo/device
+        method: GET
+        params:
+          ip: ${{ inputs.ip }}
+          loadDepend: ${{ inputs.loadDepend }}
+          fields: ${{ inputs.fields }}
+          organization: ${{ inputs.organization }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

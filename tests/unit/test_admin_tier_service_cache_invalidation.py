@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from typing import cast
 from unittest.mock import AsyncMock, patch
 
@@ -10,11 +11,34 @@ from tracecat_ee.admin.tiers.service import AdminTierService
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
+from tracecat.authz.scopes import ADMIN_SCOPES, ORG_ADMIN_SCOPES
+from tracecat.contexts import ctx_role
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.schemas import OrganizationTierUpdate, TierCreate, TierUpdate
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture
+def test_admin_role(mock_org_id: uuid.UUID) -> Iterator[Role]:
+    """Provide admin context without provisioning an unrelated workspace.
+
+    These tests configure their own tiers, including an absent default tier.
+    Workspace provisioning would require those tiers before each test runs.
+    """
+    role = Role(
+        type="user",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        service_id="tracecat-runner",
+        scopes=ADMIN_SCOPES | ORG_ADMIN_SCOPES,
+    )
+    token = ctx_role.set(role)
+    try:
+        yield role
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.fixture(autouse=True)
@@ -37,24 +61,32 @@ def _tier(*, is_default: bool) -> Tier:
     )
 
 
-@pytest.mark.anyio
-async def test_create_default_tier_queues_newly_entitled_default_follower(
-    session: AsyncSession,
-    test_admin_role: Role,
-) -> None:
-    org_id = test_admin_role.organization_id
-    assert org_id is not None
-    org = Organization(
-        id=org_id,
+def _org(org_id: uuid.UUID | None = None) -> Organization:
+    return Organization(
+        id=org_id or uuid.uuid4(),
         name=f"Org {uuid.uuid4().hex[:8]}",
         slug=f"org-{uuid.uuid4().hex[:8]}",
         is_active=True,
     )
-    default_tier = _tier(is_default=True)
-    session.add_all([org, default_tier])
-    await session.commit()
 
-    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+@pytest.fixture
+async def seeded_org(
+    session: AsyncSession, test_admin_role: Role
+) -> tuple[uuid.UUID, AdminTierService]:
+    """The admin role's org plus an active default tier."""
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    session.add_all([_org(org_id), _tier(is_default=True)])
+    await session.commit()
+    return org_id, AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+
+@pytest.mark.anyio
+async def test_create_default_tier_queues_newly_entitled_default_follower(
+    seeded_org: tuple[uuid.UUID, AdminTierService],
+) -> None:
+    org_id, service = seeded_org
 
     with patch(
         "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_orgs",
@@ -75,22 +107,9 @@ async def test_create_default_tier_queues_newly_entitled_default_follower(
 
 @pytest.mark.anyio
 async def test_create_non_default_tier_does_not_queue_backfill(
-    session: AsyncSession,
-    test_admin_role: Role,
+    seeded_org: tuple[uuid.UUID, AdminTierService],
 ) -> None:
-    org_id = test_admin_role.organization_id
-    assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
-    default_tier = _tier(is_default=True)
-    session.add_all([org, default_tier])
-    await session.commit()
-
-    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+    _, service = seeded_org
 
     with patch(
         "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_orgs",
@@ -109,22 +128,9 @@ async def test_create_non_default_tier_does_not_queue_backfill(
 
 @pytest.mark.anyio
 async def test_update_org_tier_invalidates_effective_limits_cache(
-    session: AsyncSession,
-    test_admin_role: Role,
+    seeded_org: tuple[uuid.UUID, AdminTierService],
 ) -> None:
-    org_id = test_admin_role.organization_id
-    assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
-    default_tier = _tier(is_default=True)
-    session.add_all([org, default_tier])
-    await session.commit()
-
-    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+    org_id, service = seeded_org
 
     with patch(
         "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache",
@@ -141,24 +147,11 @@ async def test_update_org_tier_invalidates_effective_limits_cache(
 
 @pytest.mark.anyio
 async def test_update_org_tier_completes_in_single_tenant_mode(
-    session: AsyncSession,
-    test_admin_role: Role,
+    seeded_org: tuple[uuid.UUID, AdminTierService],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
-    org_id = test_admin_role.organization_id
-    assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
-    default_tier = _tier(is_default=True)
-    session.add_all([org, default_tier])
-    await session.commit()
-
-    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+    org_id, service = seeded_org
 
     with patch(
         "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache",
@@ -180,19 +173,9 @@ async def test_update_tier_invalidates_assigned_organization_caches(
 ) -> None:
     org_a_id = test_admin_role.organization_id
     assert org_a_id is not None
-    org_a = Organization(
-        id=org_a_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
+    org_a = _org(org_a_id)
     shared_tier = _tier(is_default=False)
-    org_b = Organization(
-        id=uuid.uuid4(),
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
+    org_b = _org()
     org_b_id = org_b.id
     session.add_all([org_a, shared_tier, org_b])
     await session.flush()
@@ -257,23 +240,20 @@ async def test_update_tier_explicit_null_clears_limit(
 
 
 @pytest.mark.anyio
-async def test_update_org_tier_grant_queues_case_duration_backfill(
-    session: AsyncSession,
-    test_admin_role: Role,
+@pytest.mark.parametrize(
+    ("update", "expect_backfill"),
+    [
+        (OrganizationTierUpdate(entitlement_overrides={"case_addons": True}), True),
+        (OrganizationTierUpdate(max_concurrent_actions=4), False),
+    ],
+    ids=["entitlement-grant", "no-effective-change"],
+)
+async def test_update_org_tier_queues_backfill_only_on_case_addons_grant(
+    seeded_org: tuple[uuid.UUID, AdminTierService],
+    update: OrganizationTierUpdate,
+    expect_backfill: bool,
 ) -> None:
-    org_id = test_admin_role.organization_id
-    assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
-    default_tier = _tier(is_default=True)
-    session.add_all([org, default_tier])
-    await session.commit()
-
-    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+    org_id, service = seeded_org
 
     with (
         patch(
@@ -285,12 +265,12 @@ async def test_update_org_tier_grant_queues_case_duration_backfill(
             new=AsyncMock(),
         ) as enqueue_mock,
     ):
-        await service.update_org_tier(
-            org_id,
-            OrganizationTierUpdate(entitlement_overrides={"case_addons": True}),
-        )
+        await service.update_org_tier(org_id, update)
 
-    enqueue_mock.assert_awaited_once_with(org_id)
+    if expect_backfill:
+        enqueue_mock.assert_awaited_once_with(org_id)
+    else:
+        enqueue_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -300,12 +280,7 @@ async def test_update_org_tier_tier_id_grant_queues_case_duration_backfill(
 ) -> None:
     org_id = test_admin_role.organization_id
     assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
+    org = _org(org_id)
     tier_without_case_addons = _tier(is_default=True)
     tier_with_case_addons = _tier(is_default=False)
     tier_with_case_addons.entitlements = {"case_addons": True}
@@ -343,61 +318,14 @@ async def test_update_org_tier_tier_id_grant_queues_case_duration_backfill(
 
 
 @pytest.mark.anyio
-async def test_update_org_tier_without_effective_change_skips_duration_backfill(
-    session: AsyncSession,
-    test_admin_role: Role,
-) -> None:
-    org_id = test_admin_role.organization_id
-    assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
-    default_tier = _tier(is_default=True)
-    session.add_all([org, default_tier])
-    await session.commit()
-
-    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
-
-    with (
-        patch(
-            "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache",
-            new=AsyncMock(),
-        ),
-        patch(
-            "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
-            new=AsyncMock(),
-        ) as enqueue_mock,
-    ):
-        await service.update_org_tier(
-            org_id,
-            OrganizationTierUpdate(max_concurrent_actions=4),
-        )
-
-    enqueue_mock.assert_not_awaited()
-
-
-@pytest.mark.anyio
 async def test_update_tier_grant_queues_only_newly_entitled_org(
     session: AsyncSession,
     test_admin_role: Role,
 ) -> None:
     org_a_id = test_admin_role.organization_id
     assert org_a_id is not None
-    org_a = Organization(
-        id=org_a_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
-    org_b = Organization(
-        id=uuid.uuid4(),
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
+    org_a = _org(org_a_id)
+    org_b = _org()
     default_tier = _tier(is_default=True)
     tier = _tier(is_default=False)
     session.add_all([org_a, org_b, default_tier, tier])
@@ -444,12 +372,7 @@ async def test_update_tier_activation_queues_newly_entitled_default_follower(
 ) -> None:
     org_id = test_admin_role.organization_id
     assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
+    org = _org(org_id)
     default_tier = _tier(is_default=True)
     default_tier.is_active = False
     default_tier.entitlements = {"case_addons": True}
@@ -484,13 +407,7 @@ async def test_case_addons_entitled_org_ids_resolves_overrides_and_tiers(
     assigned_org_id = uuid.uuid4()
     follower_org_id = uuid.uuid4()
     orgs = [
-        Organization(
-            id=org_id,
-            name=f"Org {uuid.uuid4().hex[:8]}",
-            slug=f"org-{uuid.uuid4().hex[:8]}",
-            is_active=True,
-        )
-        for org_id in (override_org_id, assigned_org_id, follower_org_id)
+        _org(org_id) for org_id in (override_org_id, assigned_org_id, follower_org_id)
     ]
     default_tier = _tier(is_default=True)
     default_tier.entitlements = {"case_addons": True}
@@ -534,12 +451,7 @@ async def test_case_addons_entitled_org_ids_requires_active_default(
 ) -> None:
     org_id = test_admin_role.organization_id
     assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
+    org = _org(org_id)
     inactive_default_tier = _tier(is_default=True)
     inactive_default_tier.is_active = False
     inactive_default_tier.entitlements = {"case_addons": True}
@@ -576,12 +488,7 @@ async def test_update_tier_clears_sole_default_without_backfill_error(
 ) -> None:
     org_id = test_admin_role.organization_id
     assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
+    org = _org(org_id)
     default_tier = _tier(is_default=True)
     default_tier.entitlements = {"case_addons": True}
     session.add_all([org, default_tier])
@@ -607,22 +514,9 @@ async def test_update_tier_clears_sole_default_without_backfill_error(
 
 @pytest.mark.anyio
 async def test_case_duration_backfill_failure_does_not_fail_org_tier_update(
-    session: AsyncSession,
-    test_admin_role: Role,
+    seeded_org: tuple[uuid.UUID, AdminTierService],
 ) -> None:
-    org_id = test_admin_role.organization_id
-    assert org_id is not None
-    org = Organization(
-        id=org_id,
-        name=f"Org {uuid.uuid4().hex[:8]}",
-        slug=f"org-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
-    default_tier = _tier(is_default=True)
-    session.add_all([org, default_tier])
-    await session.commit()
-
-    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+    org_id, service = seeded_org
 
     with (
         patch(

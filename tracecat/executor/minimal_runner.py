@@ -16,14 +16,19 @@ import asyncio
 import contextlib
 import errno
 import importlib
+import json
 import os
+import re
 import resource
+import signal
 import sys
+import threading
+import time
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 # Only import what we absolutely need - no tracecat imports!
 # Prefer orjson for performance (4-12x faster), fall back to stdlib json
@@ -64,6 +69,11 @@ except ImportError:
 
     JSON_OUTPUT_IS_BYTES = True
 
+
+# Wall-clock marks for the host's trace spans, written to result.json in the
+# sandbox. The jail shares the host's realtime clock, so the host can place
+# them on its own timeline.
+_phase_ns: dict[str, int] = {}
 
 # Static config (read once at module load, immutable)
 _API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
@@ -132,6 +142,66 @@ def _install_action_gateway_sdk_transport() -> None:
     tracecat_client_cls._tracecat_action_gateway_transport = True
 
 
+class ActionTimeoutError(TimeoutError):
+    """The action function call exceeded the action's timeout."""
+
+
+def _timeout_message(timeout_seconds: float) -> str:
+    return f"Action execution timed out after {timeout_seconds:g}s"
+
+
+async def _await_with_timeout(
+    coro: Coroutine[Any, Any, Any], timeout_seconds: float | None
+) -> Any:
+    scope = asyncio.timeout(timeout_seconds)
+    try:
+        async with scope:
+            result = await coro
+    except TimeoutError:
+        # Only our own deadline is an action timeout; a TimeoutError raised by
+        # the action itself propagates unchanged.
+        if timeout_seconds is not None and scope.expired():
+            raise ActionTimeoutError(_timeout_message(timeout_seconds)) from None
+        raise
+    # Blocking code in the coroutine can starve the event loop so the deadline
+    # never fires. A result that arrives late is still a timeout.
+    deadline = scope.when()
+    late = deadline is not None and asyncio.get_running_loop().time() >= deadline
+    if timeout_seconds is not None and late:
+        raise ActionTimeoutError(_timeout_message(timeout_seconds))
+    return result
+
+
+def _call_sync_with_timeout(
+    fn: Callable[..., Any], args: Mapping[str, Any], timeout_seconds: float | None
+) -> Any:
+    # SIGALRM interrupts blocking sync code but can only be armed from the main
+    # thread; elsewhere the host's subprocess deadline is the backstop.
+    if timeout_seconds is None or threading.current_thread() is not (
+        threading.main_thread()
+    ):
+        return fn(**args)
+
+    def _on_alarm(_signum: int, _frame: Any) -> None:
+        raise ActionTimeoutError(_timeout_message(timeout_seconds))
+
+    deadline = time.monotonic() + timeout_seconds
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        result = fn(**args)
+    finally:
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        finally:
+            signal.signal(signal.SIGALRM, previous)
+    # The action can catch the alarm's exception and carry on. A result that
+    # arrives late is still a timeout.
+    if time.monotonic() >= deadline:
+        raise ActionTimeoutError(_timeout_message(timeout_seconds))
+    return result
+
+
 class _CappedTextBuffer:
     """Lightweight text buffer with a hard character cap."""
 
@@ -187,6 +257,8 @@ def run_action_minimal(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
     secret_env: dict[str, str],
+    *,
+    timeout_seconds: float | None = None,
 ) -> Any:
     """Run an action with minimal imports (sync, for subprocess execution).
 
@@ -203,6 +275,8 @@ def run_action_minimal(
             - template_definition: Template definition for template actions
         args: Pre-evaluated arguments to pass to the action
         secret_env: Flat env-ready secret mapping
+        timeout_seconds: Deadline for the function call alone. Imports and
+            context setup do not count toward it.
 
     Returns:
         The action result
@@ -210,11 +284,12 @@ def run_action_minimal(
     Raises:
         ValueError: If action_impl is missing required fields
         NotImplementedError: If action type is not supported
+        ActionTimeoutError: If the function call exceeds timeout_seconds
     """
     impl_type = action_impl.get("type")
 
     if impl_type == "udf":
-        return _run_udf(action_impl, args, secret_env)
+        return _run_udf(action_impl, args, secret_env, timeout_seconds=timeout_seconds)
     elif impl_type == "template":
         raise NotImplementedError(
             "Template actions must be orchestrated at the service layer. "
@@ -351,6 +426,8 @@ def _run_udf(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
     secret_env: dict[str, str],
+    *,
+    timeout_seconds: float | None = None,
 ) -> Any:
     """Run a UDF action by importing and calling the function."""
     module_path = action_impl.get("module")
@@ -401,13 +478,15 @@ def _run_udf(
         # Import the module from tracecat_registry
         mod = importlib.import_module(module_path)
         fn = getattr(mod, function_name)
+        _phase_ns["imported"] = time.time_ns()
 
         # Check if async and run appropriately
         if asyncio.iscoroutinefunction(fn):
-            return asyncio.run(fn(**args))
+            return asyncio.run(_await_with_timeout(fn(**args), timeout_seconds))
         else:
-            return fn(**args)
+            return _call_sync_with_timeout(fn, args, timeout_seconds)
     finally:
+        _phase_ns["called"] = time.time_ns()
         # Reset secrets context
         if registry_secrets is not None and secrets_token is not None:
             registry_secrets.reset_context(secrets_token)
@@ -449,15 +528,23 @@ def _clear_env_secrets(secret_env: Mapping[str, Any]) -> None:
         os.environ.pop(key, None)
 
 
-def _collect_secret_mask_values(secret_env: Mapping[str, Any]) -> list[str]:
+def _collect_secret_mask_values(secret_env: Mapping[str, Any]) -> set[str]:
     """Normalize env values into mask candidates, failing closed on bad __str__."""
     mask_values: set[str] = set()
     for key, value in secret_env.items():
-        if (secret_str := _stringify_secret_env_value(key, value)) is None:
+        if not (secret_str := _stringify_secret_env_value(key, value)):
             continue
-        if len(secret_str) > 1:
-            mask_values.add(secret_str)
-    return sorted(mask_values, key=len, reverse=True)
+        # Exceptions and JSON escape secrets; mask the unquoted interiors too.
+        mask_values.update(
+            (
+                secret_str,
+                repr(secret_str)[1:-1],
+                ascii(secret_str)[1:-1],
+                json.dumps(secret_str)[1:-1],
+                json.dumps(secret_str, ensure_ascii=False)[1:-1],
+            )
+        )
+    return mask_values
 
 
 def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
@@ -467,17 +554,40 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         input_data: Dict containing:
             - resolved_context: ResolvedContext with action_impl and evaluated_args
             - secret_env: Flat env-ready secret mapping
+            - secret_mask_values: Observed secret-derived diagnostic representations
             - input: RunActionInput (for metadata only)
+            - timeout_seconds: Optional deadline for the action function call
 
     Returns:
         Dict with 'success', 'result', and optionally 'error'
     """
     action_impl: dict[str, Any] | None = None
+    secret_env: dict[str, str] = input_data.get("secret_env", {})
+    mask_values: set[str] = set()
+    mask_pattern: re.Pattern[str] | None = None
+
+    def redact(text: str) -> str:
+        nonlocal mask_pattern
+        if not text or not mask_values:
+            return text
+        if mask_pattern is None:
+            # Successful, quiet actions never need a diagnostic matcher.
+            # Include the replacement token to keep short-mask passes idempotent.
+            mask_pattern = re.compile(
+                "|".join(
+                    re.escape(value)
+                    for value in sorted(mask_values | {"***"}, key=len, reverse=True)
+                    if value
+                )
+            )
+        return mask_pattern.sub("***", text)
+
     try:
+        mask_values.update(input_data.get("secret_mask_values", ()))
+        mask_values.update(_collect_secret_mask_values(secret_env))
         # Extract what we need from resolved_context
         resolved_context = input_data.get("resolved_context", {})
         action_impl = resolved_context.get("action_impl")
-        secret_env = input_data.get("secret_env", {})
         evaluated_args = resolved_context.get("evaluated_args", {})
 
         if not action_impl:
@@ -495,24 +605,24 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             contextlib.redirect_stdout(action_stdout),
             contextlib.redirect_stderr(action_stderr),
         ):
-            result = run_action_minimal(action_impl, evaluated_args, secret_env)
+            result = run_action_minimal(
+                action_impl,
+                evaluated_args,
+                secret_env,
+                timeout_seconds=input_data.get("timeout_seconds"),
+            )
 
         # Mask secret values in captured output to prevent leaking credentials
-        mask_values = _collect_secret_mask_values(secret_env)
         if captured_stdout := action_stdout.getvalue().strip():
-            for mask in mask_values:
-                captured_stdout = captured_stdout.replace(mask, "***")
             _emit_suppressed_output_notice(
                 stream_name="stdout",
-                output=captured_stdout,
+                output=redact(captured_stdout),
                 truncated=action_stdout.truncated,
             )
         if captured_stderr := action_stderr.getvalue().strip():
-            for mask in mask_values:
-                captured_stderr = captured_stderr.replace(mask, "***")
             _emit_suppressed_output_notice(
                 stream_name="stderr",
-                output=captured_stderr,
+                output=redact(captured_stderr),
                 truncated=action_stderr.truncated,
             )
 
@@ -536,12 +646,24 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         tb = traceback.extract_tb(e.__traceback__)
         last_frame = tb[-1] if tb else None
 
+        try:
+            message = redact(str(e))
+        except Exception as masking_error:
+            # Lazy compilation can exhaust memory while handling an action
+            # failure. Preserve the runner's structured resource-limit response.
+            if (limit := resource_limit_from_error(masking_error)) is None:
+                raise
+            release_exception_chain(masking_error)
+            return _resource_limit_envelope(
+                limit, action_name=_action_display_name(action_impl)
+            )
+
         return {
             "success": False,
             "result": None,
             "error": {
                 "type": type(e).__name__,
-                "message": str(e),
+                "message": message,
                 "action_name": _action_display_name(action_impl),
                 "filename": last_frame.filename if last_frame else "<unknown>",
                 "function": last_frame.name if last_frame else "<unknown>",
@@ -732,6 +854,15 @@ if __name__ == "__main__":
     """Standalone entry point for subprocess execution."""
     import sys
 
+    _phase_ns["main"] = time.time_ns()
+
+    # httpx imports its optional CLI (httpx._main -> rich, click, pygments)
+    # whenever those packages are installed, ~40 ms per sandbox start. Actions
+    # never use the CLI; a None entry makes that import raise ImportError, so
+    # httpx falls back to its stub `main`. Set only here, never at module
+    # import, because the executor process also imports this module.
+    sys.modules.setdefault("httpx._main", cast(ModuleType, None))
+
     _enforce_nproc_limit()
 
     # Determine input source: file (sandbox) or stdin (direct)
@@ -767,8 +898,13 @@ if __name__ == "__main__":
             sys.stdout.buffer.flush()
         raise SystemExit(1) from None
 
+    _phase_ns["input_loaded"] = time.time_ns()
+
     # Run the action
     result = main_minimal(input_data)
+    if use_file_io:
+        # Only the sandbox host reads the marks; direct stdout stays unchanged.
+        result["phase_ns"] = _phase_ns
 
     # Output result
     result_bytes = serialize_result(result, input_data)

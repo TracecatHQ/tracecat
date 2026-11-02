@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -11,12 +12,14 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownOptionCreate,
     CaseDropdownOptionUpdate,
     CaseDropdownValueInput,
+    CaseDropdownValueSet,
 )
 from tracecat.cases.dropdowns.service import (
     CaseDropdownDefinitionsService,
     CaseDropdownValuesService,
 )
-from tracecat.db.models import Case
+from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity
+from tracecat.db.models import Case, CaseEvent
 from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatNotFoundError,
@@ -240,6 +243,87 @@ class TestCaseDropdownDefinitionsService:
 
         with pytest.raises(TracecatNotFoundError):
             await values_service.apply_values(foreign_case, [])
+
+    async def test_duplicate_definition_ref_is_validation_error(
+        self, dropdown_service: CaseDropdownDefinitionsService
+    ) -> None:
+        await _create_definition(dropdown_service)
+        with pytest.raises(TracecatValidationError):
+            await _create_definition(dropdown_service, name="Other")
+
+    async def test_set_value_rejects_option_from_other_definition(
+        self,
+        session: AsyncSession,
+        dropdown_service: CaseDropdownDefinitionsService,
+    ) -> None:
+        definition = await _create_definition(dropdown_service)
+        other = await _create_definition(dropdown_service, name="Other", ref="other")
+        option = await dropdown_service.add_option(
+            other.id, CaseDropdownOptionCreate(label="Yes", ref="yes")
+        )
+        case = Case(
+            workspace_id=dropdown_service.workspace_id,
+            summary="Dropdown case",
+            description="",
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        session.add(case)
+        await session.commit()
+        values_service = CaseDropdownValuesService(
+            session=session, role=dropdown_service.role
+        )
+
+        for definition_id in (definition.id, uuid.uuid4()):
+            with pytest.raises(TracecatNotFoundError):
+                await values_service.set_value(
+                    case.id, definition_id, CaseDropdownValueSet(option_id=option.id)
+                )
+
+    async def test_set_value_replaces_previous_option(
+        self,
+        session: AsyncSession,
+        dropdown_service: CaseDropdownDefinitionsService,
+    ) -> None:
+        definition = await _create_definition(dropdown_service)
+        first, second = [
+            await dropdown_service.add_option(
+                definition.id, CaseDropdownOptionCreate(label=label, ref=label.lower())
+            )
+            for label in ("First", "Second")
+        ]
+        case = Case(
+            workspace_id=dropdown_service.workspace_id,
+            summary="Dropdown case",
+            description="",
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        session.add(case)
+        await session.commit()
+        values_service = CaseDropdownValuesService(
+            session=session, role=dropdown_service.role
+        )
+
+        for option in (first, second):
+            await values_service.set_value(
+                case.id, definition.id, CaseDropdownValueSet(option_id=option.id)
+            )
+
+        [value] = await values_service.list_values_for_case(case.id)
+        assert value.option_id == second.id
+        events = await session.scalars(
+            select(CaseEvent)
+            .where(
+                CaseEvent.case_id == case.id,
+                CaseEvent.type == CaseEventType.DROPDOWN_VALUE_CHANGED,
+            )
+            .order_by(CaseEvent.created_at)
+        )
+        assert [event.data["old_option_label"] for event in events] == [
+            None,
+            "First",
+        ]
 
     async def test_list_definitions_order_is_deterministic(
         self, dropdown_service: CaseDropdownDefinitionsService

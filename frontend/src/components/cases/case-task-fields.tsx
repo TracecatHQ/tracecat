@@ -5,7 +5,6 @@ import type {
   CasePriority,
   CaseTaskStatus,
   UserRead,
-  WorkflowReadMinimal,
   WorkspaceMember,
 } from "@/client"
 import { PRIORITIES } from "@/components/cases/case-categories"
@@ -85,13 +84,6 @@ export const TASK_PILL_CLASS =
  */
 export const TASK_HOVER_REVEAL_CLASS =
   "pointer-events-none opacity-0 transition-opacity duration-150 group-hover/task:pointer-events-auto group-hover/task:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
-
-/**
- * Palette and submenu value for "no workflow". Never leaves the task UI: both
- * the row and the composer map it to `null` before it reaches the API, so it
- * does not have to match anyone else's sentinel.
- */
-export const NO_WORKFLOW = "__no_workflow__"
 
 /** Narrows a picker value to the generated `CaseTaskStatus` union. */
 export function isCaseTaskStatus(value: string): value is CaseTaskStatus {
@@ -195,27 +187,6 @@ export function buildAssigneeItems(
       searchValue: [member.first_name, member.last_name]
         .filter(Boolean)
         .join(" "),
-    })),
-  ]
-}
-
-/** Palette rows for the workflow picker: "No workflow" plus every workflow. */
-export function buildWorkflowItems(
-  workflows: readonly WorkflowReadMinimal[]
-): CaseTaskFieldPickerItem[] {
-  return [
-    {
-      value: NO_WORKFLOW,
-      label: "No workflow",
-      icon: CircleSlash,
-      iconClassName: "text-muted-foreground/70",
-    },
-    ...workflows.map((workflow) => ({
-      value: workflow.id,
-      label: workflow.alias
-        ? `${workflow.title} (${workflow.alias})`
-        : workflow.title,
-      searchValue: workflow.alias ?? undefined,
     })),
   ]
 }

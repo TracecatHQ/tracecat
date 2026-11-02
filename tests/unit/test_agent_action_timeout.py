@@ -5,16 +5,29 @@ No boundary rejects: out-of-bounds values normalize wherever they are seen.
 """
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
 from tracecat.agent import types as agent_types
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_FLOOR,
+)
 from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.workflow.actions.schemas import ActionControlFlow, ActionRead
 from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
+
+
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.managed_resources.guard.is_managed",
+        AsyncMock(return_value=False),
+    )
 
 
 def _task(
@@ -49,7 +62,7 @@ def test_regular_action_keeps_default_timeout() -> None:
     assert _task("core.http_request").retry_policy.timeout == DEFAULT_ACTION_TIMEOUT
 
 
-def test_agent_actions_default_to_thirty_minutes() -> None:
+def test_agent_actions_default_to_two_hours() -> None:
     for action in ("ai.agent", "ai.action", "ai.preset_agent"):
         assert _task(action).retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
 
@@ -75,8 +88,8 @@ def test_agent_action_parsed_without_timeout_gets_default() -> None:
 @pytest.mark.parametrize(
     ("timeout", "expected"),
     [
-        (1, AGENT_TIMEOUT_SECONDS_DEFAULT),
-        (900, AGENT_TIMEOUT_SECONDS_DEFAULT),
+        (1, AGENT_TIMEOUT_SECONDS_FLOOR),
+        (900, AGENT_TIMEOUT_SECONDS_FLOOR),
         (100_000, TRACECAT__AGENT_SANDBOX_TIMEOUT),
     ],
 )
@@ -112,7 +125,7 @@ def test_non_agent_actions_are_never_clamped() -> None:
 
 @pytest.mark.parametrize(
     ("timeout", "expected"),
-    [(1, AGENT_TIMEOUT_SECONDS_DEFAULT), (100_000, TRACECAT__AGENT_SANDBOX_TIMEOUT)],
+    [(1, AGENT_TIMEOUT_SECONDS_FLOOR), (100_000, TRACECAT__AGENT_SANDBOX_TIMEOUT)],
 )
 def test_external_workflow_definition_upload_normalizes(
     timeout: int, expected: int
@@ -123,64 +136,10 @@ def test_external_workflow_definition_upload_normalizes(
     assert defn.definition.actions[0].retry_policy.timeout == expected
 
 
-def test_mcp_workflow_yaml_payload_normalizes() -> None:
-    """MCP update_workflow inline definition_yaml boundary."""
-    from tracecat.mcp.schemas import WorkflowYamlPayload
-
-    payload = {"definition": _dsl_payload(_agent_action(100_000))}
-    parsed = WorkflowYamlPayload.model_validate(payload)
-    assert parsed.definition is not None
-    assert parsed.definition.actions[0].retry_policy.timeout == (
-        TRACECAT__AGENT_SANDBOX_TIMEOUT
-    )
-
-
-def test_workflow_edit_document_patch_normalizes() -> None:
-    """edit_workflow JSON-Patch boundary (validate_workflow_patch_payload)."""
-    from tracecat.mcp.schemas import WorkflowEditDocument
-
-    payload = {
-        "metadata": {"title": "workflow", "description": "d", "status": "offline"},
-        "definition": {
-            "entrypoint": {"ref": "agent"},
-            "actions": [_agent_action(100_000)],
-            "config": {},
-        },
-    }
-    assert (
-        WorkflowEditDocument.model_validate(payload)
-        .definition.actions[0]
-        .retry_policy.timeout
-        == TRACECAT__AGENT_SANDBOX_TIMEOUT
-    )
-
-
-def test_git_sync_parse_normalizes_out_of_bounds() -> None:
-    """Git-sync import clamps rather than reporting a diagnostic."""
-    import yaml as yaml_lib
-
-    from tracecat.workspace_sync.workflow import parse_workflow_spec
-
-    content = yaml_lib.safe_dump(
-        {
-            "type": "workflow",
-            "version": 1,
-            "id": "my_workflow",
-            "definition": _dsl_payload(_agent_action(100_000)),
-        }
-    )
-    spec, diagnostic = parse_workflow_spec("workflows/my_workflow.yml", content)
-    assert diagnostic is None
-    assert spec is not None
-    assert spec.definition.actions[0].retry_policy.timeout == (
-        TRACECAT__AGENT_SANDBOX_TIMEOUT
-    )
-
-
 def test_legacy_db_row_with_baked_generic_default_clamps_up() -> None:
     """Rows persisted before clamping stored the full ActionControlFlow dump,
     baking the generic 300s default in as an explicit author value. Rebuilding
-    statements from such rows must clamp the timeout up to the agent default."""
+    statements from such rows must clamp the timeout up to the agent floor."""
     from tracecat.db.models import Action
     from tracecat.dsl.common import build_action_statements_from_actions
 
@@ -201,7 +160,7 @@ def test_legacy_db_row_with_baked_generic_default_clamps_up() -> None:
     )
     stmts = build_action_statements_from_actions([legacy_row])
     assert len(stmts) == 1
-    assert stmts[0].retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
+    assert stmts[0].retry_policy.timeout == AGENT_TIMEOUT_SECONDS_FLOOR
 
 
 def test_action_write_api_clamps_out_of_bounds_agent_timeout() -> None:
@@ -216,7 +175,7 @@ def test_action_write_api_clamps_out_of_bounds_agent_timeout() -> None:
 
     # Out-of-bounds values normalize in place.
     low = clamp("ai.agent", {"retry_policy": {"timeout": 60}})
-    assert low is not None and low.retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
+    assert low is not None and low.retry_policy.timeout == AGENT_TIMEOUT_SECONDS_FLOOR
     high = clamp("ai.agent", {"retry_policy": {"timeout": 100_000}})
     assert high is not None
     assert high.retry_policy.timeout == TRACECAT__AGENT_SANDBOX_TIMEOUT
@@ -261,10 +220,45 @@ def test_action_read_uses_lowered_deployment_ceiling(
         status="offline",
         inputs="",
         control_flow=ActionControlFlow.model_validate(control_flow),
-        is_interactive=False,
     )
 
     assert action.control_flow.retry_policy.timeout == 900
+
+
+@pytest.mark.parametrize(
+    ("control_flow", "expected"),
+    [
+        ({}, AGENT_TIMEOUT_SECONDS_DEFAULT),
+        ({"retry_policy": {}}, AGENT_TIMEOUT_SECONDS_DEFAULT),
+        ({"retry_policy": {"timeout": 300}}, AGENT_TIMEOUT_SECONDS_FLOOR),
+        ({"retry_policy": {"timeout": 2000}}, 2000),
+    ],
+)
+def test_action_read_matches_executed_timeout(
+    control_flow: dict[str, object], expected: int
+) -> None:
+    """Sparse rows read back the default, matching ActionStatement."""
+    raw = ActionControlFlow.model_validate(control_flow)
+    action = ActionRead(
+        id=uuid.uuid4(),
+        type="ai.agent",
+        title="Agent",
+        description="",
+        status="offline",
+        inputs="",
+        control_flow=raw,
+    )
+    stmt = ActionStatement.model_validate(
+        {
+            "ref": "agent",
+            "action": "ai.agent",
+            "args": {},
+            **raw.model_dump(exclude_unset=True),
+        }
+    )
+
+    assert action.control_flow.retry_policy.timeout == expected
+    assert stmt.retry_policy.timeout == expected
 
 
 def test_action_read_does_not_clamp_non_agent_timeout(
@@ -282,7 +276,6 @@ def test_action_read_does_not_clamp_non_agent_timeout(
         control_flow=ActionControlFlow.model_validate(
             {"retry_policy": {"timeout": 1800}}
         ),
-        is_interactive=False,
     )
 
     assert action.control_flow.retry_policy.timeout == 1800
@@ -392,7 +385,7 @@ async def test_graph_add_node_persists_agent_default_timeout() -> None:
     assert cf["retry_policy"]["timeout"] == 2000
     # Explicit out-of-bounds values clamp at write (stored == executed).
     cf = await add("ai.agent", {"retry_policy": {"timeout": 60}})
-    assert cf["retry_policy"]["timeout"] == AGENT_TIMEOUT_SECONDS_DEFAULT
+    assert cf["retry_policy"]["timeout"] == AGENT_TIMEOUT_SECONDS_FLOOR
     cf = await add("ai.agent", {"retry_policy": {"timeout": 100_000}})
     assert cf["retry_policy"]["timeout"] == TRACECAT__AGENT_SANDBOX_TIMEOUT
     # Malformed values normalize to the default.

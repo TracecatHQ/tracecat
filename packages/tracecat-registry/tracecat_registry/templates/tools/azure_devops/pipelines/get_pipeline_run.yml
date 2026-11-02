@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Get pipeline run
+  description: "Get a pipeline run by ID."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/pipelines/runs/get?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: get_pipeline_run
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    pipeline_id:
+      type: int
+      description: "Pipeline ID."
+    run_id:
+      type: int
+      description: "Run ID."
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: get_pipeline_run
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/pipelines/${{ FN.url_encode(inputs.pipeline_id) }}/runs/${{ FN.url_encode(inputs.run_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params:
+          api-version: "7.2-preview.1"
+  returns: ${{ steps.get_pipeline_run.result }}

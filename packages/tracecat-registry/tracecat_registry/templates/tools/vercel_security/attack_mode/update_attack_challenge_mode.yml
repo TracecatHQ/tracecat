@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Update attack challenge mode
+  description: >-
+    Update the setting for determining if the project has Attack Challenge mode enabled. Calls POST /v1/security/attack-mode directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/update-attack-challenge-mode
+  namespace: tools.vercel_security
+  name: update_attack_challenge_mode
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    payload:
+      # Generic: Vercel validates this body as a oneOf where attackModeActiveUntil
+      # is either required or absent, so it cannot be sent as null.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Documented fields: projectId (required),
+        attackModeEnabled (required), attackModeActiveUntil (timestamp; omit to
+        leave the mode active until it is disabled).
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/attack-mode
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

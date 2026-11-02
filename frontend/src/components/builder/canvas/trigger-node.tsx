@@ -89,7 +89,9 @@ export default React.memo(function TriggerNode({
   const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
   const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
-  const { data: caseTrigger } = useCaseTrigger(workspaceId, workflowId)
+  const { data: caseTrigger } = useCaseTrigger(workspaceId, workflowId, {
+    enabled: caseAddonsEnabled,
+  })
   const isCaseTriggerEnabled = caseTrigger?.status === "online"
   const eventKey = useMemo(
     () => String(isCaseTriggerEnabled),

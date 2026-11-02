@@ -9,6 +9,7 @@ import {
   type CatalogHeaderSelectFilter,
 } from "@/components/catalog/catalog-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { AlertNotification } from "@/components/notifications"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,6 +39,7 @@ import {
   buildVariableGroups,
   normalizeVariableEnvironment,
 } from "@/components/workspaces/variables-utils"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useWorkspaceVariables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -65,6 +67,7 @@ export function WorkspaceVariablesInventory() {
   const workspaceId = useWorkspaceId()
   const { variables, variablesIsLoading, variablesError } =
     useWorkspaceVariables(workspaceId)
+  const { isManaged } = useManagedResources(workspaceId)
   const [searchQuery, setSearchQuery] = useState("")
   const [environmentFilter, setEnvironmentFilter] = useState("all")
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
@@ -247,6 +250,12 @@ export function WorkspaceVariablesInventory() {
                                                 variable.environment
                                               )}
                                             </Badge>
+                                            <ManagedResourceStatus
+                                              resourceType="variable"
+                                              id={variable.id}
+                                              name={variable.name}
+                                              showDetach
+                                            />
                                           </div>
                                           {variable.description ? (
                                             <p className="text-xs text-muted-foreground">
@@ -274,6 +283,10 @@ export function WorkspaceVariablesInventory() {
                                             <Button
                                               variant="outline"
                                               size="sm"
+                                              disabled={isManaged(
+                                                "variable",
+                                                variable.id
+                                              )}
                                               className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
                                               onClick={(event) => {
                                                 event.stopPropagation()

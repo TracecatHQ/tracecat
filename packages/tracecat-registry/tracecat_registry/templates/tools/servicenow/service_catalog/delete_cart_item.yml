@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Delete cart item
+  description: Remove an item from the caller's cart.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html#servicecat-DELETE-cart
+  namespace: tools.servicenow
+  name: delete_cart_item
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    cart_item_id:
+      type: str
+      description: sys_id of the cart item.
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_sc/servicecatalog/cart/${{ FN.url_encode(inputs.cart_item_id) }}
+      method: DELETE
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+  returns: ${{ steps.request.result }}

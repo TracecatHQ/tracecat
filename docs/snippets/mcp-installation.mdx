@@ -2,7 +2,9 @@ If you are **self-hosted**, replace `https://platform.tracecat.com` with your
 `PUBLIC_APP_URL` (e.g. `http://localhost` or `https://tracecat.example.com`).
 
 Authentication uses a built-in OIDC provider—your agent is redirected to sign in
-through the browser on first connection. For clients or environments that cannot
+through the browser on first connection. If you belong to more than one
+organization, Tracecat asks which organizations the connection can access, and
+one connection then works across all of them. For clients or environments that cannot
 complete a browser sign-in, authenticate with a
 [personal access token (PAT)](/automations/tracecat-mcp#personal-access-tokens) instead.
 

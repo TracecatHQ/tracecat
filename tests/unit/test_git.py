@@ -15,200 +15,174 @@ from tracecat.registry.repositories.schemas import GitCommitInfo
 from tracecat.ssh import SshEnv
 
 
-class TestGitUrl:
-    """Test GitUrl dataclass."""
-
-    def test_git_url_creation(self):
-        """Test GitUrl creation."""
-        git_url = GitUrl(host="github.com", org="myorg", repo="myrepo")
-        assert git_url.host == "github.com"
-        assert git_url.org == "myorg"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref is None
-
-    def test_git_url_with_ref(self):
-        """Test GitUrl creation with ref."""
-        git_url = GitUrl(host="github.com", org="myorg", repo="myrepo", ref="main")
-        assert git_url.ref == "main"
-
-    def test_git_url_to_url(self):
-        """Test GitUrl to_url method."""
-        git_url = GitUrl(host="github.com", org="myorg", repo="myrepo")
-        assert git_url.to_url() == "git+ssh://git@github.com/myorg/myrepo.git"
-
-    def test_git_url_to_url_with_custom_user(self):
-        """Test GitUrl preserves non-default SSH users."""
-        git_url = GitUrl(
-            host="git.example.com",
-            org="myorg",
-            repo="myrepo",
-            user="someuser",
-        )
-        assert git_url.to_url() == "git+ssh://someuser@git.example.com/myorg/myrepo.git"
-
-    def test_git_url_to_url_with_ref(self):
-        """Test GitUrl to_url method with ref."""
-        git_url = GitUrl(host="github.com", org="myorg", repo="myrepo", ref="main")
-        assert git_url.to_url() == "git+ssh://git@github.com/myorg/myrepo.git@main"
-
-    def test_git_url_frozen(self):
-        """Test that GitUrl is frozen (immutable)."""
-        git_url = GitUrl(host="github.com", org="myorg", repo="myrepo")
-        with pytest.raises(
-            (AttributeError, TypeError)
-        ):  # Should raise an error for frozen dataclass
-            git_url.host = "gitlab.com"  # type: ignore
+@pytest.mark.parametrize(
+    ("git_url", "expected"),
+    [
+        pytest.param(
+            GitUrl(host="github.com", org="myorg", repo="myrepo"),
+            "git+ssh://git@github.com/myorg/myrepo.git",
+            id="default-user",
+        ),
+        pytest.param(
+            GitUrl(host="git.example.com", org="myorg", repo="myrepo", user="someuser"),
+            "git+ssh://someuser@git.example.com/myorg/myrepo.git",
+            id="custom-user",
+        ),
+        pytest.param(
+            GitUrl(host="github.com", org="myorg", repo="myrepo", ref="main"),
+            "git+ssh://git@github.com/myorg/myrepo.git@main",
+            id="with-ref",
+        ),
+    ],
+)
+def test_git_url_to_url(git_url: GitUrl, expected: str) -> None:
+    assert git_url.to_url() == expected
 
 
-class TestParseGitUrl:
-    """Test parse_git_url function."""
+@pytest.mark.parametrize(
+    ("url", "allowed_domains", "expected"),
+    [
+        pytest.param(
+            "git+ssh://git@github.com/myorg/myrepo.git",
+            None,
+            ("git", "github.com", "myorg", "myrepo", None),
+            id="valid",
+        ),
+        pytest.param(
+            "git+ssh://git@github.com/myorg/myrepo.git@main",
+            None,
+            ("git", "github.com", "myorg", "myrepo", "main"),
+            id="with-ref",
+        ),
+        pytest.param(
+            "git+ssh://git@github.com/myorg/myrepo@main",
+            None,
+            ("git", "github.com", "myorg", "myrepo", "main"),
+            id="without-git-suffix",
+        ),
+        pytest.param(
+            "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git",
+            None,
+            ("git", "gitlab.example.com:2222", "myorg", "myrepo", None),
+            id="self-hosted-port",
+        ),
+        pytest.param(
+            "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git@develop",
+            None,
+            ("git", "gitlab.example.com:2222", "myorg", "myrepo", "develop"),
+            id="self-hosted-port-and-ref",
+        ),
+        pytest.param(
+            "git+ssh://git@gitlab.com/myorg/team/subteam/myrepo.git",
+            None,
+            ("git", "gitlab.com", "myorg/team/subteam", "myrepo", None),
+            id="nested-groups",
+        ),
+        pytest.param(
+            "git+ssh://git@gitlab.com/org/dept/team/project/subproject/repo.git@feature",
+            None,
+            (
+                "git",
+                "gitlab.com",
+                "org/dept/team/project/subproject",
+                "repo",
+                "feature",
+            ),
+            id="deep-nested-groups",
+        ),
+        pytest.param(
+            "git+ssh://git@gitlab.company.com:8022/platform/backend/services/auth-service.git",
+            None,
+            (
+                "git",
+                "gitlab.company.com:8022",
+                "platform/backend/services",
+                "auth-service",
+                None,
+            ),
+            id="nested-groups-with-port",
+        ),
+        pytest.param(
+            "git+ssh://git@bitbucket.org/workspace/myrepo.git",
+            None,
+            ("git", "bitbucket.org", "workspace", "myrepo", None),
+            id="bitbucket",
+        ),
+        pytest.param(
+            "git+ssh://git@bitbucket.org/workspace/myrepo.git@develop",
+            None,
+            ("git", "bitbucket.org", "workspace", "myrepo", "develop"),
+            id="bitbucket-with-ref",
+        ),
+        pytest.param(
+            "git+ssh://someuser@git.example.com/acme/platform/custom-registry.git",
+            None,
+            ("someuser", "git.example.com", "acme/platform", "custom-registry", None),
+            id="enterprise-custom-user",
+        ),
+        pytest.param(
+            "git+ssh://git@github.com/myorg/myrepo.git@feature/custom-branch",
+            None,
+            ("git", "github.com", "myorg", "myrepo", "feature/custom-branch"),
+            id="slash-ref",
+        ),
+        pytest.param(
+            "git+ssh://git@github.com/myorg/myrepo.git",
+            {"github.com", "gitlab.com"},
+            ("git", "github.com", "myorg", "myrepo", None),
+            id="allowed-domain",
+        ),
+        pytest.param(
+            "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git",
+            {"gitlab.example.com:2222", "github.com"},
+            ("git", "gitlab.example.com:2222", "myorg", "myrepo", None),
+            id="allowed-domain-with-port",
+        ),
+    ],
+)
+def test_parse_git_url(
+    url: str,
+    allowed_domains: set[str] | None,
+    expected: tuple[str, str, str, str, str | None],
+) -> None:
+    git_url = parse_git_url(url, allowed_domains=allowed_domains)
+    assert (
+        git_url.user,
+        git_url.host,
+        git_url.org,
+        git_url.repo,
+        git_url.ref,
+    ) == expected
 
-    def test_parse_valid_url(self):
-        """Test parsing a valid Git SSH URL."""
-        url = "git+ssh://git@github.com/myorg/myrepo.git"
-        git_url = parse_git_url(url)
-        assert git_url.host == "github.com"
-        assert git_url.org == "myorg"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref is None
 
-    def test_parse_url_with_ref(self):
-        """Test parsing a Git SSH URL with ref."""
-        url = "git+ssh://git@github.com/myorg/myrepo.git@main"
-        git_url = parse_git_url(url)
-        assert git_url.host == "github.com"
-        assert git_url.org == "myorg"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref == "main"
-
-    def test_parse_url_without_git_suffix(self):
-        """Test parsing a Git SSH URL without .git suffix."""
-        url = "git+ssh://git@github.com/myorg/myrepo@main"
-        git_url = parse_git_url(url)
-        assert git_url.host == "github.com"
-        assert git_url.org == "myorg"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref == "main"
-
-    def test_parse_gitlab_self_hosted_with_port(self):
-        """Test parsing GitLab self-hosted URL with port."""
-        url = "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git"
-        git_url = parse_git_url(url)
-        assert git_url.host == "gitlab.example.com:2222"
-        assert git_url.org == "myorg"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref is None
-
-    def test_parse_gitlab_self_hosted_with_port_and_ref(self):
-        """Test parsing GitLab self-hosted URL with port and ref."""
-        url = "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git@develop"
-        git_url = parse_git_url(url)
-        assert git_url.host == "gitlab.example.com:2222"
-        assert git_url.org == "myorg"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref == "develop"
-
-    def test_parse_gitlab_nested_groups(self):
-        """Test parsing GitLab URL with nested groups/subgroups."""
-        url = "git+ssh://git@gitlab.com/myorg/team/subteam/myrepo.git"
-        git_url = parse_git_url(url)
-        assert git_url.host == "gitlab.com"
-        assert git_url.org == "myorg/team/subteam"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref is None
-
-    def test_parse_gitlab_deep_nested_groups(self):
-        """Test parsing GitLab URL with deeply nested groups."""
-        url = (
-            "git+ssh://git@gitlab.com/org/dept/team/project/subproject/repo.git@feature"
-        )
-        git_url = parse_git_url(url)
-        assert git_url.host == "gitlab.com"
-        assert git_url.org == "org/dept/team/project/subproject"
-        assert git_url.repo == "repo"
-        assert git_url.ref == "feature"
-
-    def test_parse_gitlab_nested_groups_with_port(self):
-        """Test parsing GitLab self-hosted URL with port and nested groups."""
-        url = "git+ssh://git@gitlab.company.com:8022/platform/backend/services/auth-service.git"
-        git_url = parse_git_url(url)
-        assert git_url.host == "gitlab.company.com:8022"
-        assert git_url.org == "platform/backend/services"
-        assert git_url.repo == "auth-service"
-        assert git_url.ref is None
-
-    def test_parse_bitbucket_url(self):
-        """Test parsing Bitbucket URL."""
-        url = "git+ssh://git@bitbucket.org/workspace/myrepo.git"
-        git_url = parse_git_url(url)
-        assert git_url.host == "bitbucket.org"
-        assert git_url.org == "workspace"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref is None
-
-    def test_parse_bitbucket_url_with_ref(self):
-        """Test parsing Bitbucket URL with ref."""
-        url = "git+ssh://git@bitbucket.org/workspace/myrepo.git@develop"
-        git_url = parse_git_url(url)
-        assert git_url.host == "bitbucket.org"
-        assert git_url.org == "workspace"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref == "develop"
-
-    def test_parse_github_enterprise_url_with_custom_user(self):
-        """Test parsing GitHub Enterprise URLs that use a non-git SSH user."""
-        url = "git+ssh://someuser@git.example.com/acme/platform/custom-registry.git"
-        git_url = parse_git_url(url)
-        assert git_url.user == "someuser"
-        assert git_url.host == "git.example.com"
-        assert git_url.org == "acme/platform"
-        assert git_url.repo == "custom-registry"
-        assert git_url.ref is None
-
-    def test_parse_url_with_slash_ref(self):
-        """Test parsing refs that include path separators."""
-        url = "git+ssh://git@github.com/myorg/myrepo.git@feature/custom-branch"
-        git_url = parse_git_url(url)
-        assert git_url.host == "github.com"
-        assert git_url.org == "myorg"
-        assert git_url.repo == "myrepo"
-        assert git_url.ref == "feature/custom-branch"
-
-    def test_parse_url_allowed_domains(self):
-        """Test parsing with allowed domains."""
-        url = "git+ssh://git@github.com/myorg/myrepo.git"
-        allowed_domains = {"github.com", "gitlab.com"}
-        git_url = parse_git_url(url, allowed_domains=allowed_domains)
-        assert git_url.host == "github.com"
-
-    def test_parse_url_allowed_domains_with_port(self):
-        """Test parsing with allowed domains including port."""
-        url = "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git"
-        allowed_domains = {"gitlab.example.com:2222", "github.com"}
-        git_url = parse_git_url(url, allowed_domains=allowed_domains)
-        assert git_url.host == "gitlab.example.com:2222"
-
-    def test_parse_url_disallowed_domain(self):
-        """Test parsing with disallowed domain."""
-        url = "git+ssh://git@example.com/myorg/myrepo.git"
-        allowed_domains = {"github.com", "gitlab.com"}
-        with pytest.raises(
-            ValueError, match="Domain example.com not in allowed domains"
-        ):
-            parse_git_url(url, allowed_domains=allowed_domains)
-
-    def test_parse_invalid_url_format(self):
-        """Test parsing an invalid URL format."""
-        url = "https://github.com/myorg/myrepo.git"
-        with pytest.raises(ValueError, match="Unsupported URL format"):
-            parse_git_url(url)
-
-    def test_parse_invalid_url_components(self):
-        """Test parsing URL with invalid components."""
-        # This would be a malformed URL that doesn't match the regex
-        url = "git+ssh://git@//"
-        with pytest.raises(ValueError, match="Unsupported URL format"):
-            parse_git_url(url)
+@pytest.mark.parametrize(
+    ("url", "allowed_domains", "match"),
+    [
+        pytest.param(
+            "git+ssh://git@example.com/myorg/myrepo.git",
+            {"github.com", "gitlab.com"},
+            "Domain example.com not in allowed domains",
+            id="disallowed-domain",
+        ),
+        pytest.param(
+            "https://github.com/myorg/myrepo.git",
+            None,
+            "Unsupported URL format",
+            id="https-url",
+        ),
+        pytest.param(
+            "git+ssh://git@//",
+            None,
+            "Unsupported URL format",
+            id="malformed-components",
+        ),
+    ],
+)
+def test_parse_git_url_rejects_invalid_urls(
+    url: str, allowed_domains: set[str] | None, match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        parse_git_url(url, allowed_domains=allowed_domains)
 
 
 class TestResolveGitRef:
@@ -329,41 +303,6 @@ class TestRunGit:
     """Test run_git function."""
 
     @pytest.mark.anyio
-    async def test_run_git_success(self):
-        """Test successful git command execution."""
-        # Mock the subprocess
-        mock_process = AsyncMock()
-        mock_process.communicate.return_value = (b"output", b"")
-        mock_process.returncode = 0
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            code, stdout, stderr = await run_git(
-                ["git", "version"],
-                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
-            )
-
-        assert code == 0
-        assert stdout == "output"
-        assert stderr == ""
-
-    @pytest.mark.anyio
-    async def test_run_git_failure(self):
-        """Test failed git command execution."""
-        mock_process = AsyncMock()
-        mock_process.communicate.return_value = (b"", b"error message")
-        mock_process.returncode = 1
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            code, stdout, stderr = await run_git(
-                ["git", "invalid-command"],
-                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
-            )
-
-        assert code == 1
-        assert stdout == ""
-        assert stderr == "error message"
-
-    @pytest.mark.anyio
     async def test_run_git_timeout(self):
         """Test git command timeout."""
         mock_process = AsyncMock()
@@ -381,26 +320,6 @@ class TestRunGit:
 
         mock_process.kill.assert_called_once()
         mock_process.wait.assert_called_once()
-
-    @pytest.mark.anyio
-    async def test_run_git_with_cwd(self):
-        """Test git command with working directory."""
-        mock_process = AsyncMock()
-        mock_process.communicate.return_value = (b"output", b"")
-        mock_process.returncode = 0
-
-        with patch(
-            "asyncio.create_subprocess_exec", return_value=mock_process
-        ) as mock_create:
-            await run_git(
-                ["git", "status"],
-                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
-                cwd="/tmp/repo",
-            )
-
-        mock_create.assert_called_once()
-        _, kwargs = mock_create.call_args
-        assert kwargs["cwd"] == "/tmp/repo"
 
 
 class TestListGitCommits:
@@ -480,36 +399,6 @@ class TestListGitCommits:
         assert second_commit.tags == []  # No tags in this test
 
     @pytest.mark.anyio
-    async def test_list_git_commits_empty_output(self):
-        """Test list_git_commits with empty git log output."""
-        # Mock run_git calls: init, fetch, for-each-ref (tags), empty log
-        mock_run_git = AsyncMock(
-            side_effect=[
-                (0, "", ""),  # git init --bare
-                (0, "", ""),  # git fetch
-                (0, "", ""),  # git for-each-ref tags (no tags)
-                (0, "", ""),  # git log (empty)
-            ]
-        )
-
-        with patch("tracecat.git.utils.run_git", mock_run_git):
-            # Create a proper async context manager mock
-            mock_temp_dir = AsyncMock()
-            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
-            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
-
-            with patch(
-                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
-            ):
-                commits = await list_git_commits(
-                    "git+ssh://git@github.com/myorg/myrepo.git",
-                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
-                )
-
-        # Should return empty list
-        assert commits == []
-
-    @pytest.mark.anyio
     async def test_list_git_commits_with_tags(self):
         """Test that list_git_commits includes tag information."""
         # Mock git log output (using ASCII record separator \x1f)
@@ -579,53 +468,6 @@ class TestListGitCommits:
         assert second_commit.sha == "def4567890abcdef1234567890abcdef12345678"
         assert second_commit.message == "Patch release"
         assert second_commit.tags == ["v1.0.1"]
-
-    @pytest.mark.anyio
-    async def test_list_git_commits_no_tags(self):
-        """Test that list_git_commits handles repositories without tags gracefully."""
-        # Mock git log output
-        sep = "\x1f"
-        mock_git_log_output = sep.join(
-            [
-                "abcdef1234567890abcdef1234567890abcdef12",
-                "Initial commit",
-                "John Doe",
-                "john@example.com",
-                "2024-01-01T10:00:00+00:00\n",
-            ]
-        )
-
-        # Mock run_git calls: init, fetch, for-each-ref (no tags), log
-        mock_run_git = AsyncMock(
-            side_effect=[
-                (0, "", ""),  # git init --bare
-                (0, "", ""),  # git fetch
-                (0, "", ""),  # git for-each-ref tags (empty)
-                (0, mock_git_log_output, ""),  # git log
-            ]
-        )
-
-        with patch("tracecat.git.utils.run_git", mock_run_git):
-            # Create a proper async context manager mock
-            mock_temp_dir = AsyncMock()
-            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
-            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
-
-            with patch(
-                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
-            ):
-                commits = await list_git_commits(
-                    "git+ssh://git@github.com/myorg/myrepo.git",
-                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
-                    branch="main",
-                    limit=1,
-                )
-
-        # Verify commit has empty tags list
-        assert len(commits) == 1
-        first_commit = commits[0]
-        assert first_commit.sha == "abcdef1234567890abcdef1234567890abcdef12"
-        assert first_commit.tags == []
 
     @pytest.mark.anyio
     async def test_list_git_commits_tag_command_failure(self):

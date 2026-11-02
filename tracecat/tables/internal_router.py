@@ -11,20 +11,24 @@ from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from pydantic_core import to_jsonable_python
-from sqlalchemy.exc import DBAPIError, ProgrammingError
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Table, TableColumn
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.query.errors import TracecatQueryOverflowError
+from tracecat.search.router import router as semantic_search_router
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
+    AggregateResponse,
+    TableAggregateRequest,
     TableColumnCreate,
     TableColumnRead,
     TableColumnUpdate,
@@ -39,6 +43,8 @@ from tracecat.tables.service import TablesService, validate_identifier
 router = APIRouter(
     prefix="/internal/tables", tags=["internal-tables"], include_in_schema=False
 )
+
+router.include_router(semantic_search_router)
 
 
 class TableCreateRequest(BaseModel):
@@ -392,7 +398,44 @@ async def lookup_rows(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Table lookup failed: {exc}",
+            detail="Table lookup failed",
+        ) from exc
+
+
+@router.post(
+    "/{table_name}/aggregate",
+    response_model=AggregateResponse,
+    description=(
+        "Filter and aggregate rows in one PostgreSQL query. sum over INTEGER or "
+        "NUMERIC, every mean and median, and min/max over NUMERIC are widened to "
+        "float8 JSON numbers. TEXT and SELECT group keys use their first 256 "
+        "characters, so longer values with the same prefix collapse into one group. "
+        "NUMERIC group keys are returned as lossless decimal strings."
+    ),
+)
+@require_scope("table:read")
+async def aggregate_rows(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    params: TableAggregateRequest,
+) -> AggregateResponse:
+    """Filter, group, and aggregate rows in a workspace table."""
+    service = TablesService(session, role=role)
+    try:
+        return await service.aggregate_rows(table_name, params)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except TracecatQueryOverflowError:
+        raise
+    except (ValueError, TracecatValidationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
         ) from exc
 
 
@@ -533,12 +576,6 @@ async def insert_rows_batch(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        ) from exc
-    except DBAPIError as exc:
-        detail = str(exc.__cause__ or exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database error: {detail}",
         ) from exc
 
 

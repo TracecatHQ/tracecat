@@ -34,3 +34,14 @@ export function invalidateCaseActivityQueries(
     queryKey: ["case-durations", caseId, workspaceId],
   })
 }
+
+/** Refetch every view that shows parent/sub-case relationships. */
+export async function invalidateCaseHierarchy(
+  queryClient: QueryClient
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["cases"] }),
+    queryClient.invalidateQueries({ queryKey: ["case"] }),
+    queryClient.invalidateQueries({ queryKey: ["case-events"] }),
+  ])
+}

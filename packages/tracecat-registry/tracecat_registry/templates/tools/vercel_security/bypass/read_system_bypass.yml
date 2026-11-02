@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Read system bypass
+  description: >-
+    Retrieve the system bypass rules configured for the specified project. Calls GET /v1/security/firewall/bypass directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/read-system-bypass
+  namespace: tools.vercel_security
+  name: read_system_bypass
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    projectId:
+      type: str
+      description: Project ID.
+    limit:
+      type: float | None
+      description: Maximum number of bypass rules to return.
+      default: null
+    sourceIp:
+      type: str | None
+      description: Filter by source IP.
+      default: null
+    domain:
+      type: str | None
+      description: Filter by domain.
+      default: null
+    projectScope:
+      type: bool | None
+      description: Filter by project scoped rules.
+      default: null
+    offset:
+      type: str | None
+      description: Used for pagination. Retrieves results after the provided id.
+      default: null
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/firewall/bypass
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+        params:
+          projectId: ${{ inputs.projectId }}
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+          limit: ${{ inputs.limit }}
+          sourceIp: ${{ inputs.sourceIp }}
+          domain: ${{ inputs.domain }}
+          projectScope: ${{ inputs.projectScope }}
+          offset: ${{ inputs.offset }}
+  returns: ${{ steps.request.result }}

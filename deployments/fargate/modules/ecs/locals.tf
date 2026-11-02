@@ -48,32 +48,31 @@ locals {
   }
 
   tracecat_common_env = {
-    LOG_LEVEL                                        = var.log_level
-    TEMPORAL__CLUSTER_NAMESPACE                      = local.temporal_namespace
-    TEMPORAL__CLUSTER_URL                            = local.temporal_cluster_url
-    TRACECAT__APP_ENV                                = var.tracecat_app_env
-    TRACECAT__LOG_FORMAT                             = var.log_format
-    TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID             = data.aws_caller_identity.current.account_id
-    TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN          = aws_iam_role.executor_task.arn
-    TRACECAT__FEATURE_FLAGS                          = var.feature_flags # Requires Tracecat Enterprise license to modify.
-    TRACECAT__EE_MULTI_TENANT                        = var.ee_multi_tenant
-    TRACECAT__CONTEXT_COMPRESSION_ENABLED            = var.context_compression_enabled
-    TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB       = var.context_compression_threshold_kb
-    TRACECAT__RESULT_EXTERNALIZATION_ENABLED         = var.result_externalization_enabled
-    TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
-    TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
-    TRACECAT__DB_SSLMODE                             = "require"
+    TRACECAT__BACKGROUND_QUEUE                        = var.background_queue
+    LOG_LEVEL                                         = var.log_level
+    TEMPORAL__CLUSTER_NAMESPACE                       = local.temporal_namespace
+    TEMPORAL__CLUSTER_URL                             = local.temporal_cluster_url
+    TRACECAT__APP_ENV                                 = var.tracecat_app_env
+    TRACECAT__LOG_FORMAT                              = var.log_format
+    TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID              = data.aws_caller_identity.current.account_id
+    TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN           = aws_iam_role.executor_task.arn
+    TRACECAT__FEATURE_FLAGS                           = var.feature_flags # Requires Tracecat Enterprise license to modify.
+    TRACECAT__EE_MULTI_TENANT                         = var.ee_multi_tenant
+    TRACECAT__CONTEXT_COMPRESSION_ENABLED             = var.context_compression_enabled
+    TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB        = var.context_compression_threshold_kb
+    TRACECAT__RESULT_EXTERNALIZATION_ENABLED          = var.result_externalization_enabled
+    TRACECAT__COLLECTION_MANIFESTS_ENABLED            = var.collection_manifests_enabled
+    TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES  = var.result_externalization_threshold_bytes
+    TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = var.unsafe_disable_secret_error_withholding
+    TRACECAT__DB_SSLMODE                              = "require"
     # Agent timeout ceiling: every process that parses workflow DSL or
     # enforces the clamp must agree, so it rides the common env.
     TRACECAT__AGENT_SANDBOX_TIMEOUT = var.agent_sandbox_timeout
+    # Shared outbound policy for MCP and custom LLM requests.
+    TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS = var.outbound_allowed_private_cidrs
     # Audit client-IP attribution: both api and mcp resolve X-Forwarded-For,
     # so it rides the common env. Empty uses the built-in private-range default.
     TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = var.audit_trusted_proxy_cidrs
-  }
-
-  tracecat_platform_otel_env = {
-    TRACECAT__PLATFORM_OTEL_ENABLED = var.platform_otel_enabled
-    OTEL_EXPORTER_OTLP_ENDPOINT     = var.otel_exporter_otlp_endpoint
   }
 
   tracecat_temporal_payload_encryption_env = {
@@ -105,7 +104,6 @@ locals {
   api_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_platform_otel_env,
       local.tracecat_litellm_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
@@ -120,14 +118,21 @@ locals {
         TRACECAT__AUTH_ALLOWED_DOMAINS             = var.auth_allowed_domains
         TRACECAT__AUTH_MIN_PASSWORD_LENGTH         = var.auth_min_password_length
         TRACECAT__AUTH_SUPERADMIN_EMAIL            = var.auth_superadmin_email
+        TRACECAT__SMTP_HOST                        = var.smtp_host
+        TRACECAT__SMTP_PORT                        = tostring(var.smtp_port)
+        TRACECAT__SMTP_USER                        = var.smtp_user
+        TRACECAT__EMAIL_FROM                       = var.email_from
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         TRACECAT__SERVICE_NAME                     = "api"
-        SENTRY_DSN                                 = var.sentry_dsn
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
         SAML_ALLOW_UNSOLICITED                     = var.saml_allow_unsolicited
         TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = var.workflow_artifact_retention_days
+
+        # Break-glass recovery for a platform admin IP allowlist lockout.
+        TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = var.platform_admin_ip_allowlist_bypass
+        TRACECAT__PLATFORM_ADMIN_MFA_BYPASS          = var.platform_admin_mfa_bypass
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -136,7 +141,6 @@ locals {
   worker_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -149,7 +153,6 @@ locals {
         TRACECAT__PUBLIC_APP_URL          = local.public_app_url
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
         TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
-        SENTRY_DSN                        = var.sentry_dsn
         # Worker concurrency tuning (see tracecat/dsl/worker.py)
         TEMPORAL__THREADPOOL_MAX_WORKERS        = var.worker_threadpool_max_workers
         TEMPORAL__MAX_CONCURRENT_ACTIVITIES     = var.worker_max_concurrent_activities
@@ -158,6 +161,14 @@ locals {
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
+
+  background_worker_env = concat(
+    [for item in local.worker_env : item if item.name != "TRACECAT__SERVICE_NAME"],
+    [
+      { name = "TRACECAT__SERVICE_NAME", value = "background-worker" },
+      { name = "TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES", value = tostring(var.background_worker_max_concurrent_activities) }
+    ]
+  )
 
   agent_worker_env = [
     for k, v in merge(
@@ -177,7 +188,6 @@ locals {
         TRACECAT__EXECUTOR_QUEUE                  = var.executor_queue
         TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES = var.agent_worker_max_concurrent_activities
         TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
-        SENTRY_DSN                                = var.sentry_dsn
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -186,7 +196,6 @@ locals {
   executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -195,7 +204,6 @@ locals {
         TRACECAT__API_URL                             = local.internal_api_url
         TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
         TRACECAT__SERVICE_NAME                        = "executor"
-        SENTRY_DSN                                    = var.sentry_dsn
         TRACECAT__EXECUTOR_BACKEND                    = "direct"
         TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
@@ -205,7 +213,6 @@ locals {
         TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS    = var.executor_threadpool_max_workers
         TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY  = var.executor_for_each_max_concurrency
         TRACECAT__UNSAFE_DISABLE_SM_MASKING          = "false"
-        TRACECAT__DISABLE_NSJAIL                     = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH                = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR                  = "/var/lib/tracecat/sandbox-cache"
@@ -246,7 +253,6 @@ locals {
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
         TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
-        TRACECAT__DISABLE_NSJAIL                           = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH                      = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR                        = "/var/lib/tracecat/sandbox-cache"
@@ -254,6 +260,12 @@ locals {
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
+
+  # LiteLLM shutdown mirrors the k8s chart (grace = preStop + drain + 30 s), but
+  # Fargate caps a container's stopTimeout at 120 s and has no preStop hook, so
+  # the drain is 90 s here instead of k8s's 30 min.
+  litellm_stop_timeout_seconds  = 120
+  litellm_drain_timeout_seconds = local.litellm_stop_timeout_seconds - 30
 
   litellm_env = [
     for k, v in merge(
@@ -265,6 +277,8 @@ locals {
         TRACECAT__SERVICE_NAME        = "litellm"
         TRACECAT__LITELLM_PORT        = "4000"
         TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
+        # Drain budget D: gateway drain logs flag requests still open after it.
+        GRACEFUL_SHUTDOWN_TIMEOUT = local.litellm_drain_timeout_seconds
       }
     ) :
     { name = k, value = tostring(v) } if v != null

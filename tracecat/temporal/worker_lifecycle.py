@@ -2,14 +2,28 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from collections.abc import Awaitable, Callable, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 from typing import Protocol
 
 from tracecat.logger import logger
 
+# Keep this path off volumes: Kubernetes container replacement must clear it.
+WORKER_READY_FILE = Path("/var/run/tracecat/worker-ready")
+
 WORKER_SHUTDOWN_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 WorkerMain = Callable[[asyncio.Event], Awaitable[None]]
+
+
+@asynccontextmanager
+async def worker_readiness(path: Path = WORKER_READY_FILE) -> AsyncIterator[None]:
+    """Mark an initialized worker ready until its shutdown begins."""
+    path.touch()
+    try:
+        yield
+    finally:
+        path.unlink(missing_ok=True)
 
 
 class SignalHandlingLoop(Protocol):

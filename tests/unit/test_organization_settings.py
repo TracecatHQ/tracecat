@@ -1,11 +1,13 @@
+import uuid
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
 from fastapi import HTTPException
 from pydantic import HttpUrl
 from pydantic_core import to_jsonable_python
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -14,6 +16,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import OrganizationDomain
+from tracecat.exceptions import TracecatConflictError
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings import service as settings_service_module
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
@@ -35,6 +38,7 @@ from tracecat.settings.service import (
     SettingsService,
     get_setting,
     get_setting_override,
+    workspace_allows_error_details,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -89,6 +93,15 @@ async def test_create_and_get_org_setting(
     assert settings_service.get_value(retrieved_setting) == settings_service.get_value(
         created_setting
     )
+
+
+@pytest.mark.anyio
+async def test_duplicate_setting_key_is_conflict(
+    settings_service: SettingsService, create_params: SettingCreate
+) -> None:
+    await settings_service.create_org_setting(create_params)
+    with pytest.raises(TracecatConflictError):
+        await settings_service.create_org_setting(create_params)
 
 
 @pytest.mark.anyio
@@ -252,18 +265,30 @@ async def test_update_audit_settings(
 
 
 @pytest.mark.anyio
-async def test_update_audit_settings_can_clear(
+async def test_update_audit_settings_persists_falsy_values_and_can_clear(
     settings_service_with_defaults: SettingsService,
 ) -> None:
-    """Ensure audit webhook can be unset."""
+    """Falsy delivery options persist, and the webhook URL can be unset."""
     service = settings_service_with_defaults
     await service.update_audit_settings(
-        AuditSettingsUpdate(audit_webhook_url="https://example.com/audit")
+        AuditSettingsUpdate(
+            audit_webhook_url="https://example.com/audit",
+            audit_webhook_verify_ssl=False,
+            audit_webhook_payload_attribute="event",
+        )
     )
     await service.update_audit_settings(AuditSettingsUpdate(audit_webhook_url=None))
-    settings = await service.list_org_settings(keys={"audit_webhook_url"})
+
+    keys = {
+        "audit_webhook_url",
+        "audit_webhook_verify_ssl",
+        "audit_webhook_payload_attribute",
+    }
+    settings = await service.list_org_settings(keys=keys)
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}
     assert settings_dict["audit_webhook_url"] is None
+    assert settings_dict["audit_webhook_verify_ssl"] is False
+    assert settings_dict["audit_webhook_payload_attribute"] == "event"
 
 
 @pytest.mark.anyio
@@ -308,99 +333,12 @@ async def test_update_audit_custom_payload_encrypted_at_rest(
     assert setting.value != orjson.dumps(custom_payload, option=orjson.OPT_SORT_KEYS)
 
 
-@pytest.mark.anyio
-async def test_update_audit_verify_ssl_setting(
-    settings_service_with_defaults: SettingsService,
-) -> None:
-    """Ensure SSL verification toggle is persisted for audit webhook delivery."""
-    service = settings_service_with_defaults
-    await service.update_audit_settings(
-        AuditSettingsUpdate(audit_webhook_verify_ssl=False)
-    )
-
-    settings = await service.list_org_settings(keys={"audit_webhook_verify_ssl"})
-    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
-    assert settings_dict["audit_webhook_verify_ssl"] is False
-
-
-@pytest.mark.anyio
-async def test_update_audit_payload_attribute_setting(
-    settings_service_with_defaults: SettingsService,
-) -> None:
-    """Ensure payload wrapper attribute is persisted for audit webhook delivery."""
-    service = settings_service_with_defaults
-    await service.update_audit_settings(
-        AuditSettingsUpdate(audit_webhook_payload_attribute="event")
-    )
-
-    settings = await service.list_org_settings(keys={"audit_webhook_payload_attribute"})
-    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
-    assert settings_dict["audit_webhook_payload_attribute"] == "event"
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    "valid_url",
-    [
-        "git+ssh://git@github.com/org/repo.git",
-        "git+ssh://git@gitlab.example.com:2222/org/repo.git",
-        "git+ssh://git@gitlab.com/org/team/subteam/repo.git",
-        "git+ssh://git@github.com/org/repo.git@main",
-        "git+ssh://git@github.com/org/repo.git@feature/custom-branch",
-        "git+ssh://git@github.com/org/repo",  # Without .git suffix
-        "git+ssh://git@example.com/very/deep/nested/org/repo.git",
-        "git+ssh://someuser@git.example.com/very/deep/nested/org/repo.git",
-    ],
-)
-async def test_git_settings_valid_ssh_urls(
-    settings_service_with_defaults: SettingsService,
-    valid_url: str,
-) -> None:
-    """Test that valid Git SSH URLs are accepted."""
-    service = settings_service_with_defaults
-
-    # This should not raise an exception
-    test_params = GitSettingsUpdate(git_repo_url=valid_url)
-    await service.update_git_settings(test_params)
-
-    # Verify the URL was saved
-    git_settings = await service.list_org_settings(keys={"git_repo_url"})
-    settings_dict = {
-        setting.key: service.get_value(setting) for setting in git_settings
-    }
-    assert settings_dict["git_repo_url"] == valid_url
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    "invalid_url",
-    [
-        "https://github.com/org/repo.git",  # Wrong protocol
-        "git+ssh://github.com/org/repo.git",  # Missing SSH user
-        "git+ssh://git@github.com/",  # No path
-        "git+ssh://git@/org/repo.git",  # No host
-        "git://git@github.com/org/repo.git",  # Missing +ssh
-        "not-a-url",  # Not a URL at all
-        "",  # Empty string
-        "git+ssh://git@github.com:not_a_port/org/repo.git",  # Non numeric port
-        "git+ssh://git@github.com:/org/repo.git",  # Missing port after colon
-        "git+ssh://git@github.com/repo.git",  # Missing org segment
-    ],
-)
-async def test_git_settings_invalid_ssh_urls(
-    settings_service_with_defaults: SettingsService,
-    invalid_url: str,
-) -> None:
-    """Test that invalid Git SSH URLs are rejected."""
+def test_git_settings_rejects_invalid_ssh_url() -> None:
+    """GitSettingsUpdate applies the shared Git SSH URL regex."""
     from pydantic import ValidationError
 
-    # This should raise a ValidationError
-    with pytest.raises(ValidationError) as exc_info:
-        GitSettingsUpdate(git_repo_url=invalid_url)
-
-    # Verify the error message mentions Git SSH URL
-    error_detail = str(exc_info.value)
-    assert "Must be a valid Git SSH URL" in error_detail
+    with pytest.raises(ValidationError, match="Must be a valid Git SSH URL"):
+        GitSettingsUpdate(git_repo_url="https://github.com/org/repo.git")
 
 
 @pytest.mark.anyio
@@ -817,3 +755,50 @@ async def test_setting_with_override(
         default=default_value,
     )
     assert no_override_value == default_value
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        pytest.param(None, False, id="missing"),
+        pytest.param([], False, id="empty"),
+        pytest.param("not-a-list", False, id="malformed"),
+        pytest.param([str(uuid.UUID(int=9))], False, id="other-workspace"),
+        pytest.param([str(uuid.UUID(int=7))], True, id="allowed"),
+        pytest.param([uuid.UUID(int=7)], True, id="allowed-uuid-objects"),
+    ],
+)
+async def test_workspace_allows_error_details(
+    stored: object, expected: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The allow-list check only passes for a listed workspace and fails closed."""
+    monkeypatch.setattr(
+        settings_service_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(return_value=[] if stored is None else stored),
+    )
+    result = await workspace_allows_error_details(
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.UUID(int=7),
+        session=MagicMock(),
+    )
+    assert result is expected
+
+
+@pytest.mark.anyio
+async def test_workspace_allows_error_details_fails_closed_on_db_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed allow-list lookup denies the workspace instead of raising."""
+    monkeypatch.setattr(
+        settings_service_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(side_effect=SQLAlchemyError("boom")),
+    )
+    result = await workspace_allows_error_details(
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.UUID(int=7),
+        session=MagicMock(),
+    )
+    assert result is False

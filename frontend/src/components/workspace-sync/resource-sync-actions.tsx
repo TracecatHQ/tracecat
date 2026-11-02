@@ -2,10 +2,12 @@
 
 import {
   ArrowRightIcon,
+  ArrowUpRightIcon,
   GitBranchIcon,
   GitPullRequestIcon,
   LayersIcon,
 } from "lucide-react"
+import Link from "next/link"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import type { ResourceRef, SyncResourceType, VcsProvider } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -13,7 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -30,6 +32,8 @@ import {
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
+import { ExportErrorMessage } from "@/components/workspace-sync/export-error"
+import { PACKAGE_INCLUDE_FILENAME } from "@/components/workspace-sync/package-picker"
 import {
   formatResourceTotal,
   getWorkspaceSyncPreviewResourceTotal,
@@ -44,29 +48,40 @@ import {
   WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
+import { useWorkspacePackage } from "@/components/workspace-sync/use-workspace-package"
+import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useRepositoryBranches,
   useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
-import { getApiErrorDetail } from "@/lib/errors"
 import { getRepoDisplayName } from "@/lib/git"
+import { useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface WorkspaceResourceSyncActionsProps {
   label: string
   branchSlug: string
   resources: SyncResourceType[]
+  disabled?: boolean
 }
 
 export function WorkspaceResourceSyncActions({
   label,
   branchSlug,
   resources,
+  disabled = false,
 }: WorkspaceResourceSyncActionsProps) {
   const workspaceId = useWorkspaceId()
+  const { data: previewRevision } = useQuery({
+    queryKey: ["workspace-sync-preview-revision", workspaceId],
+    queryFn: () => 0,
+    initialData: 0,
+    enabled: false,
+  })
   const canSyncWorkspace = useScopeCheck("workspace_sync:sync")
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const canPushWorkspaceSync =
@@ -91,6 +106,14 @@ export function WorkspaceResourceSyncActions({
     limit: 200,
   })
 
+  // The managed resources source always pushes its whole package, so a push
+  // scoped to one resource type does not apply there. Only checked once the
+  // dialog opens, since reading the package reads the repository.
+  const { isSource, workspacePackageIsLoading, workspacePackageError } =
+    useWorkspacePackage(workspaceId, {
+      enabled: open && Boolean(gitRepoUrl),
+    })
+  const showPackageNotice = isSource && Boolean(gitRepoUrl)
   const resourceRefs = useMemo<ResourceRef[]>(
     () => resources.map((resourceType) => ({ resource_type: resourceType })),
     [resources]
@@ -111,13 +134,31 @@ export function WorkspaceResourceSyncActions({
   const baseBranch = getWorkspaceSyncBaseBranch(gitRepoUrl, repoBranches)
   const targetBranch = exportBranch.trim()
   const compareRef = isCreatingBranch ? baseBranch : targetBranch || undefined
-  const { preview, previewIsLoading, previewError, refetchPreview } =
-    useWorkspaceSyncExportPreview(workspaceId, {
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: "pull-request",
+    targetBranch,
+    defaultBranch: baseBranch,
+    isCreatingBranch,
+  })
+  const {
+    preview,
+    previewOperationId,
+    previewDiffCount,
+    previewIsLoading,
+    previewError,
+    refetchPreview,
+  } = useWorkspaceSyncExportPreview(workspaceId, {
+    push: {
+      message: exportMessage,
+      branch: targetBranch,
+      create_pr: pushOutcome.createPr,
+      pr_base_branch: baseBranch,
       resources: resourceRefs,
-      compareRef,
-      provider,
-      enabled: false,
-    })
+      include_schedules: false,
+    },
+    compareRef,
+    provider,
+  })
   const [previewRequested, setPreviewRequested] = useState(false)
   const visiblePreview = previewRequested ? preview : undefined
   const visiblePreviewIsLoading = previewRequested && previewIsLoading
@@ -126,12 +167,6 @@ export function WorkspaceResourceSyncActions({
   // types the button requested.
   const totalResourceCount =
     getWorkspaceSyncPreviewResourceTotal(visiblePreview)
-  const pushOutcome = getWorkspaceSyncPushOutcome({
-    mode: "pull-request",
-    targetBranch,
-    defaultBranch: baseBranch,
-    isCreatingBranch,
-  })
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
     defaultBranch: baseBranch,
@@ -141,10 +176,17 @@ export function WorkspaceResourceSyncActions({
   const reviewRequestLabel = getReviewRequestLabel(provider)
   const reviewRequestTitle =
     reviewRequestLabel === "merge request" ? "Merge request" : "Pull request"
-  const previewErrorMessage = previewError
-    ? (getApiErrorDetail(previewError) ?? "Request failed")
-    : undefined
+  const previewErrorMessage = previewError ? (
+    <ExportErrorMessage error={previewError} workspaceId={workspaceId} />
+  ) : undefined
   const exportDisabled =
+    isSource ||
+    workspacePackageIsLoading ||
+    // Unknown source status: a source workspace would push its whole package.
+    Boolean(workspacePackageError) ||
+    !previewOperationId ||
+    !previewRequested ||
+    previewIsLoading ||
     !gitRepoUrl ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
@@ -164,7 +206,7 @@ export function WorkspaceResourceSyncActions({
 
   useEffect(() => {
     setPreviewRequested(false)
-  }, [compareRef, provider])
+  }, [compareRef, provider, targetBranch, exportMessage, previewRevision])
 
   if (!canPushWorkspaceSync) {
     return null
@@ -176,13 +218,8 @@ export function WorkspaceResourceSyncActions({
     }
 
     try {
-      const result = await exportWorkspace({
-        message: exportMessage,
-        branch: targetBranch,
-        create_pr: pushOutcome.createPr,
-        include_schedules: false,
-        resources: resourceRefs,
-      })
+      if (exportDisabled || !previewOperationId) return
+      const result = await exportWorkspace({ operationId: previewOperationId })
       const prUrl = result.commit.pr_url
       toast({
         title: prUrl ? `${reviewRequestTitle} ready` : "Push complete",
@@ -198,9 +235,12 @@ export function WorkspaceResourceSyncActions({
       })
       setOpen(false)
     } catch (error) {
+      if (error instanceof SyncOperationWaitCancelled) return
       toast({
         title: "Push failed",
-        description: getApiErrorDetail(error) ?? "Request failed",
+        description: (
+          <ExportErrorMessage error={error} workspaceId={workspaceId} />
+        ),
         variant: "destructive",
       })
     }
@@ -221,13 +261,14 @@ export function WorkspaceResourceSyncActions({
           variant="outline"
           size="sm"
           className="h-7 gap-1.5 bg-background"
+          disabled={disabled}
         >
           <GitBranchIcon className="size-3.5" />
           Push
         </Button>
       </DialogTrigger>
-      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="shrink-0 flex-row items-start gap-3 space-y-0 border-b p-6">
+      <DialogContent size="md" className="max-w-2xl">
+        <DialogHeader className="flex-row items-start gap-3 space-y-0">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
             <GitBranchIcon className="size-[18px]" />
           </div>
@@ -238,71 +279,104 @@ export function WorkspaceResourceSyncActions({
             </DialogDescription>
           </div>
         </DialogHeader>
-
-        {gitRepoUrl ? (
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
-            <PushFlow
-              total={totalResourceCount}
-              isLoading={visiblePreviewIsLoading}
-              targetBranch={targetBranch}
-              defaultBranch={baseBranch}
-              outcome={pushOutcome}
-              provider={provider}
-            />
-
-            <PushResourcePreview
-              preview={visiblePreview}
-              isLoading={visiblePreviewIsLoading}
-              compareRef={compareRef}
-              errorMessage={previewRequested ? previewErrorMessage : undefined}
-              hasRequestedPreview={previewRequested}
-              onRequestPreview={handlePreview}
-            />
-
-            <div className="space-y-2">
-              <label
-                className="text-sm font-medium"
-                htmlFor={`sync-message-${branchSlug}`}
-              >
-                Commit message
-              </label>
-              <Textarea
-                id={`sync-message-${branchSlug}`}
-                className="min-h-[64px] resize-none text-sm"
-                value={exportMessage}
-                onChange={(event) => setExportMessage(event.target.value)}
+        <DialogBody>
+          {gitRepoUrl && !showPackageNotice ? (
+            <div className="space-y-5">
+              {resources.includes("workflow") && <WorkspacePushExplanation />}
+              <PushFlow
+                total={totalResourceCount}
+                isLoading={visiblePreviewIsLoading}
+                targetBranch={targetBranch}
+                defaultBranch={baseBranch}
+                outcome={pushOutcome}
+                provider={provider}
               />
+
+              <PushResourcePreview
+                workspaceId={workspaceId}
+                operationId={previewOperationId}
+                diffCount={previewDiffCount}
+                preview={visiblePreview}
+                isLoading={visiblePreviewIsLoading}
+                compareRef={compareRef}
+                errorMessage={
+                  previewRequested ? previewErrorMessage : undefined
+                }
+                hasRequestedPreview={previewRequested}
+                onRequestPreview={handlePreview}
+              />
+
+              <div className="space-y-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor={`sync-message-${branchSlug}`}
+                >
+                  Commit message
+                </label>
+                <Textarea
+                  id={`sync-message-${branchSlug}`}
+                  className="min-h-[64px] resize-none text-sm"
+                  value={exportMessage}
+                  onChange={(event) => setExportMessage(event.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor={`sync-branch-${branchSlug}`}
+                >
+                  Target branch
+                </label>
+                <WorkspaceSyncBranchSelector
+                  id={`sync-branch-${branchSlug}`}
+                  branches={repoBranches}
+                  branch={exportBranch}
+                  isCreatingBranch={isCreatingBranch}
+                  branchesIsLoading={branchesIsLoading}
+                  hasBranches={hasBranches}
+                  branchesError={branchesError}
+                  newBranchPlaceholder={`sync/${branchSlug}`}
+                  onSelectBranch={selectExportBranch}
+                  onBranchChange={setExportBranch}
+                  showNoBranchesMessage={Boolean(gitRepoUrl)}
+                />
+                <WorkspaceSyncPushWarning
+                  warning={pushWarning}
+                  blocked={pushOutcome.isPullRequestBlocked}
+                />
+                {workspacePackageError && (
+                  <p className="text-xs text-destructive">
+                    Could not check whether this workspace is the managed
+                    resources source, so pushing is off. Close and reopen this
+                    dialog to try again.
+                  </p>
+                )}
+              </div>
             </div>
-
-            <div className="space-y-2">
-              <label
-                className="text-sm font-medium"
-                htmlFor={`sync-branch-${branchSlug}`}
-              >
-                Target branch
-              </label>
-              <WorkspaceSyncBranchSelector
-                id={`sync-branch-${branchSlug}`}
-                branches={repoBranches}
-                branch={exportBranch}
-                isCreatingBranch={isCreatingBranch}
-                branchesIsLoading={branchesIsLoading}
-                hasBranches={hasBranches}
-                branchesError={branchesError}
-                newBranchPlaceholder={`sync/${branchSlug}`}
-                onSelectBranch={selectExportBranch}
-                onBranchChange={setExportBranch}
-                showNoBranchesMessage={Boolean(gitRepoUrl)}
-              />
-              <WorkspaceSyncPushWarning
-                warning={pushWarning}
-                blocked={pushOutcome.isPullRequestBlocked}
-              />
+          ) : (
+            <div className="space-y-3">
+              {showPackageNotice && (
+                <p className="text-sm text-muted-foreground">
+                  This workspace is the managed resources source. Every push
+                  exports the whole package listed in{" "}
+                  {`${PACKAGE_INCLUDE_FILENAME},`} so pushing one resource type
+                  is off. Choose the package and push it from the Git sync page.
+                </p>
+              )}
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link
+                  href={`/workspaces/${workspaceId}/git-sync`}
+                  onClick={() => setOpen(false)}
+                >
+                  Open Git sync
+                  <ArrowUpRightIcon className="size-3.5" />
+                </Link>
+              </Button>
             </div>
-          </div>
-        ) : null}
-
-        <DialogFooter className="shrink-0 items-center gap-3 border-t bg-muted/30 px-6 py-4 sm:justify-between">
+          )}
+        </DialogBody>
+        <DialogFooter className="gap-3 sm:justify-between">
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {repoName ? (
               <>
@@ -312,11 +386,6 @@ export function WorkspaceResourceSyncActions({
             ) : null}
           </span>
           <div className="flex items-center gap-2">
-            <DialogClose asChild>
-              <Button type="button" size="sm" variant="outline">
-                Cancel
-              </Button>
-            </DialogClose>
             <Button
               type="button"
               size="sm"
@@ -454,7 +523,7 @@ interface DescribePushOptions {
  */
 function describePush({ gitRepoUrl, label }: DescribePushOptions): string {
   if (!gitRepoUrl) {
-    return "Configure a Git repository in workspace settings first."
+    return "Connect a Git repository on the Git sync page first."
   }
   return `Commit all ${label} in this workspace to the selected Git branch.`
 }

@@ -6,7 +6,10 @@ import { render, screen } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 
-const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
+const mockUseScopeCheck = jest.fn<
+  boolean | undefined,
+  [string | undefined, string[] | undefined]
+>()
 let mockPathname = "/workspaces/workspace-1/workflows"
 let mockScopes: Record<string, boolean | undefined> = {}
 let mockEntitlements: Record<string, boolean> = {}
@@ -19,7 +22,13 @@ jest.mock("next/navigation", () => ({
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
+  useScopeCheck: (scope: string | undefined, anyOf?: string[]) =>
+    mockUseScopeCheck(scope, anyOf),
+}))
+
+let mockFormsAccess = "hidden"
+jest.mock("@/hooks/use-forms-access", () => ({
+  useFormsAccess: () => mockFormsAccess,
 }))
 
 jest.mock("@/components/locked-feature-modal", () => ({
@@ -39,17 +48,17 @@ jest.mock("@/components/sidebar/sidebar-user-nav", () => ({
       title: string
       href: string
       isActive?: boolean
+      locked?: boolean
     }[]
   }) => (
     <nav>
       {manageItems.map((item) => (
-        <a
-          href={item.href}
-          data-active={item.isActive ? "true" : "false"}
-          key={item.href}
-        >
-          {item.title}
-        </a>
+        <span key={item.href}>
+          <a href={item.href} data-active={item.isActive ? "true" : "false"}>
+            {item.title}
+          </a>
+          {item.locked ? <span>Requires upgrade</span> : null}
+        </span>
       ))}
     </nav>
   ),
@@ -154,8 +163,37 @@ describe("AppSidebar", () => {
     }
     mockEntitlementsIsLoading = false
     mockHasEntitlementData = true
-    mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
+    mockUseScopeCheck.mockImplementation((scope, anyOf) =>
+      scope
+        ? (mockScopes[scope] ?? false)
+        : (anyOf ?? []).some((candidate) => mockScopes[candidate])
+    )
+    mockFormsAccess = "hidden"
   })
+
+  it.each([
+    ["hidden", { "form:read": true, "form:update": true }, false],
+    ["loading", { "form:read": true, "form:update": true }, false],
+    ["enabled", { "form:read": true, "form:update": true }, true],
+    ["locked", { "form:read": true, "form:submission:read": true }, true],
+    ["enabled", { "form:read": true, "form:submit": true }, false],
+    // The list itself needs `form:read`.
+    ["enabled", { "form:update": true, "form:submission:read": true }, false],
+  ])(
+    "links to Forms when access is %s with %j: %p",
+    (access, scopes, shown) => {
+      mockScopes = { "workflow:read": true, ...scopes }
+      mockFormsAccess = access
+
+      render(<AppSidebar />)
+
+      const titles = screen.getAllByRole("link").map((link) => link.textContent)
+      // Right after Workflows.
+      expect(titles.indexOf("Forms")).toBe(
+        shown ? titles.indexOf("Workflows") + 1 : -1
+      )
+    }
+  )
 
   it("hides Chat when the user can execute agents but cannot read them", () => {
     mockScopes = {
@@ -213,6 +251,39 @@ describe("AppSidebar", () => {
 
     expect(screen.getByText("Chat")).toBeInTheDocument()
     expect(screen.getAllByText("Locked")).toHaveLength(1)
+  })
+
+  it("keeps Git sync visible with a lock when the plan lacks it", () => {
+    mockScopes = { "workspace:update": true }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByRole("link", { name: "Git sync" })).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/git-sync"
+    )
+    expect(screen.getByText("Requires upgrade")).toBeInTheDocument()
+  })
+
+  it("shows Git sync without a lock when the plan includes it", () => {
+    mockScopes = { "workspace_sync:sync": true }
+    mockEntitlements = { git_sync: true }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByRole("link", { name: "Git sync" })).toBeInTheDocument()
+    expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
+  })
+
+  it("hides Git sync without sync or connection access", () => {
+    mockScopes = { "workspace:read": true }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.queryByRole("link", { name: "Git sync" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
   })
 
   it("only highlights MCP servers on the MCP servers page", () => {

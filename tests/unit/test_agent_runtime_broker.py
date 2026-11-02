@@ -5,7 +5,7 @@ import socket
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import orjson
@@ -41,6 +41,7 @@ from tracecat.agent.runtime.claude_code.transport import (
 )
 from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
 from tracecat.agent.sandbox.config import AgentResourceLimits
+from tracecat.executor.enums import ExecutorBackendType
 
 
 def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
@@ -243,16 +244,21 @@ async def test_broker_hydrates_work_dir_while_session_is_active(
     ]
 
 
-def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    "backend", [ExecutorBackendType.NSJAIL, ExecutorBackendType.DIRECT]
+)
+def test_build_path_mapping(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, backend: ExecutorBackendType
 ) -> None:
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", False)
+    """Session paths are stable per session; nsjail maps them to runtime mounts."""
+    monkeypatch.setattr(broker_module, "TRACECAT__EXECUTOR_BACKEND", backend)
     monkeypatch.setattr(
         session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
     )
 
     mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
 
+    assert mapping == ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
     assert (
         mapping.host_home_dir == tmp_path / "tracecat-agent-session-123" / "agent-home"
     )
@@ -260,36 +266,12 @@ def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
         mapping.host_work_dir
         == tmp_path / "tracecat-agent-session-123" / "agent-work-dir"
     )
-    assert mapping.runtime_home_dir == Path("/home/agent")
-    assert mapping.runtime_work_dir == Path("/work")
-
-
-def test_build_path_mapping_uses_host_paths_in_direct_mode(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", True)
-    monkeypatch.setattr(
-        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
-    )
-
-    mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
-
-    assert mapping.runtime_home_dir == mapping.host_home_dir
-    assert mapping.runtime_work_dir == mapping.host_work_dir
-
-
-def test_build_path_mapping_is_stable_per_session(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", True)
-    monkeypatch.setattr(
-        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
-    )
-
-    first = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
-    second = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
-
-    assert first == second
+    if backend is ExecutorBackendType.NSJAIL:
+        assert mapping.runtime_home_dir == Path("/home/agent")
+        assert mapping.runtime_work_dir == Path("/work")
+    else:
+        assert mapping.runtime_home_dir == mapping.host_home_dir
+        assert mapping.runtime_work_dir == mapping.host_work_dir
 
 
 @pytest.mark.parametrize(
@@ -319,67 +301,46 @@ def test_transport_pins_protected_uv_settings_for_runtime_paths(
     assert settings["env"]["UV_PYTHON_CACHE_DIR"] == str(expected_path / "python-cache")
 
 
-def test_transport_rewrites_bundled_claude_path_for_jail(
+@pytest.mark.parametrize(
+    ("command_path", "use_jailed_paths", "expected_path"),
+    [
+        pytest.param(
+            "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+            True,
+            "/site-packages/claude_agent_sdk/_bundled/claude",
+            id="jail",
+        ),
+        pytest.param(
+            "/app/.venv/bin/../lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+            True,
+            "/site-packages/claude_agent_sdk/_bundled/claude",
+            id="jail-unresolved-path",
+        ),
+        pytest.param(
+            "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+            False,
+            "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+            id="direct",
+        ),
+    ],
+)
+def test_transport_prepares_bundled_claude_path(
     monkeypatch: pytest.MonkeyPatch,
+    command_path: str,
+    use_jailed_paths: bool,
+    expected_path: str,
 ) -> None:
     monkeypatch.setattr(
         "tracecat.agent.runtime.claude_code.transport.claude_agent_sdk.__file__",
         "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/__init__.py",
     )
-
-    command = [
-        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
-        "--print",
-    ]
-
-    rewritten = SandboxedCLITransport._rewrite_command_for_jail(command)
-
-    assert rewritten == [
-        "/site-packages/claude_agent_sdk/_bundled/claude",
-        "--print",
-    ]
-
-
-def test_transport_keeps_bundled_claude_path_for_direct_runtime(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "tracecat.agent.runtime.claude_code.transport.claude_agent_sdk.__file__",
-        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/__init__.py",
-    )
-
-    command = [
-        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
-        "--print",
-    ]
 
     prepared = SandboxedCLITransport._prepare_command_for_runtime(
-        command,
-        use_jailed_paths=False,
+        [command_path, "--print"],
+        use_jailed_paths=use_jailed_paths,
     )
 
-    assert prepared == command
-
-
-def test_transport_rewrites_resolved_bundled_claude_path_for_jail(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "tracecat.agent.runtime.claude_code.transport.claude_agent_sdk.__file__",
-        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/__init__.py",
-    )
-
-    command = [
-        "/app/.venv/bin/../lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
-        "--print",
-    ]
-
-    rewritten = SandboxedCLITransport._rewrite_command_for_jail(command)
-
-    assert rewritten == [
-        "/site-packages/claude_agent_sdk/_bundled/claude",
-        "--print",
-    ]
+    assert prepared == [expected_path, "--print"]
 
 
 def test_mcp_bridge_binding_uses_fixed_port_for_jailed_runtime() -> None:
@@ -603,6 +564,32 @@ async def test_transport_close_preserves_caller_owned_job_directory(
     assert transport._spawned_runtime is None
 
 
+@pytest.mark.parametrize("use_jailed_paths", [True, False])
+@pytest.mark.parametrize("resume", [None, "existing-session"])
+def test_transport_loads_platform_plugin_on_fresh_and_resumed_turns(
+    tmp_path: Path, use_jailed_paths: bool, resume: str | None
+) -> None:
+    plugin = tmp_path / "platform-skills"
+    manifest = plugin / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"tracecat"}')
+    transport = _make_transport(tmp_path, use_jailed_paths=use_jailed_paths)
+    options = transport._options_with_platform_skills(ClaudeAgentOptions(resume=resume))
+    expected = Path("/run/tracecat/job/platform-skills") if use_jailed_paths else plugin
+    assert options.plugins == [{"type": "local", "path": str(expected)}]
+    assert options.resume == resume
+
+
+def test_transport_does_not_reuse_plugins_without_a_staged_catalog(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=True)
+    options = transport._options_with_platform_skills(
+        ClaudeAgentOptions(plugins=[{"type": "local", "path": "/previous-turn/plugin"}])
+    )
+    assert options.plugins == []
+
+
 @pytest.mark.anyio
 async def test_transport_records_shim_exit_code_when_stream_ends(
     tmp_path: Path,
@@ -636,6 +623,36 @@ async def test_transport_records_shim_exit_code_when_stream_ends(
 
     assert excinfo.value.exit_code == 134
     assert transport.exit_code == 134
+
+
+@pytest.mark.parametrize("returncode", [0, 133, -5])
+def test_transport_exit_telemetry_counts_each_process_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, returncode: int
+) -> None:
+    runtime_logger = MagicMock()
+    log = MagicMock()
+    log.bind.return_value = runtime_logger
+    monkeypatch.setattr(transport_module, "logger", log)
+    monkeypatch.setattr(transport_module.platform, "machine", lambda: "aarch64")
+    transport = _make_transport(tmp_path, use_jailed_paths=True)
+    transport._stderr_buffer = ["sensitive stderr must not enter telemetry"]
+
+    # A read failure and a subsequent write can observe the same process exit.
+    transport._record_process_exit(returncode)
+    transport._record_process_exit(returncode)
+
+    log.bind.assert_called_once_with(
+        session_id="session-123",
+        claude_agent_sdk_version=transport_module.__version__,
+        architecture="aarch64",
+        sandbox_mode="nsjail",
+    )
+    if returncode == 0:
+        runtime_logger.warning.assert_not_called()
+    else:
+        runtime_logger.warning.assert_called_once_with(
+            "Agent CLI process exited unexpectedly", exit_code=returncode
+        )
 
 
 @pytest.mark.anyio

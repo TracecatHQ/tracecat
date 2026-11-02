@@ -14,6 +14,7 @@ from tracecat.executor.service import _prepare_step_context, prepare_resolved_co
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.service import RegistryVersionsService
+from tracecat.secrets.types import ActionSecrets
 
 
 def _udf_impl(*, origin: str, module: str, name: str) -> dict[str, str]:
@@ -111,8 +112,8 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
 
     # Keep test focused on resolution, not secret/variable fetching.
     mocker.patch(
-        "tracecat.executor.service.secrets_manager.get_action_secrets",
-        return_value={},
+        "tracecat.executor.service.secrets_manager.resolve_action_secrets",
+        return_value=ActionSecrets(values={}),
     )
     mocker.patch("tracecat.executor.service.get_workspace_variables", return_value={})
 
@@ -217,8 +218,8 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     )
 
     mocker.patch(
-        "tracecat.executor.service.secrets_manager.get_action_secrets",
-        return_value={},
+        "tracecat.executor.service.secrets_manager.resolve_action_secrets",
+        return_value=ActionSecrets(values={}),
     )
     mocker.patch("tracecat.executor.service.get_workspace_variables", return_value={})
 
@@ -229,6 +230,10 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
         env={"AWS_ACCESS_KEY_ID": "ASIA_TEMP_KEY"},
         mask_values={"ASIA_TEMP_KEY"},
     )
+    parent_resolved.tunnel_name = "onprem-splunk"
+    parent_resolved.tunnel_proxy_url = "http://tunnel:token@10.0.0.5:8080"
+    parent_resolved.tunnel_gateway_ip = "10.0.0.5"
+    parent_resolved.tunnel_gateway_port = 8080
     step_ctx = await _prepare_step_context(
         step_action=step_action,
         evaluated_args={},
@@ -240,6 +245,10 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     assert step_ctx.action_impl.module == "manifest.module"
     assert step_ctx.action_impl.name == "manifest_fn"
     assert step_ctx.secret_projection is parent_resolved.secret_projection
+    assert step_ctx.tunnel_name == "onprem-splunk"
+    assert step_ctx.tunnel_proxy_url == "http://tunnel:token@10.0.0.5:8080"
+    assert step_ctx.tunnel_gateway_ip == "10.0.0.5"
+    assert step_ctx.tunnel_gateway_port == 8080
 
 
 @pytest.mark.anyio
@@ -282,13 +291,15 @@ async def test_prepare_resolved_context_includes_projected_secret_masks(
         return_value=SimpleNamespace(secrets=set(), variables=set()),
     )
     mocker.patch(
-        "tracecat.executor.service.secrets_manager.get_action_secrets",
-        return_value={
-            "aws": {
-                "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
-                "AWS_REGION": "us-east-1",
+        "tracecat.executor.service.secrets_manager.resolve_action_secrets",
+        return_value=ActionSecrets(
+            values={
+                "aws": {
+                    "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+                    "AWS_REGION": "us-east-1",
+                }
             }
-        },
+        ),
     )
     mocker.patch("tracecat.executor.service.get_workspace_variables", return_value={})
     mocker.patch(

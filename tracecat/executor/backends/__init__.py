@@ -19,10 +19,7 @@ from __future__ import annotations
 
 from tracecat import config
 from tracecat.executor.backends.base import ExecutorBackend
-from tracecat.executor.schemas import (
-    ExecutorBackendType,
-    resolve_backend_type,
-)
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.logger import logger
 
 __all__ = [
@@ -43,7 +40,7 @@ def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
     Uses lazy imports to avoid circular dependencies with action_runner.
     """
     match backend_type:
-        case ExecutorBackendType.EPHEMERAL:
+        case ExecutorBackendType.NSJAIL:
             from tracecat.executor.backends.ephemeral import EphemeralBackend
 
             return EphemeralBackend()
@@ -51,10 +48,6 @@ def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
             from tracecat.executor.backends.direct import DirectBackend
 
             return DirectBackend()
-        case ExecutorBackendType.TEST:
-            from tracecat.executor.backends.test import TestBackend
-
-            return TestBackend()
         case _:
             raise ValueError(f"Unknown executor backend: {backend_type!r}")
 
@@ -77,12 +70,8 @@ async def initialize_executor_backend() -> ExecutorBackend:
     if _backend is not None:
         raise RuntimeError("Executor backend already initialized")
 
-    backend_type = resolve_backend_type()
-    logger.info(
-        "Initializing executor backend",
-        backend_type=backend_type,
-        config_value=config.TRACECAT__EXECUTOR_BACKEND,
-    )
+    backend_type = config.TRACECAT__EXECUTOR_BACKEND
+    logger.info("Initializing executor backend", backend_type=backend_type)
 
     backend = _create_backend(backend_type)
     await backend.start()

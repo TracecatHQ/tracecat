@@ -171,135 +171,102 @@ async def test_consumer_forces_sync_when_backfill_coalesces_with_case_event(
     assert client.deleted == [["1-0", "2-0"]]
 
 
+WORKSPACE_ID = uuid.uuid4()
+CASE_ID = uuid.uuid4()
+CASE_EVENT_ENTRY = {
+    "workspace_id": str(WORKSPACE_ID),
+    "case_id": str(CASE_ID),
+    "reason": "case_event",
+    "event_type": "case_updated",
+}
+CASE_REQUEUE = {
+    "workspace_id": WORKSPACE_ID,
+    "case_id": CASE_ID,
+    "reason": "duration_definition_backfill",
+}
+DEFINITION_ENTRY = {
+    "workspace_id": str(WORKSPACE_ID),
+    "reason": "duration_definition_created",
+}
+DEFINITION_REQUEUE = {
+    "workspace_id": WORKSPACE_ID,
+    "reason": "duration_definition_created",
+    "cursor": None,
+}
+
+
 @pytest.mark.anyio
-async def test_consumer_requeues_locked_case_jobs(
+@pytest.mark.parametrize(
+    ("method", "failure", "entry", "requeue"),
+    [
+        pytest.param(
+            "_sync_case_duration",
+            False,
+            CASE_EVENT_ENTRY,
+            CASE_REQUEUE,
+            id="locked-case",
+        ),
+        pytest.param(
+            "_sync_case_duration",
+            RuntimeError("transient db failure"),
+            CASE_EVENT_ENTRY,
+            CASE_REQUEUE,
+            id="failed-case",
+        ),
+        pytest.param(
+            "_process_backfill_job",
+            RuntimeError("transient db failure"),
+            DEFINITION_ENTRY,
+            DEFINITION_REQUEUE,
+            id="failed-definition-backfill",
+        ),
+        pytest.param(
+            "_process_backfill_job",
+            RuntimeError("transient db failure"),
+            {
+                "workspace_id": str(WORKSPACE_ID),
+                "reason": "duration_definition_backfill",
+                "cursor": "123",
+            },
+            {
+                "workspace_id": WORKSPACE_ID,
+                "reason": "duration_definition_backfill",
+                "cursor": 123,
+            },
+            id="failed-cursor-backfill",
+        ),
+    ],
+)
+async def test_consumer_requeues_jobs_after_local_retries_exhausted(
     monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    failure: bool | Exception,
+    entry: dict[str, str],
+    requeue: dict[str, Any],
 ) -> None:
     client = FakeRedisClient()
     consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    workspace_id = uuid.uuid4()
-    case_id = uuid.uuid4()
-    sync_mock = AsyncMock(return_value=False)
+    job_mock = (
+        AsyncMock(side_effect=failure)
+        if isinstance(failure, Exception)
+        else AsyncMock(return_value=failure)
+    )
     publish_mock = AsyncMock()
     sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+    monkeypatch.setattr(consumer, method, job_mock)
     monkeypatch.setattr(
         "tracecat.cases.durations.consumer.publish_case_duration_sync",
         publish_mock,
     )
     monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
 
-    await consumer._handle_entries(
-        [
-            (
-                "1-0",
-                {
-                    "workspace_id": str(workspace_id),
-                    "case_id": str(case_id),
-                    "reason": "case_event",
-                    "event_type": "case_updated",
-                },
-            )
-        ]
-    )
+    await consumer._handle_entries([("1-0", entry)])
 
-    assert sync_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
+    assert job_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
     assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
-    publish_mock.assert_awaited_once_with(
-        workspace_id=workspace_id,
-        case_id=case_id,
-        reason="duration_definition_backfill",
-    )
+    publish_mock.assert_awaited_once_with(**requeue)
     assert client.acked == [["1-0"]]
     assert client.deleted == [["1-0"]]
-
-
-@pytest.mark.anyio
-async def test_consumer_retries_locked_case_job_locally(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = FakeRedisClient()
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    workspace_id = uuid.uuid4()
-    case_id = uuid.uuid4()
-    sync_mock = AsyncMock(side_effect=[False, True])
-    publish_mock = AsyncMock()
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.publish_case_duration_sync",
-        publish_mock,
-    )
-    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
-
-    await consumer._handle_entries(
-        [
-            (
-                "1-0",
-                {
-                    "workspace_id": str(workspace_id),
-                    "case_id": str(case_id),
-                    "reason": "case_event",
-                    "event_type": "case_updated",
-                },
-            )
-        ]
-    )
-
-    assert sync_mock.await_count == 2
-    sleep_mock.assert_awaited_once_with(0.5)
-    publish_mock.assert_not_awaited()
-    assert client.acked == [["1-0"]]
-    assert client.deleted == [["1-0"]]
-
-
-@pytest.mark.anyio
-async def test_consumer_leaves_locked_case_jobs_pending_when_requeue_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = FakeRedisClient()
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    workspace_id = uuid.uuid4()
-    case_id = uuid.uuid4()
-    sync_mock = AsyncMock(return_value=False)
-    publish_mock = AsyncMock(side_effect=RuntimeError("redis unavailable"))
-    logger_mock = MagicMock()
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.publish_case_duration_sync",
-        publish_mock,
-    )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.logger.warning",
-        logger_mock,
-    )
-    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
-
-    await consumer._handle_entries(
-        [
-            (
-                "1-0",
-                {
-                    "workspace_id": str(workspace_id),
-                    "case_id": str(case_id),
-                    "reason": "case_event",
-                    "event_type": "case_updated",
-                },
-            )
-        ]
-    )
-
-    assert sync_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
-    assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
-    publish_mock.assert_awaited_once_with(
-        workspace_id=workspace_id,
-        case_id=case_id,
-        reason="duration_definition_backfill",
-    )
-    logger_mock.assert_called_once()
-    assert client.acked == []
-    assert client.deleted == []
 
 
 @pytest.mark.anyio
@@ -352,82 +319,27 @@ async def test_shared_sync_case_duration_uses_transaction_scoped_lock(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "entitlement_result",
+    [
+        pytest.param(False, id="not-entitled"),
+        pytest.param(DefaultTierNotConfiguredError(), id="default-tier-not-configured"),
+    ],
+)
 async def test_consumer_skips_backfill_fanout_without_entitlement(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    fake_session = MagicMock()
-    fake_session.execute = AsyncMock()
-    entitlement_gate_mock = AsyncMock(return_value=False)
-    publish_mock = AsyncMock()
-
-    @contextlib.asynccontextmanager
-    async def fake_session_context():
-        yield fake_session
-
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.get_async_session_bypass_rls_context_manager",
-        fake_session_context,
-    )
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, AsyncMock()))
-    monkeypatch.setattr(
-        consumer,
-        "_has_case_addons_entitlement",
-        entitlement_gate_mock,
-    )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.publish_case_duration_sync",
-        publish_mock,
-    )
-    job = DurationDefinitionSyncJob(
-        workspace_id=workspace_id,
-        reason="duration_definition_updated",
-    )
-
-    assert await consumer._process_backfill_job(job)
-
-    entitlement_gate_mock.assert_awaited_once_with(fake_session, workspace_id)
-    fake_session.execute.assert_not_awaited()
-    publish_mock.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_consumer_checks_backfill_entitlement_by_organization(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-    session = MagicMock()
-    session.scalar = AsyncMock(return_value=organization_id)
-    entitlement_mock = AsyncMock(return_value=False)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.is_org_entitled",
-        entitlement_mock,
-    )
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, AsyncMock()))
-
-    assert not await consumer._has_case_addons_entitlement(
-        cast(AsyncSession, session), workspace_id
-    )
-
-    session.scalar.assert_awaited_once()
-    entitlement_mock.assert_awaited_once_with(
-        session,
-        organization_id,
-        Entitlement.CASE_ADDONS,
-    )
-
-
-@pytest.mark.anyio
-async def test_consumer_skips_backfill_when_default_tier_not_configured(
-    monkeypatch: pytest.MonkeyPatch,
+    entitlement_result: bool | Exception,
 ) -> None:
     workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
     session = MagicMock()
     session.scalar = AsyncMock(return_value=organization_id)
     session.execute = AsyncMock()
-    entitlement_mock = AsyncMock(side_effect=DefaultTierNotConfiguredError())
+    entitlement_mock = (
+        AsyncMock(side_effect=entitlement_result)
+        if isinstance(entitlement_result, Exception)
+        else AsyncMock(return_value=entitlement_result)
+    )
     publish_mock = AsyncMock()
 
     @contextlib.asynccontextmanager
@@ -454,6 +366,7 @@ async def test_consumer_skips_backfill_when_default_tier_not_configured(
 
     assert await consumer._process_backfill_job(job)
 
+    session.scalar.assert_awaited_once()
     entitlement_mock.assert_awaited_once_with(
         session,
         organization_id,
@@ -461,55 +374,6 @@ async def test_consumer_skips_backfill_when_default_tier_not_configured(
     )
     session.execute.assert_not_awaited()
     publish_mock.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_consumer_requeues_failed_case_jobs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = FakeRedisClient()
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    workspace_id = uuid.uuid4()
-    case_id = uuid.uuid4()
-    sync_mock = AsyncMock(side_effect=RuntimeError("transient db failure"))
-    publish_mock = AsyncMock()
-    logger_mock = MagicMock()
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.publish_case_duration_sync",
-        publish_mock,
-    )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.logger.exception",
-        logger_mock,
-    )
-    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
-
-    await consumer._handle_entries(
-        [
-            (
-                "1-0",
-                {
-                    "workspace_id": str(workspace_id),
-                    "case_id": str(case_id),
-                    "reason": "case_event",
-                    "event_type": "case_updated",
-                },
-            )
-        ]
-    )
-
-    assert sync_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
-    assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
-    assert logger_mock.call_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
-    publish_mock.assert_awaited_once_with(
-        workspace_id=workspace_id,
-        case_id=case_id,
-        reason="duration_definition_backfill",
-    )
-    assert client.acked == [["1-0"]]
-    assert client.deleted == [["1-0"]]
 
 
 @pytest.mark.anyio
@@ -555,75 +419,39 @@ async def test_consumer_acks_successful_backfill_jobs(
 
 
 @pytest.mark.anyio
-async def test_consumer_requeues_failed_definition_backfill_jobs(
+@pytest.mark.parametrize(
+    ("method", "first_result", "entry"),
+    [
+        pytest.param("_sync_case_duration", False, CASE_EVENT_ENTRY, id="case"),
+        pytest.param(
+            "_process_backfill_job",
+            RuntimeError("transient db failure"),
+            DEFINITION_ENTRY,
+            id="definition-backfill",
+        ),
+    ],
+)
+async def test_consumer_retries_job_locally(
     monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    first_result: bool | Exception,
+    entry: dict[str, str],
 ) -> None:
     client = FakeRedisClient()
     consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    workspace_id = uuid.uuid4()
-    backfill_mock = AsyncMock(side_effect=RuntimeError("transient db failure"))
+    job_mock = AsyncMock(side_effect=[first_result, True])
     publish_mock = AsyncMock()
     sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_process_backfill_job", backfill_mock)
+    monkeypatch.setattr(consumer, method, job_mock)
     monkeypatch.setattr(
         "tracecat.cases.durations.consumer.publish_case_duration_sync",
         publish_mock,
     )
     monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
 
-    await consumer._handle_entries(
-        [
-            (
-                "1-0",
-                {
-                    "workspace_id": str(workspace_id),
-                    "reason": "duration_definition_created",
-                },
-            )
-        ]
-    )
+    await consumer._handle_entries([("1-0", entry)])
 
-    assert backfill_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
-    assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
-    publish_mock.assert_awaited_once_with(
-        workspace_id=workspace_id,
-        reason="duration_definition_created",
-        cursor=None,
-    )
-    assert client.acked == [["1-0"]]
-    assert client.deleted == [["1-0"]]
-
-
-@pytest.mark.anyio
-async def test_consumer_retries_definition_backfill_job_locally(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = FakeRedisClient()
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    workspace_id = uuid.uuid4()
-    backfill_mock = AsyncMock(side_effect=[RuntimeError("transient db failure"), True])
-    publish_mock = AsyncMock()
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_process_backfill_job", backfill_mock)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.publish_case_duration_sync",
-        publish_mock,
-    )
-    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
-
-    await consumer._handle_entries(
-        [
-            (
-                "1-0",
-                {
-                    "workspace_id": str(workspace_id),
-                    "reason": "duration_definition_updated",
-                },
-            )
-        ]
-    )
-
-    assert backfill_mock.await_count == 2
+    assert job_mock.await_count == 2
     sleep_mock.assert_awaited_once_with(0.5)
     publish_mock.assert_not_awaited()
     assert client.acked == [["1-0"]]
@@ -631,59 +459,39 @@ async def test_consumer_retries_definition_backfill_job_locally(
 
 
 @pytest.mark.anyio
-async def test_consumer_requeues_failed_cursor_backfill_jobs(
+@pytest.mark.parametrize(
+    ("method", "failure", "entry", "requeue"),
+    [
+        pytest.param(
+            "_sync_case_duration", False, CASE_EVENT_ENTRY, CASE_REQUEUE, id="case"
+        ),
+        pytest.param(
+            "_process_backfill_job",
+            RuntimeError("transient db failure"),
+            DEFINITION_ENTRY,
+            DEFINITION_REQUEUE,
+            id="definition-backfill",
+        ),
+    ],
+)
+async def test_consumer_leaves_jobs_pending_when_requeue_fails(
     monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    failure: bool | Exception,
+    entry: dict[str, str],
+    requeue: dict[str, Any],
 ) -> None:
     client = FakeRedisClient()
     consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    workspace_id = uuid.uuid4()
-    cursor = 123
-    backfill_mock = AsyncMock(side_effect=RuntimeError("transient db failure"))
-    publish_mock = AsyncMock()
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_process_backfill_job", backfill_mock)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.publish_case_duration_sync",
-        publish_mock,
+    job_mock = (
+        AsyncMock(side_effect=failure)
+        if isinstance(failure, Exception)
+        else AsyncMock(return_value=failure)
     )
-    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
-
-    await consumer._handle_entries(
-        [
-            (
-                "1-0",
-                {
-                    "workspace_id": str(workspace_id),
-                    "reason": "duration_definition_backfill",
-                    "cursor": str(cursor),
-                },
-            )
-        ]
-    )
-
-    assert backfill_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
-    assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
-    publish_mock.assert_awaited_once_with(
-        workspace_id=workspace_id,
-        reason="duration_definition_backfill",
-        cursor=cursor,
-    )
-    assert client.acked == [["1-0"]]
-    assert client.deleted == [["1-0"]]
-
-
-@pytest.mark.anyio
-async def test_consumer_leaves_failed_backfill_pending_when_requeue_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = FakeRedisClient()
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    workspace_id = uuid.uuid4()
-    backfill_mock = AsyncMock(side_effect=RuntimeError("transient db failure"))
     publish_mock = AsyncMock(side_effect=RuntimeError("redis unavailable"))
     logger_mock = MagicMock()
     sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_process_backfill_job", backfill_mock)
+    monkeypatch.setattr(consumer, method, job_mock)
     monkeypatch.setattr(
         "tracecat.cases.durations.consumer.publish_case_duration_sync",
         publish_mock,
@@ -694,31 +502,12 @@ async def test_consumer_leaves_failed_backfill_pending_when_requeue_fails(
     )
     monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
 
-    await consumer._handle_entries(
-        [
-            (
-                "1-0",
-                {
-                    "workspace_id": str(workspace_id),
-                    "reason": "duration_definition_created",
-                },
-            )
-        ]
-    )
+    await consumer._handle_entries([("1-0", entry)])
 
-    assert backfill_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
+    assert job_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
     assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
-    publish_mock.assert_awaited_once_with(
-        workspace_id=workspace_id,
-        reason="duration_definition_created",
-        cursor=None,
-    )
-    logger_mock.assert_called_once_with(
-        "Failed to requeue case duration backfill job",
-        workspace_id=str(workspace_id),
-        reason="duration_definition_created",
-        error="redis unavailable",
-    )
+    publish_mock.assert_awaited_once_with(**requeue)
+    logger_mock.assert_called_once()
     assert client.acked == []
     assert client.deleted == []
 
@@ -1201,7 +990,7 @@ async def test_consumer_retries_transient_read_failure_and_processes_next_batch(
 
     ensure_group_mock.assert_awaited_once()
     handle_entries_mock.assert_awaited_once_with(entries)
-    assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0]
+    assert sleep_mock.await_count == 2
 
 
 @pytest.mark.anyio
@@ -1241,27 +1030,6 @@ async def test_consumer_recreates_missing_group_and_keeps_reading(
     assert ensure_group_mock.await_count == 2
     handle_entries_mock.assert_awaited_once_with(entries)
     assert [call.args[0] for call in sleep_mock.await_args_list] == [0]
-
-
-@pytest.mark.anyio
-async def test_consumer_retries_transient_group_creation_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = AsyncMock()
-    client.xreadgroup = AsyncMock(side_effect=asyncio.CancelledError())
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    ensure_group_mock = AsyncMock(
-        side_effect=[ConnectionError("redis unavailable"), None]
-    )
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
-    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
-
-    with pytest.raises(asyncio.CancelledError):
-        await consumer.run()
-
-    assert ensure_group_mock.await_count == 2
-    assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0]
 
 
 @pytest.mark.anyio
@@ -1319,30 +1087,6 @@ async def test_consumer_retries_pending_rollout_until_complete(
     ensure_group_mock.assert_awaited_once()
     assert client.xreadgroup.await_count == 3
     assert [call.args[0] for call in sleep_mock.await_args_list] == [0, 0]
-
-
-@pytest.mark.anyio
-async def test_consumer_resets_backoff_after_successful_iteration(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = AsyncMock()
-    client.xreadgroup = AsyncMock(
-        side_effect=[
-            ConnectionError("first outage"),
-            [],
-            ConnectionError("second outage"),
-            asyncio.CancelledError(),
-        ]
-    )
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr(consumer, "_ensure_group", AsyncMock())
-    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
-
-    with pytest.raises(asyncio.CancelledError):
-        await consumer.run()
-
-    assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0, 1.0]
 
 
 @pytest.mark.anyio

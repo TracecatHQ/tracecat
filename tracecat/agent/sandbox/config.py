@@ -37,6 +37,7 @@ from tracecat.agent.common.config import (
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
     JAILED_OTEL_SOCKET_PATH,
+    TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRUSTED_MCP_SOCKET_PATH,
@@ -100,7 +101,10 @@ class AgentResourceLimits:
     sits above the deployment ceiling.
 
     Attributes:
-        memory_mb: Maximum memory in megabytes.
+        memory_mb: Aggregate cgroup memory budget in MiB.
+        address_space_mb: Per-process virtual address-space cap in MiB.
+            Unset means uncapped under a cgroup memory limit, otherwise twice
+            memory_mb.
         cpu_seconds: Maximum CPU time in seconds.
         max_file_size_mb: Maximum file size in megabytes.
         max_open_files: Maximum number of open file descriptors.
@@ -116,6 +120,27 @@ class AgentResourceLimits:
     timeout_seconds: int = field(
         default_factory=lambda: _sandbox_kill_ceiling_seconds()
     )
+
+    address_space_mb: int | None = field(
+        default_factory=lambda: TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB
+    )
+
+    def __post_init__(self) -> None:
+        if self.memory_mb <= 0:
+            raise ValueError("memory_mb must be positive")
+        if self.address_space_mb is not None and self.address_space_mb <= 0:
+            raise ValueError("address_space_mb must be positive")
+
+    def address_space_limit_mb(self, *, cgroup_memory_limit: bool) -> int | None:
+        """Resolve the per-process address-space cap; None means uncapped.
+
+        rlimit_as bounds virtual reservations, not RAM. Under a cgroup memory
+        limit the cgroup bounds RAM, so an unset cap stays uncapped. Without the
+        cgroup, rlimit_as is the only memory guard, so keep a finite fallback.
+        """
+        if self.address_space_mb is not None:
+            return self.address_space_mb
+        return None if cgroup_memory_limit else 2 * self.memory_mb
 
 
 @dataclass
@@ -141,7 +166,7 @@ AGENT_SANDBOX_BASE_ENV = {
     "USER": "agent",
     # Keep UV caches, credentials, managed Pythons, and tools out of stable home.
     **build_agent_runtime_uv_env(JAILED_AGENT_UV_STATE_DIR),
-    "TRACECAT__DISABLE_NSJAIL": "false",
+    "TRACECAT__EXECUTOR_BACKEND": "nsjail",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
     "LANG": "C.UTF-8",
@@ -244,6 +269,7 @@ def build_agent_nsjail_config(
     network: SandboxNetworkRequest | None = None,
     skills_dir: Path | None = None,
     otel_socket_path: Path | None = None,
+    cgroup_mount: Path | None = None,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
@@ -277,7 +303,10 @@ def build_agent_nsjail_config(
     # the full tracecat.sandbox package to be mounted inside the jail.
     from tracecat.sandbox.networking import resolve_sandbox_network_plan
     from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+    from tracecat.sandbox.types import nsjail_rlimit_as
 
+    if cgroup_mount is not None:
+        _validate_path(cgroup_mount, "cgroup_mount")
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
     _validate_path(job_dir, "job_dir")
@@ -500,7 +529,11 @@ def build_agent_nsjail_config(
         [
             "",
             "# Resource limits",
-            f"rlimit_as: {config.resources.memory_mb}",
+            nsjail_rlimit_as(
+                config.resources.address_space_limit_mb(
+                    cgroup_memory_limit=cgroup_mount is not None
+                )
+            ),
             f"rlimit_cpu: {config.resources.cpu_seconds}",
             f"rlimit_fsize: {config.resources.max_file_size_mb}",
             f"rlimit_nofile: {config.resources.max_open_files}",
@@ -508,6 +541,15 @@ def build_agent_nsjail_config(
             f"time_limit: {config.resources.timeout_seconds}",
         ]
     )
+    if cgroup_mount is not None:
+        lines.extend(
+            [
+                "use_cgroupv2: true",
+                f'cgroupv2_mount: "{cgroup_mount}"',
+                f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
+                "cgroup_mem_swap_max: 0",
+            ]
+        )
 
     # Execution settings.
     lines.extend(

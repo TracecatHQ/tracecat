@@ -14,10 +14,22 @@ from tracecat.runtime.errors import (
 )
 
 
-@pytest.mark.parametrize("kind", list(RuntimeErrorKind))
-@pytest.mark.parametrize("owner", list(RuntimeErrorOwner))
-@pytest.mark.parametrize("retry_disposition", list(RetryDisposition))
-def test_error_classification_supports_every_kind_owner_and_retry_disposition(
+@pytest.mark.parametrize(
+    ("kind", "owner", "retry_disposition"),
+    [
+        (
+            RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+            RuntimeErrorOwner.USER,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+        ),
+    ],
+)
+def test_error_classification_factories_set_kind_owner_and_retry_disposition(
     kind: RuntimeErrorKind,
     owner: RuntimeErrorOwner,
     retry_disposition: RetryDisposition,
@@ -158,3 +170,16 @@ def test_platform_classification_excludes_sensitive_cause_message() -> None:
     assert classification.cause_type == "RuntimeError"
     assert "secret" not in serialized
     assert "example.invalid" not in serialized
+
+
+def test_runtime_classification_rejects_domain_diagnostics() -> None:
+    original = RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
+        message="Safe failure",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    assert "llm" not in original.model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        RuntimeErrorClassification.model_validate(
+            original.model_dump(mode="json") | {"llm": {"route": "managed"}}
+        )

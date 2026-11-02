@@ -1,8 +1,10 @@
 import type {
+  IntegrationReadMinimal,
   MCPIntegrationRead,
   McpIntegrationsListMcpIntegrationsData,
   OAuthGrantType,
   PlatformMCPCatalogRead,
+  ProviderReadMinimal,
 } from "@/client"
 
 export const MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS = 3000
@@ -27,6 +29,24 @@ type PendingStdioMcpVerificationFields = {
  */
 export function isMcpProvider(providerId: string): boolean {
   return providerId.endsWith("_mcp") && !providerId.startsWith("custom_")
+}
+
+/**
+ * Resolve the provider definition backing an OAuth integration.
+ *
+ * Providers that ship both an authorization-code and a client-credentials
+ * flow share a single provider ID and differ only by grant type, so matching
+ * on ID alone would always return the first variant.
+ */
+export function findProviderForIntegration(
+  providers: ProviderReadMinimal[] | undefined,
+  integration: Pick<IntegrationReadMinimal, "provider_id" | "grant_type">
+): ProviderReadMinimal | undefined {
+  return providers?.find(
+    (provider) =>
+      provider.id === integration.provider_id &&
+      provider.grant_type === integration.grant_type
+  )
 }
 
 /** Whether a provider ID belongs to a workspace-defined custom OAuth provider. */

@@ -128,3 +128,48 @@ async def test_update_registry_repository_rejects_platform_builtin_origin(
 
     assert exc_info.value.status_code == 400
     assert "platform-scoped" in str(exc_info.value.detail)
+
+
+@pytest.mark.anyio
+async def test_update_registry_repository_rejects_duplicate_origin(
+    session: AsyncSession,
+    test_role: Role,
+) -> None:
+    update_repository = unwrap(registry_repos_router.update_registry_repository)
+    session.add(
+        Organization(
+            id=test_role.organization_id,
+            name="Registry duplicate test org",
+            slug="registry-duplicate-test-org",
+            is_active=True,
+        )
+    )
+    await session.flush()
+    existing = "git+ssh://git@git.example.com/acme/first.git"
+    repository = RegistryRepository(
+        organization_id=test_role.organization_id,
+        origin="git+ssh://git@git.example.com/acme/second.git",
+    )
+    session.add_all(
+        [
+            RegistryRepository(
+                organization_id=test_role.organization_id, origin=existing
+            ),
+            repository,
+        ]
+    )
+    await session.commit()
+
+    with (
+        patch.object(registry_repos_router, "check_entitlement", new=AsyncMock()),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await update_repository(
+            role=test_role,
+            session=session,
+            repository_id=repository.id,
+            params=RegistryRepositoryUpdate(origin=existing),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Registry repository already exists"

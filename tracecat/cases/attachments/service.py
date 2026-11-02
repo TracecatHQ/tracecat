@@ -15,7 +15,10 @@ from sqlalchemy.orm import selectinload
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.cases.attachments.schemas import CaseAttachmentCreate
-from tracecat.cases.schemas import AttachmentCreatedEvent, AttachmentDeletedEvent
+from tracecat.cases.event_schemas import (
+    AttachmentCreatedEvent,
+    AttachmentDeletedEvent,
+)
 from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseAttachment, File, Workspace
 from tracecat.exceptions import (
@@ -76,7 +79,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         except Exception as e:
             # Rollback the database transaction if storage fails to keep DB/storage in sync
             await self.session.rollback()
-            raise TracecatException(f"Failed to upload file: {str(e)}") from e
+            raise TracecatException("Failed to upload file") from e
 
     async def _emit_case_event(
         self, case: Case, event: AttachmentCreatedEvent | AttachmentDeletedEvent
@@ -439,8 +442,10 @@ class CaseAttachmentService(BaseWorkspaceService):
             return content, attachment.file.name, attachment.file.content_type
         except FileNotFoundError as e:
             raise TracecatNotFoundError("Attachment file not found in storage") from e
+        except TracecatException:
+            raise
         except Exception as e:
-            raise TracecatException(f"Failed to download attachment: {str(e)}") from e
+            raise TracecatException("Failed to download attachment") from e
 
     async def get_attachment_download_url(
         self,
@@ -494,7 +499,7 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
             return presigned_url, attachment.file.name, attachment.file.content_type
         except Exception as e:
-            raise TracecatException(f"Failed to generate download URL: {str(e)}") from e
+            raise TracecatException("Failed to generate download URL") from e
 
     async def delete_attachment(self, case: Case, attachment_id: uuid.UUID) -> None:
         """Soft delete an attachment.

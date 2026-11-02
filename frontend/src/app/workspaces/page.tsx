@@ -3,51 +3,19 @@
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function WorkspacesPage() {
-  const { workspaces, createWorkspace, getLastWorkspaceId } =
-    useWorkspaceManager()
+  // The layout has already picked the workspace to land in: the last-viewed
+  // one, else the first one the user can read. It renders this page only
+  // once that is known and the user has at least one workspace.
+  const workspaceId = useWorkspaceId()
   const router = useRouter()
 
   useEffect(() => {
-    // Determine which workspace the user should land on
-    if (!workspaces) {
-      return
-    }
-
-    if (workspaces.length === 0) {
-      console.log("Creating a new workspace")
-      createWorkspace({ name: "New Workspace" })
-        .then((workspace) =>
-          router.replace(getWorkspaceLandingPath(workspace.id))
-        )
-        .catch((error) => {
-          console.error("Error creating workspace", error)
-        })
-      return
-    }
-
-    let targetWorkspaceId: string | undefined
-
-    const lastViewedId = getLastWorkspaceId()
-    if (
-      lastViewedId &&
-      lastViewedId.trim().length > 0 &&
-      workspaces.some((workspace) => workspace.id === lastViewedId)
-    ) {
-      targetWorkspaceId = lastViewedId
-    }
-
-    if (!targetWorkspaceId) {
-      targetWorkspaceId = workspaces[0]?.id
-    }
-
-    if (targetWorkspaceId) {
-      router.replace(getWorkspaceLandingPath(targetWorkspaceId))
-    }
-  }, [createWorkspace, getLastWorkspaceId, router, workspaces])
+    router.replace(getWorkspaceLandingPath(workspaceId))
+  }, [router, workspaceId])
 
   // Return a loading indicator while waiting for redirection
   return <CenteredSpinner />

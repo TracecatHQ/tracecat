@@ -50,6 +50,196 @@ def _as_list_filter[T](value: T | list[T]) -> list[T]:
 
 
 @registry.register(
+    default_title="Aggregate cases",
+    display_group="Cases",
+    description=(
+        "Filter, group, and summarize workspace cases. Returns groups and a "
+        "truncated flag indicating whether more groups exist than the requested limit."
+    ),
+    namespace="core.cases",
+)
+async def aggregate_cases(
+    group_by: Annotated[
+        list[str | dict[str, Any]],
+        Doc(
+            "Choose how to split cases into groups. Use up to 3 fields, or `[]` for one "
+            "total across all matching cases.\n"
+            "\n"
+            "Supply a field name such as `priority`, or an object with `field` and "
+            "optional `bucket`, `timezone`, and `alias`. For example: ['priority', "
+            "{'field': 'created_at', 'bucket': 'day'}]. An alias names the field in the "
+            "result; it defaults to the field name. Output names must be unique and at "
+            "most 63 UTF-8 bytes.\n"
+            "\n"
+            "Fields you can group by:\n"
+            "\n"
+            "- Built-in fields: `status`, `priority`, `severity`, and `assignee_id` (a "
+            "user UUID).\n"
+            "- Custom fields: `fields.region`, replacing `region` with a defined field name. URL "
+            "fields use the URL, not the display label. LONG_TEXT fields work as text. "
+            "Other JSONB fields and MULTI_SELECT fields are unsupported.\n"
+            "- Dates and times: `created_at`, `updated_at`, and custom date/time fields. "
+            "These require a `bucket`: `hour`, `day`, `week`, or `month`. Weeks start on "
+            "Monday.\n"
+            "\n"
+            "Date and time settings:\n"
+            "\n"
+            "- Timestamps accept an IANA timezone name, such as `America/New_York`. The "
+            "default is `UTC`; results always contain UTC timestamps.\n"
+            "- DATE fields return `YYYY-MM-DD`. They do not accept a timezone, and even "
+            "an `hour` bucket retains only date precision.\n"
+            "\n"
+            "How group values appear in results:\n"
+            "\n"
+            "- Missing values share one `null` group, including cases with no saved "
+            "custom fields.\n"
+            "- TEXT and SELECT values use only the first 256 characters. Values with the "
+            "same prefix merge into one group.\n"
+            "- NUMERIC values appear as exact decimal strings.\n"
+            "\n"
+            "If your server supports tag and dropdown aggregation:\n"
+            "\n"
+            "- Use `dropdowns.category` to group by option reference; replace `category` with your dropdown reference. This requires case "
+            "add-ons. Missing or deleted options share the `null` group.\n"
+            "- Use `tags` to group by tag reference. A case belongs to every tag group "
+            "that applies to it; untagged cases share the `null` group. Adding the group "
+            "counts can therefore count a case more than once."
+        ),
+    ],
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Choose which cases to include before grouping. Omit this input to include "
+            "all cases.\n"
+            "\n"
+            "Write one condition as {field, op, value}. For example: {'field': 'status', "
+            "'op': 'in', 'value': ['new', 'in_progress']}. Combine conditions with "
+            "{'and': [...]}, {'or': [...]}, or {'not': {...}}.\n"
+            "\n"
+            "Choose an operator supported by the field type:\n"
+            "\n"
+            "- Equality: `eq` (equals), `ne` (does not equal).\n"
+            "- Lists: `in` (matches any listed value), `not_in` (matches none). Supply a "
+            "list as `value`.\n"
+            "- Ranges: `gt`, `gte`, `lt`, `lte` (greater than, at least, less than, at "
+            "most).\n"
+            "- Text: `contains`, `starts_with`. Both ignore case and match literal text.\n"
+            "- Missing values: `is_null`. Omit `value`; custom fields also match cases "
+            "with no saved field row.\n"
+            "\n"
+            "You can filter on grouping fields, plus `summary`, `description`, and "
+            "`case_number`. You cannot filter on `short_id` or `payload`. Use strings for "
+            "exact decimals and ISO-formatted dates or timestamps.\n"
+            "\n"
+            "Built-in values must be lowercase:\n"
+            "\n"
+            "- Status: `unknown`, `new`, `in_progress`, `on_hold`, `resolved`, `closed`, "
+            "`other`. Status does not support range comparisons.\n"
+            "- Priority, from lowest to highest: `low`, `medium`, `high`, `critical`.\n"
+            "- Severity, from lowest to highest: `informational`, `low`, `medium`, "
+            "`high`, `critical`, `fatal`.\n"
+            "- Priority and severity also accept `unknown` and `other` for equality or "
+            "list matching. These values never match a range and cannot be range "
+            "boundaries.\n"
+            "\n"
+            "Special cases and limits:\n"
+            "\n"
+            "- `ne` and `not_in` exclude missing values. An empty `not_in` list matches "
+            "all cases; an empty `in` list matches none.\n"
+            "- Where tag aggregation is supported, `tags` accepts `contains` (one tag "
+            "reference), `in` (any listed reference), or `is_null` (untagged).\n"
+            "- Filters allow up to 4 levels of nesting, 50 conditions, and 1000 total "
+            "values. The server validates the request when the action runs."
+        ),
+    ] = None,
+    aggs: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Choose what to calculate for each group. Omit this input to count cases. "
+            "Supply up to 8 calculations; an empty list is invalid.\n"
+            "\n"
+            "Each calculation is an object with `function`, optional `field`, and "
+            "optional `alias`. For example: [{'function': 'sum', 'field': "
+            "'fields.amount', 'alias': 'total'}].\n"
+            "\n"
+            "Available calculations:\n"
+            "\n"
+            "- `count`: Count cases when you omit `field`, or count non-null values when "
+            "you supply it.\n"
+            "- `count_distinct`: Count different non-null values.\n"
+            "- `sum`, `mean`, `median`: Calculate the total, average, or middle value.\n"
+            "- `min`, `max`: Return the smallest or largest value.\n"
+            "\n"
+            "Every function except `count` requires a field. Numeric custom fields "
+            "support all functions. Text and date/time fields support `count`, "
+            "`count_distinct`, `min`, and `max`. BOOLEAN and SELECT fields support only "
+            "`count` and `count_distinct`.\n"
+            "\n"
+            "Naming and number formats:\n"
+            "\n"
+            "- Use `alias` to name a result, such as `total`. Otherwise the name is "
+            "`count` or `function_field`, using the final part of the field name. All "
+            "output names must be unique and at most 63 UTF-8 bytes.\n"
+            "- Counts are integers. INTEGER/NUMERIC sums, all means and medians, and "
+            "NUMERIC min/max use floating-point numbers and can lose precision. NUMERIC "
+            "grouping values remain exact decimal strings.\n"
+            "\n"
+            "When grouping by tags, counts and `min_count` count each case once within "
+            "each group. You cannot use `sum`, `mean`, or `median` with tag grouping."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Doc(
+            "Set the maximum number of groups to return. Use at least 1, up to your "
+            "server's configured maximum (normally 1000). Omit this input to use the "
+            "server default (normally 100).\n"
+            "\n"
+            "If more groups exist, the result sets `truncated` to `true`. There is no "
+            "next-page cursor."
+        ),
+    ] = None,
+    min_count: Annotated[
+        int | None, Doc("Only return groups with at least this many cases (minimum 1).")
+    ] = None,
+    order_by: Annotated[
+        str | None,
+        Doc(
+            "Choose a group or calculation output name to sort by, including any alias "
+            "you set.\n"
+            "\n"
+            "If omitted, results sort by the first date/time bucket, or by the first "
+            "calculation when there is no date/time bucket."
+        ),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc(
+            "Use `asc` for ascending order or `desc` for descending order.\n"
+            "\n"
+            "If omitted, the direction is `asc` when the action automatically sorts by a "
+            "date/time bucket. Otherwise it is `desc`, including when you set `order_by` "
+            "yourself. Missing values sort last; group values break ties."
+        ),
+    ] = None,
+) -> types.AggregateResponse:
+    # Recursive query models cannot be mirrored by action schemas. Keep the
+    # specification as plain JSON and let the server validate it. Omitting limit
+    # lets the server apply its configured default and maximum.
+    spec: dict[str, Any] = {
+        "group_by": group_by,
+        "filters": filters,
+        "aggs": aggs,
+        "min_count": min_count,
+        "order_by": order_by,
+        "sort": sort,
+    }
+    if limit is not None:
+        spec["limit"] = limit
+    return await ctx.cases.aio.aggregate_cases(spec=spec)
+
+
+@registry.register(
     default_title="Create case",
     display_group="Cases",
     description="Create a new case.",
@@ -133,7 +323,7 @@ async def create_case(
 async def update_case(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to update."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to update."),
     ],
     summary: Annotated[
         str | None,
@@ -225,7 +415,7 @@ async def update_case(
 async def create_comment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to comment on."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to comment on."),
     ],
     content: Annotated[
         str,
@@ -257,7 +447,9 @@ async def create_comment(
 async def reply_to_comment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the parent comment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the parent comment."
+        ),
     ],
     parent_comment_id: Annotated[
         str,
@@ -298,6 +490,29 @@ async def update_comment(
 
 
 @registry.register(
+    default_title="Delete case comment",
+    display_group="Cases",
+    description="Delete a case comment. Only the comment author can delete it.",
+    namespace="core.cases",
+)
+async def delete_comment(
+    case_id: Annotated[
+        str,
+        Doc("The ID or short ID (e.g. CASE-0042) of the case containing the comment."),
+    ],
+    comment_id: Annotated[
+        str,
+        Doc("The ID of the comment to delete."),
+    ],
+) -> None:
+    """Delete a case comment.
+
+    Top-level comments with replies are soft-deleted so the thread is kept.
+    """
+    await ctx.cases.aio.delete_comment(case_id, comment_id)
+
+
+@registry.register(
     default_title="Get case",
     display_group="Cases",
     description="Get details of a specific case by ID.",
@@ -306,7 +521,7 @@ async def update_comment(
 async def get_case(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to retrieve."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to retrieve."),
     ],
 ) -> types.CaseRead:
     return await ctx.cases.aio.get_case(case_id)
@@ -321,11 +536,87 @@ async def get_case(
 async def get_linked_case_rows(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to retrieve."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to retrieve."),
     ],
 ) -> list[types.CaseTableRowRead]:
     case = await ctx.cases.aio.get_case(case_id, include_rows=True)
     return case["rows"]
+
+
+@registry.register(
+    default_title="List cases by row",
+    display_group="Cases",
+    description="List the cases that link a table row.",
+    namespace="core.cases",
+    required_entitlements=["case_addons"],
+)
+async def list_cases_by_row(
+    table_id: Annotated[
+        str,
+        Doc("The ID of the table that contains the row."),
+    ],
+    row_id: Annotated[
+        str,
+        Doc("The ID of the linked row."),
+    ],
+    exclude_case_id: Annotated[
+        str | None,
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of a case to leave out, "
+            "usually the current case."
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of cases to return."),
+    ] = 100,
+    cursor: Annotated[
+        str | None,
+        Doc("Pagination cursor used to fetch a specific page when paginate=true."),
+    ] = None,
+    order_by: Annotated[
+        Literal[
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+        ]
+        | None,
+        Doc(
+            "The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc("The direction to order the cases by."),
+    ] = None,
+    paginate: Annotated[
+        bool,
+        Doc("If true, return cursor pagination metadata along with items."),
+    ] = False,
+) -> list[types.CaseReadMinimal] | types.CaseListResponse:
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+        raise TracecatValidationError(
+            detail=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
+        )
+
+    params: dict[str, Any] = {"limit": limit}
+    if paginate and cursor is not None:
+        params["cursor"] = cursor
+    if order_by is not None:
+        params["order_by"] = order_by
+    if sort is not None:
+        params["sort"] = sort
+    if exclude_case_id is not None:
+        params["exclude_case_id"] = exclude_case_id
+    response = await ctx.cases.aio.list_linked_cases(table_id, row_id, **params)
+    if paginate:
+        return response
+    return response["items"]
 
 
 @registry.register(
@@ -348,9 +639,20 @@ async def list_cases(
         Doc("Reverse pagination direction when paginate=true."),
     ] = False,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        Literal[
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+        ]
         | None,
-        Doc("The field to order the cases by."),
+        Doc(
+            "The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,
@@ -360,6 +662,32 @@ async def list_cases(
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
     ] = False,
+    include_payload: Annotated[
+        bool,
+        Doc(
+            "Return the full payload when both payload selectors are omitted or empty."
+        ),
+    ] = False,
+    payload_fields: Annotated[
+        list[str] | None,
+        Doc(
+            "Return only these top-level payload keys, e.g. ['alert_id', 'score']. "
+            "Automatically includes the subset regardless of include_payload. "
+            "Dots are literal; selected objects are returned whole. Missing keys "
+            "are omitted and null values preserved. An empty list acts as omitted; "
+            "an empty string selects the literal empty key."
+        ),
+    ] = None,
+    payload_paths: Annotated[
+        list[list[str]] | None,
+        Doc(
+            "Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
+            "contains 1 to 32 literal keys. Preserves nesting and combines with "
+            "payload_fields, including the subset automatically. Selected parents "
+            "include their whole value; missing paths are omitted and nulls preserved. "
+            "Arrays are selected whole, without index traversal. An empty list is omitted."
+        ),
+    ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise TracecatValidationError(
@@ -375,6 +703,12 @@ async def list_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if include_payload:
+        params["include_payload"] = include_payload
+    if payload_fields:
+        params["payload_fields"] = payload_fields
+    if payload_paths:
+        params["payload_paths"] = payload_paths
     response = await ctx.cases.aio.list_cases(**params)
     if paginate:
         return response
@@ -392,9 +726,17 @@ async def search_cases(
         str | None,
         Doc("Text to search for in case summary and description."),
     ] = None,
-    short_id: Annotated[
-        str | None,
-        Doc("Filter by case short_id."),
+    search_mode: Annotated[
+        Literal["full_text", "literal"] | None,
+        Doc(
+            "Explicit words/phrases or escaped substring. Omitted preserves legacy matching."
+        ),
+    ] = None,
+    search_columns: Annotated[
+        list[Literal["summary", "description"]] | None,
+        Doc(
+            "Search selected text fields; requires an explicit search_mode. Omitted searches both."
+        ),
     ] = None,
     status: Annotated[
         StatusType | list[StatusType] | None,
@@ -410,7 +752,7 @@ async def search_cases(
     ] = None,
     tags: Annotated[
         list[str] | None,
-        Doc("Filter by tag IDs or refs (AND logic)."),
+        Doc("Filter by tag IDs or refs. Matches cases with any of the given tags."),
     ] = None,
     assignee_id: Annotated[
         str | list[str] | None,
@@ -449,18 +791,80 @@ async def search_cases(
         Doc("Reverse pagination direction when paginate=true."),
     ] = False,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        Literal[
+            "relevance",
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+            "id",
+            "short_id",
+        ]
         | None,
-        Doc("The field to order the cases by."),
+        Doc(
+            "The field to order by. Relevance requires search_mode='full_text' and descending sort. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    short_id: Annotated[
+        str | None, Doc("Exact short ID, such as CASE-0042 or 42.")
+    ] = None,
+    case_id: Annotated[str | None, Doc("Exact case UUID.")] = None,
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Shared AND/OR/NOT JSON filter tree. Tags use in/contains/is_null; scalar exclusions omit unset values unless ORed with is_null. Payload equality: {'field': 'payload.metadata.product.vendor_name', 'op': 'eq', 'value': 'Microsoft'}. Payload paths support only eq/ne/is_null. Use dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Combine with and/or/not; JSON scalar types are preserved. is_null matches missing paths, not explicit JSON null."
+        ),
+    ] = None,
+    hierarchy: Annotated[
+        Literal["all", "top_level"], Doc("Case hierarchy scope.")
+    ] = "all",
+    parent_id: Annotated[
+        str | None, Doc("Return sub-cases of this parent UUID.")
+    ] = None,
+    include_rows: Annotated[bool, Doc("Include linked table rows.")] = False,
+    field_ids: Annotated[
+        list[str] | None, Doc("Include requested custom field values.")
+    ] = None,
+    include_durations: Annotated[bool, Doc("Include duration values.")] = False,
+    include_count: Annotated[bool, Doc("Include exact total_estimate.")] = True,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
     ] = False,
+    include_payload: Annotated[
+        bool,
+        Doc(
+            "Return the full payload when both payload selectors are omitted or empty."
+        ),
+    ] = False,
+    payload_fields: Annotated[
+        list[str] | None,
+        Doc(
+            "Return only these top-level payload keys, e.g. ['alert_id', 'score']. "
+            "Automatically includes the subset regardless of include_payload. "
+            "Dots are literal; selected objects are returned whole. Missing keys "
+            "are omitted and null values preserved. An empty list acts as omitted; "
+            "an empty string selects the literal empty key."
+        ),
+    ] = None,
+    payload_paths: Annotated[
+        list[list[str]] | None,
+        Doc(
+            "Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
+            "contains 1 to 32 literal keys. Preserves nesting and combines with "
+            "payload_fields, including the subset automatically. Selected parents "
+            "include their whole value; missing paths are omitted and nulls preserved. "
+            "Arrays are selected whole, without index traversal. An empty list is omitted."
+        ),
+    ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
     """Search cases based on various criteria."""
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
@@ -475,8 +879,6 @@ async def search_cases(
         params["reverse"] = reverse
     if search_term is not None:
         params["search_term"] = search_term
-    if short_id is not None:
-        params["short_id"] = short_id
     if status is not None:
         params["status"] = _as_list_filter(status)
     if priority is not None:
@@ -501,6 +903,31 @@ async def search_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if payload_fields:
+        params["payload_fields"] = payload_fields
+    if payload_paths:
+        params["payload_paths"] = payload_paths
+    if hierarchy != "all":
+        params["hierarchy"] = hierarchy
+    if include_rows:
+        params["include_rows"] = True
+    if include_durations:
+        params["include_durations"] = True
+    if include_payload:
+        params["include_payload"] = True
+    if not include_count:
+        params["include_count"] = False
+    for name, value in (
+        ("search_mode", search_mode),
+        ("search_columns", search_columns),
+        ("short_id", short_id),
+        ("case_id", case_id),
+        ("filters", filters),
+        ("parent_id", parent_id),
+        ("field_ids", field_ids),
+    ):
+        if value is not None:
+            params[name] = value
     response = await ctx.cases.aio.search_cases(**params)
     if paginate:
         return response
@@ -516,7 +943,7 @@ async def search_cases(
 async def delete_case(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to delete."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to delete."),
     ],
 ) -> None:
     await ctx.cases.aio.delete_case(case_id)
@@ -531,7 +958,7 @@ async def delete_case(
 async def list_case_events(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to get events for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to get events for."),
     ],
 ) -> types.CaseEventsWithUsers:
     return await ctx.cases.aio.list_events(case_id)
@@ -546,7 +973,7 @@ async def list_case_events(
 async def list_comments(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to get comments for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to get comments for."),
     ],
 ) -> list[types.CaseCommentRead]:
     return await ctx.cases.aio.list_comments(case_id)
@@ -561,7 +988,9 @@ async def list_comments(
 async def list_comment_threads(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to get comment threads for."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case to get comment threads for."
+        ),
     ],
 ) -> list[types.CaseCommentThreadRead]:
     return await ctx.cases.aio.list_comment_threads(case_id)
@@ -591,7 +1020,7 @@ async def get_comment_thread(
 async def assign_user(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to assign a user to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to assign a user to."),
     ],
     assignee_id: Annotated[
         str,
@@ -613,7 +1042,7 @@ async def assign_user(
 async def assign_user_by_email(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to assign a user to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to assign a user to."),
     ],
     assignee_email: Annotated[
         str,
@@ -635,7 +1064,7 @@ async def assign_user_by_email(
 async def add_case_tag(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to add a tag to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to add a tag to."),
     ],
     tag: Annotated[
         str,
@@ -662,7 +1091,7 @@ async def add_case_tag(
 async def remove_case_tag(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to remove a tag from."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to remove a tag from."),
     ],
     tag: Annotated[
         str,
@@ -679,16 +1108,9 @@ async def _upload_attachment(
     content_type: str,
 ) -> types.CaseAttachmentRead:
     """Upload an attachment to a case."""
-    try:
-        case_uuid = UUID(case_id)
-    except ValueError as e:
-        raise TracecatValidationError(
-            detail=f"Invalid case ID format: {case_id}"
-        ) from e
-
     content_base64 = base64.b64encode(content).decode("utf-8")
     return await ctx.cases.aio.create_attachment(
-        str(case_uuid),
+        case_id,
         filename=file_name,
         content_base64=content_base64,
         content_type=content_type,
@@ -704,7 +1126,7 @@ async def _upload_attachment(
 async def upload_attachment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to attach the file to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to attach the file to."),
     ],
     file_name: Annotated[
         str,
@@ -753,7 +1175,7 @@ def _infer_filename_from_url(url: str) -> str:
 async def upload_attachment_from_url(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to attach the file to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to attach the file to."),
     ],
     url: Annotated[
         str,
@@ -801,19 +1223,11 @@ async def upload_attachment_from_url(
 async def list_attachments(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to list attachments for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to list attachments for."),
     ],
 ) -> list[types.CaseAttachmentRead]:
     """List all attachments for a case."""
-    # Validate case_id format
-    try:
-        case_uuid = UUID(case_id)
-    except ValueError as e:
-        raise TracecatValidationError(
-            detail=f"Invalid case ID format: {case_id}"
-        ) from e
-
-    return await ctx.cases.aio.list_attachments(str(case_uuid))
+    return await ctx.cases.aio.list_attachments(case_id)
 
 
 @registry.register(
@@ -825,7 +1239,9 @@ async def list_attachments(
 async def download_attachment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the attachment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the attachment."
+        ),
     ],
     attachment_id: Annotated[
         str,
@@ -837,15 +1253,16 @@ async def download_attachment(
     Returns the file content as base64 encoded string along with metadata.
     File integrity is automatically verified via SHA256 hash.
     """
-    # Validate UUID formats
+    # Validate attachment ID format
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+        raise TracecatValidationError(
+            detail=f"Invalid attachment ID format: {str(e)}"
+        ) from e
 
     return await ctx.cases.aio.download_attachment(
-        case_uuid,
+        case_id,
         attachment_uuid,
     )
 
@@ -859,7 +1276,9 @@ async def download_attachment(
 async def get_attachment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the attachment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the attachment."
+        ),
     ],
     attachment_id: Annotated[
         str,
@@ -867,15 +1286,16 @@ async def get_attachment(
     ],
 ) -> types.CaseAttachmentRead:
     """Get attachment metadata without downloading the content."""
-    # Validate UUID formats
+    # Validate attachment ID format
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+        raise TracecatValidationError(
+            detail=f"Invalid attachment ID format: {str(e)}"
+        ) from e
 
     return await ctx.cases.aio.get_attachment_metadata(
-        case_uuid,
+        case_id,
         attachment_uuid,
     )
 
@@ -889,7 +1309,9 @@ async def get_attachment(
 async def delete_attachment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the attachment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the attachment."
+        ),
     ],
     attachment_id: Annotated[
         str,
@@ -902,13 +1324,14 @@ async def delete_attachment(
     the file from storage. Only the attachment creator or admins can delete.
     """
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+        raise TracecatValidationError(
+            detail=f"Invalid attachment ID format: {str(e)}"
+        ) from e
 
     await ctx.cases.aio.delete_attachment(
-        case_uuid,
+        case_id,
         attachment_uuid,
     )
 
@@ -922,7 +1345,9 @@ async def delete_attachment(
 async def get_attachment_download_url(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the attachment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the attachment."
+        ),
     ],
     attachment_id: Annotated[
         str,
@@ -936,12 +1361,13 @@ async def get_attachment_download_url(
     ] = None,
 ) -> str:
     """Get a presigned S3 URL for downloading an attachment."""
-    # Validate UUID formats
+    # Validate attachment ID format
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+        raise TracecatValidationError(
+            detail=f"Invalid attachment ID format: {str(e)}"
+        ) from e
 
     # Validate expiry if provided
     if expiry is not None:
@@ -955,7 +1381,7 @@ async def get_attachment_download_url(
             )
 
     return await ctx.cases.aio.get_attachment_presigned_url(
-        case_uuid,
+        case_id,
         attachment_uuid,
         expiry=expiry,
     )
@@ -968,7 +1394,7 @@ async def get_attachment_download_url(
     namespace="core.cases",
 )
 async def link_row(
-    case_id: Annotated[str, Doc("Case ID")],
+    case_id: Annotated[str, Doc("Case ID or short ID (e.g. CASE-0042)")],
     table_id: Annotated[str, Doc("Table ID")],
     row_id: Annotated[str, Doc("Row ID")],
 ) -> types.CaseTableRowRead:
@@ -986,7 +1412,7 @@ async def link_row(
     namespace="core.cases",
 )
 async def unlink_row(
-    case_id: Annotated[str, Doc("Case ID")],
+    case_id: Annotated[str, Doc("Case ID or short ID (e.g. CASE-0042)")],
     table_id: Annotated[str, Doc("Table ID")],
     row_id: Annotated[str, Doc("Row ID")],
 ) -> None:
@@ -1004,7 +1430,7 @@ async def unlink_row(
     namespace="core.cases",
 )
 async def insert_row(
-    case_id: Annotated[str, Doc("Case ID")],
+    case_id: Annotated[str, Doc("Case ID or short ID (e.g. CASE-0042)")],
     table_id: Annotated[str, Doc("Table ID")],
     row: Annotated[dict[str, Any], Doc("Row values")],
 ) -> types.CaseTableRowRead:

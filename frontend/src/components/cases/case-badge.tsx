@@ -42,6 +42,14 @@ export function CaseBadge<T extends CaseBadgeValue>({
   )
 }
 
+/**
+ * A faint fill for a badge drawn in `color`. Works for any CSS color, not only
+ * 6-digit hex, so tags saved as names like "blue" still get a background.
+ */
+export function tintColor(color: string): string {
+  return `color-mix(in srgb, ${color} 12.5%, transparent)`
+}
+
 export interface CaseColumnBadgeProps
   extends Omit<React.HTMLAttributes<HTMLDivElement>, "content" | "color"> {
   label?: string
@@ -59,7 +67,7 @@ export const CaseColumnBadge = React.forwardRef<
     <CircleIcon className="size-[0.9em] flex-none" strokeWidth={3} />
   )
   const colorStyle = color
-    ? ({ backgroundColor: `${color}20`, color } as React.CSSProperties)
+    ? ({ backgroundColor: tintColor(color), color } as React.CSSProperties)
     : undefined
   const mergedStyle = { ...style, ...colorStyle }
 

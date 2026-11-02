@@ -1,37 +1,54 @@
 import * as aiSdk from "@ai-sdk/react"
-import {
-  type ChatOnDataCallback,
-  type ChatStatus,
-  DefaultChatTransport,
-  type UIMessage,
-} from "ai"
+import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  type AgentBackendRead,
+  type AgentControlReceipt,
+  type AgentPendingMessageRead,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
   type AgentSessionsCancelSessionResponse,
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
+  type AgentSessionsListPendingMessagesResponse,
   type AgentSessionsListSessionsResponse,
   type AgentSessionsRemoveSessionArtifactData,
   type AgentSessionsRemoveSessionArtifactResponse,
   type AgentSessionUpdate,
   type ApiError,
   agentSessionsCancelSession,
+  agentSessionsControlSession,
   agentSessionsCreateSession,
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
+  agentSessionsListAgentBackends,
+  agentSessionsListPendingMessages,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
+  type ChatPageContext,
   type ContinueRunRequest,
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { getBaseUrl } from "@/lib/api"
-import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
+import {
+  CHAT_MESSAGES_THROTTLE_MS,
+  CoalescingChatTransport,
+  isUserPrompt,
+  type ModelInfo,
+  toServerUIMessage,
+} from "@/lib/chat"
+import {
+  chatStreamUrl,
+  readDroppedPrompt,
+  refetchChatTranscript,
+  saveDroppedPrompt,
+  serverTookPrompt,
+} from "@/lib/chat-dropped-prompt"
+import type { WithdrawPendingRequest } from "@/lib/extensions"
 import {
   type QueryClient,
   type UseQueryResult,
@@ -39,6 +56,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@/lib/query"
+import {
+  AGENT_CHUNK_DATA_PART_TYPE,
+  parseAgentChunkData,
+  SubagentStreamStore,
+} from "@/lib/subagent-stream"
 
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
@@ -162,12 +184,34 @@ export function parseChatError(error: unknown): string {
   }
 
   if (error instanceof Error) {
+    // Generated-client errors keep the API body apart from the status text.
+    const body = "body" in error ? error.body : undefined
+    if (body && typeof body === "object" && "message" in body) {
+      const bodyMessage = (body as { message?: unknown }).message
+      if (typeof bodyMessage === "string" && bodyMessage.trim()) {
+        return bodyMessage.trim()
+      }
+    }
     const message = error.message?.trim()
     if (message) {
       try {
         const parsed = JSON.parse(message)
         if (parsed && typeof parsed === "object" && "errorText" in parsed) {
           const parsedMessage = (parsed as { errorText?: unknown }).errorText
+          if (typeof parsedMessage === "string" && parsedMessage.trim()) {
+            return parsedMessage.trim()
+          }
+        }
+        // A rejected send carries the API's `{"detail": "..."}` body as its message.
+        if (parsed && typeof parsed === "object" && "detail" in parsed) {
+          const detail = (parsed as { detail?: unknown }).detail
+          if (typeof detail === "string" && detail.trim()) {
+            return detail.trim()
+          }
+        }
+        // Typed API errors such as EntitlementRequired carry it in `message`.
+        if (parsed && typeof parsed === "object" && "message" in parsed) {
+          const parsedMessage = (parsed as { message?: unknown }).message
           if (typeof parsedMessage === "string" && parsedMessage.trim()) {
             return parsedMessage.trim()
           }
@@ -431,6 +475,71 @@ export function useDeleteChat(workspaceId: string) {
   }
 }
 
+const NO_PENDING_MESSAGES: AgentPendingMessageRead[] = []
+
+/**
+ * The user's messages the model has not read yet, in send order, and a way to
+ * withdraw them.
+ *
+ * Fetches only while `enabled`; otherwise the list is empty.
+ */
+export function usePendingMessages({
+  workspaceId,
+  chatId,
+  enabled,
+}: {
+  workspaceId: string
+  chatId?: string
+  enabled: boolean
+}) {
+  const queryClient = useQueryClient()
+  const active = enabled && !!chatId
+  const { data } = useQuery<AgentSessionsListPendingMessagesResponse, ApiError>(
+    {
+      queryKey: ["chat", chatId, workspaceId, "pending"],
+      queryFn: () =>
+        agentSessionsListPendingMessages({
+          sessionId: chatId ?? "",
+          workspaceId,
+        }),
+      enabled: active,
+      refetchOnWindowFocus: false,
+    }
+  )
+  const refreshPending = useCallback(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ["chat", chatId, workspaceId, "pending"],
+    })
+  }, [chatId, queryClient, workspaceId])
+
+  const withdraw = useCallback(
+    async ({
+      id,
+      targetIds,
+    }: WithdrawPendingRequest): Promise<AgentControlReceipt> => {
+      if (!chatId) {
+        throw new Error("No chat to withdraw from")
+      }
+      try {
+        return await agentSessionsControlSession({
+          sessionId: chatId,
+          workspaceId,
+          requestBody: { type: "withdraw", id, target_ids: targetIds ?? null },
+        })
+      } finally {
+        await refreshPending()
+      }
+    },
+    [chatId, refreshPending, workspaceId]
+  )
+
+  return {
+    pending: active && data ? data.items : NO_PENDING_MESSAGES,
+    refreshPending,
+    withdraw,
+  }
+}
+
 /** Request cancellation for the currently running agent turn. */
 export function useCancelChatTurn(workspaceId: string) {
   const queryClient = useQueryClient()
@@ -469,14 +578,22 @@ export function useCancelChatTurn(workspaceId: string) {
 export function useGetChatVercel({
   chatId,
   workspaceId,
+  refetchInterval,
+  enabled = true,
+  retry,
 }: {
   chatId?: string
   workspaceId: string
+  refetchInterval?: number | false
+  enabled?: boolean
+  retry?: boolean
 }) {
   const {
     data: chat,
     isLoading: chatLoading,
+    isFetching: chatFetching,
     error: chatError,
+    refetch: refetchChat,
   } = useQuery<AgentSessionsGetSessionVercelResponse, ApiError>({
     queryKey: ["chat", chatId, workspaceId, "vercel"],
     queryFn: async () => {
@@ -488,13 +605,15 @@ export function useGetChatVercel({
         workspaceId,
       })
     },
-    enabled: !!chatId,
+    enabled: !!chatId && enabled,
+    ...(retry !== undefined ? { retry } : {}),
     // A remount must never render a stale cache snapshot as the final
     // transcript: always refetch so the pane adopts the current server copy
     // (e.g. after an approval was resolved from another surface).
     refetchOnMount: "always",
+    refetchInterval,
   })
-  return { chat, chatLoading, chatError }
+  return { chat, chatLoading, chatFetching, chatError, refetchChat }
 }
 
 function applyArtifactsToVercelChat(
@@ -572,6 +691,7 @@ export function useVercelChat({
   messages,
   modelInfo,
   onData,
+  pageContext,
   resume = true,
 }: {
   chatId?: string
@@ -579,6 +699,8 @@ export function useVercelChat({
   messages: UIMessage[]
   modelInfo?: ModelInfo
   onData?: ChatOnDataCallback<UIMessage>
+  /** The object the page around a docked chat shows, sent with each turn. */
+  pageContext?: ChatPageContext | null
   /**
    * Reconnect to the live event stream on mount. Defaults to true. Set to
    * false for terminal sessions whose history is already seeded from the DB:
@@ -588,7 +710,63 @@ export function useVercelChat({
   resume?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [lastError, setLastError] = useState<string | null>(null)
+  // Reconnecting after a drop needs a fresh SDK Chat: the old one keeps the cut
+  // stream's partial state, and the server's full replay would duplicate it.
+  const [reconnect, setReconnect] = useState<{
+    chatId: string
+    generation: number
+  } | null>(null)
+  const generation =
+    reconnect && reconnect.chatId === chatId ? reconnect.generation : 0
+  const chatKey = chatId && `${chatId}#${generation}`
+  const [lastError, setLastError] = useState<{
+    chatKey: string | undefined
+    message: string
+    disconnected: boolean
+    /** The drop cut a reconnect replay, which never shows its turn's prompt. */
+    replay?: boolean
+  } | null>(null)
+  // useChat reads its seed once per chat, so the dropped prompt is read once too.
+  const droppedPromptRef = useRef<{
+    chatKey: string | undefined
+    prompt: UIMessage | null
+  } | null>(null)
+  if (
+    !droppedPromptRef.current ||
+    droppedPromptRef.current.chatKey !== chatKey
+  ) {
+    droppedPromptRef.current = {
+      chatKey,
+      prompt: readDroppedPrompt(chatId, messages),
+    }
+  }
+  const droppedPrompt = droppedPromptRef.current.prompt
+  // A pane reused across chats must not resurface a chat's old live error;
+  // only a dropped prompt the server never got comes back.
+  useEffect(() => {
+    setLastError(
+      droppedPromptRef.current?.prompt
+        ? { chatKey, message: "Connection dropped", disconnected: true }
+        : null
+    )
+  }, [chatKey])
+  // Whether the request in flight is this tab's send or a reconnect replay.
+  const requestKindRef = useRef<"send" | "resume">("send")
+  // A replay's prompt is off screen, so its turn is never resent. A Retry
+  // reconnect means the server took the turn; a restored prompt is on screen.
+  function isReplay(): boolean {
+    return (
+      requestKindRef.current === "resume" &&
+      (generation > 0 || !droppedPromptRef.current?.prompt)
+    )
+  }
+  // Live child-session transcripts. Child chunks are transient data parts, so
+  // they never enter `messages`; they are routed here instead.
+  const subagentStore = useMemo(
+    () => new SubagentStreamStore(),
+    [chatKey, workspaceId]
+  )
+  useEffect(() => () => subagentStore.dispose(), [subagentStore])
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -598,22 +776,29 @@ export function useVercelChat({
     return url.toString()
   }, [chatId, workspaceId])
 
+  // The AI SDK builds its transport once per chat id and ignores later ones, so
+  // a closure over `pageContext` would keep the page the chat first rendered
+  // on. Read it through a ref when the request is built instead.
+  const pageContextRef = useRef(pageContext)
+  pageContextRef.current = pageContext
+
   // Use Vercel's useChat hook for streaming. On reconnect the server replays the
   // whole active turn from the start (it hides the active run's DB rows mid-turn,
   // so Redis is the sole source for the live assistant); we therefore do not send
   // a Last-Event-ID cursor.
   const chat = aiSdk.useChat({
-    id: chatId,
-    resume: !!chatId && resume,
-    messages,
-    transport: new DefaultChatTransport({
+    id: chatKey,
+    // Reconnects are started below so sends can wait for them.
+    resume: false,
+    messages: droppedPrompt ? [...messages, droppedPrompt] : messages,
+    experimental_throttle: CHAT_MESSAGES_THROTTLE_MS,
+    transport: new CoalescingChatTransport({
       api: apiEndpoint,
       credentials: "include",
-      prepareReconnectToStreamRequest: ({ id }) => {
-        const url = new URL(`/api/agent/sessions/${id}/stream`, getBaseUrl())
-        url.searchParams.set("workspace_id", workspaceId)
+      prepareReconnectToStreamRequest: () => {
+        if (!chatId) throw new Error("Reconnecting needs a chat id")
         return {
-          api: url.toString(),
+          api: chatStreamUrl(chatId, workspaceId),
           credentials: "include",
         }
       },
@@ -642,20 +827,54 @@ export function useVercelChat({
         }
         const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
         if (baseUrl != null) body.base_url = baseUrl
+        const currentPageContext = pageContextRef.current
+        if (currentPageContext) body.page_context = currentPageContext
         return { body }
       },
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError(friendlyMessage)
+      // A reconnect that fails before its stream opens gets no onFinish and
+      // leaves status untouched; the turn is unknown, so mark it dropped.
+      const streamOpened =
+        statusRef.current === "submitted" || statusRef.current === "streaming"
+      const reconnectDropped =
+        requestKindRef.current === "resume" &&
+        (generation > 0 || error instanceof TypeError || !streamOpened)
+      setLastError({
+        chatKey,
+        message: friendlyMessage,
+        disconnected: reconnectDropped,
+        replay: reconnectDropped && isReplay(),
+      })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
         description: friendlyMessage,
       })
     },
-    onFinish: () => {
-      setLastError(null)
+    onFinish: ({ messages: turnMessages, isAbort, isDisconnect, isError }) => {
+      if (!isAbort && !isDisconnect && !isError) {
+        void subagentStore.complete()
+      }
+      // Leaving a chat aborts its request, and the SDK runs that abort's
+      // onFinish with the next chat's callbacks; sends already cleared state.
+      if (!isAbort) {
+        if (!isError) {
+          setLastError((prev) => (prev?.chatKey === chatKey ? null : prev))
+        } else if (isDisconnect) {
+          // The SDK also runs onFinish after onError; keep that turn's error.
+          const replay = isReplay()
+          setLastError(
+            (prev) => prev && { ...prev, disconnected: true, replay }
+          )
+        }
+        // Sends already cleared the saved prompt, and a reconnect's history may
+        // still lack it, so only a dropped send saves one.
+        if (chatId && isDisconnect && requestKindRef.current === "send") {
+          saveDroppedPrompt(chatId, turnMessages)
+        }
+      }
       invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
       // First-prompt auto-titling runs as a detached backend task that can
       // commit after the immediate invalidation on fast turns, leaving the
@@ -668,20 +887,137 @@ export function useVercelChat({
         }, delayMs)
       }
     },
-    onData,
+    onData: (dataPart) => {
+      if (dataPart.type === AGENT_CHUNK_DATA_PART_TYPE) {
+        const chunkData = parseAgentChunkData(dataPart.data)
+        if (chunkData) {
+          subagentStore.ingest(chunkData)
+        }
+        return
+      }
+      onData?.(dataPart)
+    },
   })
+
+  // The SDK runs one request per chat at a time. Overlapping requests share
+  // its active-response slot: the first to settle clears the slot after
+  // running onFinish early for the other's turn, and the second then throws
+  // reading it ("Cannot read properties of undefined (reading 'state')") and
+  // skips its own onFinish. A send on mount, such as a new chat's pending
+  // first message, would overlap the mount reconnect, so sends wait for it.
+  const { resumeStream, sendMessage, regenerate, status } = chat
+  const pendingResumeRef = useRef<{
+    chatKey: string
+    done: Promise<void>
+  } | null>(null)
+  const statusRef = useRef(status)
+  statusRef.current = status
+  // A chat Retry reconnected resumes even when `resume` is off.
+  const shouldResume = Boolean(chatKey) && (resume || generation > 0)
+  useEffect(() => {
+    if (!shouldResume || !chatKey) return
+    // A strict-mode re-run reuses the reconnect already in flight, and a
+    // request already in flight owns the turn it would reconnect to.
+    if (pendingResumeRef.current?.chatKey === chatKey) return
+    if (statusRef.current === "submitted" || statusRef.current === "streaming")
+      return
+    requestKindRef.current = "resume"
+    const done = resumeStream().finally(() => {
+      if (pendingResumeRef.current?.done === done) {
+        pendingResumeRef.current = null
+      }
+    })
+    pendingResumeRef.current = { chatKey, done }
+  }, [chatKey, shouldResume, resumeStream])
+  const waitForResume = useCallback(async () => {
+    const pending = pendingResumeRef.current
+    if (pending && pending.chatKey === chatKey) await pending.done
+  }, [chatKey])
+  const startTurn = useCallback(() => {
+    requestKindRef.current = "send"
+    setLastError(null)
+    if (chatId) saveDroppedPrompt(chatId, null)
+  }, [chatId])
+  const sendMessageAfterResume = useCallback<typeof sendMessage>(
+    async (...args) => {
+      await waitForResume()
+      startTurn()
+      await sendMessage(...args)
+    },
+    [sendMessage, startTurn, waitForResume]
+  )
+  const regenerateAfterResume = useCallback<typeof regenerate>(
+    async (...args) => {
+      await waitForResume()
+      startTurn()
+      await regenerate(...args)
+    },
+    [regenerate, startTurn, waitForResume]
+  )
+
+  const currentError = lastError?.chatKey === chatKey ? lastError : null
+  const { messages: liveMessages } = chat
+  /**
+   * Retries the turn `messageId` started. After a dropped connection whose
+   * prompt the server took, reconnects to that turn instead of starting a
+   * second run. Throws, leaving the error up, when the server can't be checked.
+   */
+  const retryTurn = useCallback(
+    async (messageId: string | undefined): Promise<void> => {
+      const prompt = liveMessages.find((m) => m.id === messageId)
+      // A replay's prompt is off screen, and the transcript never stores an
+      // approval continuation, so neither is resent: adopt the server's state.
+      const unconfirmable =
+        currentError?.replay || (prompt !== undefined && !isUserPrompt(prompt))
+      if (currentError?.disconnected && chatId && unconfirmable) {
+        await refetchChatTranscript(queryClient, chatId, workspaceId)
+        setReconnect({ chatId, generation: generation + 1 })
+        return
+      }
+      if (currentError?.disconnected && chatId && prompt) {
+        const took = await serverTookPrompt({
+          chatId,
+          workspaceId,
+          prompt,
+          refetchTranscript: () =>
+            refetchChatTranscript(queryClient, chatId, workspaceId),
+        })
+        if (took) {
+          setReconnect({ chatId, generation: generation + 1 })
+          return
+        }
+      }
+      await regenerateAfterResume({ messageId })
+    },
+    [
+      chatId,
+      currentError,
+      generation,
+      liveMessages,
+      queryClient,
+      regenerateAfterResume,
+      workspaceId,
+    ]
+  )
 
   return {
     ...chat,
-    lastError,
+    sendMessage: sendMessageAfterResume,
+    regenerate: regenerateAfterResume,
+    retryTurn,
+    subagentStore,
+    lastError: currentError?.message ?? null,
+    /** The last error cut the connection; the server-side turn may still run. */
+    lastErrorDisconnected: currentError?.disconnected ?? false,
     clearError: useCallback(() => setLastError(null), []),
   }
 }
 
 /**
  * Identity signature of a transcript: message ids plus the id, type, state, and
- * text of each part. Two transcripts with the same signature carry the same
- * rendered content, so an unchanged signature means there is nothing to adopt.
+ * text of each part, and approval card payloads. Two transcripts with the same
+ * signature carry the same rendered content, so an unchanged signature means
+ * there is nothing to adopt.
  */
 function transcriptSignature(messages: UIMessage[]): string {
   return JSON.stringify(
@@ -691,6 +1027,8 @@ function transcriptSignature(messages: UIMessage[]): string {
         p.type,
         "state" in p ? p.state : undefined,
         "text" in p ? p.text : undefined,
+        // A decision made elsewhere changes only the card's payload.
+        p.type === "data-approval-request" && "data" in p ? p.data : undefined,
       ]),
     ])
   )
@@ -702,6 +1040,11 @@ function isApprovalCardMessage(m: UIMessage): boolean {
     m.parts.length > 0 &&
     m.parts.every((p) => p.type === "data-approval-request")
   )
+}
+
+/** The approval submission this tab sent; the server never stores it. */
+function isContinueMessage(m: UIMessage): boolean {
+  return m.parts.length > 0 && m.parts.every((p) => p.type === "data-continue")
 }
 
 /**
@@ -739,10 +1082,10 @@ export function useAdoptServerTranscript({
       adoptedSignatureRef.current = serverSignature
       return
     }
-    // A resolved approval drops its card from the server transcript, so exclude
-    // approval-card-only messages from the finalize-race length guard.
+    // A resolved approval drops its card from the server transcript, and the
+    // submission is never stored, so neither counts in the finalize-race guard.
     const liveComparableLength = liveMessages.filter(
-      (m) => !isApprovalCardMessage(m)
+      (m) => !isApprovalCardMessage(m) && !isContinueMessage(m)
     ).length
     if (serverMessages.length < liveComparableLength) return
     adoptedSignatureRef.current = serverSignature
@@ -767,5 +1110,28 @@ export function makeContinueMessage(
         data: { kind: "continue", source, decisions },
       } as UIMessage["parts"][number],
     ],
+  }
+}
+
+const EMPTY_BACKENDS: AgentBackendRead[] = []
+
+/** Discover enabled backend providers without coupling the UI to their names. */
+export function useAgentBackends(
+  workspaceId?: string,
+  options?: { enabled?: boolean }
+) {
+  const { data, isLoading, isSuccess, error, refetch } = useQuery({
+    queryKey: ["agent-backends", workspaceId],
+    queryFn: () =>
+      agentSessionsListAgentBackends({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
+    staleTime: 60_000,
+  })
+  return {
+    backends: data ?? EMPTY_BACKENDS,
+    backendsLoading: isLoading,
+    backendsReady: isSuccess,
+    backendsError: error,
+    refetchBackends: refetch,
   }
 }

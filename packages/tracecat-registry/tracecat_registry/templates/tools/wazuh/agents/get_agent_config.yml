@@ -1,0 +1,47 @@
+type: action
+definition:
+  name: get_agent_config
+  namespace: tools.wazuh
+  title: Get agent active configuration
+  description: "Get the configuration an agent is currently running for a component (e.g. `syscheck`/`syscheck`, `logcollector`/`localfile`, `com`/`active-response`, `agent`/`client`)."
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.agent_controller.get_agent_config
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
+  expects:
+    agent_id:
+      type: str
+      description: "Agent ID (e.g. `001`). Use `000` for the manager."
+    component:
+      type: enum['agent', 'agentless', 'analysis', 'auth', 'com', 'csyslog', 'integrator', 'logcollector', 'mail', 'monitor', 'request', 'syscheck', 'wazuh-db', 'wmodules']
+      description: "Agent component."
+    configuration:
+      type: str
+      description: "Configuration section to read for the component (e.g. `syscheck`, `rootcheck`, `localfile`, `active-response`, `client`, `labels`, `wmodules`)."
+    base_url:
+      type: str | None
+      description: "Wazuh server API URL (e.g. https://wazuh-manager:55000). Defaults to the `wazuh.base_url` variable."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "If false, disables SSL verification for internal networks."
+      default: true
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/agents/${{ FN.url_encode(inputs.agent_id) }}/config/${{ FN.url_encode(inputs.component) }}/${{ FN.url_encode(inputs.configuration) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

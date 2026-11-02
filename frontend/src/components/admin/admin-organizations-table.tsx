@@ -2,7 +2,6 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import Cookies from "js-cookie"
-import { useRouter } from "next/navigation"
 import { useState } from "react"
 import type { tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead } from "@/client"
 import { AdminOrgDeleteDialog } from "@/components/admin/admin-org-delete-dialog"
@@ -34,7 +33,6 @@ export function AdminOrganizationsTable() {
   const [invitationsOrgId, setInvitationsOrgId] = useState<string | null>(null)
   const [registryOrgId, setRegistryOrgId] = useState<string | null>(null)
   const [deleteOrg, setDeleteOrg] = useState<OrgRead | null>(null)
-  const router = useRouter()
   const { appInfo } = useAppInfo()
   const multiTenantEnabled = appInfo?.ee_multi_tenant === true
   const { organizations } = useAdminOrganizations()
@@ -184,7 +182,7 @@ export function AdminOrganizationsTable() {
                             typeof window !== "undefined" &&
                             window.location.protocol === "https:",
                         })
-                        router.push("/workspaces")
+                        window.location.assign("/workspaces")
                       }}
                     >
                       Enter organization

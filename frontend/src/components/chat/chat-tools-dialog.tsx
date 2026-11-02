@@ -6,7 +6,12 @@ import { Controller, useForm } from "react-hook-form"
 import { z } from "zod"
 import { ActionMultiselect } from "@/components/chat/action-multiselect"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { Form, FormItem, FormMessage } from "@/components/ui/form"
 import { useGetChat, useUpdateChat } from "@/hooks/use-chat"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -55,41 +60,35 @@ export function ChatToolsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        size="sm"
         className="sm:max-w-[800px]"
         aria-label="Configure chat tools"
       >
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSave)} className="space-y-4">
-            <div className="py-4">
-              <Controller
-                control={form.control}
-                name="tools"
-                render={({ field }) => (
-                  <FormItem>
-                    <ActionMultiselect
-                      className="min-w-[600px]"
-                      field={field}
-                      searchKeys={["value", "label", "description", "group"]}
-                    />
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
+          <form
+            onSubmit={form.handleSubmit(handleSave)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <div className="py-4">
+                <Controller
+                  control={form.control}
+                  name="tools"
+                  render={({ field }) => (
+                    <FormItem>
+                      <ActionMultiselect
+                        className="min-w-[600px]"
+                        field={field}
+                        searchKeys={["value", "label", "description", "group"]}
+                      />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </DialogBody>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  form.reset({ tools: serverTools })
-                  onOpenChange(false)
-                }}
-                disabled={isUpdating}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isUpdating}>
+              <Button size="sm" type="submit" disabled={isUpdating}>
                 {isUpdating ? "Saving..." : "Save Tools"}
               </Button>
             </DialogFooter>

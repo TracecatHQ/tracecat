@@ -8,14 +8,19 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import Position
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import ActionID, WorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import exec_id_to_parts
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
     ActionCreate,
+    ActionLockStatus,
     ActionPositionUpdate,
     ActionUpdate,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class WorkflowActionService(BaseWorkspaceService):
@@ -31,6 +36,51 @@ class WorkflowActionService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("workflow:read")
+    async def list_lock_statuses(
+        self, workflow_id: WorkflowID
+    ) -> list[ActionLockStatus]:
+        """Whether each locked action's source run still exists.
+
+        Only a confirmed missing run is reported as unavailable; a failed check
+        is reported as available so a Temporal error never flags a good lock.
+        """
+        statement = select(Action).where(
+            Action.workspace_id == self.workspace_id,
+            Action.workflow_id == workflow_id,
+            Action.locked_execution_id.is_not(None),
+        )
+        locked = [
+            (action.ref, action.locked_execution_id)
+            for action in (await self.session.execute(statement)).scalars().all()
+            if action.locked_execution_id
+        ]
+        if not locked:
+            return []
+
+        from tracecat.workflow.executions.service import WorkflowExecutionsService
+
+        exec_service = await WorkflowExecutionsService.connect(role=self.role)
+        available: dict[str, bool] = {}
+        for exec_id in {exec_id for _, exec_id in locked}:
+            try:
+                available[exec_id] = (
+                    await exec_service.get_execution(exec_id) is not None
+                )
+            except Exception as e:
+                self.logger.warning(
+                    "Could not check action lock source",
+                    execution_id=exec_id,
+                    error_type=type(e).__name__,
+                )
+                available[exec_id] = True
+        return [
+            ActionLockStatus(
+                ref=ref, locked_execution_id=exec_id, available=available[exec_id]
+            )
+            for ref, exec_id in locked
+        ]
+
     async def get_action(
         self, action_id: ActionID, workflow_id: WorkflowID
     ) -> Action | None:
@@ -44,6 +94,12 @@ class WorkflowActionService(BaseWorkspaceService):
 
     @require_scope("workflow:create")
     async def create_action(self, params: ActionCreate) -> Action:
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(params.workflow_id),
+        )
         control_flow = params.control_flow or ActionControlFlow()
         if PlatformAction.is_agent(params.type) and (
             "timeout" not in control_flow.retry_policy.model_fields_set
@@ -59,8 +115,6 @@ class WorkflowActionService(BaseWorkspaceService):
             description=params.description,
             inputs=params.inputs,
             control_flow=control_flow.model_dump(),
-            is_interactive=params.is_interactive,
-            interaction=params.interaction.model_dump() if params.interaction else None,
             position_x=params.position_x,
             position_y=params.position_y,
             upstream_edges=params.upstream_edges,
@@ -72,7 +126,22 @@ class WorkflowActionService(BaseWorkspaceService):
 
     @require_scope("workflow:update")
     async def update_action(self, action: Action, params: ActionUpdate) -> Action:
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=action.workflow_id,
+        )
         set_fields = params.model_dump(exclude_unset=True)
+        if locked := set_fields.get("locked_execution_id"):
+            try:
+                locked_wf_id = exec_id_to_parts(locked)[0]
+            except ValueError as e:
+                raise TracecatValidationError(str(e)) from e
+            if locked_wf_id != action.workflow_id:
+                raise TracecatValidationError(
+                    "An action can only be locked to a run of its own workflow."
+                )
         for field, value in set_fields.items():
             setattr(action, field, value)
         self.session.add(action)
@@ -90,6 +159,12 @@ class WorkflowActionService(BaseWorkspaceService):
         Uses a single JSONB UPDATE query to filter out edges referencing
         the deleted action, followed by the DELETE - all in one transaction.
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=action.workflow_id,
+        )
         deleted_action_id = str(action.id)
         workflow_id = action.workflow_id
 
@@ -150,6 +225,12 @@ class WorkflowActionService(BaseWorkspaceService):
         preventing race conditions from concurrent position updates.
         """
         workflow_uuid = WorkflowUUID.new(workflow_id)
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_uuid,
+        )
 
         # Update action positions
         for pos in action_positions:

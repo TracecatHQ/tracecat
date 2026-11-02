@@ -13,6 +13,7 @@ import { ProtectedColumnsAlert } from "@/components/tables/protected-columns-ale
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -232,29 +233,27 @@ export function TableImportCsvDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden"
+        size="lg"
+        className="max-w-3xl"
         aria-describedby="csv-import-description"
       >
-        <DialogHeader className="space-y-4">
+        <DialogHeader>
           <DialogTitle>Import from CSV</DialogTitle>
           <DialogDescription>
             Import data from a CSV file into your table.
           </DialogDescription>
-          <ProtectedColumnsAlert />
         </DialogHeader>
 
         <FormProvider {...form}>
           <form
             onSubmit={form.handleSubmit(onSubmit)}
-            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+            <DialogBody>
+              <ProtectedColumnsAlert />
               <div className="space-y-6">
                 {!csvPreview ? (
-                  <CsvUploadForm
-                    isUploading={isUploading}
-                    nextPage={handleCreatePreview}
-                  />
+                  <CsvUploadForm />
                 ) : (
                   <>
                     <CsvPreview csvData={csvPreview} />
@@ -279,16 +278,41 @@ export function TableImportCsvDialog({
                   </>
                 )}
               </div>
-            </div>
+            </DialogBody>
+
+            {!csvPreview && (
+              <DialogFooter>
+                <Button
+                  size="sm"
+                  type="button"
+                  onClick={async () => {
+                    const isValid = await form.trigger("file")
+                    if (!isValid) return
+                    handleCreatePreview()
+                  }}
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <>
+                      <Spinner className="mr-2" />
+                      Uploading...
+                    </>
+                  ) : (
+                    "Next"
+                  )}
+                </Button>
+              </DialogFooter>
+            )}
 
             {csvPreview && (
-              <DialogFooter className="pt-4">
+              <DialogFooter>
                 {form.formState.errors.root && (
                   <div className="mr-auto text-sm text-red-500">
                     {form.formState.errors.root.message}
                   </div>
                 )}
                 <Button
+                  size="sm"
                   type="button"
                   variant="outline"
                   onClick={() => {
@@ -300,6 +324,7 @@ export function TableImportCsvDialog({
                   Back
                 </Button>
                 <Button
+                  size="sm"
                   type="submit"
                   disabled={
                     importCsvIsPending ||
@@ -326,12 +351,7 @@ export function TableImportCsvDialog({
   )
 }
 
-interface CsvUploadFormProps {
-  isUploading: boolean
-  nextPage: () => void
-}
-
-function CsvUploadForm({ isUploading, nextPage }: CsvUploadFormProps) {
+function CsvUploadForm() {
   const form = useFormContext<CsvImportFormValues>()
   return (
     <div className="space-y-4">
@@ -361,23 +381,6 @@ function CsvUploadForm({ isUploading, nextPage }: CsvUploadFormProps) {
           </FormItem>
         )}
       />
-      <Button
-        onClick={async () => {
-          const isValid = await form.trigger("file")
-          if (!isValid) return
-          nextPage()
-        }}
-        disabled={isUploading}
-      >
-        {isUploading ? (
-          <>
-            <Spinner className="mr-2" />
-            Uploading...
-          </>
-        ) : (
-          "Next"
-        )}
-      </Button>
     </div>
   )
 }

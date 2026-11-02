@@ -1,0 +1,132 @@
+type: action
+definition:
+  title: Register IP tags
+  description: Tag IP addresses with the User-ID XML API (type=user-id, uid-message register) so dynamic address groups that match the tags pick them up without a commit. Set timeout for temporary containment; PAN-OS removes the tag when it expires.
+  display_group: Palo Alto Networks (PAN-OS)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/apply-user-id-mapping-and-populate-dynamic-address-groups-api
+  namespace: tools.pan_os
+  name: register_ip_tags
+  secrets:
+    - name: pan_os
+      keys:
+        - PANOS_API_KEY
+  expects:
+    ips:
+      type: list[str]
+      description: IP addresses to tag.
+    tags:
+      type: list[str]
+      description: Tags to register, e.g. tracecat-block.
+    timeout:
+      type: int | None
+      description: Seconds until the tag expires (PAN-OS 9.0 or later). Omit for no expiry.
+      default: null
+    persistent:
+      type: bool
+      description: Keep the registration across reboots.
+      default: true
+    vsys:
+      type: str | None
+      description: Virtual system on multi-vsys firewalls.
+      default: null
+    target:
+      type: str | None
+      description: Managed firewall serial number when calling through Panorama.
+      default: null
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable pan_os.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: build_command
+      action: core.script.run_python
+      args:
+        inputs:
+          ips: ${{ inputs.ips }}
+          tags: ${{ inputs.tags }}
+          timeout: ${{ inputs.timeout }}
+          persistent: ${{ inputs.persistent }}
+          vsys: ${{ inputs.vsys }}
+          target: ${{ inputs.target }}
+        script: |
+          def _form(form, vsys=None, target=None):
+              if vsys:
+                  form["vsys"] = vsys
+              if target:
+                  form["target"] = target
+              return form
+
+          import ipaddress
+          from xml.sax.saxutils import escape, quoteattr
+
+          def main(ips, tags, timeout, persistent, vsys, target):
+              timeout_attr = f" timeout={quoteattr(str(int(timeout)))}" if timeout is not None else ""
+              members = "".join(f"<member{timeout_attr}>{escape(tag)}</member>" for tag in tags)
+              flag = "1" if persistent else "0"
+              entries = "".join(
+                  f"<entry ip={quoteattr(str(ipaddress.ip_address(ip.strip())))} persistent={quoteattr(flag)}><tag>{members}</tag></entry>"
+                  for ip in ips
+              )
+              cmd = (
+                  "<uid-message><version>2.0</version><type>update</type>"
+                  f"<payload><register>{entries}</register></payload></uid-message>"
+              )
+              return _form({"type": "user-id", "cmd": cmd}, vsys, target)
+    - ref: register
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_os.base_url }}/api/
+        method: POST
+        headers:
+          X-PAN-KEY: ${{ SECRETS.pan_os.PANOS_API_KEY }}
+        form_data: ${{ steps.build_command.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: parse
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.register.result.data }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+
+          def main(text):
+              return _to_dict(_parse(text))
+  returns: ${{ steps.parse.result }}

@@ -22,7 +22,12 @@ import {
   type CursorPaginationParams,
   useCursorPagination,
 } from "@/hooks/pagination/use-cursor-pagination"
-import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const WORKFLOW_RUNS_PAGE_SIZE = 50
@@ -497,4 +502,46 @@ export function groupWorkflowRunsByStatus(runs: WorkflowRunReadMinimal[]) {
   }
 
   return groups
+}
+
+const CASE_TASK_RUNS_PAGE_SIZE = 20
+const CASE_TASK_RUNS_POLL_MS = 5000
+
+/** Workflow runs started from a case task, newest first. */
+export function useCaseTaskWorkflowRuns({
+  workspaceId,
+  taskId,
+}: {
+  workspaceId: string
+  taskId: string
+}) {
+  const query = useInfiniteQuery({
+    queryKey: ["case-task-workflow-runs", workspaceId, taskId],
+    queryFn: ({ pageParam }) =>
+      workflowExecutionsSearchWorkflowExecutions({
+        workspaceId,
+        caseTaskId: taskId,
+        limit: CASE_TASK_RUNS_PAGE_SIZE,
+        cursor: pageParam,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? (lastPage.next_cursor ?? null) : null,
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) =>
+        page.items.some((run) => run.status === "RUNNING")
+      )
+        ? CASE_TASK_RUNS_POLL_MS
+        : false,
+  })
+  const runs: WorkflowRunReadMinimal[] =
+    query.data?.pages.flatMap((page) => page.items) ?? []
+  return {
+    runs,
+    isLoading: query.isLoading,
+    error: query.error,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+  }
 }

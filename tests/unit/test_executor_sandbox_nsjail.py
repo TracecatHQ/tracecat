@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 from unittest.mock import patch
 
 import pytest
@@ -34,6 +34,10 @@ from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
+from tracecat.executor.enums import ExecutorBackendType
+from tracecat.executor.registry_artifact_storage import (
+    RegistryArtifactMaterializationContext,
+)
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactFormat,
@@ -51,10 +55,12 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.networking import NSTUN_GATEWAY_IP4, write_sandbox_network_files
+from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess, invoke_nsjail
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
     SandboxEgressRule,
+    SandboxErrorCode,
     SandboxNetworkPolicy,
     SandboxNetworkProtocol,
     SandboxNetworkPurpose,
@@ -83,10 +89,11 @@ class SmokeCase(StrEnum):
     NSJAIL_GATEWAY = "nsjail-gateway"
     NSJAIL_NETWORK_POLICY = "nsjail-network-policy"
     NSJAIL_SOCKET_BUDGET = "nsjail-socket-budget"
+    NSJAIL_FATAL_SIGNAL = "nsjail-fatal-signal"
     NSJAIL_CURRENT_BUILTIN = "nsjail-current-builtin"
 
     @property
-    def force_sandbox(self) -> bool:
+    def use_sandbox(self) -> bool:
         return self not in {
             SmokeCase.DIRECT,
             SmokeCase.DIRECT_SQUASHFS,
@@ -134,7 +141,7 @@ def _skip_smoke(reason: str) -> NoReturn:
 
 
 def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
-    if not smoke_case.force_sandbox:
+    if not smoke_case.use_sandbox:
         if sys.platform != "linux":
             return (
                 "direct action subprocesses require Linux (setpriv + subreaper "
@@ -142,9 +149,9 @@ def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
             )
         if shutil.which("setpriv") is None:
             return "setpriv is unavailable"
-    if smoke_case.force_sandbox and not _executor_nsjail_available():
+    if smoke_case.use_sandbox and not _executor_nsjail_available():
         return "executor nsjail unavailable"
-    if smoke_case.force_sandbox and not Path("/dev/net/tun").exists():
+    if smoke_case.use_sandbox and not Path("/dev/net/tun").exists():
         return "/dev/net/tun is unavailable for nsjail NSTUN networking"
     if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
         if shutil.which("mksquashfs") is None:
@@ -191,6 +198,7 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
     compose_env.setdefault("TRACECAT__SERVICE_KEY", "test-service-key")
 
+    sandbox_image = os.environ.get("TRACECAT_TEST_SANDBOX_IMAGE")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     device_lines = (
         [
@@ -218,8 +226,16 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
             [
                 "services:",
                 "  executor:",
-                "    build:",
-                "      target: test",
+                '    user: "0:0"',
+                "    cgroup: private",
+                *(
+                    [
+                        f"    image: {json.dumps(sandbox_image)}",
+                        "    build: !reset null",
+                    ]
+                    if sandbox_image
+                    else ["    build:", "      target: test"]
+                ),
                 "    privileged: true",
                 "    security_opt:",
                 "      - seccomp:unconfined",
@@ -228,9 +244,12 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 *device_lines,
                 "    volumes:",
                 f"      - {json.dumps(tests_mount)}",
+                # Replace the shared dev cache with a per-container anonymous
+                # volume. Parallel Docker volume population otherwise races.
+                "      - /var/lib/tracecat/sandbox-cache",
                 "    environment:",
                 f'      {_DOCKER_CHILD_ENV}: "1"',
-                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__EXECUTOR_BACKEND: "nsjail"',
                 '      TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED: "true"',
                 '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
                 '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
@@ -251,12 +270,15 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 "run",
                 "--rm",
                 "--no-deps",
-                "--build",
+                *(["--pull", "never"] if sandbox_image else ["--build"]),
                 "-T",
                 "--entrypoint",
-                "sh",
+                "python",
                 "executor",
-                "-lc",
+                "-m",
+                "tracecat.sandbox.bootstrap",
+                "sh",
+                "-c",
                 "uv run python -m tests.unit.test_executor_sandbox_nsjail "
                 f"--run-smoke {smoke_case.value}",
             ],
@@ -654,7 +676,9 @@ async def _run_executor_action_smoke_case(
     action_gateway_socket = Path("/tmp") / f"tc-action-gateway-{uuid.uuid4().hex}.sock"
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
-    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", True)
+    monkeypatch.setattr(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
     monkeypatch.setattr(
@@ -694,6 +718,7 @@ async def _run_executor_action_smoke_case(
     _build_tar_gz(source_dir, tar_gz_path)
     if smoke_case in {SmokeCase.NSJAIL_SQUASHFS, SmokeCase.DIRECT_SQUASHFS}:
         _build_squashfs_image(source_dir, squashfs_path)
+    if smoke_case is SmokeCase.NSJAIL_SQUASHFS:
         if reason := _squashfs_mount_probe_failure(
             squashfs_path,
             tmp_path / "squashfs-mount-probe",
@@ -745,9 +770,10 @@ async def _run_executor_action_smoke_case(
             # Direct mode runs unprivileged; force the unsquashfs extraction
             # path instead of attempting a loopback mount.
             patches.append(
-                patch(
-                    "tracecat.executor.registry_artifacts.shutil.which",
-                    return_value=None,
+                patch.object(
+                    RegistryArtifactMaterializationContext,
+                    "can_mount_squashfs",
+                    return_value=False,
                 )
             )
         if parent_resolv_path is not None:
@@ -774,7 +800,7 @@ async def _run_executor_action_smoke_case(
                 resolved_context=resolved_context,
                 artifact_uris=[_SMOKE_URI],
                 timeout=30,
-                force_sandbox=smoke_case.force_sandbox,
+                use_sandbox=smoke_case.use_sandbox,
             )
 
             allowed_result: object | None = None
@@ -798,7 +824,7 @@ async def _run_executor_action_smoke_case(
                     resolved_context=resolved_context,
                     artifact_uris=[_SMOKE_URI],
                     timeout=30,
-                    force_sandbox=True,
+                    use_sandbox=True,
                 )
 
         if isinstance(result, ExecutorActionErrorInfo):
@@ -870,7 +896,11 @@ async def _run_current_builtin_smoke_case(
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
     monkeypatch.setattr(
-        config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", smoke_case.force_sandbox
+        config,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.NSJAIL
+        if smoke_case.use_sandbox
+        else ExecutorBackendType.DIRECT,
     )
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
     monkeypatch.setattr(
@@ -895,10 +925,10 @@ async def _run_current_builtin_smoke_case(
     )
 
     runner = ActionRunner(cache_dir=tmp_path / "registry-cache")
-    backend = EphemeralBackend() if smoke_case.force_sandbox else DirectBackend()
+    backend = EphemeralBackend() if smoke_case.use_sandbox else DirectBackend()
     get_action_runner_path = (
         "tracecat.executor.backends.ephemeral.get_action_runner"
-        if smoke_case.force_sandbox
+        if smoke_case.use_sandbox
         else "tracecat.executor.backends.direct.get_action_runner"
     )
     action_gateway = ActionGateway()
@@ -945,7 +975,17 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
             ]
         )
     )
+    completed_runs: list[NsjailCompletedProcess] = []
 
+    async def capture_invoke_nsjail(**kwargs: Any) -> NsjailCompletedProcess:
+        completed = await invoke_nsjail(**kwargs)
+        completed_runs.append(completed)
+        return completed
+
+    invoke_patch = patch(
+        "tracecat.sandbox.executor.invoke_nsjail", capture_invoke_nsjail
+    )
+    invoke_patch.start()
     try:
         result = await NsjailExecutor().execute(
             tmp_path,
@@ -981,18 +1021,71 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
             if data == b"x":
                 received_packets += 1
     finally:
+        invoke_patch.stop()
         for sink in udp_sinks:
             sink.close()
 
     assert result.success, result.error
+    nsjail_log = completed_runs[-1].nsjail_log.decode("utf-8", errors="replace")
     assert received_packets == _NSTUN_UDP_SOCKET_BUDGET, (
         received_packets,
-        result.stderr,
+        nsjail_log,
     )
-    assert "Too many FD handlers in monitor" not in result.stderr, result.stderr
-    assert "Maximum number of UDP flows reached" in result.stderr, result.stderr
-    assert "UDP/ICMP parent socket budget exhausted" not in result.stderr
-    assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
+    assert "Too many FD handlers in monitor" not in nsjail_log, nsjail_log
+    assert "Maximum number of UDP flows reached" in nsjail_log, nsjail_log
+    assert "UDP/ICMP parent socket budget exhausted" not in nsjail_log
+    assert "UDP/ICMP parent socket accounting underflow" not in nsjail_log
+
+
+async def _run_nsjail_fatal_signal_smoke_case(tmp_path: Path) -> None:
+    """The pinned NsJail still logs the record that marks a drain kill."""
+    smoke_case = SmokeCase.NSJAIL_FATAL_SIGNAL
+    if reason := _missing_prerequisite(smoke_case):
+        _skip_smoke(reason)
+
+    script_name = "wait_for_drain.py"
+    (tmp_path / script_name).write_text(
+        "import pathlib, time\n"
+        'pathlib.Path("/work/started").write_text("1")\n'
+        "time.sleep(60)\n"
+    )
+    real_create_subprocess_exec = asyncio.create_subprocess_exec
+    processes: list[asyncio.subprocess.Process] = []
+
+    async def capture_subprocess(
+        *args: Any, **kwargs: Any
+    ) -> asyncio.subprocess.Process:
+        process = await real_create_subprocess_exec(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    with patch(
+        "tracecat.sandbox.nsjail_protocol.asyncio.create_subprocess_exec",
+        side_effect=capture_subprocess,
+    ):
+        execution = asyncio.create_task(
+            NsjailExecutor().execute(
+                tmp_path,
+                SandboxConfig(resources=ResourceLimits(timeout_seconds=90)),
+                script_name=script_name,
+            )
+        )
+        for _ in range(300):
+            if (tmp_path / "started").exists():
+                break
+            await asyncio.sleep(0.1)
+        else:
+            execution.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await execution
+            pytest.fail("sandbox workload did not start")
+        # A node drain stops the pod scope, which SIGTERMs NsJail itself.
+        processes[-1].send_signal(signal.SIGTERM)
+        result = await execution
+
+    assert result.exit_code == 137, result.stderr
+    assert result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE, result.error
+    assert result.error == "Sandbox host stopped before the workload finished"
 
 
 _CURRENT_BUILTIN_CASES = {
@@ -1112,6 +1205,15 @@ async def test_nstun_bounds_parent_udp_sockets(tmp_path: Path) -> None:
     await _run_nstun_socket_budget_smoke_case(tmp_path)
 
 
+@pytest.mark.anyio
+async def test_nsjail_sigterm_is_attributed_to_the_platform(tmp_path: Path) -> None:
+    smoke_case = SmokeCase.NSJAIL_FATAL_SIGNAL
+    if _missing_prerequisite(smoke_case):
+        _run_executor_action_smoke_in_docker_or_skip(smoke_case)
+        return
+    await _run_nsjail_fatal_signal_smoke_case(tmp_path)
+
+
 @pytest.mark.parametrize(
     "smoke_case",
     [
@@ -1141,7 +1243,7 @@ async def test_action_runner_executes_registry_action_smoke(
     tmp_path: Path,
 ) -> None:
     if smoke_case in _CURRENT_BUILTIN_CASES:
-        if smoke_case.force_sandbox and _missing_prerequisite(smoke_case):
+        if smoke_case.use_sandbox and _missing_prerequisite(smoke_case):
             _run_executor_action_smoke_in_docker_or_skip(smoke_case)
             return
         await _run_current_builtin_smoke_case(
@@ -1151,7 +1253,7 @@ async def test_action_runner_executes_registry_action_smoke(
         )
         return
 
-    if smoke_case.force_sandbox and _missing_prerequisite(smoke_case):
+    if smoke_case.use_sandbox and _missing_prerequisite(smoke_case):
         _run_executor_action_smoke_in_docker_or_skip(smoke_case)
         return
 
@@ -1169,6 +1271,8 @@ def _run_smoke_from_cli(smoke_case: SmokeCase) -> None:
         try:
             if smoke_case is SmokeCase.NSJAIL_SOCKET_BUDGET:
                 await _run_nstun_socket_budget_smoke_case(tmp_path)
+            elif smoke_case is SmokeCase.NSJAIL_FATAL_SIGNAL:
+                await _run_nsjail_fatal_signal_smoke_case(tmp_path)
             elif smoke_case in _CURRENT_BUILTIN_CASES:
                 await _run_current_builtin_smoke_case(
                     smoke_case=smoke_case,

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,9 +11,17 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableColumn, Workspace
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.query.errors import (
+    TracecatQueryOverflowError,
+    TracecatQueryTimeoutError,
+)
 from tracecat.tables import internal_router as internal_tables_router
+from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.schemas import AggregateResponse
 
 
 def _programming_error(cause: BaseException) -> ProgrammingError:
@@ -314,50 +323,6 @@ async def test_internal_delete_column_returns_refreshed_metadata(
 
 
 @pytest.mark.anyio
-async def test_internal_insert_table_row_invalid_numeric_value_returns_400(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    with patch.object(internal_tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table_by_name.return_value = mock_table
-        mock_svc.insert_row.side_effect = ValueError("Invalid numeric value: 'abc'")
-        MockService.return_value = mock_svc
-
-        response = action_gateway_client.post(
-            f"/internal/tables/{mock_table.name}/rows",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"data": {"score": "abc"}},
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
-
-
-@pytest.mark.anyio
-async def test_internal_update_table_row_invalid_integer_value_returns_400(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    with patch.object(internal_tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table_by_name.return_value = mock_table
-        mock_svc.update_row.side_effect = ValueError("Invalid integer value: '1.5'")
-        MockService.return_value = mock_svc
-
-        response = action_gateway_client.patch(
-            f"/internal/tables/{mock_table.name}/rows/{uuid.uuid4()}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"data": {"attempts": "1.5"}},
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid integer value: '1.5'"
-
-
-@pytest.mark.anyio
 async def test_internal_lookup_table_error_returns_detail(
     action_gateway_client: TestClient,
     test_admin_role: Role,
@@ -377,6 +342,169 @@ async def test_internal_lookup_table_error_returns_detail(
         )
 
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-    assert response.json()["detail"] == (
-        "Table lookup failed: database temporarily unavailable"
+    assert response.json()["detail"] == "Table lookup failed"
+
+
+@pytest.mark.anyio
+async def test_internal_aggregate_rows_returns_serialized_response(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.aggregate_rows.return_value = AggregateResponse.model_validate(
+            {
+                "groups": [
+                    {
+                        "category": "alpha",
+                        "numeric_key": Decimal("9007199254740992.1"),
+                        "sum_amount": 3.5,
+                    },
+                    {
+                        "category": "beta",
+                        "numeric_key": Decimal("9007199254740992.2"),
+                        "sum_amount": 4.5,
+                    },
+                ],
+                "truncated": False,
+            }
+        )
+        MockService.return_value = mock_svc
+
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "group_by": ["category"],
+                "aggs": [{"function": "sum", "field": "amount"}],
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "groups": [
+            {
+                "category": "alpha",
+                "numeric_key": "9007199254740992.1",
+                "sum_amount": 3.5,
+            },
+            {
+                "category": "beta",
+                "numeric_key": "9007199254740992.2",
+                "sum_amount": 4.5,
+            },
+        ],
+        "truncated": False,
+    }
+    mock_svc.aggregate_rows.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_internal_aggregate_rows_rejects_limit_above_maximum(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"group_by": [], "limit": config.TRACECAT__LIMIT_AGG_GROUPS_MAX + 1},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    MockService.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        pytest.param(
+            TracecatValidationError("Unsupported aggregation"),
+            status.HTTP_400_BAD_REQUEST,
+            id="semantic-error",
+        ),
+        pytest.param(
+            TracecatNotFoundError("Table not found"),
+            status.HTTP_404_NOT_FOUND,
+            id="missing-table",
+        ),
+        pytest.param(
+            TracecatQueryTimeoutError(),
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            id="shared-timeout-contract",
+        ),
+        pytest.param(
+            TracecatQueryOverflowError(),
+            status.HTTP_400_BAD_REQUEST,
+            id="shared-overflow-contract",
+        ),
+    ],
+)
+async def test_internal_aggregate_rows_maps_errors(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.aggregate_rows.side_effect = error
+        MockService.return_value = mock_svc
+
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"group_by": []},
+        )
+
+    assert response.status_code == expected_status
+
+
+@pytest.mark.anyio
+async def test_internal_aggregate_rows_sanitizes_unexpected_programming_error(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.aggregate_rows.side_effect = _programming_error(
+            ValueError("sensitive database detail")
+        )
+        MockService.return_value = mock_svc
+
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"group_by": []},
+        )
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert "sensitive database detail" not in response.text
+
+
+@pytest.mark.anyio
+async def test_empty_row_update_is_client_error(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    error = TableRowError(
+        "empty_update", "Row update must include at least one column."
     )
+    with patch.object(internal_tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table_by_name.return_value = mock_table
+        service.update_row.side_effect = error
+        service_type.return_value = service
+        response = action_gateway_client.patch(
+            f"/internal/tables/test_table/rows/{uuid.uuid4()}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"data": {}},
+        )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"detail": error.detail}

@@ -45,49 +45,64 @@ def _make_manifest(action_names: list[str]) -> dict:
     return {"version": "1.0", "actions": actions}
 
 
+async def _seed_repo(
+    session: AsyncSession,
+    role: Role,
+    versions: dict[str, str],
+    *,
+    origin: str = "test_origin",
+    current: str | None = None,
+) -> tuple[RegistryRepository, dict[str, RegistryVersion]]:
+    """Create a repository with versions keyed by version string to tarball URI."""
+    repo = RegistryRepository(organization_id=role.organization_id, origin=origin)
+    session.add(repo)
+    await session.flush()
+    created = {
+        version: RegistryVersion(
+            organization_id=role.organization_id,
+            repository_id=repo.id,
+            version=version,
+            manifest=_make_manifest(["test.action"]),
+            tarball_uri=tarball_uri,
+        )
+        for version, tarball_uri in versions.items()
+    }
+    session.add_all(created.values())
+    await session.flush()
+    if current is not None:
+        repo.current_version_id = created[current].id
+        session.add(repo)
+    await session.commit()
+    return repo, created
+
+
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("current", "target"),
+    [
+        pytest.param("2.0.0", "1.0.0", id="rollback"),
+        pytest.param("1.0.0", "2.0.0", id="upgrade"),
+        pytest.param("1.0.0", "1.0.0", id="same_version_is_idempotent"),
+    ],
+)
 async def test_promote_version_success(
     svc_admin_role: Role,
     session: AsyncSession,
+    current: str,
+    target: str,
 ) -> None:
-    """Test that promoting a valid version works correctly."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
+    """Promoting a valid version makes it current."""
+    repo, versions = await _seed_repo(
+        session,
+        svc_admin_role,
+        {"1.0.0": "s3://test/v1.tar.gz", "2.0.0": "s3://test/v2.tar.gz"},
+        current=current,
     )
-    session.add(repo)
-    await session.flush()
 
-    # Create two versions
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action_v1"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action_v2"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add_all([version1, version2])
-    await session.flush()
-
-    # Set version 2 as current
-    repo.current_version_id = version2.id
-    session.add(repo)
-    await session.commit()
-
-    # Promote version 1 (rollback)
     service = RegistryReposService(session, role=svc_admin_role)
-    updated_repo = await service.promote_version(repo, version1.id)
+    updated_repo = await service.promote_version(repo, versions[target].id)
 
-    # Verify version 1 is now current
-    assert updated_repo.current_version_id == version1.id
+    assert updated_repo.current_version_id == versions[target].id
 
 
 @pytest.mark.anyio
@@ -96,20 +111,12 @@ async def test_promote_version_not_found(
     session: AsyncSession,
 ) -> None:
     """Test that promoting a non-existent version fails with helpful error."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
-    )
-    session.add(repo)
-    await session.commit()
+    repo, _ = await _seed_repo(session, svc_admin_role, {})
 
-    # Try to promote a non-existent version
     service = RegistryReposService(session, role=svc_admin_role)
-    fake_version_id = uuid.uuid4()
 
     with pytest.raises(RegistryError, match="not found"):
-        await service.promote_version(repo, fake_version_id)
+        await service.promote_version(repo, uuid.uuid4())
 
 
 @pytest.mark.anyio
@@ -118,34 +125,15 @@ async def test_promote_version_wrong_repository(
     session: AsyncSession,
 ) -> None:
     """Test that promoting a version from another repository fails."""
-    # Create two repositories
-    repo1 = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="origin_1",
+    repo1, _ = await _seed_repo(session, svc_admin_role, {}, origin="origin_1")
+    _, versions = await _seed_repo(
+        session, svc_admin_role, {"1.0.0": "s3://test/v1.tar.gz"}, origin="origin_2"
     )
-    repo2 = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="origin_2",
-    )
-    session.add_all([repo1, repo2])
-    await session.flush()
 
-    # Create version for repo2
-    version = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo2.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    session.add(version)
-    await session.commit()
-
-    # Try to promote repo2's version on repo1
     service = RegistryReposService(session, role=svc_admin_role)
 
     with pytest.raises(RegistryError, match="does not belong to repository"):
-        await service.promote_version(repo1, version.id)
+        await service.promote_version(repo1, versions["1.0.0"].id)
 
 
 @pytest.mark.anyio
@@ -154,115 +142,9 @@ async def test_promote_version_missing_execution_artifact(
     session: AsyncSession,
 ) -> None:
     """Test that promoting a version without an execution artifact fails."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
-    )
-    session.add(repo)
-    await session.flush()
+    repo, versions = await _seed_repo(session, svc_admin_role, {"1.0.0": ""})
 
-    # Create version without tarball_uri (simulate incomplete version)
-    version = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="",  # Empty tarball URI
-    )
-    session.add(version)
-    await session.commit()
-
-    # Try to promote version without an execution artifact
     service = RegistryReposService(session, role=svc_admin_role)
 
     with pytest.raises(RegistryError, match="no execution artifact"):
-        await service.promote_version(repo, version.id)
-
-
-@pytest.mark.anyio
-async def test_promote_preserves_previous_version(
-    svc_admin_role: Role,
-    session: AsyncSession,
-) -> None:
-    """Test that promotion correctly tracks the previous version."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
-    )
-    session.add(repo)
-    await session.flush()
-
-    # Create versions
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add_all([version1, version2])
-    await session.flush()
-
-    # Set version 1 as current
-    repo.current_version_id = version1.id
-    session.add(repo)
-    await session.commit()
-
-    # Get the previous version before promotion
-    previous_version_id = repo.current_version_id
-
-    # Promote version 2
-    service = RegistryReposService(session, role=svc_admin_role)
-    updated_repo = await service.promote_version(repo, version2.id)
-
-    # Verify previous version was version 1
-    assert previous_version_id == version1.id
-    # Verify current version is now version 2
-    assert updated_repo.current_version_id == version2.id
-
-
-@pytest.mark.anyio
-async def test_promote_to_same_version_is_idempotent(
-    svc_admin_role: Role,
-    session: AsyncSession,
-) -> None:
-    """Test that promoting to the already-current version works."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
-    )
-    session.add(repo)
-    await session.flush()
-
-    # Create version
-    version = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    session.add(version)
-    await session.flush()
-
-    # Set version as current
-    repo.current_version_id = version.id
-    session.add(repo)
-    await session.commit()
-
-    # Promote the same version again (idempotent operation)
-    service = RegistryReposService(session, role=svc_admin_role)
-    updated_repo = await service.promote_version(repo, version.id)
-
-    # Should still be the same version
-    assert updated_repo.current_version_id == version.id
+        await service.promote_version(repo, versions["1.0.0"].id)

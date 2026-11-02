@@ -26,3 +26,11 @@ class OrgRole(StrEnum):
     MEMBER = "member"  # Basic org member
     ADMIN = "admin"  # Can manage org settings, workspaces, invite users
     OWNER = "owner"  # Full control, billing, can delete org
+
+
+class ScimConnectionStatus(StrEnum):
+    """Whether the provider's pushes admit users yet."""
+
+    PENDING = "pending"  # Accepting pushes; nothing admitted until reviewed
+    ACTIVE = "active"  # Pushes admit members and apply mappings
+    DISABLED = "disabled"  # Reserved for future connection disabling

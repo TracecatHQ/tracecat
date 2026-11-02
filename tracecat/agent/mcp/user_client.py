@@ -9,6 +9,7 @@ allowing the sandboxed runtime to access user tools via the Unix socket proxy.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -25,18 +26,35 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.agent.common.exceptions import (
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryBudgetExceededError,
+    UserMCPDiscoveryError,
+    UserMCPDiscoveryTimeoutError,
+    UserMCPDiscoveryUnavailableError,
+)
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.http_limits import (
     MCPResponseTooLargeError,
     create_bounded_mcp_http_client,
 )
 from tracecat.agent.mcp.utils import (
-    LEGACY_REGISTRY_MCP_SERVER_NAME,
-    REGISTRY_MCP_SERVER_NAME,
     flatten_mcp_content_blocks,
+    is_tracecat_registry_server_name,
 )
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
+
+# Discovery must finish before the 120-second preparation budget per scope.
+# These cover retries too; execution timeouts for tools remain independent.
+MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS = 20.0
+MCP_DISCOVERY_TIMEOUT_SECONDS = 60.0
+# Response caps are per response, so bound how many are in flight at once.
+MCP_DISCOVERY_CONCURRENCY = 4
+# Client errors that can clear on a later attempt.
+_RETRYABLE_DISCOVERY_STATUS_CODES = frozenset(
+    {int(httpx.codes.REQUEST_TIMEOUT), int(httpx.codes.TOO_MANY_REQUESTS)}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +67,9 @@ class UserMCPDiscoveryResult:
 
 def _drop_forwarded_authorization(
     configured: dict[str, str] | None,
+    *,
+    origin_url: str,
+    tunnel_proxy: str | None = None,
 ) -> McpHttpClientFactory:
     """Build a client factory that strips fastmcp's forwarded inbound auth."""
     keeps_authorization = configured is not None and "authorization" in configured
@@ -66,6 +87,8 @@ def _drop_forwarded_authorization(
             timeout = httpx.Timeout(30.0, read=300.0)
         kwargs.setdefault("follow_redirects", True)
         return create_bounded_mcp_http_client(
+            origin_url=origin_url,
+            tunnel_proxy=tunnel_proxy,
             headers=merged,
             timeout=timeout,
             auth=auth,
@@ -80,6 +103,7 @@ def _create_transport(
     transport_type: Literal["http", "sse"],
     headers: dict[str, str] | None = None,
     timeout: int | None = None,
+    tunnel_proxy: str | None = None,
 ) -> StreamableHttpTransport | SSETransport:
     """Create the appropriate transport for the MCP server."""
     # FastMCP forwards inbound authorization as lowercase from request context.
@@ -89,7 +113,9 @@ def _create_transport(
         headers = {name.lower(): value for name, value in headers.items()}
     # Lowercasing alone only wins the merge when our credential is itself an
     # Authorization header; strip the forwarded token in every other case.
-    httpx_client_factory = _drop_forwarded_authorization(headers)
+    httpx_client_factory = _drop_forwarded_authorization(
+        headers, origin_url=url, tunnel_proxy=tunnel_proxy
+    )
     if transport_type == "sse":
         return SSETransport(
             url=url,
@@ -119,6 +145,7 @@ async def list_remote_mcp_tools(
         config.get("transport", "http"),
         config.get("headers"),
         config.get("timeout"),
+        config.get("tunnel_proxy"),
     )
     async with Client(transport) as client:
         server_tools = await client.list_tools()
@@ -129,22 +156,13 @@ async def list_remote_mcp_tools(
 
 
 def _iter_exception_chain(exc: BaseException) -> list[BaseException]:
-    """Return an exception and its explicit cause/context chain."""
-    chain: list[BaseException] = []
-    current: BaseException | None = exc
-    while current is not None and current not in chain:
-        chain.append(current)
-        current = current.__cause__ or current.__context__
-    return chain
+    """Return an exception, its cause/context links, and ExceptionGroup members.
 
-
-def _contains_response_too_large(exc: BaseException) -> bool:
-    """Walk cause/context and ExceptionGroup members for the byte-cap error.
-
-    The cap raise surfaces differently by path: bare on tools/call, wrapped in
-    a connect RuntimeError on the handshake, and nested inside an anyio
+    Failures surface differently by path: bare on tools/call, wrapped in a
+    connect RuntimeError on the handshake, and nested inside an anyio
     ExceptionGroup in either case.
     """
+    chain: list[BaseException] = []
     seen: set[int] = set()
     stack: list[BaseException] = [exc]
     while stack:
@@ -152,20 +170,28 @@ def _contains_response_too_large(exc: BaseException) -> bool:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, MCPResponseTooLargeError):
-            return True
+        chain.append(current)
         if isinstance(current, BaseExceptionGroup):
             stack.extend(current.exceptions)
         for linked in (current.__cause__, current.__context__):
             if linked is not None:
                 stack.append(linked)
-    return False
+    return chain
+
+
+def _contains_response_too_large(exc: BaseException) -> bool:
+    """Return whether the byte-cap error appears anywhere in the failure."""
+    return any(
+        isinstance(chained, MCPResponseTooLargeError)
+        for chained in _iter_exception_chain(exc)
+    )
 
 
 def _is_retryable_discovery_error_leaf(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code >= 500
-    if isinstance(exc, httpx.TransportError | httpx.TimeoutException):
+        status_code = exc.response.status_code
+        return status_code >= 500 or status_code in _RETRYABLE_DISCOVERY_STATUS_CODES
+    if isinstance(exc, httpx.TransportError | httpx.TimeoutException | TimeoutError):
         return True
     if isinstance(exc, McpError):
         return exc.error.code == int(httpx.codes.REQUEST_TIMEOUT)
@@ -178,6 +204,42 @@ def _is_retryable_discovery_error(exc: BaseException) -> bool:
         _is_retryable_discovery_error_leaf(chained)
         for chained in _iter_exception_chain(exc)
     )
+
+
+def _discovery_error_status_codes(exc: BaseException) -> set[int]:
+    return {
+        chained.response.status_code
+        for chained in _iter_exception_chain(exc)
+        if isinstance(chained, httpx.HTTPStatusError)
+    }
+
+
+def _typed_discovery_error(
+    server_name: str,
+    exc: BaseException,
+) -> UserMCPDiscoveryError:
+    """Map a discovery failure onto the typed error that carries its owner."""
+    status_codes = _discovery_error_status_codes(exc)
+    if status_codes & {
+        int(httpx.codes.UNAUTHORIZED),
+        int(httpx.codes.FORBIDDEN),
+    }:
+        return UserMCPDiscoveryAuthError(server_name)
+    if any(
+        isinstance(chained, TimeoutError | httpx.TimeoutException)
+        for chained in _iter_exception_chain(exc)
+    ):
+        return UserMCPDiscoveryTimeoutError(server_name)
+    if _is_retryable_discovery_error(exc):
+        return UserMCPDiscoveryUnavailableError(server_name, retryable=True)
+    # Oversized responses and JSON-RPC errors both come from the user's server.
+    if (
+        any(400 <= code < 500 for code in status_codes)
+        or _contains_response_too_large(exc)
+        or any(isinstance(chained, McpError) for chained in _iter_exception_chain(exc))
+    ):
+        return UserMCPDiscoveryUnavailableError(server_name, retryable=False)
+    return UserMCPDiscoveryError(server_name)
 
 
 def _safe_discovery_error_summary(exc: BaseException) -> str:
@@ -233,26 +295,91 @@ class UserMCPClient:
         *,
         fail_on_error: bool = False,
     ) -> UserMCPDiscoveryResult:
-        """Connect to all configured servers and report per-server failures."""
+        """Connect to the configured servers, a few at a time.
+
+        At most ``MCP_DISCOVERY_CONCURRENCY`` servers are contacted at once,
+        in configuration order. Each server keeps its own timeout, capped by
+        one deadline shared by the whole discovery. Per-server failures are
+        reported in the result; with ``fail_on_error`` the first failure
+        cancels the other servers and is raised.
+        """
+        tools_by_server: dict[str, dict[str, MCPToolDefinition]] = {}
+        errors_by_server: dict[str, str] = {}
+        loop = asyncio.get_running_loop()
+        discovery_deadline = loop.time() + MCP_DISCOVERY_TIMEOUT_SECONDS
+        budget_exhausted = False
+        slots = asyncio.Semaphore(MCP_DISCOVERY_CONCURRENCY)
+
+        async def discover(server_name: str, config: MCPHttpServerConfig) -> None:
+            nonlocal budget_exhausted
+            async with slots:
+                # Never start another connection after the shared budget expires.
+                if budget_exhausted or loop.time() >= discovery_deadline:
+                    budget_error = UserMCPDiscoveryBudgetExceededError(server_name)
+                    logger.error(
+                        "Skipped user MCP server after the discovery budget expired",
+                        server_name=server_name,
+                    )
+                    errors_by_server[server_name] = type(budget_error).__name__
+                    if fail_on_error:
+                        raise budget_error
+                    return
+                timeout: asyncio.Timeout | None = None
+                server_deadline: float | None = None
+                try:
+                    server_timeout = min(
+                        config.get("timeout") or MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
+                        MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
+                    )
+                    server_deadline = min(
+                        loop.time() + server_timeout, discovery_deadline
+                    )
+                    timeout = asyncio.timeout_at(server_deadline)
+                    async with timeout:
+                        tools_by_server[
+                            server_name
+                        ] = await self._discover_server_tools(server_name, config)
+                except Exception as e:
+                    error_summary = _safe_discovery_error_summary(e)
+                    logger.error(
+                        "Failed to discover tools from user MCP server",
+                        server_name=server_name,
+                        error_summary=error_summary,
+                    )
+                    errors_by_server[server_name] = error_summary
+                    if fail_on_error:
+                        raise _typed_discovery_error(server_name, e) from e
+                finally:
+                    # Timer callbacks can fire slightly before the clock reaches
+                    # their deadline. Once the shared timeout fired, never start
+                    # a queued server even if its clock read is still earlier.
+                    if (
+                        timeout is not None
+                        and server_deadline == discovery_deadline
+                        and timeout.expired()
+                    ):
+                        budget_exhausted = True
+
+        first_error: Exception | None = None
+        try:
+            async with asyncio.TaskGroup() as group:
+                for server_name, config in self._configs.items():
+                    group.create_task(discover(server_name, config))
+        except ExceptionGroup as errors:
+            # Only reachable with ``fail_on_error``: surface the first failure
+            # as the typed error callers expect, not a group.
+            first_error = errors.exceptions[0]
+        if first_error is not None:
+            raise first_error
+
+        # Merge in configuration order so the tool list doesn't depend on
+        # which server answered first.
         tools: dict[str, MCPToolDefinition] = {}
         failed_servers: dict[str, str] = {}
-
-        for server_name, config in self._configs.items():
-            try:
-                server_tools = await self._discover_server_tools(server_name, config)
-                tools.update(server_tools)
-            except Exception as e:
-                error_summary = _safe_discovery_error_summary(e)
-                logger.error(
-                    "Failed to discover tools from user MCP server",
-                    server_name=server_name,
-                    error_summary=error_summary,
-                )
-                failed_servers[server_name] = error_summary
-                if fail_on_error:
-                    raise RuntimeError(
-                        f"Failed to discover tools from user MCP server '{server_name}'"
-                    ) from e
+        for server_name in self._configs:
+            tools.update(tools_by_server.get(server_name, {}))
+            if (error := errors_by_server.get(server_name)) is not None:
+                failed_servers[server_name] = error
 
         logger.info(
             "Discovered user MCP tools",
@@ -300,10 +427,17 @@ class UserMCPClient:
         headers = config.get("headers")
         timeout = config.get("timeout")
 
-        transport = _create_transport(url, transport_type, headers, timeout)
+        transport = _create_transport(
+            url, transport_type, headers, timeout, config.get("tunnel_proxy")
+        )
         tools: dict[str, MCPToolDefinition] = {}
 
-        async with Client(transport) as client:
+        async with Client(
+            transport,
+            # The outer discovery deadline also bounds initialization. FastMCP's
+            # timer can discard TimeoutError when collapsing transport groups.
+            init_timeout=0,
+        ) as client:
             # List tools from the server
             server_tools = await client.list_tools()
 
@@ -357,7 +491,9 @@ class UserMCPClient:
         headers = config.get("headers")
         timeout = config.get("timeout")
 
-        transport = _create_transport(url, transport_type, headers, timeout)
+        transport = _create_transport(
+            url, transport_type, headers, timeout, config.get("tunnel_proxy")
+        )
 
         logger.info(
             "Calling user MCP tool",
@@ -381,14 +517,6 @@ class UserMCPClient:
             raise
 
     @staticmethod
-    def _is_tracecat_registry_server_name(server_name: str) -> bool:
-        return (
-            server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
-            or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
-            or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
-        )
-
-    @staticmethod
     def parse_user_mcp_tool_name(tool_name: str) -> tuple[str, str] | None:
         """Parse a user MCP tool name into (server_name, tool_name).
 
@@ -408,7 +536,7 @@ class UserMCPClient:
         parts = tool_name.split("__", 2)
         if len(parts) < 3:
             return None
-        if UserMCPClient._is_tracecat_registry_server_name(parts[1]):
+        if is_tracecat_registry_server_name(parts[1]):
             return None
 
         # parts[0] = "mcp", parts[1] = server_name, parts[2] = tool_name

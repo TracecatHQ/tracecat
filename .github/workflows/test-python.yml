@@ -5,30 +5,27 @@ on:
     branches: ["main"]
     paths:
       - tracecat/**
+      - alembic/**
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
+      - docker-compose.yml
+      - docker-compose.local.yml
       - docker-compose.dev.yml
+      - deployments/postgres/**
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector*.sh
+      - scripts/tests/test_pg_trgm.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
   pull_request:
+    # These jobs are required by the main branch ruleset. Path filters would
+    # leave frontend-only or docs-only PRs waiting for checks that never start.
     branches: ["main", "staging"]
-    paths:
-      - tracecat/**
-      - registry/**
-      - tests/**
-      - packages/tracecat-ee/**
-      - packages/tracecat-registry/**
-      - pyproject.toml
-      - uv.lock
-      - docker-compose.dev.yml
-      - .env.example
-      - env.sh
-      - .github/workflows/test-python.yml
 
 permissions:
   contents: read
@@ -42,11 +39,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.9.7"
+          version: "0.13.4"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
@@ -74,16 +73,19 @@ jobs:
       matrix:
         test_group:
           - unit
+          - unit-sandbox
           - registry
           - temporal
           # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.9.7"
+          version: "0.13.4"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
@@ -105,6 +107,13 @@ jobs:
           localhost
           n
           test@tracecat.com" | bash env.sh
+
+      - name: Check automatic Compose pgvector wiring
+        run: bash scripts/tests/test_pgvector_compose.sh
+
+      # PRs test their own candidate, before its GHCR tag is published.
+      - name: Build PostgreSQL candidate image
+        run: bash scripts/postgres/build-image.sh
 
       - name: Start core Docker services and install dependencies
         run: |
@@ -165,10 +174,28 @@ jobs:
           wait "$uv_sync_pid"
           trap - EXIT
 
+      - name: Verify automatic vector provisioning completed
+        run: |
+          docker compose -f docker-compose.dev.yml exec -T postgres_db \
+            psql -X -U postgres -d postgres -f /usr/local/share/tracecat/pgvector.sql
+
       - name: Register Temporal search attributes
         if: matrix.test_group == 'temporal'
         run: |
           set -euo pipefail
+
+          # Container health can pass before the default namespace is available.
+          deadline=$((SECONDS + 60))
+          until docker compose -f docker-compose.dev.yml exec -T temporal \
+            tctl --address temporal:7233 --namespace default \
+            admin cluster get-search-attributes --print_json true > /dev/null; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for the default Temporal namespace"
+              exit 124
+            fi
+            echo "Waiting for the default Temporal namespace..."
+            sleep 2
+          done
 
           attrs=(
             TracecatTriggerType
@@ -210,6 +237,15 @@ jobs:
           echo "Timed out waiting for Temporal search attributes: ${missing[*]}"
           exit 1
 
+      - name: Build sandbox test image
+        if: matrix.test_group == 'unit-sandbox'
+        timeout-minutes: 20
+        run: |
+          # Keep image builds out of individual smoke-test deadlines and avoid
+          # concurrent xdist workers rebuilding the same Compose service image.
+          docker build --target test --tag tracecat-sandbox-test:ci .
+          echo "TRACECAT_TEST_SANDBOX_IMAGE=tracecat-sandbox-test:ci" >> "$GITHUB_ENV"
+
       - name: Run tests
         env:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
@@ -221,7 +257,22 @@ jobs:
           TRACECAT__DB_POOL_SIZE: "1"
           TRACECAT__DB_MAX_OVERFLOW: "2"
         run: |
-          if [ "${{ matrix.test_group }}" = "ee" ]; then
+          # Container/nsjail sandbox tests dominate the unit job's tail, so they
+          # run as their own matrix group in parallel with the rest of tests/unit.
+          sandbox_tests=(
+            tests/unit/test_agent_sandbox_litellm.py
+            tests/unit/test_executor_sandbox_nsjail.py
+            tests/unit/executor/test_run_python_sdk_context.py
+          )
+          if [ "${{ matrix.test_group }}" = "unit" ]; then
+            ignore_args=()
+            for path in "${sandbox_tests[@]}"; do
+              ignore_args+=(--ignore="$path")
+            done
+            uv run pytest tests/unit "${ignore_args[@]}" -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+          elif [ "${{ matrix.test_group }}" = "unit-sandbox" ]; then
+            uv run pytest "${sandbox_tests[@]}" -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+          elif [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -m "not live_secret" -ra
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
             # Temporal tests run with compression enabled and parallelization

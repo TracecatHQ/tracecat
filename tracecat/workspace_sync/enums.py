@@ -11,6 +11,7 @@ class VcsProvider(StrEnum):
     GITHUB = "github"
     GITLAB = "gitlab"
     BITBUCKET = "bitbucket"
+    BITBUCKET_DATA_CENTER = "bitbucket_data_center"
 
 
 class SyncResourceType(StrEnum):

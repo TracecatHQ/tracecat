@@ -117,7 +117,8 @@ class AggregationSpec(_AggregationModel):
         min_length=1,
         max_length=MAX_AGGREGATIONS,
     )
-    min_count: int | None = Field(default=None, ge=1)
+    # PostgreSQL COUNT returns a signed BIGINT.
+    min_count: int | None = Field(default=None, ge=1, le=2**63 - 1)
     order_by: str | None = Field(default=None, min_length=1)
     sort: SortDirection | None = Field(default=None)
 

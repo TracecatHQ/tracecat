@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -17,6 +17,7 @@ _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
+    from pydantic import ValidationError
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
@@ -33,7 +34,10 @@ with workflow.unsafe.imports_passed_through():
         DSLInput,
         edge_components_from_dep,
     )
-    from tracecat.dsl.constants import MAX_DO_WHILE_ITERATIONS
+    from tracecat.dsl.constants import (
+        FIXED_ACTION_REFS_MEMO_KEY,
+        MAX_DO_WHILE_ITERATIONS,
+    )
     from tracecat.dsl.enums import (
         EdgeMarker,
         EdgeType,
@@ -50,6 +54,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
+        DSLDependencyPlan,
         ExecutionContext,
         GatherArgs,
         LoopEndArgs,
@@ -64,7 +69,6 @@ with workflow.unsafe.imports_passed_through():
         TaskExceptionInfo,
     )
     from tracecat.dsl.workflow_logging import WorkflowRuntimeLogger, workflow_logger
-    from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
     from tracecat.runtime.errors import (
@@ -112,6 +116,45 @@ def _loop_limit_error(message: str) -> ApplicationError:
     return application_error_from_classification(
         RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED,
+            message=message,
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
+
+
+def _scatter_args_error(ref: str, error: ValidationError) -> ApplicationError:
+    """Build a user-attributed failure for authored scatter arguments."""
+    problems = "; ".join(
+        f"{'.'.join(str(part) for part in detail['loc'])}: {detail['msg']}"
+        for detail in error.errors(include_input=False, include_url=False)
+    )
+    return application_error_from_classification(
+        RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+            message=f"Scatter action '{ref}' has invalid arguments: {problems}",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
+
+
+def _unreachable_task_error(
+    task: Task, stmt: ActionStatement, unsatisfied_deps: Sequence[str]
+) -> ApplicationError:
+    """Build a user-attributed failure for a task whose dependencies never all succeeded."""
+    deps = ", ".join(f"'{dep}'" for dep in unsatisfied_deps)
+    message = (
+        f"Action '{task.ref}' is unreachable: upstream action(s) {deps} did not "
+        "complete successfully (skipped by `run_if` or failed)."
+    )
+    if len(stmt.depends_on) > 1:
+        message += (
+            f" With `join_strategy: {stmt.join_strategy.value}`, every dependency "
+            f"must succeed. Set `join_strategy: any` on '{task.ref}' if it should "
+            "run when only some upstream branches complete."
+        )
+    return application_error_from_classification(
+        RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_JOIN_UNREACHABLE,
             message=message,
             retry_disposition=RetryDisposition.NON_RETRYABLE,
         )
@@ -233,9 +276,14 @@ class DSLScheduler:
         role: Role,
         run_context: RunContext,
         logger: WorkflowRuntimeLogger | None = None,
+        dependency_plan: DSLDependencyPlan | None = None,
+        fixed_action_results: dict[str, TaskResult] | None = None,
     ):
         # Static
         self.dsl = dsl
+        self.fixed_action_results = fixed_action_results or {}
+        self.applied_fixed_refs: list[str] = []
+        self.dependency_plan = dependency_plan
         self.executor = executor
         if max_pending_tasks < 1:
             raise ValueError("max_pending_tasks must be greater than 0")
@@ -800,7 +848,7 @@ class DSLScheduler:
             reference context that is not populated yet, such as a skipped or
             otherwise unavailable upstream result. In that case ``_task_should_skip``
             raises ``ApplicationError``. We defer that error until after the
-            reachability check so we do not replace a genuine ``TaskUnreachable``
+            reachability check so we do not replace a genuine unreachable-join
             outcome with a premature expression failure for a task that was never
             runnable.
         """
@@ -833,7 +881,9 @@ class DSLScheduler:
             # 3) Then we check if the task is reachable
             if not self._is_reachable(task, stmt):
                 self.logger.debug("Task cannot proceed, unreachable", task=task)
-                raise TaskUnreachable(f"Task {task} is unreachable")
+                raise _unreachable_task_error(
+                    task, stmt, self._unsatisfied_dependencies(task, stmt)
+                )
 
             if run_if_error is not None:
                 raise run_if_error
@@ -859,6 +909,13 @@ class DSLScheduler:
             # to run regardless of dependency skip states
             if stmt.action == PlatformAction.TRANSFORM_GATHER:
                 return await self._handle_gather(task, stmt)
+
+            if (
+                task.stream_id == ROOT_STREAM
+                and (fixed := self.fixed_action_results.get(ref)) is not None
+            ):
+                self._apply_fixed_result(task, fixed)
+                return await self._handle_success_path(task)
 
             # -- Otherwise, time to execute the task!
             # NOTE: If an exception is thrown from this coroutine, it signals that
@@ -1042,6 +1099,16 @@ class DSLScheduler:
                 return n_success_paths == n_deps
             raise ValueError(f"Invalid join strategy: {stmt.join_strategy}")
 
+    def _unsatisfied_dependencies(self, task: Task, stmt: ActionStatement) -> list[str]:
+        """Return the dependency refs that were not marked visited for this task."""
+        return [
+            dep_ref
+            for dep_ref in stmt.depends_on
+            if not self._edge_has_marker(
+                dep_ref, task.ref, EdgeMarker.VISITED, task.stream_id
+            )
+        ]
+
     def _edge_has_marker(
         self,
         src_ref_path: str,
@@ -1109,6 +1176,11 @@ class DSLScheduler:
             try:
                 expr_result = await self.resolve_expression(run_if, context)
             except Exception as e:
+                # Sibling-failure cancellation is fallout, never the run's cause.
+                if is_cancelled_exception(e) and workflow.patched(
+                    WorkflowPatch.PRESERVE_RUN_IF_CANCELLATION
+                ):
+                    raise
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
                     non_retryable=True,
@@ -1266,8 +1338,11 @@ class DSLScheduler:
             self.logger.debug("Skipped scatter", task=task)
             return await self._handle_scatter_skip_stream(task, curr_stream_id)
 
-        args = ScatterArgs(**stmt.args)
-        context = self.get_context(curr_stream_id)
+        try:
+            args = ScatterArgs(**stmt.args)
+        except ValidationError as e:
+            raise _scatter_args_error(task.ref, e) from None
+        context = self._build_collection_context(stmt, curr_stream_id)
 
         collection_key = action_collection_prefix(
             self.workspace_id, self.wf_exec_id, curr_stream_id, task.ref
@@ -1569,7 +1644,7 @@ class DSLScheduler:
         gather_ref = task.ref
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
-        current_context = self.get_context(stream_id)
+        current_context = self._build_collection_context(stmt, stream_id)
         try:
             item = await workflow.execute_activity(
                 DSLActivities.evaluate_templated_object_activity,
@@ -1774,17 +1849,39 @@ class DSLScheduler:
         await self._execute(parent_gather, stmt)
         await self._queue_tasks(parent_gather)
 
+    def _apply_fixed_result(self, task: Task, result: TaskResult) -> None:
+        """Use a result from a previous run instead of executing the action."""
+        self.logger.debug("Using fixed action result", ref=task.ref)
+        self._get_action_context(task.stream_id)[task.ref] = result
+        self.applied_fixed_refs.append(task.ref)
+        if workflow.in_workflow():
+            workflow.upsert_memo(
+                {FIXED_ACTION_REFS_MEMO_KEY: list(self.applied_fixed_refs)}
+            )
+
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)
         return context.get("ACTIONS", {})
+
+    def _build_collection_context(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> ExecutionContext:
+        """Select scatter/gather inputs, preserving pre-compilation histories."""
+        if self.dependency_plan is None:
+            return self.get_context(stream_id)
+        return self.build_stream_aware_context(task, stream_id)
 
     def build_stream_aware_context(
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Build a context that is aware of the stream hierarchy."""
-        expr_ctxs = extract_expressions(task.model_dump())
+        # Old histories and compilation failures use the legacy extractor.
+        if self.dependency_plan is None:
+            action_refs = extract_expressions(task.model_dump())[ExprContext.ACTIONS]
+        else:
+            action_refs = self.dependency_plan.actions[task.ref]
         resolved_actions: dict[str, TaskResult] = {}
-        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+        for action_ref in action_refs:
             result = self.get_stream_aware_action_result(action_ref, stream_id)
             # Only include actions that exist in the stream hierarchy.
             # Actions that don't exist (return None) are omitted to prevent

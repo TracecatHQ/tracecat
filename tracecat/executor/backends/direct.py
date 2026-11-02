@@ -4,7 +4,7 @@ This backend executes actions in a fresh subprocess per invocation without
 nsjail sandboxing. It avoids shared in-process import state while keeping
 lower setup complexity than sandboxed backends.
 
-For full isolation, use the ephemeral backend.
+For full isolation, select the nsjail backend.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class DirectBackend(EphemeralBackend):
         resolved_context: ResolvedContext,
         timeout: float = 300.0,
     ) -> ExecutorResult:
-        """Execute action in a direct subprocess (no nsjail forcing)."""
+        """Execute action in a direct subprocess (without nsjail)."""
         action_name = input.task.action
 
         logger.debug(
@@ -74,7 +74,7 @@ class DirectBackend(EphemeralBackend):
             resolved_context=resolved_context,
             artifact_uris=artifact_uris,
             timeout=timeout,
-            force_sandbox=False,
+            use_sandbox=False,
         )
 
         if isinstance(result, ExecutorActionErrorInfo):

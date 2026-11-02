@@ -10,6 +10,8 @@ ENG-1514 spool.
 from __future__ import annotations
 
 import asyncio
+import functools
+import ssl
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -116,6 +118,16 @@ _DELIVERY_ATTEMPTS = 3
 _RETRY_WAIT = wait_exponential(multiplier=1, min=1, max=10)
 
 
+@functools.cache
+def _delivery_ssl_context(verify_ssl: bool) -> ssl.SSLContext:
+    """Build the TLS context once per mode instead of once per delivery.
+
+    Loading the CA bundle is synchronous CPU work on the event loop, and a bulk
+    operation can emit hundreds of audit events at once.
+    """
+    return httpx.create_ssl_context(verify=verify_ssl)
+
+
 def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in _RETRYABLE_STATUS_CODES
@@ -167,7 +179,8 @@ async def _deliver(delivery: _AuditDelivery) -> None:
                     attempts = attempt.retry_state.attempt_number
                     response = None
                     async with httpx.AsyncClient(
-                        timeout=10.0, verify=delivery.verify_ssl
+                        timeout=10.0,
+                        verify=_delivery_ssl_context(delivery.verify_ssl),
                     ) as client:
                         response = await client.post(
                             delivery.webhook_url,
@@ -605,6 +618,9 @@ class AuditService(BaseService):
     async def _get_actor_label(self) -> str | None:
         if self.role is None:
             return None
+        # A scim connection has no name of its own; the connection id is the label.
+        if isinstance(self.role, Role) and self.role.type == "scim":
+            return None
         if isinstance(self.role, Role) and self.role.type == "service_account":
             service_account_id = self.role.service_account_id
             if service_account_id is None:
@@ -658,11 +674,12 @@ class AuditService(BaseService):
             self.role.organization_id if isinstance(self.role, Role) else None
         )
         workspace_id = self.role.workspace_id if isinstance(self.role, Role) else None
-        actor_type = (
-            AuditEventActor.SERVICE_ACCOUNT
-            if isinstance(self.role, Role) and self.role.type == "service_account"
-            else AuditEventActor.USER
-        )
+        actor_type = AuditEventActor.USER
+        if isinstance(self.role, Role):
+            if self.role.type == "service_account":
+                actor_type = AuditEventActor.SERVICE_ACCOUNT
+            elif self.role.type == "scim":
+                actor_type = AuditEventActor.SCIM
         return AuditEvent(
             organization_id=organization_id,
             workspace_id=workspace_id,
@@ -689,6 +706,7 @@ class AuditService(BaseService):
         include_actor_label: bool = True,
         include_ip_address: bool = True,
         include_user_agent: bool = True,
+        actor_label: str | None = None,
     ) -> None:
         """Deliver a privacy-bounded audit event when a sink is configured.
 
@@ -719,6 +737,9 @@ class AuditService(BaseService):
             include_user_agent: Whether to include the bounded request
                 user-agent from context. This field is sensitive security
                 metadata and may identify client software or devices.
+            actor_label: A fixed label to show instead of resolving one, for
+                actors that are not a user or service account, such as
+                Tracecat staff acting in a customer organization.
         """
 
         if self.role is None or self.role.actor_id is None:
@@ -734,7 +755,8 @@ class AuditService(BaseService):
             self.logger.debug("Skipping audit log", reason="webhook_unconfigured")
             return
 
-        actor_label = await self._get_actor_label() if include_actor_label else None
+        if actor_label is None and include_actor_label:
+            actor_label = await self._get_actor_label()
         request_audit = ctx_request_audit.get()
         payload = self._build_payload(
             resource_type=resource_type,

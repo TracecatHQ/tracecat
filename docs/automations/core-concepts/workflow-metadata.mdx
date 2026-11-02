@@ -34,7 +34,7 @@ trigger_type: ${{ ENV.workflow.trigger_type }}
 Use workflow metadata to:
 
 - Stamp tickets, alerts, and log entries with `ENV.workflow.execution_id` so you can trace a record back to the run that created it
-- Branch on `ENV.workflow.trigger_type` to handle manual runs differently from webhook or scheduled runs
+- Branch on `ENV.workflow.trigger_type` to handle manual runs differently from webhook, scheduled, case, or form runs
 - Record when a run started with `ENV.workflow.start_time`
 
 ## Workflow environment

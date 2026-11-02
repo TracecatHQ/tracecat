@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import platform
 import socket
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager, suppress
@@ -29,6 +30,7 @@ from tracecat.agent.common.config import (
     build_agent_runtime_uv_env,
 )
 from tracecat.agent.runtime.session_paths import (
+    JAILED_AGENT_JOB_DIR,
     JAILED_AGENT_UV_STATE_DIR,
     AgentSandboxPathMapping,
     job_uv_state_dir,
@@ -38,9 +40,11 @@ from tracecat.agent.sandbox.nsjail import (
     cleanup_spawned_runtime,
     spawn_jailed_runtime,
 )
+from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_DIR
 from tracecat.logger import logger
 
 _TRUSTED_MCP_BRIDGE_PATH = "/mcp"
+_SYSTEM_PROMPT_FILE_NAME = "system-prompt.md"
 
 # How long a broken write waits for the shim to be reaped before giving up on
 # recording its exit code. Short enough not to stall the error path.
@@ -127,6 +131,12 @@ class SandboxedCLITransport(Transport):
         self._connect_started_at: float | None = None
         self._logged_first_message = False
         self._exit_code: int | None = None
+        self._runtime_logger = logger.bind(
+            session_id=session_id,
+            claude_agent_sdk_version=__version__,
+            architecture=platform.machine(),
+            sandbox_mode="nsjail" if use_jailed_paths else "direct",
+        )
 
     def _log_benchmark_phase(self, phase: str, **extra: object) -> None:
         """Emit a temporary structured benchmark log for transport phases."""
@@ -156,6 +166,10 @@ class SandboxedCLITransport(Transport):
         ) as mcp_binding:
             runtime_options = self._options_with_runtime_bridge_port(mcp_binding.port)
             runtime_options = self._options_with_protected_runtime_settings(
+                runtime_options
+            )
+            runtime_options = self._options_with_platform_skills(runtime_options)
+            runtime_options = await self._options_with_system_prompt_file(
                 runtime_options
             )
             original_options = self._options
@@ -199,10 +213,12 @@ class SandboxedCLITransport(Transport):
                 otel_socket_path=self._otel_socket_path,
             )
         self._process = self._spawned_runtime.process
+        self._exit_code = None
         if self._process.stdin is None or self._process.stdout is None:
             raise CLIConnectionError("Sandbox shim stdio was not initialized")
 
         self._ready = True
+        self._runtime_logger.info("Agent CLI process started")
         self._log_benchmark_phase(
             "broker_transport_sandbox_spawned",
             pid=self._process.pid,
@@ -219,7 +235,14 @@ class SandboxedCLITransport(Transport):
         own, and deliberately never from ``close()``, where the host may have
         killed the process itself.
         """
+        first_observation = self._exit_code is None
         self._exit_code = returncode
+        if first_observation and returncode != 0:
+            # Both the reader and writer can observe the same death. Count it
+            # once, without copying command arguments, stderr, or payloads.
+            self._runtime_logger.warning(
+                "Agent CLI process exited unexpectedly", exit_code=returncode
+            )
 
     async def write(self, data: str) -> None:
         """Write raw stream-json data to the sandbox shim stdin."""
@@ -502,6 +525,46 @@ class SandboxedCLITransport(Transport):
         if mcp_servers is self._options.mcp_servers and agents is self._options.agents:
             return self._options
         return replace(self._options, mcp_servers=mcp_servers, agents=agents)
+
+    def _options_with_platform_skills(
+        self, options: ClaudeAgentOptions
+    ) -> ClaudeAgentOptions:
+        """Load only this turn's staged platform plugin in host or jailed mode."""
+        plugin_dir = self._job_dir / PLATFORM_SKILL_PLUGIN_DIR
+        if not (plugin_dir / ".claude-plugin" / "plugin.json").is_file():
+            return replace(options, plugins=[])
+        runtime_plugin_dir = (
+            JAILED_AGENT_JOB_DIR / PLATFORM_SKILL_PLUGIN_DIR
+            if self._use_jailed_paths
+            else plugin_dir
+        )
+        return replace(
+            options, plugins=[{"type": "local", "path": str(runtime_plugin_dir)}]
+        )
+
+    async def _options_with_system_prompt_file(
+        self, options: ClaudeAgentOptions
+    ) -> ClaudeAgentOptions:
+        """Pass the system prompt by file so its size is not bound by argv limits.
+
+        Linux rejects any single exec argument of 128 KiB or more, so a large
+        ``--system-prompt`` value (e.g. a case copilot prompt embedding a big
+        case) would make spawning the CLI fail with E2BIG.
+        """
+        system_prompt = options.system_prompt
+        if not isinstance(system_prompt, str) or not system_prompt:
+            return options
+        host_path = self._job_dir / _SYSTEM_PROMPT_FILE_NAME
+        await asyncio.to_thread(host_path.write_text, system_prompt, encoding="utf-8")
+        runtime_path = (
+            JAILED_AGENT_JOB_DIR / _SYSTEM_PROMPT_FILE_NAME
+            if self._use_jailed_paths
+            else host_path
+        )
+        return replace(
+            options,
+            system_prompt={"type": "file", "path": str(runtime_path)},
+        )
 
     def _options_with_protected_runtime_settings(
         self,

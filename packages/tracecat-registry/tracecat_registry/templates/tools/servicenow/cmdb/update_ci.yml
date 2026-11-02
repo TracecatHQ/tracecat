@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Update configuration item
+  description: Update attributes of a configuration item with the CMDB Instance API.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/cmdb-instance-api.html#cmdb-PATCH-instance
+  namespace: tools.servicenow
+  name: update_ci
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    classname:
+      type: str
+      description: CMDB class (table) name, e.g. cmdb_ci_linux_server, cmdb_ci_win_server, or cmdb_ci_appl.
+    sys_id:
+      type: str
+      description: sys_id of the configuration item.
+    attributes:
+      type: dict[str, Any]
+      description: CI attributes to update, keyed by field name.
+    source:
+      type: str
+      description: Discovery source that is updating the CI. Must be a choice value of cmdb_ci.discovery_source, e.g. ServiceNow.
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/cmdb/instance/${{ FN.url_encode(inputs.classname) }}/${{ FN.url_encode(inputs.sys_id) }}
+      method: PATCH
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        attributes: ${{ inputs.attributes }}
+        source: ${{ inputs.source }}
+  returns: ${{ steps.request.result }}

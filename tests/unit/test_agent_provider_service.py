@@ -53,37 +53,18 @@ def _role(org: Organization) -> Role:
 
 
 @pytest.mark.anyio
-async def test_create_provider_minimal(
+async def test_provider_crud_lifecycle(
     session: AsyncSession,
     svc_organization: Organization,
 ) -> None:
     service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    result = await service.create_provider(
-        AgentCustomProviderCreate(display_name="Test Provider")
+    created = await service.create_provider(
+        AgentCustomProviderCreate(display_name="Provider 0")
     )
-
-    assert result.id is not None
-    assert result.display_name == "Test Provider"
-    assert result.passthrough is False
-
-
-@pytest.mark.anyio
-async def test_get_provider_not_found(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    with pytest.raises(TracecatNotFoundError):
-        await service.get_provider(uuid.uuid4())
-
-
-@pytest.mark.anyio
-async def test_list_providers_paginated(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    for i in range(3):
+    assert created.id is not None
+    assert created.display_name == "Provider 0"
+    assert created.passthrough is False
+    for i in (1, 2):
         await service.create_provider(
             AgentCustomProviderCreate(display_name=f"Provider {i}")
         )
@@ -92,21 +73,9 @@ async def test_list_providers_paginated(
     second_page = await service.list_providers(
         CursorPaginationParams(limit=2, cursor=first_page.next_cursor)
     )
-
     assert len(first_page.items) == 2
     assert first_page.has_more is True
     assert len(second_page.items) == 1
-
-
-@pytest.mark.anyio
-async def test_update_provider(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    created = await service.create_provider(
-        AgentCustomProviderCreate(display_name="Original", passthrough=False)
-    )
 
     updated = await service.update_provider(
         created.id,
@@ -116,26 +85,15 @@ async def test_update_provider(
             passthrough=True,
         ),
     )
-
     assert updated.display_name == "Updated"
     assert updated.base_url == "https://api.example.com"
     assert updated.passthrough is True
 
-
-@pytest.mark.anyio
-async def test_delete_provider(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    created = await service.create_provider(
-        AgentCustomProviderCreate(display_name="Delete me")
-    )
-
     await service.delete_provider(created.id)
-
     with pytest.raises(TracecatNotFoundError):
         await service.get_provider(created.id)
+    with pytest.raises(TracecatNotFoundError):
+        await service.get_provider(uuid.uuid4())
 
 
 @pytest.mark.anyio
@@ -304,73 +262,46 @@ def _decrypted_secrets(raw: AgentCustomProvider) -> dict[str, object]:
 
 
 @pytest.mark.anyio
-async def test_update_provider_clears_api_key_on_null(
+@pytest.mark.parametrize(
+    ("update", "expected_secrets"),
+    [
+        pytest.param(
+            AgentCustomProviderUpdate(api_key=None),
+            {"custom_headers": {"x-trace": "abc"}},
+            id="clear-api-key",
+        ),
+        pytest.param(
+            AgentCustomProviderUpdate(custom_headers={}),
+            {"api_key": "secret"},
+            id="clear-custom-headers",
+        ),
+        pytest.param(
+            AgentCustomProviderUpdate(api_key=None, custom_headers={}),
+            None,
+            id="clear-all",
+        ),
+    ],
+)
+async def test_update_provider_clears_secrets(
     session: AsyncSession,
     svc_organization: Organization,
+    update: AgentCustomProviderUpdate,
+    expected_secrets: dict[str, object] | None,
 ) -> None:
+    """Clearing every secret nulls encrypted_config instead of storing ``{}``."""
     service = AgentCustomProviderService(session=session, role=_role(svc_organization))
     created = await service.create_provider(
         AgentCustomProviderCreate(
-            display_name="ClearApiKey",
+            display_name="ClearSecrets",
             api_key="secret",
             custom_headers={"x-trace": "abc"},
         )
     )
 
-    await service.update_provider(
-        created.id,
-        AgentCustomProviderUpdate(api_key=None),
-    )
+    await service.update_provider(created.id, update)
 
     raw = await _load_raw_provider(session, created.id)
-    secrets = _decrypted_secrets(raw)
-    assert "api_key" not in secrets
-    assert secrets.get("custom_headers") == {"x-trace": "abc"}
-
-
-@pytest.mark.anyio
-async def test_update_provider_clears_custom_headers_on_empty_dict(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    created = await service.create_provider(
-        AgentCustomProviderCreate(
-            display_name="ClearHeaders",
-            api_key="secret",
-            custom_headers={"x-trace": "abc"},
-        )
-    )
-
-    await service.update_provider(
-        created.id,
-        AgentCustomProviderUpdate(custom_headers={}),
-    )
-
-    raw = await _load_raw_provider(session, created.id)
-    secrets = _decrypted_secrets(raw)
-    assert "custom_headers" not in secrets
-    assert secrets.get("api_key") == "secret"
-
-
-@pytest.mark.anyio
-async def test_update_provider_clears_all_secrets_sets_encrypted_config_null(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    created = await service.create_provider(
-        AgentCustomProviderCreate(
-            display_name="ClearAll",
-            api_key="secret",
-            custom_headers={"x-trace": "abc"},
-        )
-    )
-
-    await service.update_provider(
-        created.id,
-        AgentCustomProviderUpdate(api_key=None, custom_headers={}),
-    )
-
-    raw = await _load_raw_provider(session, created.id)
-    assert raw.encrypted_config is None
+    if expected_secrets is None:
+        assert raw.encrypted_config is None
+    else:
+        assert _decrypted_secrets(raw) == expected_secrets

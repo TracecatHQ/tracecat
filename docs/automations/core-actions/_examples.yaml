@@ -318,6 +318,27 @@ examples:
             SELECT *
             FROM read_parquet('s3://my-bucket/findings/*.parquet')
 
+  sql-duckdb-s3-cross-account:
+    title: Read a bucket in another account and region
+    language: yaml
+    code: |
+      # role_arn chains from the amazon_s3 credentials into a role in the
+      # bucket's account. region_name is the bucket's region and overrides the
+      # secret's AWS_REGION, so one secret can read buckets in several regions.
+      - ref: read_audit_logs
+        action: core.duckdb.execute_sql
+        args:
+          role_arn: arn:aws:iam::123456789012:role/log-reader
+          region_name: us-west-2
+          sql: |
+            SELECT action, count(*) AS events
+            FROM read_json(
+              's3://my-audit-logs/2026/01/01/*/*.json.gz',
+              format = 'newline_delimited',
+              compression = 'gzip'
+            )
+            GROUP BY action
+
   ssh-command:
     title: Execute a remote command
     language: yaml
@@ -424,6 +445,36 @@ examples:
             - in_progress
           limit: 25
 
+  cases-aggregate:
+    title: Count open cases by priority and day
+    language: yaml
+    code: |
+      - ref: cases_by_priority_per_day
+        action: core.cases.aggregate_cases
+        args:
+          filters:
+            and:
+              - field: status
+                op: in
+                value: [new, in_progress]
+              - field: created_at
+                op: gte
+                value: "2026-08-01T00:00:00Z"
+              - or:
+                  - field: priority
+                    op: gte
+                    value: high
+                  - field: fields.region
+                    op: eq
+                    value: emea
+          group_by:
+            - priority
+            - field: created_at
+              bucket: day
+          aggs:
+            - function: count
+          limit: 100
+
   cases-list-events:
     title: List case events
     language: yaml
@@ -513,6 +564,16 @@ examples:
         args:
           comment_id: ${{ TRIGGER.comment_id }}
           content: "Initial triage started. Waiting on endpoint data."
+
+  cases-delete-comment:
+    title: Delete a comment
+    language: yaml
+    code: |
+      - ref: delete_comment
+        action: core.cases.delete_comment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          comment_id: ${{ TRIGGER.comment_id }}
 
   cases-list-comments:
     title: List comments
@@ -657,6 +718,18 @@ examples:
           task_id: ${{ TRIGGER.task_id }}
           status: in_progress
 
+  cases-run-task:
+    title: Run a task's workflow
+    language: yaml
+    code: |
+      - ref: run_task
+        action: core.cases.run_task
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          task_id: ${{ TRIGGER.task_id }}
+          inputs:
+            reason: Requested by analyst
+
   cases-delete-task:
     title: Delete a task
     language: yaml
@@ -709,6 +782,17 @@ examples:
         action: core.cases.get_linked_case_rows
         args:
           case_id: ${{ TRIGGER.case_id }}
+
+  cases-list-cases-by-row:
+    title: List other cases that link a row
+    language: yaml
+    code: |
+      - ref: related_cases
+        action: core.cases.list_cases_by_row
+        args:
+          table_id: ${{ ACTIONS.linked_rows.result[0].table_id }}
+          row_id: ${{ ACTIONS.linked_rows.result[0].row_id }}
+          exclude_case_id: ${{ TRIGGER.case_id }}
 
   cases-metrics:
     title: Read case metrics
@@ -870,6 +954,35 @@ examples:
           limit: 50
           paginate: true
 
+  tables-aggregate:
+    title: Sum bytes by source and hour
+    language: yaml
+    code: |
+      - ref: bytes_by_source_hourly
+        action: core.table.aggregate_rows
+        args:
+          table: alerts
+          filters:
+            and:
+              - field: disposition
+                op: ne
+                value: benign
+              - field: created_at
+                op: gte
+                value: "2026-08-31T00:00:00Z"
+          group_by:
+            - source
+            - field: created_at
+              bucket: hour
+          aggs:
+            - function: count
+            - function: sum
+              field: bytes_out
+              alias: total_bytes
+            - function: median
+              field: duration_ms
+          limit: 200
+
   tables-write:
     title: Insert, update, and delete rows
     language: yaml
@@ -926,3 +1039,77 @@ examples:
             - ${{ TRIGGER.severity in ["high", "critical"] }}
           require_all: true
           raise_error: true
+
+  forms-list-forms:
+    title: List forms
+    language: yaml
+    code: |
+      - ref: list_forms
+        action: core.forms.list_forms
+        args:
+          limit: 50
+
+  forms-get-form:
+    title: Get a form
+    language: yaml
+    code: |
+      - ref: get_form
+        action: core.forms.get_form
+        args:
+          form_id: 0b9f6c1e-5a47-4d1b-9c3e-2f7a8d6e4b10
+
+  forms-update-form:
+    title: Put a form online with a card picker
+    language: yaml
+    code: |
+      - ref: update_form
+        action: core.forms.update_form
+        args:
+          workflow_id: wf_3mYp8JkL2nQr7sTu9vWx0Z
+          status: online
+          config:
+            title: Laptop request
+            layout:
+              - field: model
+                widget: cards
+
+  forms-list-submissions:
+    title: List submissions older than 90 days
+    language: yaml
+    code: |
+      - ref: list_expired
+        action: core.forms.list_submissions
+        args:
+          form_id: 0b9f6c1e-5a47-4d1b-9c3e-2f7a8d6e4b10
+          submitted_before: ${{ FN.now() - FN.days(90) }}
+          limit: 200
+
+  forms-get-submission:
+    title: Get the submission that started this run
+    language: yaml
+    code: |
+      - ref: get_submission
+        action: core.forms.get_submission
+        args:
+          submission_id: ${{ TRIGGER.submission_id }}
+
+  forms-delete-submission:
+    title: Delete each listed submission
+    language: yaml
+    code: |
+      - ref: delete_expired
+        action: core.forms.delete_submission
+        depends_on:
+          - list_expired
+        for_each: ${{ for var.submission in ACTIONS.list_expired.result.items }}
+        args:
+          submission_id: ${{ var.submission.id }}
+
+  forms-download-file:
+    title: Download a file attached to the submission
+    language: yaml
+    code: |
+      - ref: download_quote
+        action: core.forms.download_file
+        args:
+          file_id: ${{ TRIGGER.quote.id }}

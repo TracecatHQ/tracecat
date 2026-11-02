@@ -4,10 +4,12 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from tracecat.agent.backends import registry
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.session.schemas import AgentSessionRead
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -40,7 +42,7 @@ def _agent_session_row(
     *,
     workspace_id: uuid.UUID,
     user_id: uuid.UUID | None,
-    parent_session_id: uuid.UUID | None,
+    spawned_by_session_id: uuid.UUID | None,
 ) -> SimpleNamespace:
     now = datetime.now(UTC)
     return SimpleNamespace(
@@ -55,63 +57,78 @@ def _agent_session_row(
         mcp_integrations=None,
         agent_preset_id=None,
         agent_preset_version_id=None,
+        backend_id="oss",
+        agents_binding=None,
+        last_error=None,
+        artifacts=[],
         harness_type=None,
         last_stream_id=None,
-        parent_session_id=parent_session_id,
+        parent_session_id=None,
+        spawned_by_session_id=spawned_by_session_id,
+        forked_from_session_id=None,
         created_at=now,
         updated_at=now,
     )
 
 
-@pytest.mark.anyio
-async def test_list_sessions_parent_session_filter_excludes_legacy_chats() -> None:
-    service, session, role = _build_service()
-    assert role.workspace_id is not None
-    assert role.user_id is not None
-    parent_session_id = uuid.uuid4()
-    child_session = _agent_session_row(
-        workspace_id=role.workspace_id,
-        user_id=role.user_id,
-        parent_session_id=parent_session_id,
-    )
-    session.execute.return_value = _mock_scalar_result([child_session])
-
-    results = await service.list_sessions(
-        created_by=role.user_id,
-        parent_session_id=parent_session_id,
-        limit=1,
-    )
-
-    session.execute.assert_awaited_once()
-    assert results == [
-        AgentSessionRead.model_validate(child_session, from_attributes=True)
-    ]
+_SOURCE_ID = uuid.uuid4()
 
 
 @pytest.mark.anyio
-async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> None:
-    service, session, role = _build_service()
-    assert role.workspace_id is not None
-    session_row = _agent_session_row(
-        workspace_id=role.workspace_id,
-        user_id=None,
-        parent_session_id=None,
-    )
-    session.execute.return_value = _mock_scalar_result([session_row])
+@pytest.mark.parametrize(
+    ("kwargs", "present", "absent"),
+    [
+        pytest.param(
+            {"spawned_by_session_id": _SOURCE_ID},
+            ["agent_session.spawned_by_session_id ="],
+            [],
+            id="spawned-by",
+        ),
+        pytest.param(
+            {"filter_created_by_none": True},
+            [
+                "agent_session.created_by IS NULL",
+                "agent_session.spawned_by_session_id IS NULL",
+            ],
+            [],
+            id="created-by-none",
+        ),
+        pytest.param(
+            {"exclude_entity_types": [AgentSessionEntity.WORKSPACE_CHAT]},
+            ["chat.entity_type NOT IN"],
+            [],
+            id="exclude-legacy-workspace-chats",
+        ),
+        pytest.param(
+            {"forked_from_session_id": _SOURCE_ID, "include_children": True},
+            ["agent_session.forked_from_session_id ="],
+            ["agent_session.spawned_by_session_id IS NULL"],
+            id="fork-source-with-children",
+        ),
+        pytest.param(
+            {"forked_from_session_id": _SOURCE_ID},
+            [
+                "agent_session.forked_from_session_id =",
+                "agent_session.spawned_by_session_id IS NULL",
+            ],
+            [],
+            id="fork-source-standalone",
+        ),
+    ],
+)
+async def test_list_sessions_filters(
+    kwargs: dict[str, Any], present: list[str], absent: list[str]
+) -> None:
+    service, db, _role = _build_service()
+    db.execute.side_effect = [_mock_scalar_result([]), _mock_scalar_result([])]
 
-    results = await service.list_sessions(
-        filter_created_by_none=True,
-        limit=1,
-    )
+    await service.list_sessions(limit=1, **kwargs)
 
-    session.execute.assert_awaited_once()
-    executed_stmt = session.execute.await_args.args[0]
-    assert "agent_session.created_by IS NULL" in str(executed_stmt)
-    assert results == [
-        AgentSessionRead.model_validate(session_row, from_attributes=True).model_copy(
-            update={"is_readonly": True}
-        )
-    ]
+    queries = "\n".join(str(call.args[0]) for call in db.execute.await_args_list)
+    for fragment in present:
+        assert fragment in queries
+    for fragment in absent:
+        assert fragment not in queries
 
 
 @pytest.mark.anyio
@@ -121,12 +138,15 @@ async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
     teammate_session = _agent_session_row(
         workspace_id=role.workspace_id,
         user_id=uuid.uuid4(),
-        parent_session_id=uuid.uuid4(),
+        spawned_by_session_id=None,
     )
-    session.execute.return_value = _mock_scalar_result([teammate_session])
+    session.execute.side_effect = [
+        _mock_scalar_result([teammate_session]),
+        _mock_scalar_result([]),
+    ]
 
     results = await service.list_sessions(
-        parent_session_id=teammate_session.parent_session_id,
+        created_by=teammate_session.created_by,
         limit=1,
     )
 
@@ -135,21 +155,41 @@ async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
 
 
 @pytest.mark.anyio
-async def test_list_sessions_excludes_legacy_workspace_chats() -> None:
-    service, session, role = _build_service()
-    assert role.user_id is not None
-    session.execute.side_effect = [
-        _mock_scalar_result([]),
+@pytest.mark.parametrize(
+    "backend_state", ["enabled", "disabled", "missing", "unsupported"]
+)
+@pytest.mark.parametrize("is_child", [False, True], ids=["root", "child"])
+async def test_list_sessions_derives_readonly_from_parent_and_backend_state(
+    backend_state: str,
+    is_child: bool,
+) -> None:
+    service, db, role = _build_service()
+    assert role.workspace_id is not None
+    row = _agent_session_row(
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        spawned_by_session_id=uuid.uuid4() if is_child else None,
+    )
+    row.backend_id = "external"
+    row.harness_type = (
+        "unsupported" if backend_state == "unsupported" else "claude_code"
+    )
+    db.execute.side_effect = [
+        _mock_scalar_result([row]),
         _mock_scalar_result([]),
     ]
-
-    results = await service.list_sessions(
-        created_by=role.user_id,
-        exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
-        limit=1,
-    )
-
-    assert results == []
-    assert session.execute.await_count == 2
-    chat_stmt = session.execute.await_args_list[1].args[0]
-    assert "chat.entity_type NOT IN" in str(chat_stmt)
+    provider = DefaultBackend()
+    with (
+        patch.object(
+            registry,
+            "get_agent_backends",
+            return_value={} if backend_state == "missing" else {"external": provider},
+        ),
+        patch.object(provider, "is_enabled", return_value=backend_state != "disabled"),
+    ):
+        results = await service.list_sessions(
+            spawned_by_session_id=row.spawned_by_session_id
+        )
+    assert len(results) == 1
+    assert isinstance(results[0], AgentSessionRead)
+    assert results[0].is_readonly is (is_child or backend_state != "enabled")

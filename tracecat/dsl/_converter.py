@@ -1,4 +1,5 @@
-from typing import Any
+from datetime import datetime
+from typing import Any, TypeAliasType
 
 import orjson
 from pydantic import BaseModel
@@ -11,6 +12,8 @@ from temporalio.converter import (
     DefaultFailureConverterWithEncodedAttributes,
     DefaultPayloadConverter,
     JSONPlainPayloadConverter,
+    JSONTypeConverter,
+    value_to_type,
 )
 
 from tracecat import config
@@ -38,12 +41,28 @@ def _format_type_hint(type_hint: type[Any] | None) -> str:
     return f"type {type_hint}"
 
 
+class WorkflowJSONTypeConverter(JSONTypeConverter):
+    """Decode Python 3.12 aliases and ISO timestamps in workflow dataclasses."""
+
+    def to_typed_value(self, hint: type, value: Any) -> Any:
+        # Temporal's default JSON decoder handles dataclasses but not datetime.
+        # ORJSON already writes datetime as ISO strings; keep that wire format.
+        if isinstance(hint, TypeAliasType):
+            return value_to_type(hint.__value__, value, [self])
+        if hint is datetime and isinstance(value, str):
+            return datetime.fromisoformat(value)
+        return JSONTypeConverter.Unhandled
+
+
 class PydanticORJSONPayloadConverter(JSONPlainPayloadConverter):
     """Pydantic ORJSON payload converter.
 
     This extends the :py:class:`JSONPlainPayloadConverter` to override
     :py:meth:`to_payload` using the Pydantic encoder.
     """
+
+    def __init__(self) -> None:
+        super().__init__(custom_type_converters=[WorkflowJSONTypeConverter()])
 
     def to_payload(self, value: Any) -> Payload | None:
         """Convert all values with Pydantic encoder or fail.

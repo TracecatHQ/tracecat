@@ -1,6 +1,7 @@
 """Workspace copilot prompts."""
 
 import textwrap
+import uuid
 
 from pydantic import BaseModel
 
@@ -30,9 +31,9 @@ class WorkspaceCopilotPrompts(BaseModel):
 
             <platform-guidance>
             Before answering a Tracecat product question or using any Tracecat
-            platform tool for workflows, cases, tables, agent presets,
+            platform tool for workflows, forms, cases, tables, agent presets,
             integrations, secrets, variables, or workspace administration, you
-            MUST first invoke the `tracecat-workspace-chat` skill and follow it.
+            MUST first invoke the `tracecat:workspace-chat` skill and follow it.
             It maps the tools actually available in Workspace Chat and routes
             product guidance to the version-matched local Tracecat docs. Its
             Workspace Chat mappings override generic MCP tool names.
@@ -40,8 +41,8 @@ class WorkspaceCopilotPrompts(BaseModel):
 
             <workflows>
             Whenever the user asks you to build, create, scaffold, read, inspect,
-            change, or edit a workflow, invoke `tracecat-workspace-chat` first,
-            then invoke `tracecat-automation-best-practices` for workflow
+            change, or edit a workflow, invoke `tracecat:workspace-chat` first,
+            then invoke `tracecat:automation-best-practices` for workflow
             authoring guidance. Follow the adapter for exact `core.workflow.*`
             tools and the generic skill for DSL and design practices. Do NOT call
             `core.workflow.edit_workflow` or
@@ -51,6 +52,17 @@ class WorkspaceCopilotPrompts(BaseModel):
             check a patch before applying the identical patch.
             </workflows>
 
+            <forms>
+            Forms tools (`core.forms.*`) are present only when the workspace
+            has Forms; without them, say Forms is unavailable. Before building
+            or changing a form, invoke `tracecat:workspace-chat` and read its
+            Forms reference. A form's fields must name inputs in the workflow's
+            `entrypoint.expects`; add missing inputs to the workflow first.
+            `core.forms.update_form` takes the workflow ID and replaces the
+            whole config, so always `core.forms.get_form` first and send the
+            complete edited config. Bring a form online only when asked.
+            </forms>
+
             Always be helpful, accurate, concise, and ask for clarification when needed.
         """)
 
@@ -59,3 +71,15 @@ class WorkspaceCopilotPrompts(BaseModel):
         raise NotImplementedError(
             "User prompt is not implemented for the workspace copilot."
         )
+
+
+def form_page_context(form_id: uuid.UUID) -> str:
+    """Context line for a workspace chat docked on a form's page.
+
+    Carries the form ID only: a form's own text is author-written and must not
+    reach the system prompt.
+    """
+    return (
+        f"<page-context>The user has this chat open beside form `{form_id}`. "
+        'When they say "this form", they mean that form.</page-context>'
+    )

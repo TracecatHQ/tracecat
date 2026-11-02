@@ -104,6 +104,9 @@ class CaseEventType(StrEnum):
     COMMENT_REPLY_CREATED = "comment_reply_created"
     COMMENT_REPLY_UPDATED = "comment_reply_updated"
     COMMENT_REPLY_DELETED = "comment_reply_deleted"
+    PARENT_CHANGED = "parent_changed"
+    SUB_CASES_ADDED = "sub_cases_added"
+    SUB_CASES_REMOVED = "sub_cases_removed"
 
 
 class CaseTaskStatus(StrEnum):

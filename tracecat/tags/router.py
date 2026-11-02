@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import WorkflowTag
 from tracecat.identifiers import TagID
 from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
@@ -58,7 +59,18 @@ async def create_tag(
     service = TagsService(session, role)
     try:
         return await service.create_tag(tag)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tag already exists",
+        ) from e
     except IntegrityError as e:
+        if not is_unique_violation(
+            e,
+            "uq_workflow_tag_name_workspace",
+            "uq_workflow_tag_ref_workspace",
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tag already exists",
@@ -80,6 +92,12 @@ async def update_tag(
     try:
         return await service.update_tag(tag, tag_update)
     except IntegrityError as e:
+        if not is_unique_violation(
+            e,
+            "uq_workflow_tag_name_workspace",
+            "uq_workflow_tag_ref_workspace",
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tag already exists",

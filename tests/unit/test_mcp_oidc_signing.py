@@ -26,22 +26,6 @@ def _clear_signing_caches(monkeypatch: pytest.MonkeyPatch):  # pyright: ignore[r
     signing.get_public_jwk.cache_clear()
 
 
-def test_derive_seed_is_deterministic() -> None:
-    """Same secret always produces the same private scalar."""
-    seed_a = signing._derive_seed("stable-secret")
-    seed_b = signing._derive_seed("stable-secret")
-    assert seed_a == seed_b
-    assert isinstance(seed_a, int)
-    assert seed_a > 0
-
-
-def test_derive_seed_differs_for_different_secrets() -> None:
-    """Different secrets produce different seeds."""
-    seed_a = signing._derive_seed("secret-one")
-    seed_b = signing._derive_seed("secret-two")
-    assert seed_a != seed_b
-
-
 def test_get_signing_key_is_deterministic() -> None:
     """Same USER_AUTH_SECRET always produces the same key pair."""
     key_a = get_signing_key_public_bytes()

@@ -9,8 +9,10 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 
+from tests.support.membership import grant_org_membership_via_group
 from tracecat import config
 from tracecat.auth.schemas import UserRole
+from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -62,7 +64,7 @@ async def _get_org_role_assignment_slug(
     *,
     user_id: uuid.UUID,
     organization_id: uuid.UUID,
-) -> str:
+) -> str | None:
     result = await session.execute(
         select(DBRole.slug)
         .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
@@ -72,9 +74,7 @@ async def _get_org_role_assignment_slug(
             UserRoleAssignment.workspace_id.is_(None),
         )
     )
-    role_slug = result.scalar_one()
-    assert role_slug is not None
-    return role_slug
+    return result.scalar_one_or_none()
 
 
 @pytest.mark.anyio
@@ -128,15 +128,19 @@ async def test_single_tenant_defaults_for_session_resolves_default_org(
 
     assert result.organization_id is not None
     assert result.changed is True
-    membership = await session.get(
-        OrganizationMembership,
-        {"user_id": user.id, "organization_id": result.organization_id},
-    )
+    membership = (
+        await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == result.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
     assert membership is not None
 
 
 @pytest.mark.anyio
-async def test_single_tenant_defaults_assign_member_role(
+async def test_single_tenant_defaults_admit_without_org_role(
     session: AsyncSession,
 ) -> None:
     org = await _create_org_with_roles(session)
@@ -151,16 +155,30 @@ async def test_single_tenant_defaults_assign_member_role(
     )
     await session.flush()
 
-    membership = await session.get(
-        OrganizationMembership,
-        {"user_id": user.id, "organization_id": org.id},
-    )
+    membership = (
+        await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
+            )
+        )
+    ).scalar_one_or_none()
     assert membership is not None
+    # The legacy table is kept in step for older app versions.
+    assert (
+        await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
+            )
+        )
+    ).scalar_one_or_none() is not None
+    # Presence is the row; a regular user gets no org-wide role.
     assert (
         await _get_org_role_assignment_slug(
             session, user_id=user.id, organization_id=org.id
         )
-        == "organization-member"
+        is None
     )
 
 
@@ -219,7 +237,8 @@ async def test_single_tenant_defaults_are_idempotent(
         )
     )
     assert membership_count is not None
-    assert len(assignment_result.scalars().all()) == 1
+    # A regular user is admitted by the row alone.
+    assert len(assignment_result.scalars().all()) == 0
 
 
 @pytest.mark.anyio
@@ -286,16 +305,11 @@ async def test_single_tenant_defaults_handle_concurrent_repairs() -> None:
             )
 
         assert membership_count == 1
-        assert assignment_count == 1
+        assert assignment_count == 0
     finally:
         async with get_async_session_bypass_rls_context_manager() as cleanup_session:
             await cleanup_session.execute(
                 delete(UserRoleAssignment).where(UserRoleAssignment.user_id == user_id)
-            )
-            await cleanup_session.execute(
-                delete(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user_id
-                )
             )
             await cleanup_session.execute(
                 delete(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
@@ -314,7 +328,6 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
 ) -> None:
     org = await _create_org_with_roles(session)
     user = await _create_user(session)
-    session.add(OrganizationMembership(user_id=user.id, organization_id=org.id))
     owner_role = (
         await session.execute(
             select(DBRole).where(
@@ -323,6 +336,7 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
             )
         )
     ).scalar_one()
+    await ensure_member(session, org.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -352,9 +366,14 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
 
 
 @pytest.mark.anyio
-async def test_single_tenant_defaults_normalize_existing_role_during_repair(
+async def test_single_tenant_defaults_keep_owner_role_for_regular_user(
     session: AsyncSession,
 ) -> None:
+    """An org-wide assignment is self-sufficient, so no repair demotes it.
+
+    Membership is derived from the assignment, so the pre-view state this used
+    to normalize (owner assignment with no membership row) cannot occur.
+    """
     org = await _create_org_with_roles(session)
     user = await _create_user(session)
     owner_role = (
@@ -365,6 +384,7 @@ async def test_single_tenant_defaults_normalize_existing_role_during_repair(
             )
         )
     ).scalar_one()
+    await ensure_member(session, org.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,
@@ -384,18 +404,59 @@ async def test_single_tenant_defaults_normalize_existing_role_during_repair(
     )
     await session.flush()
 
-    membership = await session.get(
-        OrganizationMembership,
-        {"user_id": user.id, "organization_id": org.id},
-    )
+    membership = (
+        await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == org.id,
+            )
+        )
+    ).scalar_one_or_none()
     assert membership is not None
     assert (
         await _get_org_role_assignment_slug(
             session, user_id=user.id, organization_id=org.id
         )
-        == "organization-member"
+        == "organization-owner"
     )
-    assert changed is True
+    assert changed is False
+
+
+@pytest.mark.anyio
+async def test_single_tenant_defaults_keep_group_only_membership_indirect(
+    session: AsyncSession,
+) -> None:
+    """A group grant is enough presence, so no direct assignment is inserted."""
+    org = await _create_org_with_roles(session)
+    user = await _create_user(session)
+    await grant_org_membership_via_group(
+        session, user_id=user.id, organization_id=org.id
+    )
+
+    changed = await ensure_single_tenant_user_defaults_in_session(
+        session=session,
+        user_id=user.id,
+        organization_id=org.id,
+        is_superuser=False,
+        allow_new_members=True,
+    )
+    await session.flush()
+
+    assert changed is False
+    assignments = (
+        (
+            await session.execute(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == user.id,
+                    UserRoleAssignment.organization_id == org.id,
+                    UserRoleAssignment.workspace_id.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert assignments == []
 
 
 @pytest.mark.anyio
@@ -412,6 +473,7 @@ async def test_single_tenant_defaults_upgrade_superuser_to_owner(
             )
         )
     ).scalar_one()
+    await ensure_member(session, org.id, user.id)
     session.add(
         UserRoleAssignment(
             organization_id=org.id,

@@ -105,11 +105,33 @@ export const $ActionControlFlow = {
       title: "Environment",
       description: "Override environment for this action's execution",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Workspace tunnel to route this action's HTTP(S) traffic through",
+    },
     mask_output: {
       type: "boolean",
       title: "Mask Output",
       description:
         "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
+      default: false,
+    },
+    unsafe_disable_secret_error_withholding: {
+      type: "boolean",
+      title: "Unsafe Disable Secret Error Withholding",
+      description:
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -164,37 +186,6 @@ export const $ActionCreate = {
         },
       ],
       mode: "json",
-    },
-    is_interactive: {
-      type: "boolean",
-      title: "Is Interactive",
-      default: false,
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
     },
     position_x: {
       type: "number",
@@ -288,6 +279,28 @@ export const $ActionInterfaceChange = {
     "Describes a change to an action's interface (expects or returns).",
 } as const
 
+export const $ActionLockStatus = {
+  properties: {
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    locked_execution_id: {
+      type: "string",
+      title: "Locked Execution Id",
+    },
+    available: {
+      type: "boolean",
+      title: "Available",
+      description:
+        "False when the locked run no longer exists, e.g. after history retention.",
+    },
+  },
+  type: "object",
+  required: ["ref", "locked_execution_id", "available"],
+  title: "ActionLockStatus",
+} as const
+
 export const $ActionPositionUpdate = {
   properties: {
     action_id: {
@@ -335,36 +348,6 @@ export const $ActionRead = {
     control_flow: {
       $ref: "#/components/schemas/ActionControlFlow",
     },
-    is_interactive: {
-      type: "boolean",
-      title: "Is Interactive",
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-    },
     position_x: {
       type: "number",
       title: "Position X",
@@ -382,6 +365,17 @@ export const $ActionRead = {
       type: "array",
       title: "Upstream Edges",
     },
+    locked_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Locked Execution Id",
+    },
     ref: {
       type: "string",
       title: "Ref",
@@ -389,16 +383,7 @@ export const $ActionRead = {
     },
   },
   type: "object",
-  required: [
-    "id",
-    "type",
-    "title",
-    "description",
-    "status",
-    "inputs",
-    "is_interactive",
-    "ref",
-  ],
+  required: ["id", "type", "title", "description", "status", "inputs", "ref"],
   title: "ActionRead",
 } as const
 
@@ -430,21 +415,9 @@ export const $ActionReadMinimal = {
       type: "string",
       title: "Status",
     },
-    is_interactive: {
-      type: "boolean",
-      title: "Is Interactive",
-    },
   },
   type: "object",
-  required: [
-    "id",
-    "workflow_id",
-    "type",
-    "title",
-    "description",
-    "status",
-    "is_interactive",
-  ],
+  required: ["id", "workflow_id", "type", "title", "description", "status"],
   title: "ActionReadMinimal",
 } as const
 
@@ -481,8 +454,22 @@ export const $ActionRetryPolicy = {
   title: "ActionRetryPolicy",
 } as const
 
-export const $ActionStatement = {
+export const $ActionStatement_Input = {
   properties: {
+    id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+      description:
+        "The action ID. If this is populated means there is a corresponding actionin the database `Action` table.",
+    },
     ref: {
       type: "string",
       pattern: "^[a-z0-9_]+$",
@@ -513,33 +500,6 @@ export const $ActionStatement = {
       type: "array",
       title: "Depends On",
       description: "Task dependencies",
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-      description: "Whether the action is interactive.",
     },
     run_if: {
       anyOf: [
@@ -615,11 +575,175 @@ export const $ActionStatement = {
       description:
         "Override environment for this action's execution. Can be a template expression.",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.",
+    },
     mask_output: {
       type: "boolean",
       title: "Mask Output",
       description:
         "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
+      default: false,
+    },
+    unsafe_disable_secret_error_withholding: {
+      type: "boolean",
+      title: "Unsafe Disable Secret Error Withholding",
+      description:
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["ref", "action"],
+  title: "ActionStatement",
+} as const
+
+export const $ActionStatement_Output = {
+  properties: {
+    ref: {
+      type: "string",
+      pattern: "^[a-z0-9_]+$",
+      title: "Ref",
+      description: "Unique reference for the task",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      default: "",
+    },
+    action: {
+      type: "string",
+      pattern: "^[a-z0-9_.]+$",
+      title: "Action",
+      description: "Action type. Equivalent to the UDF key.",
+    },
+    args: {
+      additionalProperties: true,
+      type: "object",
+      title: "Args",
+      description: "Arguments for the action",
+    },
+    depends_on: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Depends On",
+      description: "Task dependencies",
+    },
+    run_if: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Run If",
+      description: "Condition to run the task",
+    },
+    for_each: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "For Each",
+      description:
+        "Iterate over a list of items and run the task for each item.",
+    },
+    retry_policy: {
+      $ref: "#/components/schemas/ActionRetryPolicy",
+      description: "Retry policy for the action.",
+    },
+    start_delay: {
+      type: "number",
+      title: "Start Delay",
+      description:
+        "Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.",
+      default: 0,
+    },
+    wait_until: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wait Until",
+      description:
+        "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
+    },
+    join_strategy: {
+      $ref: "#/components/schemas/JoinStrategy",
+      description:
+        "The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.",
+      default: "all",
+    },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+      description:
+        "Override environment for this action's execution. Can be a template expression.",
+    },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.",
+    },
+    mask_output: {
+      type: "boolean",
+      title: "Mask Output",
+      description:
+        "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
+      default: false,
+    },
+    unsafe_disable_secret_error_withholding: {
+      type: "boolean",
+      title: "Unsafe Disable Secret Error Withholding",
+      description:
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -723,43 +847,6 @@ export const $ActionUpdate = {
       ],
       mode: "json",
     },
-    is_interactive: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Is Interactive",
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-    },
     position_x: {
       anyOf: [
         {
@@ -795,6 +882,20 @@ export const $ActionUpdate = {
         },
       ],
       title: "Upstream Edges",
+    },
+    locked_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Locked Execution Id",
+      description:
+        "Lock the action to this past execution: draft runs reuse its result. Set null to unlock.",
     },
   },
   type: "object",
@@ -966,6 +1067,18 @@ export const $AdminOrgInvitationCreateResponse = {
       type: "boolean",
       title: "Created By Platform Admin",
     },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
+    },
     token: {
       type: "string",
       title: "Token",
@@ -1067,6 +1180,18 @@ export const $AdminOrgInvitationRead = {
     created_by_platform_admin: {
       type: "boolean",
       title: "Created By Platform Admin",
+    },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
     },
   },
   type: "object",
@@ -1245,6 +1370,43 @@ export const $AgentArtifact = {
   required: ["id", "title"],
   title: "AgentArtifact",
   description: "Agent preset artifact shown in artifact-capable chat surfaces.",
+} as const
+
+export const $AgentBackendRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "AgentBackendRead",
+  description: "An enabled installed backend available for session creation.",
+} as const
+
+export const $AgentCancelControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "cancel",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "Client-generated request ID",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "AgentCancelControl",
+  description: "Cancel the running turn.",
 } as const
 
 export const $AgentCatalogListResponse = {
@@ -1460,6 +1622,83 @@ export const $AgentChannelTokenUpdate = {
   type: "object",
   title: "AgentChannelTokenUpdate",
   description: "Request schema for updating an external channel token.",
+} as const
+
+export const $AgentControlReceipt = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/AgentControlType",
+    },
+    run_id: {
+      type: "string",
+      format: "uuid",
+      title: "Run Id",
+    },
+    status: {
+      $ref: "#/components/schemas/AgentControlStatus",
+    },
+    withdrawn: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Withdrawn",
+      description:
+        "Withdrawn message IDs in send order; set only for `withdraw`",
+    },
+    too_late: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Too Late",
+      description:
+        "Message IDs the model already read, which stay in the transcript; set only for `withdraw`",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "run_id", "status"],
+  title: "AgentControlReceipt",
+  description: "The running turn's outcome for a control request.",
+} as const
+
+export const $AgentControlRequest = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/AgentSteerControl",
+    },
+    {
+      $ref: "#/components/schemas/AgentWithdrawControl",
+    },
+    {
+      $ref: "#/components/schemas/AgentCancelControl",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      cancel: "#/components/schemas/AgentCancelControl",
+      steer: "#/components/schemas/AgentSteerControl",
+      withdraw: "#/components/schemas/AgentWithdrawControl",
+    },
+  },
+} as const
+
+export const $AgentControlStatus = {
+  type: "string",
+  enum: ["accepted", "rejected", "withdrawn", "too_late"],
+} as const
+
+export const $AgentControlType = {
+  type: "string",
+  enum: ["steer", "withdraw", "cancel"],
 } as const
 
 export const $AgentCustomProviderCreate = {
@@ -2218,6 +2457,34 @@ export const $AgentOutput = {
   title: "AgentOutput",
 } as const
 
+export const $AgentPendingMessageRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "The ID the client sent the message under",
+    },
+    type: {
+      $ref: "#/components/schemas/PendingMessageType",
+      description: `\`steer\` waits to join the running turn; \`message\` waits to start a later turn`,
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "text", "created_at"],
+  title: "AgentPendingMessageRead",
+  description: "A user message the model has not read yet.",
+} as const
+
 export const $AgentPreset = {
   properties: {
     component_id: {
@@ -2337,6 +2604,20 @@ export const $AgentPresetCreate = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -2350,6 +2631,23 @@ export const $AgentPresetCreate = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            maxLength: 64,
+            minLength: 1,
+            pattern: "^[a-z0-9-]+$",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
     },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Input",
@@ -2381,6 +2679,11 @@ export const $AgentPresetCreate = {
         },
       ],
       title: "Description",
+    },
+    use_in_chat: {
+      type: "boolean",
+      title: "Use In Chat",
+      default: false,
     },
     skills: {
       anyOf: [
@@ -2453,6 +2756,11 @@ export const $AgentPresetDirectoryItem = {
       ],
       title: "Description",
     },
+    use_in_chat: {
+      type: "boolean",
+      title: "Use In Chat",
+      default: false,
+    },
     model_provider: {
       type: "string",
       title: "Model Provider",
@@ -2479,6 +2787,9 @@ export const $AgentPresetDirectoryItem = {
       },
       type: "array",
       title: "Tags",
+    },
+    tool_summary: {
+      $ref: "#/components/schemas/AgentPresetToolSummary",
     },
     created_at: {
       type: "string",
@@ -2627,6 +2938,20 @@ export const $AgentPresetRead = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -2640,6 +2965,20 @@ export const $AgentPresetRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
     },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Output",
@@ -2660,6 +2999,9 @@ export const $AgentPresetRead = {
       title: "Enable Internet Access",
       default: false,
     },
+    tool_policy: {
+      $ref: "#/components/schemas/AgentPresetToolPolicyRead",
+    },
     id: {
       type: "string",
       format: "uuid",
@@ -2673,6 +3015,11 @@ export const $AgentPresetRead = {
     name: {
       type: "string",
       title: "Name",
+    },
+    use_in_chat: {
+      type: "boolean",
+      title: "Use In Chat",
+      default: false,
     },
     slug: {
       type: "string",
@@ -2778,6 +3125,11 @@ export const $AgentPresetReadMinimal = {
       ],
       title: "Description",
     },
+    use_in_chat: {
+      type: "boolean",
+      title: "Use In Chat",
+      default: false,
+    },
     model_provider: {
       type: "string",
       title: "Model Provider",
@@ -2824,6 +3176,18 @@ export const $AgentPresetReadMinimal = {
       type: "array",
       title: "Capabilities",
     },
+    tool_summary: {
+      $ref: "#/components/schemas/AgentPresetToolSummary",
+    },
+    skill_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Skill Ids",
+      description: "Workspace skills bound to the preset head.",
+    },
     current_version_subagent_eligibility: {
       $ref: "#/components/schemas/AgentPresetSubagentEligibility",
     },
@@ -2865,7 +3229,10 @@ export const $AgentPresetSkillBindingBase = {
   type: "object",
   required: ["skill_id"],
   title: "AgentPresetSkillBindingBase",
-  description: "Shared fields for preset skill bindings.",
+  description: `Shared fields for preset skill bindings.
+
+Bindings reference a skill only; presets always run its latest published
+version, so there is no version to pin.`,
 } as const
 
 export const $AgentPresetSkillBindingChange = {
@@ -3010,6 +3377,138 @@ export const $AgentPresetTagCreate = {
   description: "Payload for adding a tag to an agent preset.",
 } as const
 
+export const $AgentPresetToolPolicyPreview = {
+  properties: {
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    namespaces: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Namespaces",
+    },
+    mcp_integrations: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Mcp Integrations",
+    },
+    skill_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Skill Ids",
+    },
+    tool_approvals: {
+      additionalProperties: {
+        type: "boolean",
+      },
+      type: "object",
+      title: "Tool Approvals",
+    },
+  },
+  type: "object",
+  title: "AgentPresetToolPolicyPreview",
+  description:
+    "Unsaved tool selections to evaluate using the runtime policy pipeline.",
+} as const
+
+export const $AgentPresetToolPolicyRead = {
+  properties: {
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    skill_actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Skill Actions",
+      description: "Effective registry actions granted by attached skills.",
+    },
+    max_tools: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Tools",
+    },
+    requires_internet_access: {
+      type: "boolean",
+      title: "Requires Internet Access",
+      default: false,
+    },
+    has_approvals: {
+      type: "boolean",
+      title: "Has Approvals",
+      default: false,
+    },
+    blocked_tools: {
+      items: {
+        $ref: "#/components/schemas/PresetToolSourceRead",
+      },
+      type: "array",
+      title: "Blocked Tools",
+    },
+    internet_sources: {
+      items: {
+        $ref: "#/components/schemas/PresetToolSourceRead",
+      },
+      type: "array",
+      title: "Internet Sources",
+    },
+  },
+  type: "object",
+  title: "AgentPresetToolPolicyRead",
+  description:
+    "Non-secret effective policy for rendering preset configuration.",
+} as const
+
+export const $AgentPresetToolSummary = {
+  properties: {
+    tool_count: {
+      type: "integer",
+      title: "Tool Count",
+      default: 0,
+    },
+    namespaces: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Namespaces",
+    },
+    mcp_slugs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Mcp Slugs",
+    },
+  },
+  type: "object",
+  title: "AgentPresetToolSummary",
+  description:
+    "Effective registry tool count and tool sources for preset list UIs.",
+} as const
+
 export const $AgentPresetUpdate = {
   properties: {
     name: {
@@ -3024,6 +3523,17 @@ export const $AgentPresetUpdate = {
         },
       ],
       title: "Name",
+    },
+    use_in_chat: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Use In Chat",
     },
     slug: {
       anyOf: [
@@ -3163,6 +3673,20 @@ export const $AgentPresetUpdate = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -3176,6 +3700,23 @@ export const $AgentPresetUpdate = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            maxLength: 64,
+            minLength: 1,
+            pattern: "^[a-z0-9-]+$",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
     },
     agents: {
       anyOf: [
@@ -3239,6 +3780,211 @@ export const $AgentPresetUpdate = {
   type: "object",
   title: "AgentPresetUpdate",
   description: "Payload for updating an existing agent preset.",
+} as const
+
+export const $AgentPresetValidationErrorDetail = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    code: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Code",
+    },
+    tool_count: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Count",
+    },
+    max_tools: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Tools",
+    },
+    missing_skill_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Missing Skill Ids",
+    },
+    skill_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Id",
+    },
+    skill_names: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Names",
+    },
+    skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skills",
+    },
+    skill_version_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Version Id",
+    },
+    skill_version_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Version Ids",
+    },
+    preset_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Id",
+    },
+    preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Version Id",
+    },
+    mcp_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Id",
+    },
+    mcp_integration_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Ids",
+    },
+    tool_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Ids",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "AgentPresetValidationErrorDetail",
+  description: "Structured details for agent preset validation failures.",
+} as const
+
+export const $AgentPresetValidationErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          $ref: "#/components/schemas/AgentPresetValidationErrorDetail",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "AgentPresetValidationErrorResponse",
+  description: "HTTP response body for agent preset validation failures.",
 } as const
 
 export const $AgentPresetVersionDiff = {
@@ -3308,6 +4054,13 @@ export const $AgentPresetVersionDiff = {
       },
       type: "array",
       title: "Tool Approval Changes",
+    },
+    tool_tunnel_changes: {
+      items: {
+        $ref: "#/components/schemas/ToolTunnelFieldChange",
+      },
+      type: "array",
+      title: "Tool Tunnel Changes",
     },
     skill_changes: {
       items: {
@@ -3432,6 +4185,20 @@ export const $AgentPresetVersionRead = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -3445,6 +4212,20 @@ export const $AgentPresetVersionRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
     },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Output",
@@ -3464,6 +4245,9 @@ export const $AgentPresetVersionRead = {
       type: "boolean",
       title: "Enable Internet Access",
       default: false,
+    },
+    tool_policy: {
+      $ref: "#/components/schemas/AgentPresetToolPolicyRead",
     },
     id: {
       type: "string",
@@ -3590,6 +4374,30 @@ export const $AgentPresetVersionReadMinimal = {
   description: "Metadata returned when listing immutable preset versions.",
 } as const
 
+export const $AgentPresetWorkflowReference = {
+  properties: {
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+  },
+  type: "object",
+  required: ["preset_id", "workflow_id", "workflow_title"],
+  title: "AgentPresetWorkflowReference",
+  description:
+    "A workflow whose draft runs a preset through `ai.preset_agent`.",
+} as const
+
 export const $AgentSessionArtifactsRead = {
   properties: {
     artifacts: {
@@ -3643,6 +4451,33 @@ export const $AgentSessionCancelResponse = {
     "Response schema for an accepted agent session cancellation request.",
 } as const
 
+export const $AgentSessionCapabilities = {
+  properties: {
+    steering: {
+      type: "boolean",
+      title: "Steering",
+      description: "Whether a running turn accepts steering messages",
+      default: false,
+    },
+    withdrawing: {
+      type: "boolean",
+      title: "Withdrawing",
+      description: "Whether a running turn can take back pending user messages",
+      default: false,
+    },
+    listing_pending: {
+      type: "boolean",
+      title: "Listing Pending",
+      description:
+        "Whether the session can list messages the model has not read",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentSessionCapabilities",
+  description: "Optional controls the session's backend supports.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -3657,6 +4492,19 @@ export const $AgentSessionCreate = {
       ],
       title: "Id",
       description: "Session ID. If not provided, service generates one.",
+    },
+    spawned_by_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Spawned By Session Id",
+      description: "Session that spawned this fresh child",
     },
     title: {
       type: "string",
@@ -3749,10 +4597,30 @@ export const $AgentSessionCreate = {
       description:
         "Pinned preset version used for this session. If null, the session follows the preset's current version.",
     },
+    backend_id: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      pattern: "^[a-z][a-z0-9_]*$",
+      title: "Backend Id",
+      description: "Opaque agent backend identifier",
+      default: "oss",
+    },
     harness_type: {
-      $ref: "#/components/schemas/HarnessType",
-      description: "Agent harness type",
-      default: "claude_code",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description:
+        "Execution harness; defaults to the selected backend's harness",
     },
   },
   type: "object",
@@ -3799,10 +4667,45 @@ export const $AgentSessionForkRequest = {
       description:
         "Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.",
     },
+    spawned_by_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Spawned By Session Id",
+      description: "Session that spawned this forked child",
+    },
   },
   type: "object",
   title: "AgentSessionForkRequest",
   description: "Request schema for forking an agent session.",
+} as const
+
+export const $AgentSessionPendingRead = {
+  properties: {
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPendingMessageRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  required: ["session_id", "items"],
+  title: "AgentSessionPendingRead",
+  description:
+    "The session's user messages the model has not read, in send order.",
 } as const
 
 export const $AgentSessionRead = {
@@ -3921,6 +4824,14 @@ export const $AgentSessionRead = {
         },
       ],
     },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
+    },
     harness_type: {
       anyOf: [
         {
@@ -3972,6 +4883,30 @@ export const $AgentSessionRead = {
         },
       ],
       title: "Parent Session Id",
+    },
+    spawned_by_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Spawned By Session Id",
+    },
+    forked_from_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Forked From Session Id",
     },
     created_at: {
       type: "string",
@@ -4121,6 +5056,14 @@ export const $AgentSessionReadVercel = {
         },
       ],
     },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4172,6 +5115,30 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Parent Session Id",
+    },
+    spawned_by_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Spawned By Session Id",
+    },
+    forked_from_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Forked From Session Id",
     },
     created_at: {
       type: "string",
@@ -4329,6 +5296,14 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
     },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4380,6 +5355,30 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Parent Session Id",
+    },
+    spawned_by_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Spawned By Session Id",
+    },
+    forked_from_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Forked From Session Id",
     },
     created_at: {
       type: "string",
@@ -4495,16 +5494,35 @@ export const $AgentSessionUpdate = {
       description:
         "Pinned preset version to use for this session. Set null to follow the preset's current version.",
     },
-    harness_type: {
+    backend_id: {
       anyOf: [
         {
-          $ref: "#/components/schemas/HarnessType",
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
         },
         {
           type: "null",
         },
       ],
-      description: "Agent harness type",
+      title: "Backend Id",
+      description: "Immutable agent backend identifier",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description: "Immutable execution harness",
     },
   },
   type: "object",
@@ -4603,6 +5621,34 @@ export const $AgentSettingsUpdate = {
   title: "AgentSettingsUpdate",
 } as const
 
+export const $AgentSteerControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "steer",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated message ID. It reaches at most one turn of the session; a retry returns the first outcome.",
+    },
+    text: {
+      type: "string",
+      maxLength: 100000,
+      minLength: 1,
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["type", "id", "text"],
+  title: "AgentSteerControl",
+  description:
+    "A message for the running turn to take into account before it answers.",
+} as const
+
 export const $AgentSubagentsConfig_Input = {
   properties: {
     enabled: {
@@ -4680,6 +5726,44 @@ export const $AgentTagRead = {
   description: "Tag data.",
 } as const
 
+export const $AgentWithdrawControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "withdraw",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated request ID; a retry returns the first outcome",
+    },
+    target_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            format: "uuid",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Ids",
+      description:
+        "Message IDs to withdraw. Null withdraws all of the session's pending steers and queued messages.",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "AgentWithdrawControl",
+  description: "Take back pending user messages the model has not read yet.",
+} as const
+
 export const $AlertArtifact = {
   properties: {
     id: {
@@ -4714,6 +5798,24 @@ export const $AlertArtifact = {
   description: "Alert artifact stub. Extend when alert surfaces are wired.",
 } as const
 
+export const $AndClause = {
+  properties: {
+    and: {
+      items: {
+        $ref: "#/components/schemas/Filter",
+      },
+      type: "array",
+      minItems: 1,
+      title: "And",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["and"],
+  title: "AndClause",
+  description: "A conjunction of one or more filters.",
+} as const
+
 export const $AnyAttachedSubagentRef = {
   anyOf: [
     {
@@ -4735,10 +5837,6 @@ export const $AppSettingsRead = {
       type: "integer",
       title: "App Executions Query Limit",
     },
-    app_interactions_enabled: {
-      type: "boolean",
-      title: "App Interactions Enabled",
-    },
     app_workflow_export_enabled: {
       type: "boolean",
       title: "App Workflow Export Enabled",
@@ -4751,12 +5849,24 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Action Form Mode Enabled",
     },
+    app_workflow_compact_conditions_enabled: {
+      type: "boolean",
+      title: "App Workflow Compact Conditions Enabled",
+      default: true,
+    },
+    app_unsafe_disable_secret_error_withholding_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
+    },
   },
   type: "object",
   required: [
     "app_registry_validation_enabled",
     "app_executions_query_limit",
-    "app_interactions_enabled",
     "app_workflow_export_enabled",
     "app_create_workspace_on_register",
     "app_action_form_mode_enabled",
@@ -4780,12 +5890,6 @@ export const $AppSettingsUpdate = {
         "The maximum number of executions to return in a single query.",
       default: 100,
     },
-    app_interactions_enabled: {
-      type: "boolean",
-      title: "App Interactions Enabled",
-      description: "Whether app interactions are enabled.",
-      default: false,
-    },
     app_workflow_export_enabled: {
       type: "boolean",
       title: "App Workflow Export Enabled",
@@ -4805,6 +5909,23 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
+    },
+    app_workflow_compact_conditions_enabled: {
+      type: "boolean",
+      title: "App Workflow Compact Conditions Enabled",
+      description:
+        "Whether the workflow canvas shows run_if conditions as a compact icon that expands to the full expression on hover or selection.",
+      default: true,
+    },
+    app_unsafe_disable_secret_error_withholding_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
+      description:
+        "Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.",
     },
   },
   type: "object",
@@ -4865,65 +5986,6 @@ export const $ApprovalDecision = {
   required: ["tool_call_id", "action"],
   title: "ApprovalDecision",
   description: "Operator decision for a pending approval.",
-} as const
-
-export const $ApprovalInteraction = {
-  properties: {
-    type: {
-      type: "string",
-      const: "approval",
-      title: "Type",
-    },
-    timeout: {
-      anyOf: [
-        {
-          type: "number",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout",
-      description: "The timeout for the interaction in seconds.",
-    },
-    required_approvers: {
-      type: "integer",
-      title: "Required Approvers",
-      description:
-        "Number of approvers required before the action can proceed.",
-      default: 1,
-    },
-    approver_groups: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Approver Groups",
-      description: "List of groups that are allowed to approve this action.",
-    },
-    message: {
-      type: "string",
-      title: "Message",
-      description: "Custom message to display to approvers.",
-      default: "",
-    },
-    approve_if: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Approve If",
-      description: "Condition to approve the action.",
-    },
-  },
-  type: "object",
-  required: ["type"],
-  title: "ApprovalInteraction",
-  description: "Configuration for an approval interaction.",
 } as const
 
 export const $ApprovalMap = {
@@ -5082,6 +6144,9 @@ export const $Artifact = {
       $ref: "#/components/schemas/AgentArtifact",
     },
     {
+      $ref: "#/components/schemas/FormArtifact",
+    },
+    {
       $ref: "#/components/schemas/AlertArtifact",
     },
     {
@@ -5100,6 +6165,7 @@ export const $Artifact = {
       agent: "#/components/schemas/AgentArtifact",
       alert: "#/components/schemas/AlertArtifact",
       case: "#/components/schemas/CaseArtifact",
+      form: "#/components/schemas/FormArtifact",
       generic: "#/components/schemas/GenericArtifact",
       integration: "#/components/schemas/IntegrationArtifact",
       run: "#/components/schemas/RunArtifact",
@@ -5238,6 +6304,12 @@ export const $AssistantMessage = {
           },
           {
             $ref: "#/components/schemas/ToolResultBlock",
+          },
+          {
+            $ref: "#/components/schemas/ServerToolUseBlock",
+          },
+          {
+            $ref: "#/components/schemas/ServerToolResultBlock",
           },
         ],
       },
@@ -5800,6 +6872,365 @@ export const $AwsAssumeRoleAccessRead = {
     "Workspace-scoped AWS AssumeRole details shown in the credentials UI.",
 } as const
 
+export const $AwsSecretJsonField = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      title: "Key",
+    },
+    field: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Field",
+    },
+  },
+  type: "object",
+  required: ["key", "field"],
+  title: "AwsSecretJsonField",
+  description: "One declared output key sourced from a top-level JSON field.",
+} as const
+
+export const $AwsSecretKeyMapping = {
+  properties: {
+    mode: {
+      $ref: "#/components/schemas/AwsSecretMappingMode",
+    },
+    keys: {
+      items: {
+        type: "string",
+        pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Keys",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/AwsSecretJsonField",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Fields",
+    },
+  },
+  type: "object",
+  required: ["mode"],
+  title: "AwsSecretKeyMapping",
+  description: `Declares how a remote AWS secret value maps onto output keys.
+
+\`\`whole_string\`\` maps the entire \`\`SecretString\`\` onto exactly one key.
+\`\`json\`\` maps selected top-level string fields onto declared keys.`,
+} as const
+
+export const $AwsSecretMappingMode = {
+  type: "string",
+  enum: ["whole_string", "json"],
+  title: "AwsSecretMappingMode",
+  description:
+    "How an AWS Secrets Manager value maps onto declared secret keys.",
+} as const
+
+export const $AwsSecretReferenceCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      pattern: "^[a-z_][a-z0-9_]*$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    environment: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Environment",
+      default: "default",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    remote_reference: {
+      type: "string",
+      maxLength: 2048,
+      pattern:
+        "^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[^\\s]+|[A-Za-z0-9/_+=.@-]{1,512})$",
+      title: "Remote Reference",
+    },
+    key_mapping: {
+      $ref: "#/components/schemas/AwsSecretKeyMapping",
+    },
+  },
+  type: "object",
+  required: ["name", "store_id", "remote_reference", "key_mapping"],
+  title: "AwsSecretReferenceCreate",
+  description:
+    "Create a workspace custom secret backed by AWS Secrets Manager.",
+} as const
+
+export const $AwsSecretReferenceUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          pattern: "^[a-z_][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern:
+            "^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[^\\s]+|[A-Za-z0-9/_+=.@-]{1,512})$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
+    key_mapping: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretKeyMapping",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "AwsSecretReferenceUpdate",
+  description:
+    "Update an AWS-backed workspace secret. Values are never accepted.",
+} as const
+
+export const $AwsSecretResolutionErrorCode = {
+  type: "string",
+  enum: [
+    "store_disabled",
+    "store_not_authorized",
+    "assume_role_failed",
+    "access_denied",
+    "not_found",
+    "decryption_failed",
+    "throttled",
+    "timeout",
+    "binary_value",
+    "malformed_json",
+    "missing_field",
+    "non_string_field",
+    "invalid_mapping",
+    "region_mismatch",
+    "unknown",
+  ],
+  title: "AwsSecretResolutionErrorCode",
+  description: "Sanitized failure classes for AWS Secrets Manager resolution.",
+} as const
+
+export const $AwsSecretsManagerStoreConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
+    role_arn: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Arn",
+    },
+    region: {
+      type: "string",
+      maxLength: 64,
+      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+      title: "Region",
+    },
+    external_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "External Id",
+    },
+  },
+  type: "object",
+  required: ["region", "external_id"],
+  title: "AwsSecretsManagerStoreConfig",
+  description:
+    "Persisted provider configuration for an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSecretsManagerStoreCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
+    role_arn: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Arn",
+    },
+    region: {
+      type: "string",
+      maxLength: 64,
+      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+      title: "Region",
+    },
+  },
+  type: "object",
+  required: ["region"],
+  title: "AwsSecretsManagerStoreCreate",
+  description:
+    "Client-supplied fields when creating an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSecretsManagerStoreUpdate = {
+  properties: {
+    role_arn: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Arn",
+    },
+    region: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+          pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Region",
+    },
+  },
+  type: "object",
+  title: "AwsSecretsManagerStoreUpdate",
+  description:
+    "Client-supplied fields when updating an AWS Secrets Manager store.",
+} as const
+
 export const $AzureAICatalogCreate = {
   properties: {
     display_name: {
@@ -6075,6 +7506,195 @@ export const $BedrockCatalogUpdate = {
   title: "BedrockCatalogUpdate",
 } as const
 
+export const $BedrockSubscriptionRead = {
+  properties: {
+    status: {
+      type: "string",
+      enum: [
+        "subscribed",
+        "not_subscribed",
+        "pending",
+        "not_authorized",
+        "unavailable",
+        "error",
+        "unknown",
+      ],
+      title: "Status",
+    },
+    checked_at: {
+      type: "string",
+      title: "Checked At",
+    },
+  },
+  type: "object",
+  required: ["status", "checked_at"],
+  title: "BedrockSubscriptionRead",
+  description:
+    "AWS Marketplace subscription status for a Bedrock foundation model.",
+} as const
+
+export const $BitbucketDataCenterTokenCredentialsRequest = {
+  properties: {
+    base_url: {
+      type: "string",
+      title: "Base Url",
+    },
+    token: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Token",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["base_url", "token"],
+  title: "BitbucketDataCenterTokenCredentialsRequest",
+  description:
+    "Register or rotate the organization Bitbucket Data Center API token.",
+} as const
+
+export const $BitbucketDataCenterTokenCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    base_url: {
+      type: "string",
+      title: "Base Url",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "base_url"],
+  title: "BitbucketDataCenterTokenCredentialsSaveResponse",
+} as const
+
+export const $BitbucketDataCenterTokenCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "BitbucketDataCenterTokenCredentialsStatus",
+} as const
+
+export const $BitbucketTokenCredentialsRequest = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    token: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Token",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["email", "token"],
+  title: "BitbucketTokenCredentialsRequest",
+  description: "Register or rotate the organization Bitbucket Cloud API token.",
+} as const
+
+export const $BitbucketTokenCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "email"],
+  title: "BitbucketTokenCredentialsSaveResponse",
+} as const
+
+export const $BitbucketTokenCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
+    email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "BitbucketTokenCredentialsStatus",
+} as const
+
 export const $Body_auth_reset_forgot_password = {
   properties: {
     email: {
@@ -6156,6 +7776,19 @@ export const $Body_case_attachments_create_attachment = {
   type: "object",
   required: ["file"],
   title: "Body_case-attachments-create_attachment",
+} as const
+
+export const $Body_forms_upload_form_file = {
+  properties: {
+    file: {
+      type: "string",
+      title: "File",
+      format: "binary",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_forms-upload_form_file",
 } as const
 
 export const $Body_tables_import_csv = {
@@ -6504,6 +8137,25 @@ export const $CaseAttachmentRead = {
   description: "Model for reading a case attachment.",
 } as const
 
+export const $CaseBatchClearParent = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Case Ids",
+    },
+  },
+  type: "object",
+  required: ["case_ids"],
+  title: "CaseBatchClearParent",
+  description: "Request body for removing cases from their parent case.",
+} as const
+
 export const $CaseBatchDelete = {
   properties: {
     case_ids: {
@@ -6574,6 +8226,30 @@ export const $CaseBatchResponse = {
   required: ["results", "succeeded", "failed"],
   title: "CaseBatchResponse",
   description: "Per-case results and aggregate counts for a batch operation.",
+} as const
+
+export const $CaseBatchSetParent = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Case Ids",
+    },
+    parent_id: {
+      type: "string",
+      format: "uuid",
+      title: "Parent Id",
+    },
+  },
+  type: "object",
+  required: ["case_ids", "parent_id"],
+  title: "CaseBatchSetParent",
+  description: "Request body for grouping cases as sub-cases of a parent case.",
 } as const
 
 export const $CaseBatchUpdate = {
@@ -7084,6 +8760,19 @@ export const $CaseCreate = {
         },
       ],
       title: "Payload",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+      description: "Create the case as a sub-case of this top-level case.",
     },
   },
   type: "object",
@@ -8177,6 +9866,15 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/TableRowUnlinkedEventRead",
     },
+    {
+      $ref: "#/components/schemas/ParentChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/SubCasesAddedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/SubCasesRemovedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -8203,10 +9901,13 @@ export const $CaseEventRead = {
       dropdown_value_changed:
         "#/components/schemas/DropdownValueChangedEventRead",
       fields_changed: "#/components/schemas/FieldChangedEventRead",
+      parent_changed: "#/components/schemas/ParentChangedEventRead",
       payload_changed: "#/components/schemas/PayloadChangedEventRead",
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
       severity_changed: "#/components/schemas/SeverityChangedEventRead",
       status_changed: "#/components/schemas/StatusChangedEventRead",
+      sub_cases_added: "#/components/schemas/SubCasesAddedEventRead",
+      sub_cases_removed: "#/components/schemas/SubCasesRemovedEventRead",
       table_row_linked: "#/components/schemas/TableRowLinkedEventRead",
       table_row_unlinked: "#/components/schemas/TableRowUnlinkedEventRead",
       tag_added: "#/components/schemas/TagAddedEventRead",
@@ -8257,6 +9958,9 @@ export const $CaseEventType = {
     "comment_reply_created",
     "comment_reply_updated",
     "comment_reply_deleted",
+    "parent_changed",
+    "sub_cases_added",
+    "sub_cases_removed",
   ],
   title: "CaseEventType",
   description: "Case activity type values.",
@@ -8314,6 +10018,12 @@ export const $CaseFieldCreate = {
         },
       ],
       title: "Default",
+    },
+    is_index: {
+      type: "boolean",
+      title: "Is Index",
+      description: "Whether to create a unique index on the column",
+      default: false,
     },
     options: {
       anyOf: [
@@ -8664,6 +10374,99 @@ export const $CaseFieldUpdate = {
   description: "Update a case field.",
 } as const
 
+export const $CaseFilterField = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    kind: {
+      $ref: "#/components/schemas/FieldKind",
+    },
+    operators: {
+      items: {
+        $ref: "#/components/schemas/FilterOp",
+      },
+      type: "array",
+      title: "Operators",
+    },
+    choices: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Choices",
+    },
+    range_choices: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Range Choices",
+    },
+    input_type: {
+      type: "string",
+      enum: ["text", "number", "date", "datetime-local"],
+      title: "Input Type",
+      default: "text",
+    },
+  },
+  type: "object",
+  required: ["field", "label", "kind", "operators"],
+  title: "CaseFilterField",
+  description:
+    "Server-defined operators and input metadata for one searchable field.",
+} as const
+
+export const $CaseFilterMetadata = {
+  properties: {
+    fields: {
+      items: {
+        $ref: "#/components/schemas/CaseFilterField",
+      },
+      type: "array",
+      title: "Fields",
+    },
+    max_depth: {
+      type: "integer",
+      title: "Max Depth",
+      default: 4,
+    },
+    max_conditions: {
+      type: "integer",
+      title: "Max Conditions",
+      default: 50,
+    },
+    max_values: {
+      type: "integer",
+      title: "Max Values",
+      default: 1000,
+    },
+  },
+  type: "object",
+  required: ["fields"],
+  title: "CaseFilterMetadata",
+  description: "Discoverable filter fields and shared query limits.",
+} as const
+
 export const $CaseLinkedTableRead = {
   properties: {
     table_id: {
@@ -8707,6 +10510,28 @@ itself is gone. \`\`is_index\`\` is not populated here; read the table directly
 when unique-index state matters.`,
 } as const
 
+export const $CaseParentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    short_id: {
+      type: "string",
+      title: "Short Id",
+    },
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+  },
+  type: "object",
+  required: ["id", "short_id", "summary"],
+  title: "CaseParentRead",
+  description: "Summary of a sub-case's parent case.",
+} as const
+
 export const $CasePriority = {
   type: "string",
   enum: ["unknown", "low", "medium", "high", "critical", "other"],
@@ -8720,6 +10545,265 @@ Values:
     HIGH (3): Critical functionality or network access is interrupted, degraded or unusable, having a severe impact on services availability. No acceptable alternative is possible
     CRITICAL (4): Interruption making a critical functionality inaccessible or a complete network interruption causing a severe impact on services availability. There is no possible alternative
     OTHER (99): The priority is not normalized`,
+} as const
+
+export const $CaseQuery = {
+  properties: {
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseQuery",
+  description: `Matching criteria shared by case search and filtered status counts.
+
+Explicit text, identity, and hierarchy constraints are combined with
+\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
+service and cannot be supplied or negated by this request.
+
+Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
+\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
+\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+
+Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
+unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
 } as const
 
 export const $CaseRead = {
@@ -8810,6 +10894,20 @@ export const $CaseRead = {
       type: "array",
       title: "Rows",
     },
+    parent: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseParentRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    num_sub_cases: {
+      type: "integer",
+      title: "Num Sub Cases",
+    },
   },
   type: "object",
   required: [
@@ -8825,12 +10923,25 @@ export const $CaseRead = {
     "fields",
     "payload",
     "dropdown_values",
+    "num_sub_cases",
   ],
   title: "CaseRead",
 } as const
 
 export const $CaseReadMinimal = {
   properties: {
+    is_exact_match: {
+      type: "boolean",
+      title: "Is Exact Match",
+      description: "This row is the promoted exact case reference.",
+      default: false,
+    },
+    is_outside_filters: {
+      type: "boolean",
+      title: "Is Outside Filters",
+      description: "The promoted reference falls outside the filtered results.",
+      default: false,
+    },
     id: {
       type: "string",
       format: "uuid",
@@ -8839,6 +10950,16 @@ export const $CaseReadMinimal = {
     short_id: {
       type: "string",
       title: "Short Id",
+    },
+    search_match: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchMatchRead",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     created_at: {
       type: "string",
@@ -8942,6 +11063,20 @@ export const $CaseReadMinimal = {
       title: "Num Tasks Total",
       default: 0,
     },
+    parent: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseParentRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    num_sub_cases: {
+      type: "integer",
+      title: "Num Sub Cases",
+    },
   },
   type: "object",
   required: [
@@ -8954,8 +11089,27 @@ export const $CaseReadMinimal = {
     "priority",
     "severity",
     "dropdown_values",
+    "num_sub_cases",
   ],
   title: "CaseReadMinimal",
+} as const
+
+export const $CaseRef = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    short_id: {
+      type: "string",
+      title: "Short Id",
+    },
+  },
+  type: "object",
+  required: ["id", "short_id"],
+  title: "CaseRef",
+  description: "Stable reference to another case recorded in event data.",
 } as const
 
 export const $CaseSearchAggregateRead = {
@@ -8971,6 +11125,440 @@ export const $CaseSearchAggregateRead = {
   type: "object",
   required: ["total", "status_groups"],
   title: "CaseSearchAggregateRead",
+} as const
+
+export const $CaseSearchMatchRead = {
+  properties: {
+    score: {
+      anyOf: [
+        {
+          type: "number",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Score",
+    },
+    matched_columns: {
+      items: {
+        type: "string",
+        enum: ["summary", "description", "id", "short_id"],
+      },
+      type: "array",
+      maxItems: 4,
+      title: "Matched Columns",
+    },
+    excerpts: {
+      items: {
+        type: "string",
+        maxLength: 240,
+      },
+      type: "array",
+      maxItems: 2,
+      title: "Excerpts",
+    },
+  },
+  type: "object",
+  title: "CaseSearchMatchRead",
+  description:
+    "Bounded lexical metadata beside case fields; excerpts are untrusted text.",
+} as const
+
+export const $CaseSearchOrder = {
+  type: "string",
+  enum: [
+    "relevance",
+    "created_at",
+    "updated_at",
+    "priority",
+    "severity",
+    "status",
+    "tasks",
+    "id",
+    "short_id",
+    "assignee",
+    "tags",
+  ],
+} as const
+
+export const $CaseSearchRequest = {
+  properties: {
+    limit: {
+      type: "integer",
+      maximum: 200,
+      minimum: 1,
+      title: "Limit",
+      description: "Maximum items per page",
+      default: 20,
+    },
+    cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cursor",
+      description: "Cursor for pagination",
+    },
+    reverse: {
+      type: "boolean",
+      title: "Reverse",
+      description: "Reverse pagination direction",
+      default: false,
+    },
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["asc", "desc"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sort",
+    },
+    include_rows: {
+      type: "boolean",
+      title: "Include Rows",
+      default: false,
+    },
+    field_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Field Ids",
+    },
+    include_durations: {
+      type: "boolean",
+      title: "Include Durations",
+      default: false,
+    },
+    include_payload: {
+      type: "boolean",
+      title: "Include Payload",
+      default: false,
+    },
+    payload_fields: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 100,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload Fields",
+    },
+    payload_paths: {
+      anyOf: [
+        {
+          items: {
+            items: {
+              type: "string",
+            },
+            type: "array",
+            maxItems: 32,
+            minItems: 1,
+          },
+          type: "array",
+          maxItems: 100,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload Paths",
+    },
+    include_count: {
+      type: "boolean",
+      title: "Include Count",
+      default: true,
+    },
+    promote_exact_match: {
+      type: "boolean",
+      title: "Promote Exact Match",
+      description:
+        "Place complete case references before filtered text matches within the authorized workspace.",
+      default: false,
+    },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseSearchRequest",
+  description:
+    "A case query with pagination, sorting, and independent result details.",
 } as const
 
 export const $CaseSeverity = {
@@ -9553,6 +12141,33 @@ export const $CaseTaskUpdate = {
   },
   type: "object",
   title: "CaseTaskUpdate",
+} as const
+
+export const $CaseTriggerConfig = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["online", "offline"],
+      title: "Status",
+      default: "offline",
+    },
+    event_types: {
+      items: {
+        $ref: "#/components/schemas/CaseEventType",
+      },
+      type: "array",
+      title: "Event Types",
+    },
+    tag_filters: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tag Filters",
+    },
+  },
+  type: "object",
+  title: "CaseTriggerConfig",
 } as const
 
 export const $CaseTriggerCreate = {
@@ -10227,6 +12842,9 @@ export const $ChatMessage = {
           $ref: "#/components/schemas/RateLimitEvent",
         },
         {
+          $ref: "#/components/schemas/ConversationResetMessage",
+        },
+        {
           type: "null",
         },
       ],
@@ -10272,6 +12890,19 @@ export const $ChatMessage = {
       title: "Cancelled",
       description: "Turn-cancelled marker data (for kind=CANCELLED)",
     },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+      description: "When the agent runtime recorded the message",
+    },
   },
   type: "object",
   required: ["id"],
@@ -10283,6 +12914,31 @@ This model supports multiple message kinds:
 - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
 - kind=COMPACTION: Contains compaction field with compaction status data
 - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data`,
+} as const
+
+export const $ChatPageContext = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "form",
+      title: "Kind",
+      description: "What the page shows.",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "ID of the object the page shows.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["kind", "id"],
+  title: "ChatPageContext",
+  description: `The page a docked chat is open on.
+
+\`\`kind\`\` is a closed set and \`\`id\`\` is a UUID, so nothing the client sends
+here can carry free text into the prompt.`,
 } as const
 
 export const $ChatRead = {
@@ -11274,6 +13930,34 @@ export const $CommitInfo = {
   title: "CommitInfo",
 } as const
 
+export const $Condition = {
+  properties: {
+    field: {
+      type: "string",
+      minLength: 1,
+      title: "Field",
+    },
+    op: {
+      $ref: "#/components/schemas/FilterOp",
+    },
+    value: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FilterValue",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field", "op"],
+  title: "Condition",
+  description: "A predicate over one resolver-defined field.",
+} as const
+
 export const $ContinueRunRequest = {
   properties: {
     kind: {
@@ -11302,6 +13986,26 @@ export const $ContinueRunRequest = {
   required: ["decisions"],
   title: "ContinueRunRequest",
   description: "Payload to continue a CE run after collecting approvals.",
+} as const
+
+export const $ConversationResetMessage = {
+  properties: {
+    new_conversation_id: {
+      type: "string",
+      title: "New Conversation Id",
+    },
+    uuid: {
+      type: "string",
+      title: "Uuid",
+    },
+    session_id: {
+      type: "string",
+      title: "Session Id",
+    },
+  },
+  type: "object",
+  required: ["new_conversation_id", "uuid", "session_id"],
+  title: "ConversationResetMessage",
 } as const
 
 export const $CreatedEventRead = {
@@ -11537,6 +14241,69 @@ export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentPresetVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_AgentPresetWorkflowReference_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetWorkflowReference",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentPresetWorkflowReference]",
 } as const
 
 export const $CursorPaginatedResponse_AgentTagRead_ = {
@@ -11791,6 +14558,321 @@ export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_FormIntakeRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormIntakeRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormIntakeRead]",
+} as const
+
+export const $CursorPaginatedResponse_FormIntakeSubmissionRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormIntakeSubmissionRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormIntakeSubmissionRead]",
+} as const
+
+export const $CursorPaginatedResponse_FormReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_FormSubmissionRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormSubmissionRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormSubmissionRead]",
+} as const
+
+export const $CursorPaginatedResponse_FormUserRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormUserRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormUserRead]",
+} as const
+
 export const $CursorPaginatedResponse_InboxItemRead_ = {
   properties: {
     items: {
@@ -11852,6 +14934,69 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[InboxItemRead]",
+} as const
+
+export const $CursorPaginatedResponse_LibrarySkillRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/LibrarySkillRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[LibrarySkillRead]",
 } as const
 
 export const $CursorPaginatedResponse_MCPPersonalAccessTokenRead_ = {
@@ -12043,6 +15188,69 @@ export const $CursorPaginatedResponse_ServiceAccountRead_ = {
   title: "CursorPaginatedResponse[ServiceAccountRead]",
 } as const
 
+export const $CursorPaginatedResponse_SkillFolderRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillFolderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillFolderRead]",
+} as const
+
 export const $CursorPaginatedResponse_SkillReadMinimal_ = {
   properties: {
     items: {
@@ -12104,6 +15312,69 @@ export const $CursorPaginatedResponse_SkillReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[SkillReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_SkillTagRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillTagRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillTagRead]",
 } as const
 
 export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
@@ -12480,6 +15751,21 @@ export const $DSLConfig_Input = {
         "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
       default: 0,
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Default workspace tunnel for actions that do not set their own.",
+    },
   },
   type: "object",
   title: "DSLConfig",
@@ -12504,6 +15790,21 @@ export const $DSLConfig_Output = {
         "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
       default: 0,
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Default workspace tunnel for actions that do not set their own.",
+    },
   },
   type: "object",
   title: "DSLConfig",
@@ -12512,7 +15813,42 @@ export const $DSLConfig_Output = {
 Activities don't need access to this.`,
 } as const
 
-export const $DSLEntrypoint = {
+export const $DSLEntrypoint_Input = {
+  properties: {
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+      description: "The entrypoint action ref",
+    },
+    expects: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/ExpectedField-Input",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expects",
+      description:
+        "Expected trigger input schema. Use this to specify the expected shape of the trigger input.",
+    },
+  },
+  type: "object",
+  title: "DSLEntrypoint",
+} as const
+
+export const $DSLEntrypoint_Output = {
   properties: {
     ref: {
       anyOf: [
@@ -12584,11 +15920,11 @@ export const $DSLInput = {
       title: "Description",
     },
     entrypoint: {
-      $ref: "#/components/schemas/DSLEntrypoint",
+      $ref: "#/components/schemas/DSLEntrypoint-Output",
     },
     actions: {
       items: {
-        $ref: "#/components/schemas/ActionStatement",
+        $ref: "#/components/schemas/ActionStatement-Output",
       },
       type: "array",
       title: "Actions",
@@ -12753,6 +16089,15 @@ export const $DSLRunArgs = {
       description:
         "Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
     },
+    fixed_action_results: {
+      additionalProperties: {
+        $ref: "#/components/schemas/FixedActionResult",
+      },
+      type: "object",
+      title: "Fixed Action Results",
+      description:
+        "Results reused from a previous run, keyed by action ref. Matching root-scope actions use these instead of executing.",
+    },
   },
   type: "object",
   required: ["role", "wf_id"],
@@ -12882,6 +16227,121 @@ export const $DefaultModelSelectionUpdate = {
   title: "DefaultModelSelectionUpdate",
   description:
     "Payload for updating the organization's default model selection.",
+} as const
+
+export const $DeferredToolUse = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    input: {
+      additionalProperties: true,
+      type: "object",
+      title: "Input",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "input"],
+  title: "DeferredToolUse",
+} as const
+
+export const $DetachedCopy = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    original_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Original Local Id",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "local_id", "name", "original_local_id"],
+  title: "DetachedCopy",
+  description: "The copy a detach created.",
+} as const
+
+export const $DetachedCopyRead = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    original_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Original Local Id",
+    },
+    original_name: {
+      type: "string",
+      title: "Original Name",
+    },
+    detached_at: {
+      type: "string",
+      format: "date-time",
+      title: "Detached At",
+    },
+    case_field_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Field Name",
+      description: "For a case field copy, its current schema key.",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "For a workflow copy, its short ``wf_`` id.",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "local_id",
+    "original_local_id",
+    "original_name",
+    "detached_at",
+  ],
+  title: "DetachedCopyRead",
+  description: "A customer-owned copy made by detaching a managed resource.",
+} as const
+
+export const $DocumentState = {
+  type: "string",
+  enum: ["pending", "building", "ready", "empty", "failed", "deleted"],
+  title: "DocumentState",
+  description: "Lifecycle states of a row document within an index generation.",
 } as const
 
 export const $DropdownValueChangedEventRead = {
@@ -13322,7 +16782,7 @@ export const $EffectiveEntitlements = {
       type: "boolean",
       title: "Agent Addons",
       description:
-        "Whether add-on agent capabilities are enabled (approvals, presets)",
+        "Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)",
       default: false,
     },
     case_addons: {
@@ -13351,11 +16811,58 @@ export const $EffectiveEntitlements = {
       description: "Whether Workspace Chat is enabled",
       default: false,
     },
+    multi_workspace: {
+      type: "boolean",
+      title: "Multi-workspace",
+      description: "Whether multiple workspaces per organization are enabled",
+      default: false,
+    },
     watchtower: {
       type: "boolean",
       title: "Watchtower",
       description:
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
+      default: false,
+    },
+    external_secret_stores: {
+      type: "boolean",
+      title: "External secret stores",
+      description:
+        "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
+      default: false,
+    },
+    agent_channels: {
+      type: "boolean",
+      title: "Agent channels",
+      description:
+        "Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)",
+      default: false,
+    },
+    semantic_search: {
+      type: "boolean",
+      title: "Semantic search",
+      description:
+        "Whether semantic (vector) search over table columns is enabled",
+      default: false,
+    },
+    forms: {
+      type: "boolean",
+      title: "Forms",
+      description: "Whether workflow forms are enabled",
+      default: false,
+    },
+    tunnels: {
+      type: "boolean",
+      title: "Tunnels",
+      description:
+        "Whether workspaces may route actions through private network tunnels such as Pangolin",
+      default: false,
+    },
+    agent_runtime_preview: {
+      type: "boolean",
+      title: "Agent runtime preview",
+      description:
+        "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
       default: false,
     },
   },
@@ -13364,6 +16871,159 @@ export const $EffectiveEntitlements = {
   description: `Effective feature entitlements for an organization.
 
 Values are resolved from org overrides falling back to tier defaults.`,
+} as const
+
+export const $EmbeddingConfigurationRead = {
+  properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    state: {
+      $ref: "#/components/schemas/SearchState",
+    },
+    configuration: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EmbeddingModelRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    reindex_required: {
+      type: "boolean",
+      title: "Reindex Required",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["available", "version", "state"],
+  title: "EmbeddingConfigurationRead",
+  description:
+    "Availability from existing provider settings and current indexing state.",
+} as const
+
+export const $EmbeddingErrorCode = {
+  type: "string",
+  enum: [
+    "CREDENTIAL_INVALID",
+    "CONFIGURATION_INVALID",
+    "CONFIGURATION_CHANGED",
+    "INPUT_INVALID",
+    "RATE_LIMITED",
+    "TIMEOUT",
+    "UNAVAILABLE",
+    "RESPONSE_INVALID",
+    "NOT_CONFIGURED",
+  ],
+  title: "EmbeddingErrorCode",
+  description:
+    "Stable public failures; provider messages must never cross this boundary.",
+} as const
+
+export const $EmbeddingErrorRead = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/EmbeddingErrorCode",
+    },
+    retryable: {
+      type: "boolean",
+      title: "Retryable",
+    },
+    retry_after: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Retry After",
+    },
+  },
+  type: "object",
+  required: ["code", "retryable"],
+  title: "EmbeddingErrorRead",
+} as const
+
+export const $EmbeddingErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/EmbeddingErrorRead",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "EmbeddingErrorResponse",
+} as const
+
+export const $EmbeddingModelRead = {
+  properties: {
+    provider: {
+      type: "string",
+      enum: ["openai", "gemini", "bedrock", "ollama", "vllm"],
+      title: "Provider",
+    },
+    model: {
+      type: "string",
+      enum: [
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+        "gemini-embedding-001",
+        "amazon.titan-embed-text-v2:0",
+        "all-minilm",
+        "all-minilm:latest",
+        "all-minilm:22m",
+        "sentence-transformers/all-MiniLM-L6-v2",
+      ],
+      title: "Model",
+    },
+    dimensions: {
+      type: "integer",
+      title: "Dimensions",
+    },
+    tokenizer: {
+      type: "string",
+      title: "Tokenizer",
+    },
+    input_token_limit: {
+      type: "integer",
+      title: "Input Token Limit",
+    },
+    input_character_limit: {
+      type: "integer",
+      title: "Input Character Limit",
+    },
+    batch_size_limit: {
+      type: "integer",
+      title: "Batch Size Limit",
+    },
+    batch_token_limit: {
+      type: "integer",
+      title: "Batch Token Limit",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "model",
+    "dimensions",
+    "tokenizer",
+    "input_token_limit",
+    "input_character_limit",
+    "batch_size_limit",
+    "batch_token_limit",
+  ],
+  title: "EmbeddingModelRead",
+  description:
+    "Public metadata needed for status and bounded chunk preparation.",
 } as const
 
 export const $EntitlementsDict = {
@@ -13382,7 +17042,7 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Agent Addons",
       description:
-        "Whether add-on agent capabilities are enabled (approvals, presets)",
+        "Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)",
     },
     case_addons: {
       type: "boolean",
@@ -13406,11 +17066,51 @@ export const $EntitlementsDict = {
       title: "Workspace Chat",
       description: "Whether Workspace Chat is enabled",
     },
+    multi_workspace: {
+      type: "boolean",
+      title: "Multi-workspace",
+      description: "Whether multiple workspaces per organization are enabled",
+    },
     watchtower: {
       type: "boolean",
       title: "Watchtower",
       description:
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
+    },
+    external_secret_stores: {
+      type: "boolean",
+      title: "External secret stores",
+      description:
+        "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
+    },
+    agent_channels: {
+      type: "boolean",
+      title: "Agent channels",
+      description:
+        "Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)",
+    },
+    semantic_search: {
+      type: "boolean",
+      title: "Semantic search",
+      description:
+        "Whether semantic (vector) search over table columns is enabled",
+    },
+    forms: {
+      type: "boolean",
+      title: "Forms",
+      description: "Whether workflow forms are enabled",
+    },
+    tunnels: {
+      type: "boolean",
+      title: "Tunnels",
+      description:
+        "Whether workspaces may route actions through private network tunnels such as Pangolin",
+    },
+    agent_runtime_preview: {
+      type: "boolean",
+      title: "Agent runtime preview",
+      description:
+        "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
     },
   },
   type: "object",
@@ -13549,12 +17249,6 @@ export const $EventGroup_TypeVar_ = {
         },
         {
           $ref: "#/components/schemas/GetWorkflowDefinitionActivityInputs",
-        },
-        {
-          $ref: "#/components/schemas/InteractionResult",
-        },
-        {
-          $ref: "#/components/schemas/InteractionInput",
         },
         {
           $ref: "#/components/schemas/UnreadableTemporalPayload",
@@ -13886,6 +17580,95 @@ export const $ExpressionValidationResponse = {
   title: "ExpressionValidationResponse",
 } as const
 
+export const $ExternalGroupMappingCreate = {
+  properties: {
+    external_group_id: {
+      type: "string",
+      format: "uuid",
+      title: "External Group Id",
+    },
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+  },
+  type: "object",
+  required: ["external_group_id", "group_id"],
+  title: "ExternalGroupMappingCreate",
+  description: "Request to project an external group into a Tracecat group.",
+} as const
+
+export const $ExternalGroupMappingRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    external_group_id: {
+      type: "string",
+      format: "uuid",
+      title: "External Group Id",
+    },
+    external_group_external_id: {
+      type: "string",
+      title: "External Group External Id",
+    },
+    external_group_display_name: {
+      type: "string",
+      title: "External Group Display Name",
+    },
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "external_group_id",
+    "external_group_external_id",
+    "external_group_display_name",
+    "group_id",
+    "group_name",
+  ],
+  title: "ExternalGroupMappingRead",
+  description:
+    "A mapping joined with both sides, so a list renders without refetching.",
+} as const
+
+export const $ExternalGroupRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    external_id: {
+      type: "string",
+      title: "External Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    member_count: {
+      type: "integer",
+      title: "Member Count",
+    },
+  },
+  type: "object",
+  required: ["id", "external_id", "display_name", "member_count"],
+  title: "ExternalGroupRead",
+  description: "A synced IdP group offered to an admin as a mapping source.",
+} as const
+
 export const $ExternalObject = {
   properties: {
     typename: {
@@ -13919,8 +17702,9 @@ export const $FeatureFlag = {
   enum: [
     "ai-ranking",
     "workflow-concurrency-limits",
-    "agent-channels",
     "agent-fs-persistence",
+    "workspace-sync-github-archive",
+    "forms",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
@@ -14013,6 +17797,22 @@ export const $FieldDiff = {
   title: "FieldDiff",
 } as const
 
+export const $FieldKind = {
+  type: "string",
+  enum: [
+    "text",
+    "number",
+    "boolean",
+    "temporal",
+    "enum",
+    "uuid",
+    "tag",
+    "json_scalar",
+  ],
+  title: "FieldKind",
+  description: "Value families understood by the shared filter compiler.",
+} as const
+
 export const $FileUIPart = {
   properties: {
     type: {
@@ -14046,6 +17846,114 @@ export const $FileUIPart = {
   required: ["type", "mediaType", "url"],
   title: "FileUIPart",
   description: "A file part of a message.",
+} as const
+
+export const $Filter = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/Condition",
+    },
+    {
+      $ref: "#/components/schemas/AndClause",
+    },
+    {
+      $ref: "#/components/schemas/OrClause",
+    },
+    {
+      $ref: "#/components/schemas/NotClause",
+    },
+  ],
+} as const
+
+export const $FilterOp = {
+  type: "string",
+  enum: [
+    "eq",
+    "ne",
+    "in",
+    "not_in",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "contains",
+    "starts_with",
+    "is_null",
+  ],
+  title: "FilterOp",
+  description: "Operations supported by the shared filter language.",
+} as const
+
+export const $FilterScalar = {
+  anyOf: [
+    {
+      type: "string",
+    },
+    {
+      type: "integer",
+    },
+    {
+      type: "number",
+    },
+    {
+      type: "boolean",
+    },
+    {
+      type: "string",
+      pattern: "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+    },
+    {
+      type: "string",
+      format: "date-time",
+    },
+    {
+      type: "string",
+      format: "date",
+    },
+    {
+      type: "string",
+      format: "uuid",
+    },
+  ],
+} as const
+
+export const $FilterValue = {
+  anyOf: [
+    {
+      $ref: "#/components/schemas/FilterScalar",
+    },
+    {
+      items: {
+        $ref: "#/components/schemas/FilterScalar",
+      },
+      type: "array",
+    },
+  ],
+} as const
+
+export const $FixedActionResult = {
+  properties: {
+    result: {
+      $ref: "#/components/schemas/TaskResult",
+    },
+    source_execution_id: {
+      type: "string",
+      title: "Source Execution Id",
+    },
+    source_event_id: {
+      type: "integer",
+      title: "Source Event Id",
+    },
+    mask_output: {
+      type: "boolean",
+      title: "Mask Output",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["result", "source_execution_id", "source_event_id"],
+  title: "FixedActionResult",
+  description: "An action result reused from a previous run of the workflow.",
 } as const
 
 export const $Float = {
@@ -14127,6 +18035,10 @@ export const $FolderDirectoryItem = {
       type: "integer",
       title: "Num Items",
     },
+    num_workflows: {
+      type: "integer",
+      title: "Num Workflows",
+    },
   },
   type: "object",
   required: [
@@ -14138,8 +18050,1801 @@ export const $FolderDirectoryItem = {
     "updated_at",
     "type",
     "num_items",
+    "num_workflows",
   ],
   title: "FolderDirectoryItem",
+} as const
+
+export const $FormActorRead = {
+  properties: {
+    type: {
+      type: "string",
+      enum: ["user", "service_account"],
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "Service account name.",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "FormActorRead",
+  description: "Who submitted a form.",
+} as const
+
+export const $FormArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "form",
+      title: "Type",
+      default: "form",
+    },
+    status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["online", "offline"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title"],
+  title: "FormArtifact",
+  description:
+    "Workflow form artifact. Lets a surface refresh a form the chat edited.",
+} as const
+
+export const $FormAutofillSource = {
+  type: "string",
+  enum: [
+    "requester",
+    "requester.user_id",
+    "requester.email",
+    "requester.first_name",
+    "requester.last_name",
+    "submission.id",
+  ],
+  title: "FormAutofillSource",
+  description: "Values the server fills in on submit.",
+} as const
+
+export const $FormConfig_Input = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "Defaults to the workflow title.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Markdown. Defaults to the workflow description.",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+    layout: {
+      anyOf: [
+        {
+          items: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/FormFieldEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormHeadingEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormTextEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormNoticeEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormDividerEntry",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 200,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Layout",
+      description:
+        "Ordered blocks. Inputs left out are appended in schema order.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "FormConfig",
+  description:
+    "Presentation layer of a form. The workflow input schema supplies the rest.",
+} as const
+
+export const $FormConfig_Output = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "Defaults to the workflow title.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Markdown. Defaults to the workflow description.",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+    layout: {
+      anyOf: [
+        {
+          items: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/FormFieldEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormHeadingEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormTextEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormNoticeEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormDividerEntry",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 200,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Layout",
+      description:
+        "Ordered blocks. Inputs left out are appended in schema order.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "FormConfig",
+  description:
+    "Presentation layer of a form. The workflow input schema supplies the rest.",
+} as const
+
+export const $FormCounts = {
+  properties: {
+    views: {
+      type: "integer",
+      title: "Views",
+    },
+    submissions: {
+      type: "integer",
+      title: "Submissions",
+    },
+  },
+  type: "object",
+  required: ["views", "submissions"],
+  title: "FormCounts",
+} as const
+
+export const $FormCreate = {
+  properties: {
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+    },
+    status: {
+      $ref: "#/components/schemas/FormStatus",
+      default: "offline",
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormConfig-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["workflow_id"],
+  title: "FormCreate",
+} as const
+
+export const $FormDividerBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "divider",
+      title: "Type",
+    },
+  },
+  type: "object",
+  required: ["type"],
+  title: "FormDividerBlock",
+} as const
+
+export const $FormDividerEntry = {
+  properties: {
+    divider: {
+      type: "boolean",
+      const: true,
+      title: "Divider",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["divider"],
+  title: "FormDividerEntry",
+} as const
+
+export const $FormErrorCode = {
+  type: "string",
+  enum: [
+    "not_found",
+    "already_exists",
+    "form_config_invalid",
+    "form_workflow_unpublished",
+    "form_offline",
+    "form_unavailable",
+    "form_changed",
+    "form_validation_error",
+    "workflow_start_failed",
+    "workflow_start_unconfirmed",
+    "file_field_invalid",
+    "file_invalid",
+    "file_type_not_allowed",
+    "file_too_large",
+    "file_limit_reached",
+    "file_upload_failed",
+  ],
+  title: "FormErrorCode",
+  description: "Machine-readable failures of a forms request.",
+} as const
+
+export const $FormErrorDetail = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/FormErrorCode",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    errors: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/FormFieldError",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Errors",
+      description: "Per-field errors of a rejected submission.",
+    },
+    issues: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/FormIssue",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Issues",
+      description: "Issues of a rejected form config.",
+    },
+  },
+  type: "object",
+  required: ["code", "message"],
+  title: "FormErrorDetail",
+} as const
+
+export const $FormErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/FormErrorDetail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "FormErrorResponse",
+} as const
+
+export const $FormFieldBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "field",
+      title: "Type",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    help: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Help",
+    },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+    },
+    widget: {
+      $ref: "#/components/schemas/FormWidget",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+    },
+    default: {
+      title: "Default",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/FormFieldOption",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+    visible_if: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormVisibleIf",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormFieldConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["type", "name", "label", "widget", "required", "multiple"],
+  title: "FormFieldBlock",
+  description: "An input the requester fills in.",
+} as const
+
+export const $FormFieldConfig = {
+  properties: {
+    accept: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accept",
+    },
+    max_files: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Files",
+    },
+    max_file_size: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max File Size",
+      description: "Largest file the field takes, in bytes.",
+    },
+  },
+  type: "object",
+  title: "FormFieldConfig",
+  description: "Widget-specific settings.",
+} as const
+
+export const $FormFieldEntry = {
+  properties: {
+    field: {
+      type: "string",
+      maxLength: 255,
+      title: "Field",
+      description: "Name of the workflow input.",
+    },
+    label: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Label",
+    },
+    help: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Help",
+    },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+    },
+    widget: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormWidget",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/FormOption",
+          },
+          type: "array",
+          maxItems: 100,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+    visible_if: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormVisibleIf",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    autofill: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormAutofillSource",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    hidden: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Hidden",
+    },
+    accept: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            maxLength: 255,
+          },
+          type: "array",
+          maxItems: 20,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accept",
+      description: "File extensions or MIME types a file field takes.",
+    },
+    max_files: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 10,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Files",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field"],
+  title: "FormFieldEntry",
+  description: "Presentation of one workflow input.",
+} as const
+
+export const $FormFieldError = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    code: {
+      $ref: "#/components/schemas/FormFieldErrorCode",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["field", "code", "message"],
+  title: "FormFieldError",
+} as const
+
+export const $FormFieldErrorCode = {
+  type: "string",
+  enum: [
+    "required",
+    "unknown_field",
+    "invalid_value",
+    "invalid_option",
+    "invalid_date",
+    "invalid_user",
+    "invalid_file",
+    "too_many_files",
+  ],
+  title: "FormFieldErrorCode",
+  description: "Why a submitted value was rejected.",
+} as const
+
+export const $FormFieldOption = {
+  properties: {
+    value: {
+      type: "string",
+      title: "Value",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    image: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Image",
+    },
+  },
+  type: "object",
+  required: ["value", "label"],
+  title: "FormFieldOption",
+} as const
+
+export const $FormFileDownload = {
+  properties: {
+    download_url: {
+      type: "string",
+      title: "Download Url",
+      description: "Short-lived URL that forces a download.",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+  },
+  type: "object",
+  required: ["download_url", "file_name", "content_type"],
+  title: "FormFileDownload",
+} as const
+
+export const $FormFileRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "content_type", "size", "sha256"],
+  title: "FormFileRead",
+  description: `An uploaded file. Also what a file ID expands to in the answers.
+
+Carries no storage key and no URL.`,
+} as const
+
+export const $FormHeadingBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "heading",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["type", "text"],
+  title: "FormHeadingBlock",
+} as const
+
+export const $FormHeadingEntry = {
+  properties: {
+    heading: {
+      type: "string",
+      maxLength: 255,
+      title: "Heading",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["heading"],
+  title: "FormHeadingEntry",
+} as const
+
+export const $FormIntakeLocation = {
+  properties: {
+    form_id: {
+      type: "string",
+      format: "uuid",
+      title: "Form Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+  },
+  type: "object",
+  required: ["form_id", "workspace_id", "workspace_name"],
+  title: "FormIntakeLocation",
+  description: "Where a form lives, for a requester who only has its ID.",
+} as const
+
+export const $FormIntakeRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+  },
+  type: "object",
+  required: ["id", "workspace_id", "workspace_name", "title"],
+  title: "FormIntakeRead",
+} as const
+
+export const $FormIntakeSubmissionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    form_id: {
+      type: "string",
+      format: "uuid",
+      title: "Form Id",
+    },
+    form_title: {
+      type: "string",
+      title: "Form Title",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    submitted_at: {
+      type: "string",
+      format: "date-time",
+      title: "Submitted At",
+    },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "form_id",
+    "form_title",
+    "workspace_id",
+    "workspace_name",
+    "submitted_at",
+    "reference",
+  ],
+  title: "FormIntakeSubmissionRead",
+  description: "A requester's own submission. Carries no run fields.",
+} as const
+
+export const $FormIssue = {
+  properties: {
+    severity: {
+      $ref: "#/components/schemas/FormIssueSeverity",
+    },
+    code: {
+      $ref: "#/components/schemas/FormIssueCode",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+      description: "Path to the offending config key.",
+    },
+  },
+  type: "object",
+  required: ["severity", "code", "message", "loc"],
+  title: "FormIssue",
+  description:
+    "A problem found while resolving a form config against its inputs.",
+} as const
+
+export const $FormIssueCode = {
+  type: "string",
+  enum: [
+    "unknown_field",
+    "duplicate_field",
+    "incompatible_widget",
+    "no_widget_for_type",
+    "unsupported_widget_option",
+    "options_required",
+    "options_not_supported",
+    "option_not_in_enum",
+    "default_invalid",
+    "conditional_field_required",
+    "visible_if_unknown_field",
+    "visible_if_invalid_controller",
+    "visible_if_invalid_value",
+    "autofill_type_mismatch",
+    "hidden_with_autofill",
+    "unrendered_optional_input",
+    "integer_out_of_range",
+  ],
+  title: "FormIssueCode",
+  description: "Problems the resolver finds in a form config.",
+} as const
+
+export const $FormIssueSeverity = {
+  type: "string",
+  enum: ["error", "warning"],
+  title: "FormIssueSeverity",
+} as const
+
+export const $FormNoticeBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "notice",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    tone: {
+      $ref: "#/components/schemas/FormNoticeTone",
+    },
+  },
+  type: "object",
+  required: ["type", "text", "tone"],
+  title: "FormNoticeBlock",
+} as const
+
+export const $FormNoticeEntry = {
+  properties: {
+    notice: {
+      type: "string",
+      maxLength: 10000,
+      title: "Notice",
+    },
+    tone: {
+      $ref: "#/components/schemas/FormNoticeTone",
+      default: "info",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["notice"],
+  title: "FormNoticeEntry",
+} as const
+
+export const $FormNoticeTone = {
+  type: "string",
+  enum: ["info", "success", "warning", "danger"],
+  title: "FormNoticeTone",
+} as const
+
+export const $FormOption = {
+  properties: {
+    value: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Value",
+    },
+    label: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Label",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    image: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Image",
+      description: "Inline PNG, JPEG or WebP data URI.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["value"],
+  title: "FormOption",
+  description: "One choice of a select, multi-select or cards field.",
+} as const
+
+export const $FormPreview = {
+  properties: {
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+    definition_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Version",
+      description: "Published workflow version the blocks come from.",
+    },
+    config_version: {
+      type: "string",
+      title: "Config Version",
+      description: "Version of the config the blocks come from.",
+    },
+    blocks: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/FormHeadingBlock",
+          },
+          {
+            $ref: "#/components/schemas/FormTextBlock",
+          },
+          {
+            $ref: "#/components/schemas/FormNoticeBlock",
+          },
+          {
+            $ref: "#/components/schemas/FormDividerBlock",
+          },
+          {
+            $ref: "#/components/schemas/FormFieldBlock",
+          },
+        ],
+        discriminator: {
+          propertyName: "type",
+          mapping: {
+            divider: "#/components/schemas/FormDividerBlock",
+            field: "#/components/schemas/FormFieldBlock",
+            heading: "#/components/schemas/FormHeadingBlock",
+            notice: "#/components/schemas/FormNoticeBlock",
+            text: "#/components/schemas/FormTextBlock",
+          },
+        },
+      },
+      type: "array",
+      title: "Blocks",
+    },
+  },
+  type: "object",
+  required: ["title", "config_version", "blocks"],
+  title: "FormPreview",
+  description: "What a form renders. Hidden and autofill fields never appear.",
+} as const
+
+export const $FormRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+    workflow_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Version",
+      description: "Published workflow version the inputs come from, if any.",
+    },
+    status: {
+      $ref: "#/components/schemas/FormStatus",
+    },
+    config: {
+      $ref: "#/components/schemas/FormConfig-Output",
+    },
+    config_version: {
+      type: "string",
+      title: "Config Version",
+      description: "Version of the saved config.",
+    },
+    issues: {
+      items: {
+        $ref: "#/components/schemas/FormIssue",
+      },
+      type: "array",
+      title: "Issues",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    counts: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormCounts",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Null without form:submission:read.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "workflow_id",
+    "workflow_title",
+    "status",
+    "config",
+    "config_version",
+    "issues",
+    "url",
+    "created_at",
+    "updated_at",
+  ],
+  title: "FormRead",
+} as const
+
+export const $FormReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "Null without form:update or form:submission:read.",
+    },
+    workflow_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Title",
+      description: "Null without form:update or form:submission:read.",
+    },
+    status: {
+      $ref: "#/components/schemas/FormStatus",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    submission_count: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Submission Count",
+      description: "Null without form:submission:read.",
+    },
+    last_submitted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Submitted At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "status", "title", "created_at", "updated_at"],
+  title: "FormReadMinimal",
+} as const
+
+export const $FormStatus = {
+  type: "string",
+  enum: ["online", "offline"],
+  title: "FormStatus",
+  description: "Whether a form accepts submissions.",
+} as const
+
+export const $FormSubmissionCreate = {
+  properties: {
+    values: {
+      additionalProperties: true,
+      type: "object",
+      title: "Values",
+      description: "Answers keyed by field name.",
+    },
+    definition_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Version",
+      description:
+        "The definition_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.",
+    },
+    config_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Config Version",
+      description:
+        "The config_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.",
+    },
+  },
+  type: "object",
+  title: "FormSubmissionCreate",
+} as const
+
+export const $FormSubmissionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    form_id: {
+      type: "string",
+      format: "uuid",
+      title: "Form Id",
+    },
+    answers: {
+      additionalProperties: true,
+      type: "object",
+      title: "Answers",
+    },
+    submitted_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormActorRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    definition_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Version",
+      description: "Null without form:submission:read.",
+    },
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "Null without form:submission:read.",
+    },
+    run_status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "RUNNING",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED",
+            "TERMINATED",
+            "CONTINUED_AS_NEW",
+            "TIMED_OUT",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Run Status",
+      description: "Null without form:submission:read, or if it is not known.",
+    },
+    submitted_at: {
+      type: "string",
+      format: "date-time",
+      title: "Submitted At",
+    },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["id", "form_id", "answers", "submitted_at", "reference"],
+  title: "FormSubmissionRead",
+} as const
+
+export const $FormSubmissionReceipt = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    submitted_at: {
+      type: "string",
+      format: "date-time",
+      title: "Submitted At",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["id", "submitted_at", "reference"],
+  title: "FormSubmissionReceipt",
+  description: "What a requester gets back. Carries no run fields.",
+} as const
+
+export const $FormTextBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "text",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+      description: "Markdown.",
+    },
+  },
+  type: "object",
+  required: ["type", "text"],
+  title: "FormTextBlock",
+} as const
+
+export const $FormTextEntry = {
+  properties: {
+    text: {
+      type: "string",
+      maxLength: 10000,
+      title: "Text",
+      description: "Markdown.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["text"],
+  title: "FormTextEntry",
+} as const
+
+export const $FormUpdate = {
+  properties: {
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormConfig-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Replaces the whole config.",
+    },
+    base_config_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Config Version",
+      description:
+        "The config_version the edit started from. If set and the saved config has changed since, the update is rejected with form_changed.",
+    },
+  },
+  type: "object",
+  title: "FormUpdate",
+} as const
+
+export const $FormUserRead = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["user_id", "email"],
+  title: "FormUserRead",
+  description:
+    "A choice of the ``user`` widget, and what a chosen user expands to.",
+} as const
+
+export const $FormValidateRequest = {
+  properties: {
+    config: {
+      $ref: "#/components/schemas/FormConfig-Input",
+    },
+  },
+  type: "object",
+  required: ["config"],
+  title: "FormValidateRequest",
+} as const
+
+export const $FormValidateResponse = {
+  properties: {
+    valid: {
+      type: "boolean",
+      title: "Valid",
+    },
+    issues: {
+      items: {
+        $ref: "#/components/schemas/FormIssue",
+      },
+      type: "array",
+      title: "Issues",
+    },
+    preview: {
+      $ref: "#/components/schemas/FormPreview",
+    },
+  },
+  type: "object",
+  required: ["valid", "issues", "preview"],
+  title: "FormValidateResponse",
+} as const
+
+export const $FormVisibleIf = {
+  properties: {
+    field: {
+      type: "string",
+      maxLength: 255,
+      title: "Field",
+    },
+    equals: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "integer",
+        },
+        {
+          type: "number",
+        },
+        {
+          type: "string",
+          maxLength: 255,
+        },
+      ],
+      title: "Equals",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field", "equals"],
+  title: "FormVisibleIf",
+  description: "Show a field only while another field has this value.",
+} as const
+
+export const $FormWidget = {
+  type: "string",
+  enum: [
+    "text",
+    "long_text",
+    "number",
+    "toggle",
+    "select",
+    "multi_select",
+    "cards",
+    "tags",
+    "date",
+    "datetime",
+    "user",
+    "file",
+  ],
+  title: "FormWidget",
+  description: "Input controls a form field can render as.",
 } as const
 
 export const $GenericArtifact = {
@@ -14212,7 +19917,7 @@ export const $GetWorkflowDefinitionActivityInputs = {
     task: {
       anyOf: [
         {
-          $ref: "#/components/schemas/ActionStatement",
+          $ref: "#/components/schemas/ActionStatement-Output",
         },
         {
           type: "null",
@@ -14635,7 +20340,8 @@ export const $GitLabTokenCredentialsRequest = {
       type: "string",
       format: "password",
       title: "Token",
-      description: "GitLab personal/project/group access token with api scope.",
+      description:
+        "GitLab access token with api scope. Project and group tokens also require write_repository for Git sync pushes.",
       writeOnly: true,
     },
   },
@@ -14781,6 +20487,36 @@ export const $GitSettingsUpdate = {
   title: "GitSettingsUpdate",
 } as const
 
+export const $GitTagInfo = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+      description: "Tag name",
+    },
+    commit_sha: {
+      type: "string",
+      pattern: "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      title: "Commit Sha",
+      description: "SHA of the commit the tag points to (SHA-1 or SHA-256)",
+    },
+    date: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      title: "Date",
+      description:
+        "Tag date in ISO format. The provider's tag date when it has one, otherwise the tagged commit's date.",
+    },
+  },
+  type: "object",
+  required: ["name", "commit_sha", "date"],
+  title: "GitTagInfo",
+  description: "Git tag information for repository management.",
+} as const
+
 export const $GraphOperation = {
   properties: {
     type: {
@@ -14810,6 +20546,7 @@ export const $GraphOperationType = {
     "move_nodes",
     "update_trigger_position",
     "update_viewport",
+    "auto_layout",
   ],
   title: "GraphOperationType",
   description: "Graph operation types.",
@@ -14976,8 +20713,15 @@ export const $GroupMemberRead = {
       title: "Last Name",
     },
     added_at: {
-      type: "string",
-      format: "date-time",
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Added At",
     },
   },
@@ -15047,6 +20791,11 @@ export const $GroupReadWithMembers = {
       type: "integer",
       title: "Member Count",
       default: 0,
+    },
+    is_idp_managed: {
+      type: "boolean",
+      title: "Is Idp Managed",
+      default: false,
     },
   },
   type: "object",
@@ -15260,13 +21009,6 @@ export const $HTTPValidationError = {
   title: "HTTPValidationError",
 } as const
 
-export const $HarnessType = {
-  type: "string",
-  enum: ["claude_code"],
-  title: "HarnessType",
-  description: "Supported agent harnesses.",
-} as const
-
 export const $HealthResponse = {
   properties: {
     status: {
@@ -15277,6 +21019,100 @@ export const $HealthResponse = {
   type: "object",
   required: ["status"],
   title: "HealthResponse",
+} as const
+
+export const $IPAllowlist = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description: "Human-readable name, e.g. 'Corporate VPN'.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description:
+        "Optional note on what this allowlist covers and who owns it.",
+    },
+    cidrs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      maxItems: 50,
+      minItems: 1,
+      title: "Cidrs",
+      description: "IPv4 or IPv6 addresses or CIDR ranges.",
+    },
+  },
+  type: "object",
+  required: ["name", "cidrs"],
+  title: "IPAllowlist",
+  description: "A named group of allowed IP addresses or CIDR ranges.",
+} as const
+
+export const $IPAllowlistCheckRequest = {
+  properties: {
+    ip_address: {
+      type: "string",
+      maxLength: 45,
+      minLength: 1,
+      title: "Ip Address",
+    },
+  },
+  type: "object",
+  required: ["ip_address"],
+  title: "IPAllowlistCheckRequest",
+  description:
+    "Check whether an IP address would be admitted by the saved allowlist.",
+} as const
+
+export const $IPAllowlistCheckResult = {
+  properties: {
+    allowed: {
+      type: "boolean",
+      title: "Allowed",
+    },
+    matched_cidr: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Matched Cidr",
+    },
+    matched_allowlist: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Matched Allowlist",
+    },
+    enforced: {
+      type: "boolean",
+      title: "Enforced",
+    },
+  },
+  type: "object",
+  required: ["allowed", "enforced"],
+  title: "IPAllowlistCheckResult",
 } as const
 
 export const $InboxGroup = {
@@ -15746,6 +21582,9 @@ export const $IntegrationReadMinimal = {
       type: "string",
       title: "Provider Id",
     },
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
     status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
@@ -15755,7 +21594,7 @@ export const $IntegrationReadMinimal = {
     },
   },
   type: "object",
-  required: ["id", "provider_id", "status", "is_expired"],
+  required: ["id", "provider_id", "grant_type", "status", "is_expired"],
   title: "IntegrationReadMinimal",
   description: "Response model for user integration.",
 } as const
@@ -15887,114 +21726,118 @@ export const $IntegrationUpdate = {
   description: "Request model for updating an integration.",
 } as const
 
-export const $InteractionCategory = {
-  type: "string",
-  enum: ["slack"],
-  title: "InteractionCategory",
-} as const
-
-export const $InteractionContext = {
+export const $InvitationAccept = {
   properties: {
-    interaction_id: {
+    token: {
       type: "string",
-      format: "uuid",
-      title: "Interaction Id",
-    },
-    execution_id: {
-      type: "string",
-      pattern:
-        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
-      title: "Execution Id",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
+      title: "Token",
     },
   },
   type: "object",
-  required: ["interaction_id", "execution_id", "action_ref"],
-  title: "InteractionContext",
-  description: "The context of the interaction.",
+  required: ["token"],
+  title: "InvitationAccept",
+  description: "Request body for accepting an invitation via token.",
 } as const
 
-export const $InteractionInput = {
+export const $InvitationCreate = {
   properties: {
-    interaction_id: {
+    email: {
       type: "string",
-      format: "uuid",
-      title: "Interaction Id",
+      format: "email",
+      title: "Email",
     },
-    execution_id: {
-      type: "string",
-      pattern:
-        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
-      title: "Execution Id",
+    grants: {
+      items: {
+        $ref: "#/components/schemas/InvitationGrant",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Grants",
     },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-    data: {
-      additionalProperties: true,
-      type: "object",
-      title: "Data",
+    group_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Group Ids",
     },
   },
   type: "object",
-  required: ["interaction_id", "execution_id", "action_ref", "data"],
-  title: "InteractionInput",
-  description:
-    "Input for the workflow interaction handler. This is used on the client side.",
+  required: ["email", "grants"],
+  title: "InvitationCreate",
+  description: "Request body for creating an invitation.",
 } as const
 
-export const $InteractionRead = {
+export const $InvitationGrant = {
+  properties: {
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+  },
+  type: "object",
+  required: ["role_id"],
+  title: "InvitationGrant",
+  description: "One role grant: at org scope when ``workspace_id`` is None.",
+} as const
+
+export const $InvitationRead = {
   properties: {
     id: {
       type: "string",
       format: "uuid",
       title: "Id",
     },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    invited_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invited By",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
     created_at: {
       type: "string",
       format: "date-time",
       title: "Created At",
     },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    type: {
-      $ref: "#/components/schemas/InteractionType",
-    },
-    status: {
-      $ref: "#/components/schemas/InteractionStatus",
-    },
-    request_payload: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Request Payload",
-    },
-    response_payload: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Response Payload",
-    },
-    expires_at: {
+    accepted_at: {
       anyOf: [
         {
           type: "string",
@@ -16004,15 +21847,28 @@ export const $InteractionRead = {
           type: "null",
         },
       ],
-      title: "Expires At",
+      title: "Accepted At",
     },
-    wf_exec_id: {
-      type: "string",
-      pattern:
-        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
-      title: "Wf Exec Id",
+    created_by_platform_admin: {
+      type: "boolean",
+      title: "Created By Platform Admin",
     },
-    actor: {
+    grants: {
+      items: {
+        $ref: "#/components/schemas/InvitationGrant",
+      },
+      type: "array",
+      title: "Grants",
+    },
+    group_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Group Ids",
+    },
+    warning: {
       anyOf: [
         {
           type: "string",
@@ -16021,68 +21877,105 @@ export const $InteractionRead = {
           type: "null",
         },
       ],
-      title: "Actor",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-    action_type: {
-      type: "string",
-      title: "Action Type",
+      title: "Warning",
     },
   },
   type: "object",
   required: [
     "id",
-    "created_at",
-    "updated_at",
-    "type",
+    "organization_id",
+    "email",
     "status",
-    "request_payload",
-    "response_payload",
-    "wf_exec_id",
-    "actor",
-    "action_ref",
-    "action_type",
+    "invited_by",
+    "expires_at",
+    "created_at",
+    "accepted_at",
+    "created_by_platform_admin",
+    "grants",
   ],
-  title: "InteractionRead",
-  description: "Model for reading an interaction.",
+  title: "InvitationRead",
+  description: "Response model for an invitation.",
 } as const
 
-export const $InteractionResult = {
+export const $InvitationReadMinimal = {
   properties: {
-    message: {
+    organization_id: {
       type: "string",
-      title: "Message",
+      format: "uuid",
+      title: "Organization Id",
     },
-    detail: {
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    organization_slug: {
+      type: "string",
+      title: "Organization Slug",
+    },
+    inviter_name: {
       anyOf: [
-        {},
+        {
+          type: "string",
+        },
         {
           type: "null",
         },
       ],
-      title: "Detail",
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    grants: {
+      items: {
+        $ref: "#/components/schemas/InvitationGrant",
+      },
+      type: "array",
+      title: "Grants",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    email_matches: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email Matches",
     },
   },
   type: "object",
-  required: ["message"],
-  title: "InteractionResult",
-  description:
-    "Output for the workflow interaction handler. This is used on the client side.",
-} as const
+  required: [
+    "organization_id",
+    "organization_name",
+    "organization_slug",
+    "inviter_name",
+    "inviter_email",
+    "grants",
+    "status",
+    "expires_at",
+  ],
+  title: "InvitationReadMinimal",
+  description: `Minimal public response for token-based lookup on the accept page.
 
-export const $InteractionStatus = {
-  type: "string",
-  enum: ["idle", "pending", "error", "timed_out", "completed"],
-  title: "InteractionStatus",
-} as const
-
-export const $InteractionType = {
-  type: "string",
-  enum: ["approval", "response"],
-  title: "InteractionType",
+Excludes email, inviter ID, and timestamps to limit information disclosure.`,
 } as const
 
 export const $InvitationStatus = {
@@ -16090,6 +21983,19 @@ export const $InvitationStatus = {
   enum: ["pending", "accepted", "revoked"],
   title: "InvitationStatus",
   description: "Invitation lifecycle status.",
+} as const
+
+export const $InvitationTokenRead = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "InvitationTokenRead",
+  description: "Raw invitation token response.",
 } as const
 
 export const $IssuedMCPPersonalAccessToken = {
@@ -16126,6 +22032,401 @@ export const $JoinStrategy = {
   type: "string",
   enum: ["any", "all"],
   title: "JoinStrategy",
+} as const
+
+export const $JsonValue = {} as const
+
+export const $LayoutActionPosition = {
+  properties: {
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    x: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "X",
+    },
+    y: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Y",
+    },
+    position: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "number",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position",
+    },
+  },
+  type: "object",
+  required: ["ref"],
+  title: "LayoutActionPosition",
+} as const
+
+export const $LayoutPosition = {
+  properties: {
+    x: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "X",
+    },
+    y: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Y",
+    },
+    position: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "number",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position",
+    },
+  },
+  type: "object",
+  title: "LayoutPosition",
+} as const
+
+export const $LayoutViewport = {
+  properties: {
+    x: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "X",
+    },
+    y: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Y",
+    },
+    zoom: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Zoom",
+    },
+  },
+  type: "object",
+  title: "LayoutViewport",
+} as const
+
+export const $LibrarySkillBatchInstall = {
+  properties: {
+    slugs: {
+      items: {
+        type: "string",
+        maxLength: 64,
+        minLength: 1,
+        pattern: "^[a-z0-9-]+$",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Slugs",
+    },
+  },
+  type: "object",
+  required: ["slugs"],
+  title: "LibrarySkillBatchInstall",
+  description: "Library skills to install together in one transaction.",
+} as const
+
+export const $LibrarySkillBatchUninstall = {
+  properties: {
+    slugs: {
+      items: {
+        type: "string",
+        maxLength: 64,
+        minLength: 1,
+        pattern: "^[a-z0-9-]+$",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Slugs",
+    },
+  },
+  type: "object",
+  required: ["slugs"],
+  title: "LibrarySkillBatchUninstall",
+  description:
+    "Library skills to uninstall together or reject without removing any.",
+} as const
+
+export const $LibrarySkillDetailRead = {
+  properties: {
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    installed: {
+      type: "boolean",
+      title: "Installed",
+    },
+    source: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/LibrarySkillSourceRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    files: {
+      items: {
+        $ref: "#/components/schemas/LibrarySkillFileRead",
+      },
+      type: "array",
+      title: "Files",
+    },
+  },
+  type: "object",
+  required: ["slug", "installed", "files"],
+  title: "LibrarySkillDetailRead",
+  description:
+    "A library skill with its bundled files, for the read-only preview.",
+} as const
+
+export const $LibrarySkillFileRead = {
+  properties: {
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    size_bytes: {
+      type: "integer",
+      title: "Size Bytes",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["path", "size_bytes"],
+  title: "LibrarySkillFileRead",
+  description: "One file bundled with a library skill.",
+} as const
+
+export const $LibrarySkillRead = {
+  properties: {
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    installed: {
+      type: "boolean",
+      title: "Installed",
+    },
+    source: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/LibrarySkillSourceRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["slug", "installed"],
+  title: "LibrarySkillRead",
+  description: "A library skill and this workspace's install state.",
+} as const
+
+export const $LibrarySkillSourceRead = {
+  properties: {
+    group: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group",
+    },
+    group_summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Summary",
+    },
+    group_description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Description",
+    },
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+    },
+    provider: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider",
+    },
+    repo: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Repo",
+    },
+    commit: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit",
+    },
+    license: {
+      type: "string",
+      title: "License",
+    },
+    url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      enum: ["upstream", "local"],
+      title: "Kind",
+    },
+  },
+  type: "object",
+  required: ["group", "repo", "commit", "license", "url", "kind"],
+  title: "LibrarySkillSourceRead",
+  description:
+    "Library group, maintainer, and optional upstream location of a skill.",
 } as const
 
 export const $MCPAuthType = {
@@ -16690,6 +22991,20 @@ export const $MCPHttpIntegrationCreate = {
       title: "Oauth Integration Id",
       description: "OAuth integration ID (required for oauth2 auth_type)",
     },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+      description:
+        "Workspace tunnel that every request to this server goes through",
+    },
     custom_credentials: {
       anyOf: [
         {
@@ -16782,6 +23097,18 @@ export const $MCPHttpIntegrationTestConnectionRequest = {
       ],
       title: "Oauth Integration Id",
     },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+    },
     custom_credentials: {
       anyOf: [
         {
@@ -16839,6 +23166,21 @@ export const $MCPHttpServerConfig = {
     id: {
       type: "string",
       title: "Id",
+    },
+    tools: {
+      items: {
+        $ref: "#/components/schemas/MCPServerToolSummary",
+      },
+      type: "array",
+      title: "Tools",
+    },
+    tunnel_id: {
+      type: "string",
+      title: "Tunnel Id",
+    },
+    tunnel_proxy: {
+      type: "string",
+      title: "Tunnel Proxy",
     },
   },
   type: "object",
@@ -16947,6 +23289,18 @@ export const $MCPIntegrationRead = {
         },
       ],
       title: "Oauth Integration Id",
+    },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
     },
     state: {
       type: "string",
@@ -17183,6 +23537,20 @@ export const $MCPIntegrationUpdate = {
         },
       ],
       title: "Oauth Integration Id",
+    },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+      description:
+        "Workspace tunnel for this HTTP server. Send null to stop using one.",
     },
     custom_credentials: {
       anyOf: [
@@ -17919,6 +24287,18 @@ export const $MCPToolSummary = {
       title: "Status",
       default: "available",
     },
+    input_schema: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Input Schema",
+    },
   },
   type: "object",
   required: ["name"],
@@ -17949,6 +24329,745 @@ export const $MCPVerificationStatusRead = {
   required: ["status"],
   title: "MCPVerificationStatusRead",
   description: "Response model for saved MCP verification status.",
+} as const
+
+export const $ManagedReferenceKind = {
+  type: "string",
+  enum: ["model", "mcp_integration", "secret_store"],
+  title: "ManagedReferenceKind",
+  description:
+    "Kind of source-side reference a target workspace must resolve locally.",
+} as const
+
+export const $ManagedReferenceMatchItem = {
+  properties: {
+    reference_kind: {
+      $ref: "#/components/schemas/ManagedReferenceKind",
+    },
+    source_key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Source Key",
+    },
+    resolved_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resolved Id",
+      description: "Target resource id. Null leaves a secret store unlinked.",
+    },
+  },
+  type: "object",
+  required: ["reference_kind", "source_key"],
+  title: "ManagedReferenceMatchItem",
+  description:
+    "The target's equivalent of one source model, MCP integration or store.",
+} as const
+
+export const $ManagedReferenceMatchesUpdate = {
+  properties: {
+    matches: {
+      items: {
+        $ref: "#/components/schemas/ManagedReferenceMatchItem",
+      },
+      type: "array",
+      maxItems: 1000,
+      title: "Matches",
+    },
+  },
+  type: "object",
+  title: "ManagedReferenceMatchesUpdate",
+  description: "Replace a target's saved reference matches.",
+} as const
+
+export const $ManagedReleaseCandidateRead = {
+  properties: {
+    branch: {
+      type: "string",
+      title: "Branch",
+      description: "Base branch of the source repository.",
+    },
+    commit_sha: {
+      type: "string",
+      title: "Commit Sha",
+    },
+    commit_message: {
+      type: "string",
+      title: "Commit Message",
+    },
+    commit_author: {
+      type: "string",
+      title: "Commit Author",
+    },
+    commit_date: {
+      type: "string",
+      title: "Commit Date",
+    },
+    existing_tags: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Existing Tags",
+      description: "Tags already on this commit.",
+    },
+    package: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspacePackageManifest",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Package metadata at this commit; null if none was published.",
+    },
+  },
+  type: "object",
+  required: [
+    "branch",
+    "commit_sha",
+    "commit_message",
+    "commit_author",
+    "commit_date",
+  ],
+  title: "ManagedReleaseCandidateRead",
+  description:
+    "The commit a new release would tag, and the package published in it.",
+} as const
+
+export const $ManagedReleaseCreate = {
+  properties: {
+    tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Tag",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+      description:
+        "The commit the caller reviewed. When set, the release is refused if the base branch has moved past it.",
+    },
+  },
+  type: "object",
+  required: ["tag"],
+  title: "ManagedReleaseCreate",
+  description:
+    "Cut a release tag at the HEAD of the source repository's base branch.",
+} as const
+
+export const $ManagedResourceDetach = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    new_name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "New Name",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "local_id", "new_name"],
+  title: "ManagedResourceDetach",
+  description:
+    "Detach a managed resource into an editable copy named ``new_name``.",
+} as const
+
+export const $ManagedResourceRead = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    deployed_tag: {
+      type: "string",
+      title: "Deployed Tag",
+      description: "Package tag the resource came from.",
+    },
+    deployed_commit_sha: {
+      type: "string",
+      title: "Deployed Commit Sha",
+    },
+    deployed_at: {
+      type: "string",
+      format: "date-time",
+      title: "Deployed At",
+      description: "When the last rollout wrote it.",
+    },
+    case_field_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Field Name",
+      description:
+        "For a case field, its current schema key. Case fields have no row id, and the key can differ from ``source_id``.",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description:
+        "For a workflow, its short ``wf_`` id, as workflow APIs return it.",
+    },
+    package_skill_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Package Skill Ids",
+      description:
+        "For an agent preset, the skills the package binds to it. They cannot be removed; skills the customer added can.",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "local_id",
+    "source_id",
+    "deployed_tag",
+    "deployed_commit_sha",
+    "deployed_at",
+  ],
+  title: "ManagedResourceRead",
+  description: 'One managed resource, for the "Managed by Tracecat" badge.',
+} as const
+
+export const $ManagedRolloutApplyRequest = {
+  properties: {
+    rollout_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Rollout Ids",
+    },
+  },
+  type: "object",
+  required: ["rollout_ids"],
+  title: "ManagedRolloutApplyRequest",
+  description: "Apply previewed rollouts; only ready ones are applied.",
+} as const
+
+export const $ManagedRolloutKind = {
+  type: "string",
+  enum: ["apply", "unassign"],
+  title: "ManagedRolloutKind",
+  description: "What a rollout record does to its target workspace.",
+} as const
+
+export const $ManagedRolloutPreviewRequest = {
+  properties: {
+    target_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Target Ids",
+    },
+    tag: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tag",
+      description: "Tag to preview. ``None`` uses each target's pinned tag.",
+    },
+  },
+  type: "object",
+  required: ["target_ids"],
+  title: "ManagedRolloutPreviewRequest",
+  description: "Preview a tag for several targets at once.",
+} as const
+
+export const $ManagedRolloutRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    target_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    kind: {
+      $ref: "#/components/schemas/ManagedRolloutKind",
+    },
+    status: {
+      $ref: "#/components/schemas/ManagedRolloutStatus",
+    },
+    tag: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tag",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    preview: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RolloutPreview",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    applied_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Applied At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "target_id",
+    "workspace_id",
+    "kind",
+    "status",
+    "tag",
+    "commit_sha",
+    "preview",
+    "error",
+    "created_at",
+    "applied_at",
+  ],
+  title: "ManagedRolloutRead",
+  description: "One rollout record for one target.",
+} as const
+
+export const $ManagedRolloutStatus = {
+  type: "string",
+  enum: [
+    "previewing",
+    "ready",
+    "no_changes",
+    "blocked",
+    "needs_references",
+    "applying",
+    "applied",
+    "failed",
+    "stale",
+  ],
+  title: "ManagedRolloutStatus",
+  description: "Lifecycle of one rollout record for one target workspace.",
+} as const
+
+export const $ManagedSourceRead = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    git_provider: {
+      $ref: "#/components/schemas/VcsProvider",
+    },
+    git_repo_url: {
+      type: "string",
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "organization_id", "git_provider", "git_repo_url"],
+  title: "ManagedSourceRead",
+  description:
+    "The workspace managed resources are published from, and its Git binding.",
+} as const
+
+export const $ManagedSourceSettingRead = {
+  properties: {
+    source: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ManagedSourceRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "ManagedSourceSettingRead",
+  description:
+    "The managed resources source setting; ``source`` is null when unset.",
+} as const
+
+export const $ManagedSourceUpdate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "ManagedSourceUpdate",
+  description: `Set the managed resources source.
+
+The workspace must have a Git sync provider and repository URL; both are
+pinned with the setting.`,
+} as const
+
+export const $ManagedTargetCreate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    pinned_tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Pinned Tag",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "pinned_tag"],
+  title: "ManagedTargetCreate",
+  description: "Assign a workspace as a target, pinned to a tag.",
+} as const
+
+export const $ManagedTargetRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    pinned_tag: {
+      type: "string",
+      title: "Pinned Tag",
+    },
+    last_applied_tag: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Applied Tag",
+    },
+    last_rollout_status: {
+      $ref: "#/components/schemas/ManagedTargetStatus",
+    },
+    last_rollout_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Rollout At",
+    },
+    assigned_at: {
+      type: "string",
+      format: "date-time",
+      title: "Assigned At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "workspace_name",
+    "organization_id",
+    "organization_name",
+    "pinned_tag",
+    "last_applied_tag",
+    "last_rollout_status",
+    "last_rollout_at",
+    "assigned_at",
+  ],
+  title: "ManagedTargetRead",
+  description: "A customer workspace that receives the package.",
+} as const
+
+export const $ManagedTargetStatus = {
+  type: "string",
+  enum: ["pending", "up_to_date", "blocked", "needs_references", "failed"],
+  title: "ManagedTargetStatus",
+  description:
+    "Outcome of the most recent rollout to a managed target workspace.",
+} as const
+
+export const $ManagedTargetUpdate = {
+  properties: {
+    pinned_tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Pinned Tag",
+    },
+  },
+  type: "object",
+  required: ["pinned_tag"],
+  title: "ManagedTargetUpdate",
+  description: "Move a target's pin to another tag; a rollout applies it.",
+} as const
+
+export const $ManagedTunnelCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 63,
+      minLength: 1,
+      pattern: "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Allowed Targets",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["name", "allowed_targets"],
+  title: "ManagedTunnelCreate",
+  description:
+    "Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.",
+} as const
+
+export const $ManagedTunnelCreated = {
+  properties: {
+    tunnel: {
+      $ref: "#/components/schemas/TunnelRead",
+    },
+    site_id: {
+      type: "string",
+      title: "Site Id",
+    },
+    site_secret: {
+      type: "string",
+      title: "Site Secret",
+    },
+    site_endpoint: {
+      type: "string",
+      title: "Site Endpoint",
+    },
+    site_install_command: {
+      type: "string",
+      title: "Site Install Command",
+    },
+  },
+  type: "object",
+  required: [
+    "tunnel",
+    "site_id",
+    "site_secret",
+    "site_endpoint",
+    "site_install_command",
+  ],
+  title: "ManagedTunnelCreated",
+  description:
+    "A new managed tunnel. The site credentials are only returned once.",
+} as const
+
+export const $ManagedWorkspaceRead = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    is_source: {
+      type: "boolean",
+      title: "Is Source",
+    },
+    target_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Id",
+      description: "Set when the workspace is already a target.",
+    },
+  },
+  type: "object",
+  required: [
+    "workspace_id",
+    "workspace_name",
+    "organization_id",
+    "organization_name",
+    "is_source",
+  ],
+  title: "ManagedWorkspaceRead",
+  description: "A workspace an FDE can assign as a target.",
 } as const
 
 export const $McpIntegrationMappingAffectedPreset = {
@@ -18161,6 +25280,129 @@ export const $McpIntegrationMappingSelection = {
     "User-selected local MCP integration for one source integration reference.",
 } as const
 
+export const $MemberAccessTrace = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    roles: {
+      items: {
+        $ref: "#/components/schemas/MemberRoleRead",
+      },
+      type: "array",
+      title: "Roles",
+    },
+  },
+  type: "object",
+  required: ["user_id", "roles"],
+  title: "MemberAccessTrace",
+  description: "A member's roles and the sources of each role.",
+} as const
+
+export const $MemberRoleRead = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    sources: {
+      items: {
+        $ref: "#/components/schemas/MemberRoleSource",
+      },
+      type: "array",
+      title: "Sources",
+    },
+  },
+  type: "object",
+  required: ["role_id", "role_name", "workspace_id", "sources"],
+  title: "MemberRoleRead",
+  description:
+    "A member's role in one workspace or organization, with its sources.",
+} as const
+
+export const $MemberRoleSource = {
+  properties: {
+    type: {
+      $ref: "#/components/schemas/MemberRoleSourceType",
+    },
+    group_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Id",
+    },
+    group_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Name",
+    },
+    external_group_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "External Group Id",
+    },
+    external_group_display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "External Group Display Name",
+    },
+  },
+  type: "object",
+  required: ["type"],
+  title: "MemberRoleSource",
+  description:
+    "A direct assignment or group through which a member holds a role.",
+} as const
+
+export const $MemberRoleSourceType = {
+  type: "string",
+  enum: ["direct", "group", "idp_group"],
+} as const
+
 export const $MentionTargetType = {
   type: "string",
   enum: ["agent"],
@@ -18185,6 +25427,161 @@ export const $MessageKind = {
   ],
   title: "MessageKind",
   description: "The type/kind of message stored in the chat.",
+} as const
+
+export const $MessageOrigin = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: [
+        "human",
+        "channel",
+        "peer",
+        "task-notification",
+        "coordinator",
+        "unclassified",
+        "observer",
+        "auto-continuation",
+        "observer-activity",
+      ],
+      title: "Kind",
+    },
+    server: {
+      type: "string",
+      title: "Server",
+    },
+    from: {
+      type: "string",
+      title: "From",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    fromSession: {
+      type: "string",
+      title: "Fromsession",
+    },
+    senderTaskId: {
+      type: "string",
+      title: "Sendertaskid",
+    },
+    body: {
+      type: "string",
+      title: "Body",
+    },
+    verifiedPeerPid: {
+      type: "integer",
+      title: "Verifiedpeerpid",
+    },
+    subkind: {
+      type: "string",
+      enum: ["scheduled-trigger", "peer-send-message"],
+      title: "Subkind",
+    },
+  },
+  type: "object",
+  required: ["kind"],
+  title: "MessageOrigin",
+} as const
+
+export const $MfaPolicyRead = {
+  properties: {
+    mfa_required: {
+      type: "boolean",
+      title: "Mfa Required",
+    },
+    webauthn_available: {
+      type: "boolean",
+      title: "Webauthn Available",
+    },
+    webauthn_unavailable_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webauthn Unavailable Reason",
+    },
+  },
+  type: "object",
+  required: ["mfa_required", "webauthn_available"],
+  title: "MfaPolicyRead",
+} as const
+
+export const $MfaPolicyUpdate = {
+  properties: {
+    mfa_required: {
+      type: "boolean",
+      title: "Mfa Required",
+      description:
+        "Require a security key or passkey at sign-in. Users without one must register one at their next sign-in.",
+    },
+  },
+  type: "object",
+  required: ["mfa_required"],
+  title: "MfaPolicyUpdate",
+} as const
+
+export const $MfaStatusRead = {
+  properties: {
+    state: {
+      $ref: "#/components/schemas/SessionMfaState",
+    },
+    has_credentials: {
+      type: "boolean",
+      title: "Has Credentials",
+    },
+    required_by_policy: {
+      type: "boolean",
+      title: "Required By Policy",
+    },
+    webauthn_available: {
+      type: "boolean",
+      title: "Webauthn Available",
+    },
+    webauthn_unavailable_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webauthn Unavailable Reason",
+    },
+    recovery_codes_remaining: {
+      type: "integer",
+      title: "Recovery Codes Remaining",
+    },
+    step_up_expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Step Up Expires At",
+      description:
+        "When the current step-up verification stops satisfying checks.",
+    },
+  },
+  type: "object",
+  required: [
+    "state",
+    "has_credentials",
+    "required_by_policy",
+    "webauthn_available",
+    "recovery_codes_remaining",
+  ],
+  title: "MfaStatusRead",
 } as const
 
 export const $ModelConfig = {
@@ -18299,6 +25696,80 @@ export const $ModelSecretConfig = {
   title: "ModelSecretConfig",
 } as const
 
+export const $ModelUsage = {
+  properties: {
+    inputTokens: {
+      type: "integer",
+      title: "Inputtokens",
+    },
+    outputTokens: {
+      type: "integer",
+      title: "Outputtokens",
+    },
+    cacheReadInputTokens: {
+      type: "integer",
+      title: "Cachereadinputtokens",
+    },
+    cacheCreationInputTokens: {
+      type: "integer",
+      title: "Cachecreationinputtokens",
+    },
+    webSearchRequests: {
+      type: "integer",
+      title: "Websearchrequests",
+    },
+    costUSD: {
+      type: "number",
+      title: "Costusd",
+    },
+    contextWindow: {
+      type: "integer",
+      title: "Contextwindow",
+    },
+    maxOutputTokens: {
+      type: "integer",
+      title: "Maxoutputtokens",
+    },
+    canonicalModel: {
+      type: "string",
+      title: "Canonicalmodel",
+    },
+    provider: {
+      type: "string",
+      title: "Provider",
+    },
+  },
+  type: "object",
+  required: [
+    "inputTokens",
+    "outputTokens",
+    "cacheReadInputTokens",
+    "cacheCreationInputTokens",
+    "webSearchRequests",
+    "costUSD",
+    "contextWindow",
+    "maxOutputTokens",
+  ],
+  title: "ModelUsage",
+  description: `Per-model token usage and cost breakdown.
+
+Keys match the TypeScript SDK's \`\`ModelUsage\`\` shape (camelCase), since
+the value is passed through verbatim from the CLI's \`\`modelUsage\`\` field.`,
+} as const
+
+export const $NotClause = {
+  properties: {
+    not: {
+      $ref: "#/components/schemas/Filter",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["not"],
+  title: "NotClause",
+  description: "The negation of one filter.",
+} as const
+
 export const $OAuth2AuthorizeResponse = {
   properties: {
     authorization_url: {
@@ -18366,6 +25837,24 @@ export const $ObjectRef = {
 
 This is a typed reference that replaces large payloads in workflow context.
 Only dereference ObjectRef instances created by Tracecat - never arbitrary URIs.`,
+} as const
+
+export const $OrClause = {
+  properties: {
+    or: {
+      items: {
+        $ref: "#/components/schemas/Filter",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Or",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["or"],
+  title: "OrClause",
+  description: "A disjunction of one or more filters.",
 } as const
 
 export const $OrgCreate = {
@@ -18438,221 +25927,6 @@ export const $OrgDomainUpdate = {
   type: "object",
   title: "OrgDomainUpdate",
   description: "Update organization domain request.",
-} as const
-
-export const $OrgInvitationAccept = {
-  properties: {
-    token: {
-      type: "string",
-      title: "Token",
-    },
-  },
-  type: "object",
-  required: ["token"],
-  title: "OrgInvitationAccept",
-  description:
-    "Request body for accepting an organization invitation via token.",
-} as const
-
-export const $OrgInvitationCreate = {
-  properties: {
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
-    },
-  },
-  type: "object",
-  required: ["email", "role_id"],
-  title: "OrgInvitationCreate",
-  description: "Request body for creating an organization invitation.",
-} as const
-
-export const $OrgInvitationRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-    status: {
-      $ref: "#/components/schemas/InvitationStatus",
-    },
-    invited_by: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Invited By",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    accepted_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Accepted At",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "organization_id",
-    "email",
-    "role_id",
-    "role_name",
-    "status",
-    "invited_by",
-    "expires_at",
-    "created_at",
-    "accepted_at",
-  ],
-  title: "OrgInvitationRead",
-  description: "Response model for organization invitation.",
-} as const
-
-export const $OrgInvitationReadMinimal = {
-  properties: {
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    organization_name: {
-      type: "string",
-      title: "Organization Name",
-    },
-    organization_slug: {
-      type: "string",
-      title: "Organization Slug",
-    },
-    inviter_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Name",
-    },
-    inviter_email: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Email",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-    status: {
-      $ref: "#/components/schemas/InvitationStatus",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-    email_matches: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Email Matches",
-    },
-  },
-  type: "object",
-  required: [
-    "organization_id",
-    "organization_name",
-    "organization_slug",
-    "inviter_name",
-    "inviter_email",
-    "role_name",
-    "status",
-    "expires_at",
-  ],
-  title: "OrgInvitationReadMinimal",
-  description: `Minimal response for public token-based invitation lookup.
-
-Excludes sensitive fields like email, invited_by ID, and timestamps
-to reduce information disclosure when querying by token.`,
 } as const
 
 export const $OrgMemberDetail = {
@@ -18729,6 +26003,23 @@ export const $OrgMemberDetail = {
   description: "Detailed member info for /me and update endpoints.",
 } as const
 
+export const $OrgMemberGroupRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "OrgMemberGroupRead",
+} as const
+
 export const $OrgMemberRead = {
   properties: {
     user_id: {
@@ -18774,6 +26065,34 @@ export const $OrgMemberRead = {
         },
       ],
       title: "Role Slug",
+    },
+    grants: {
+      items: {
+        $ref: "#/components/schemas/InvitationGrant",
+      },
+      type: "array",
+      title: "Grants",
+    },
+    roles: {
+      items: {
+        $ref: "#/components/schemas/OrgMemberRoleRead",
+      },
+      type: "array",
+      title: "Roles",
+    },
+    workspaces: {
+      items: {
+        $ref: "#/components/schemas/OrgMemberWorkspaceRead",
+      },
+      type: "array",
+      title: "Workspaces",
+    },
+    groups: {
+      items: {
+        $ref: "#/components/schemas/OrgMemberGroupRead",
+      },
+      type: "array",
+      title: "Groups",
     },
     status: {
       $ref: "#/components/schemas/OrgMemberStatus",
@@ -18844,82 +26163,44 @@ export const $OrgMemberRead = {
     "Unified member representation — covers active, inactive, and pending (invited) members.",
 } as const
 
+export const $OrgMemberRoleRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "OrgMemberRoleRead",
+} as const
+
 export const $OrgMemberStatus = {
   type: "string",
   enum: ["active", "inactive", "invited"],
   title: "OrgMemberStatus",
 } as const
 
-export const $OrgPendingInvitationRead = {
+export const $OrgMemberWorkspaceRead = {
   properties: {
-    token: {
-      type: "string",
-      title: "Token",
-    },
-    organization_id: {
+    id: {
       type: "string",
       format: "uuid",
-      title: "Organization Id",
+      title: "Id",
     },
-    organization_name: {
+    name: {
       type: "string",
-      title: "Organization Name",
-    },
-    inviter_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Name",
-    },
-    inviter_email: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Email",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
+      title: "Name",
     },
   },
   type: "object",
-  required: [
-    "token",
-    "organization_id",
-    "organization_name",
-    "inviter_name",
-    "inviter_email",
-    "role_name",
-    "expires_at",
-  ],
-  title: "OrgPendingInvitationRead",
-  description: "Pending invitation visible to the invited authenticated user.",
+  required: ["id", "name"],
+  title: "OrgMemberWorkspaceRead",
 } as const
 
 export const $OrgRegistryRepositoryRead = {
@@ -19596,6 +26877,648 @@ export const $OutputType = {
   ],
 } as const
 
+export const $PackageRegistryRequirement = {
+  properties: {
+    origin: {
+      type: "string",
+      minLength: 1,
+      title: "Origin",
+      description: "Registry repository origin.",
+    },
+    version: {
+      type: "string",
+      minLength: 1,
+      title: "Version",
+      description: "Registry version string.",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+      description: "Git commit of the registry version, if any.",
+    },
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+      description: "Fully qualified action names the package uses from it.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["origin", "version"],
+  title: "PackageRegistryRequirement",
+  description:
+    "A custom registry repository version that a package's actions need.",
+} as const
+
+export const $PackageResourceEntry = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Kind of resource.",
+    },
+    source_id: {
+      type: "string",
+      minLength: 1,
+      title: "Source Id",
+      description: "Stable Git source id.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["resource_type", "source_id"],
+  title: "PackageResourceEntry",
+  description: "One resource recorded in a managed resources package manifest.",
+} as const
+
+export const $PackageResourceStatus = {
+  type: "string",
+  enum: ["explicit", "implied", "excluded"],
+} as const
+
+export const $Page_DetachedCopyRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/DetachedCopyRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[DetachedCopyRead]",
+} as const
+
+export const $Page_ExternalGroupMappingRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ExternalGroupMappingRead]",
+} as const
+
+export const $Page_ExternalGroupRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ExternalGroupRead]",
+} as const
+
+export const $Page_GitTagInfo_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/GitTagInfo",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[GitTagInfo]",
+} as const
+
+export const $Page_ManagedReferenceMatchItem_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedReferenceMatchItem",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedReferenceMatchItem]",
+} as const
+
+export const $Page_ManagedResourceRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedResourceRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedResourceRead]",
+} as const
+
+export const $Page_ManagedRolloutRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedRolloutRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedRolloutRead]",
+} as const
+
+export const $Page_ManagedTargetRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedTargetRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedTargetRead]",
+} as const
+
+export const $Page_ManagedWorkspaceRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedWorkspaceRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedWorkspaceRead]",
+} as const
+
+export const $Page_SecretStoreRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[SecretStoreRead]",
+} as const
+
+export const $Page_SyncOperationRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SyncOperationRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[SyncOperationRead]",
+} as const
+
+export const $Page_TunnelRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TunnelRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[TunnelRead]",
+} as const
+
+export const $Page_WorkspaceSecretStoreRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceSecretStoreRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[WorkspaceSecretStoreRead]",
+} as const
+
+export const $ParentChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "parent_changed",
+      title: "Type",
+      default: "parent_changed",
+    },
+    old: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    new: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "ParentChangedEventRead",
+  description:
+    "Event for when a case is grouped under, moved to, or removed from a parent.",
+} as const
+
 export const $PayloadChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -19640,6 +27563,75 @@ export const $PayloadChangedEventRead = {
   required: ["created_at"],
   title: "PayloadChangedEventRead",
   description: "Event for when a case payload is changed.",
+} as const
+
+export const $PendingInvitationRead = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    grants: {
+      items: {
+        $ref: "#/components/schemas/InvitationGrant",
+      },
+      type: "array",
+      title: "Grants",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  required: [
+    "token",
+    "organization_id",
+    "organization_name",
+    "inviter_name",
+    "inviter_email",
+    "grants",
+    "expires_at",
+  ],
+  title: "PendingInvitationRead",
+  description: "Pending invitation visible to the invited authenticated user.",
+} as const
+
+export const $PendingMessageType = {
+  type: "string",
+  enum: ["steer", "message"],
 } as const
 
 export const $PersistedApprovalDecision = {
@@ -19906,12 +27898,6 @@ export const $PlatformMCPCatalogRead = {
       type: "array",
       title: "Connection Options",
     },
-    locked: {
-      type: "boolean",
-      title: "Locked",
-      description:
-        "Whether this platform MCP catalog row is locked by entitlement.",
-    },
     state: {
       type: "string",
       enum: [
@@ -20004,7 +27990,6 @@ export const $PlatformMCPCatalogRead = {
     "docs_url",
     "provider_id",
     "connection_spec",
-    "locked",
     "state",
     "mcp_integration_id",
     "created_at",
@@ -20105,6 +28090,52 @@ export const $PlatformRegistrySettingsUpdate = {
   description: "Update platform registry settings.",
 } as const
 
+export const $PlatformSecuritySettingsRead = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+    },
+    ip_allowlists: {
+      items: {
+        $ref: "#/components/schemas/IPAllowlist",
+      },
+      type: "array",
+      title: "Ip Allowlists",
+    },
+  },
+  type: "object",
+  required: ["ip_allowlist_enabled", "ip_allowlists"],
+  title: "PlatformSecuritySettingsRead",
+  description: "Platform admin IP allowlist settings response.",
+} as const
+
+export const $PlatformSecuritySettingsUpdate = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+      description:
+        "Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.",
+      default: false,
+    },
+    ip_allowlists: {
+      items: {
+        $ref: "#/components/schemas/IPAllowlist",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Ip Allowlists",
+      description: "Named groups of allowed IP addresses or CIDR ranges.",
+    },
+  },
+  type: "object",
+  title: "PlatformSecuritySettingsUpdate",
+  description: `Update the platform admin IP allowlist.
+
+Applies only to the platform admin API, not to organizations.`,
+} as const
+
 export const $Position = {
   properties: {
     x: {
@@ -20120,6 +28151,42 @@ export const $Position = {
   },
   type: "object",
   title: "Position",
+} as const
+
+export const $PresetToolSourceRead = {
+  properties: {
+    tool_id: {
+      type: "string",
+      title: "Tool Id",
+    },
+    skill_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Id",
+    },
+    skill_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Name",
+    },
+  },
+  type: "object",
+  required: ["tool_id"],
+  title: "PresetToolSourceRead",
+  description: "The authored or skill origin of a policy-affected tool.",
 } as const
 
 export const $PriorityChangedEventRead = {
@@ -20223,9 +28290,9 @@ export const $ProviderCredentialField = {
     },
     type: {
       type: "string",
-      enum: ["text", "password"],
+      enum: ["text", "password", "boolean"],
       title: "Type",
-      description: "Input type: 'text' or 'password'",
+      description: "Input type: 'text', 'password', or 'boolean'",
     },
     description: {
       type: "string",
@@ -20239,6 +28306,19 @@ export const $ProviderCredentialField = {
       title: "Required",
       description: "Whether this field is required",
       default: true,
+    },
+    default: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+      description: "Default value pre-filled when no credential is stored yet",
     },
   },
   type: "object",
@@ -20707,6 +28787,20 @@ export const $PullResult = {
       ],
       title: "Resources",
     },
+    library_skill_installs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Library Skill Installs",
+    },
+    skipped_managed: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Skipped Managed",
+    },
     catalog_mapping_requirements: {
       anyOf: [
         {
@@ -20734,6 +28828,20 @@ export const $PullResult = {
         },
       ],
       title: "Mcp Integration Mapping Requirements",
+    },
+    secret_store_mapping_requirements: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/SecretStoreMappingRequirement",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Secret Store Mapping Requirements",
     },
   },
   type: "object",
@@ -20898,16 +29006,33 @@ export const $ReasoningUIPart = {
   description: "A reasoning part of a message.",
 } as const
 
-export const $ReceiveInteractionResponse = {
+export const $RecoveryCodeVerify = {
   properties: {
-    message: {
+    code: {
       type: "string",
-      title: "Message",
+      maxLength: 64,
+      minLength: 1,
+      title: "Code",
     },
   },
   type: "object",
-  required: ["message"],
-  title: "ReceiveInteractionResponse",
+  required: ["code"],
+  title: "RecoveryCodeVerify",
+} as const
+
+export const $RecoveryCodesRead = {
+  properties: {
+    recovery_codes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Recovery Codes",
+    },
+  },
+  type: "object",
+  required: ["recovery_codes"],
+  title: "RecoveryCodesRead",
 } as const
 
 export const $RegistryActionAvailability = {
@@ -21227,6 +29352,13 @@ export const $RegistryActionReadMinimal = {
       $ref: "#/components/schemas/RegistryActionAvailability",
       description: "Availability metadata for this action",
     },
+    requires_approval: {
+      type: "boolean",
+      title: "Requires Approval",
+      description:
+        "Whether the action requires approval by default when used as an agent tool",
+      default: false,
+    },
     action: {
       type: "string",
       title: "Action",
@@ -21366,6 +29498,11 @@ export const $RegistryArtifactsBackfillStartResponse = {
   required: ["workflow_id", "requested_count"],
   title: "RegistryArtifactsBackfillStartResponse",
   description: "Response after scheduling an artifact backfill workflow.",
+} as const
+
+export const $RegistryInstallAction = {
+  type: "string",
+  enum: ["install", "present", "blocked"],
 } as const
 
 export const $RegistryLock = {
@@ -22125,32 +30262,6 @@ export const $ResourceRef = {
     "Reference to a single resource by type and either source or local id.",
 } as const
 
-export const $ResponseInteraction = {
-  properties: {
-    type: {
-      type: "string",
-      const: "response",
-      title: "Type",
-    },
-    timeout: {
-      anyOf: [
-        {
-          type: "number",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout",
-      description: "The timeout for the interaction in seconds.",
-    },
-  },
-  type: "object",
-  required: ["type"],
-  title: "ResponseInteraction",
-  description: "Configuration for a response interaction.",
-} as const
-
 export const $ResultMessage = {
   properties: {
     subtype: {
@@ -22228,7 +30339,9 @@ export const $ResultMessage = {
     model_usage: {
       anyOf: [
         {
-          additionalProperties: true,
+          additionalProperties: {
+            $ref: "#/components/schemas/ModelUsage",
+          },
           type: "object",
         },
         {
@@ -22249,6 +30362,16 @@ export const $ResultMessage = {
       ],
       title: "Permission Denials",
     },
+    deferred_tool_use: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/DeferredToolUse",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     errors: {
       anyOf: [
         {
@@ -22263,6 +30386,17 @@ export const $ResultMessage = {
       ],
       title: "Errors",
     },
+    api_error_status: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Error Status",
+    },
     uuid: {
       anyOf: [
         {
@@ -22273,6 +30407,27 @@ export const $ResultMessage = {
         },
       ],
       title: "Uuid",
+    },
+    terminal_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Terminal Reason",
+    },
+    origin: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MessageOrigin",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
@@ -22291,7 +30446,7 @@ export const $Role = {
   properties: {
     type: {
       type: "string",
-      enum: ["user", "service", "service_account"],
+      enum: ["user", "service", "service_account", "scim"],
       title: "Type",
     },
     workspace_id: {
@@ -22354,6 +30509,18 @@ export const $Role = {
       ],
       title: "Service Account Id",
     },
+    scim_connection_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scim Connection Id",
+    },
     service_id: {
       type: "string",
       enum: [
@@ -22411,6 +30578,37 @@ Service roles
 - Service roles are authenticated via API key.
 - Used for internal services to authenticate with the API.
 - A service's \`user_id\` is the user it's acting on behalf of. This can be None for internal services.`,
+} as const
+
+export const $RoleAssignmentSnapshot = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+  },
+  type: "object",
+  required: ["role_id", "id"],
+  title: "RoleAssignmentSnapshot",
+  description: "Assignment identity and value observed when editing began.",
 } as const
 
 export const $RoleCreate = {
@@ -22610,26 +30808,261 @@ export const $RoleUpdate = {
   description: "Update schema for a role.",
 } as const
 
+export const $RolloutChange = {
+  properties: {
+    change: {
+      $ref: "#/components/schemas/RolloutChangeKind",
+    },
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["change", "resource_type", "source_id", "name"],
+  title: "RolloutChange",
+  description:
+    "One resource a rollout adds, modifies or deletes in the target.",
+} as const
+
+export const $RolloutChangeKind = {
+  type: "string",
+  enum: ["added", "modified", "deleted"],
+} as const
+
+export const $RolloutConflict = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "The name both resources share.",
+    },
+    existing_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Existing Local Id",
+      description: "The customer's resource.",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name", "existing_local_id"],
+  title: "RolloutConflict",
+  description:
+    "An incoming managed resource whose name a customer resource already uses.",
+} as const
+
+export const $RolloutDeleteWarning = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    table_rows: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Rows",
+      description: "Rows in a deleted table.",
+    },
+    cases_using: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cases Using",
+      description:
+        "Cases using a deleted case tag or dropdown. For a deleted case field, the number of cases in the workspace whose value is erased.",
+    },
+    has_customer_values: {
+      type: "boolean",
+      title: "Has Customer Values",
+      description: "A deleted secret or variable holds values.",
+      default: false,
+    },
+    referenced_by: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Referenced By",
+      description: "Customer workflows and presets that mention it by name.",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name"],
+  title: "RolloutDeleteWarning",
+  description: "Customer data a delete destroys, shown before the FDE applies.",
+} as const
+
+export const $RolloutDroppedSkill = {
+  properties: {
+    preset: {
+      type: "string",
+      title: "Preset",
+    },
+    skill: {
+      type: "string",
+      title: "Skill",
+    },
+  },
+  type: "object",
+  required: ["preset", "skill"],
+  title: "RolloutDroppedSkill",
+  description:
+    "A customer skill binding dropped because the package now binds it.",
+} as const
+
+export const $RolloutPreview = {
+  properties: {
+    changes: {
+      items: {
+        $ref: "#/components/schemas/RolloutChange",
+      },
+      type: "array",
+      title: "Changes",
+    },
+    conflicts: {
+      items: {
+        $ref: "#/components/schemas/RolloutConflict",
+      },
+      type: "array",
+      title: "Conflicts",
+    },
+    references: {
+      items: {
+        $ref: "#/components/schemas/RolloutReference",
+      },
+      type: "array",
+      title: "References",
+    },
+    delete_warnings: {
+      items: {
+        $ref: "#/components/schemas/RolloutDeleteWarning",
+      },
+      type: "array",
+      title: "Delete Warnings",
+    },
+    registry: {
+      items: {
+        $ref: "#/components/schemas/RolloutRegistryPlan",
+      },
+      type: "array",
+      title: "Registry",
+    },
+    dropped_customer_skills: {
+      items: {
+        $ref: "#/components/schemas/RolloutDroppedSkill",
+      },
+      type: "array",
+      title: "Dropped Customer Skills",
+    },
+    diagnostics: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+  },
+  type: "object",
+  title: "RolloutPreview",
+  description: "Everything an FDE reviews before applying a tag to one target.",
+} as const
+
+export const $RolloutReference = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/ManagedReferenceKind",
+    },
+    source_key: {
+      type: "string",
+      title: "Source Key",
+      description: "Source catalog id, integration id or store.",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+      description: "What the source calls it.",
+    },
+  },
+  type: "object",
+  required: ["kind", "source_key", "label"],
+  title: "RolloutReference",
+  description:
+    "A model, MCP integration or secret store the target must match.",
+} as const
+
+export const $RolloutRegistryPlan = {
+  properties: {
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    action: {
+      $ref: "#/components/schemas/RegistryInstallAction",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["origin", "version", "action"],
+  title: "RolloutRegistryPlan",
+  description: "What a rollout does with one custom registry repository.",
+} as const
+
 export const $RunActionInput = {
   properties: {
     task: {
-      $ref: "#/components/schemas/ActionStatement",
+      $ref: "#/components/schemas/ActionStatement-Output",
     },
     exec_context: {
       $ref: "#/components/schemas/ExecutionContext",
     },
     run_context: {
       $ref: "#/components/schemas/RunContext",
-    },
-    interaction_context: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/InteractionContext",
-        },
-        {
-          type: "null",
-        },
-      ],
     },
     stream_id: {
       type: "string",
@@ -22745,6 +31178,17 @@ export const $RunContext = {
       format: "date-time",
       title: "Logical Time",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+    },
   },
   type: "object",
   required: ["wf_id", "wf_exec_id", "wf_run_id", "environment", "logical_time"],
@@ -22779,6 +31223,63 @@ export const $RunUsage = {
   type: "object",
   title: "RunUsage",
   description: "LLM usage associated with an agent run.",
+} as const
+
+export const $RuntimeErrorKind = {
+  type: "string",
+  enum: [
+    "action.execution.failed",
+    "tenant.quota.exhausted",
+    "tenant.entitlement.denied",
+    "integration.rate_limited",
+    "registry.sync.validation_failed",
+    "registry.lock.invalid_data",
+    "registry.lock.action_ambiguous",
+    "runtime.unclassified",
+    "storage.materialization.transport_unavailable",
+    "storage.materialization.invalid_data",
+    "storage.persistence.transport_unavailable",
+    "executor.activity.timed_out",
+    "executor.backend.initialization_failed",
+    "executor.registry.lease_contention",
+    "executor.registry.capacity_exhausted",
+    "executor.registry.extraction_failed",
+    "executor.sandbox.infrastructure_failed",
+    "sandbox.resource_limit_exceeded",
+    "workflow.definition.not_found",
+    "workflow.definition.lookup_unavailable",
+    "workflow.definition.invalid",
+    "workflow.definition.invalid_data",
+    "workflow.trigger.input_invalid",
+    "workflow.subflow.input_invalid",
+    "workflow.subflow.preparation_failed",
+    "workflow.bootstrap.invalid_data",
+    "workflow.bootstrap.unavailable",
+    "workflow.expression.invalid",
+    "workflow.loop.limit_exceeded",
+    "workflow.join.unreachable",
+    "workflow.runtime.invariant_violation",
+    "workflow.agent.input_invalid",
+    "workflow.agent.preparation_failed",
+    "agent.configuration.invalid",
+    "agent.preparation.failed",
+    "agent.session.initialization_failed",
+    "agent.llm.gateway_auth_failed",
+    "agent.llm.provider_auth_failed",
+    "agent.llm.budget_exceeded",
+    "agent.llm.rate_limited",
+    "agent.llm.read_timeout",
+    "agent.llm.stream_interrupted",
+    "agent.mcp.auth_failed",
+    "agent.mcp.unavailable",
+    "agent.execution.failed",
+    "agent.executor.unclassified",
+    "agent.executor.timed_out",
+    "agent.executor.protocol_failed",
+    "agent.workflow.internal_error",
+  ],
+  title: "RuntimeErrorKind",
+  description: "Stable machine-readable product failure identities.",
 } as const
 
 export const $SAMLDatabaseLoginResponse = {
@@ -23294,9 +31795,864 @@ export const $ScheduleUpdate = {
       ],
       title: "Status",
     },
+    timeout: {
+      anyOf: [
+        {
+          type: "number",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout",
+      description:
+        "The maximum number of seconds to wait for the workflow to complete",
+    },
   },
   type: "object",
   title: "ScheduleUpdate",
+} as const
+
+export const $ScimActivationRequest = {
+  properties: {
+    mappings: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingCreate",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Mappings",
+    },
+  },
+  type: "object",
+  title: "ScimActivationRequest",
+  description: "Mappings to install as the connection is activated.",
+} as const
+
+export const $ScimActivationReviewRead = {
+  properties: {
+    joining: {
+      $ref: "#/components/schemas/ScimReviewPeople",
+    },
+    leaving: {
+      $ref: "#/components/schemas/ScimReviewPeople",
+    },
+    losing: {
+      $ref: "#/components/schemas/ScimReviewPeople",
+    },
+    to_idp: {
+      $ref: "#/components/schemas/ScimReviewPeople",
+    },
+    to_manual: {
+      $ref: "#/components/schemas/ScimReviewPeople",
+    },
+    groups: {
+      items: {
+        $ref: "#/components/schemas/ScimGroupTransitionRead",
+      },
+      type: "array",
+      title: "Groups",
+    },
+  },
+  type: "object",
+  required: ["joining", "leaving", "losing", "to_idp", "to_manual", "groups"],
+  title: "ScimActivationReviewRead",
+  description:
+    "Who a proposed activation or mapping change affects, by outcome.",
+} as const
+
+export const $ScimConnectionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    status: {
+      $ref: "#/components/schemas/ScimConnectionStatus",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "preview",
+    "status",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ScimConnectionRead",
+  description:
+    "Status of an organization's SCIM connection. Never carries the token.",
+} as const
+
+export const $ScimConnectionStatus = {
+  type: "string",
+  enum: ["pending", "active", "disabled"],
+  title: "ScimConnectionStatus",
+  description: "Whether the provider's pushes admit users yet.",
+} as const
+
+export const $ScimConnectionTokenRead = {
+  properties: {
+    connection: {
+      $ref: "#/components/schemas/ScimConnectionRead",
+    },
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["connection", "token"],
+  title: "ScimConnectionTokenRead",
+  description:
+    "A freshly issued token. The raw value is returned exactly once.",
+} as const
+
+export const $ScimDirectoryGroupCounts = {
+  properties: {
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+    unmapped: {
+      type: "integer",
+      title: "Unmapped",
+    },
+  },
+  type: "object",
+  required: ["total", "unmapped"],
+  title: "ScimDirectoryGroupCounts",
+  description: "Synced groups, and how many no mapping reads.",
+} as const
+
+export const $ScimDirectorySummaryRead = {
+  properties: {
+    users: {
+      $ref: "#/components/schemas/ScimDirectoryUserCounts",
+    },
+    groups: {
+      $ref: "#/components/schemas/ScimDirectoryGroupCounts",
+    },
+  },
+  type: "object",
+  required: ["users", "groups"],
+  title: "ScimDirectorySummaryRead",
+  description: "What the provider has pushed into this organization.",
+} as const
+
+export const $ScimDirectoryUserCounts = {
+  properties: {
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+    active: {
+      type: "integer",
+      title: "Active",
+    },
+    inactive: {
+      type: "integer",
+      title: "Inactive",
+    },
+  },
+  type: "object",
+  required: ["total", "active", "inactive"],
+  title: "ScimDirectoryUserCounts",
+  description: "Pushed users, split by the provider's active flag.",
+} as const
+
+export const $ScimEmail = {
+  properties: {
+    value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Value",
+    },
+    primary: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Primary",
+    },
+    type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Type",
+    },
+  },
+  type: "object",
+  title: "ScimEmail",
+  description: "One entry of a user's multi-valued email attribute.",
+} as const
+
+export const $ScimGroupMemberRef = {
+  properties: {
+    value: {
+      type: "string",
+      title: "Value",
+    },
+    display: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display",
+    },
+  },
+  type: "object",
+  required: ["value"],
+  title: "ScimGroupMemberRef",
+  description: "A member reference inside a Group resource.",
+} as const
+
+export const $ScimGroupRequest = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    displayName: {
+      type: "string",
+      maxLength: 255,
+      title: "Displayname",
+    },
+    externalId: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Externalid",
+    },
+    members: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ScimGroupMemberRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Members",
+    },
+  },
+  type: "object",
+  required: ["displayName"],
+  title: "ScimGroupRequest",
+  description: "An inbound Group resource on POST or PUT.",
+} as const
+
+export const $ScimGroupResource = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    displayName: {
+      type: "string",
+      title: "Displayname",
+    },
+    externalId: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Externalid",
+    },
+    members: {
+      items: {
+        $ref: "#/components/schemas/ScimGroupMemberRef",
+      },
+      type: "array",
+      title: "Members",
+    },
+    meta: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ScimMeta",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "displayName"],
+  title: "ScimGroupResource",
+  description: "A Group resource as returned to the provider.",
+} as const
+
+export const $ScimGroupTransitionRead = {
+  properties: {
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+    added_sources: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Added Sources",
+    },
+    removed_sources: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Removed Sources",
+    },
+    gained: {
+      type: "integer",
+      title: "Gained",
+    },
+    lost: {
+      type: "integer",
+      title: "Lost",
+    },
+    takes_over: {
+      type: "boolean",
+      title: "Takes Over",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "group_id",
+    "group_name",
+    "added_sources",
+    "removed_sources",
+    "gained",
+    "lost",
+  ],
+  title: "ScimGroupTransitionRead",
+  description:
+    "The combined effect of every proposed change on one Tracecat group.",
+} as const
+
+export const $ScimListResponse = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    totalResults: {
+      type: "integer",
+      title: "Totalresults",
+    },
+    startIndex: {
+      type: "integer",
+      title: "Startindex",
+    },
+    itemsPerPage: {
+      type: "integer",
+      title: "Itemsperpage",
+    },
+    Resources: {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+      title: "Resources",
+    },
+  },
+  type: "object",
+  required: ["totalResults", "startIndex", "itemsPerPage"],
+  title: "ScimListResponse",
+  description: "The envelope every SCIM query returns, paginated 1-based.",
+} as const
+
+export const $ScimMappingChangesRequest = {
+  properties: {
+    create: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingCreate",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Create",
+    },
+    delete: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Delete",
+    },
+  },
+  type: "object",
+  title: "ScimMappingChangesRequest",
+  description: "Mapping removals and additions to apply in one transaction.",
+} as const
+
+export const $ScimMeta = {
+  properties: {
+    resourceType: {
+      type: "string",
+      title: "Resourcetype",
+    },
+    created: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created",
+    },
+    lastModified: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Lastmodified",
+    },
+    location: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Location",
+    },
+  },
+  type: "object",
+  required: ["resourceType"],
+  title: "ScimMeta",
+  description: "Resource metadata. Only the fields Okta reads are emitted.",
+} as const
+
+export const $ScimName = {
+  properties: {
+    givenName: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Givenname",
+    },
+    familyName: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Familyname",
+    },
+    formatted: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Formatted",
+    },
+  },
+  type: "object",
+  title: "ScimName",
+  description: "A user's name components as pushed by the provider.",
+} as const
+
+export const $ScimPatchOp = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    Operations: {
+      items: {
+        $ref: "#/components/schemas/ScimPatchOperation",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Operations",
+    },
+  },
+  type: "object",
+  required: ["Operations"],
+  title: "ScimPatchOp",
+  description: "A PATCH request body.",
+} as const
+
+export const $ScimPatchOperation = {
+  properties: {
+    op: {
+      type: "string",
+      enum: ["add", "remove", "replace"],
+      title: "Op",
+    },
+    path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Path",
+    },
+    value: {
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: ["op"],
+  title: "ScimPatchOperation",
+  description: `One entry of a PatchOp \`\`Operations\`\` array.
+
+\`\`op\`\` is case-insensitive per RFC 7644; Azure sends \`\`Add\`\` where Okta
+sends \`\`add\`\`.`,
+} as const
+
+export const $ScimReviewPeople = {
+  properties: {
+    count: {
+      type: "integer",
+      title: "Count",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/ScimReviewPerson",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  required: ["count", "items"],
+  title: "ScimReviewPeople",
+  description:
+    "A counted list of people; ``items`` is a preview unless ``full`` was asked.",
+} as const
+
+export const $ScimReviewPerson = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    groups: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Groups",
+    },
+  },
+  type: "object",
+  required: ["user_id", "email"],
+  title: "ScimReviewPerson",
+  description:
+    "One person a review lists, with the Tracecat groups the change touches.",
+} as const
+
+export const $ScimReviewRequest = {
+  properties: {
+    mappings: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupMappingCreate",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Mappings",
+    },
+    delete: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Delete",
+    },
+    full: {
+      type: "boolean",
+      title: "Full",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "ScimReviewRequest",
+  description:
+    "Mapping additions and removals to preview without applying them.",
+} as const
+
+export const $ScimUserRequest = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    userName: {
+      type: "string",
+      maxLength: 320,
+      title: "Username",
+    },
+    externalId: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Externalid",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+      default: true,
+    },
+    name: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ScimName",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    displayName: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Displayname",
+    },
+    emails: {
+      items: {
+        $ref: "#/components/schemas/ScimEmail",
+      },
+      type: "array",
+      title: "Emails",
+    },
+  },
+  type: "object",
+  required: ["userName"],
+  title: "ScimUserRequest",
+  description: `An inbound User resource on POST or PUT.
+
+\`\`userName\`\` is the only attribute Tracecat stores as identity; the display
+and name attributes are accepted so providers do not see a validation
+failure, but nothing here maps onto a Tracecat column.`,
+} as const
+
+export const $ScimUserResource = {
+  properties: {
+    schemas: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Schemas",
+    },
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    userName: {
+      type: "string",
+      title: "Username",
+    },
+    externalId: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Externalid",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+      default: true,
+    },
+    name: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ScimName",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    displayName: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Displayname",
+    },
+    emails: {
+      items: {
+        $ref: "#/components/schemas/ScimEmail",
+      },
+      type: "array",
+      title: "Emails",
+    },
+    meta: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ScimMeta",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "userName"],
+  title: "ScimUserResource",
+  description: "A User resource as returned to the provider.",
 } as const
 
 export const $ScopeCreate = {
@@ -23327,6 +32683,51 @@ export const $ScopeCreate = {
   required: ["name"],
   title: "ScopeCreate",
   description: "Create schema for a custom scope.",
+} as const
+
+export const $ScopeDeniedErrorDetail = {
+  properties: {
+    code: {
+      type: "string",
+      const: "insufficient_scope",
+      title: "Code",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    required_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Required Scopes",
+    },
+    missing_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Scopes",
+    },
+  },
+  type: "object",
+  required: ["code", "message", "required_scopes", "missing_scopes"],
+  title: "ScopeDeniedErrorDetail",
+  description: "Structured explanation of an authorization scope denial.",
+} as const
+
+export const $ScopeDeniedResponse = {
+  properties: {
+    error: {
+      $ref: "#/components/schemas/ScopeDeniedErrorDetail",
+    },
+  },
+  type: "object",
+  required: ["error"],
+  title: "ScopeDeniedResponse",
+  description:
+    "HTTP 403 response emitted by the scope-denial exception handler.",
 } as const
 
 export const $ScopeList = {
@@ -23435,6 +32836,94 @@ export const $ScopeSource = {
   enum: ["platform", "custom"],
   title: "ScopeSource",
   description: "Source/ownership of a scope definition.",
+} as const
+
+export const $SearchErrorCode = {
+  type: "string",
+  enum: [
+    "NOT_FOUND",
+    "INDEX_NOT_READY",
+    "STALE_CLAIM",
+    "MANIFEST_CONFLICT",
+    "INVALID_VECTOR",
+    "CONFIGURATION_CHANGED",
+    "PROVIDER_UNAVAILABLE",
+    "INVALID_CURSOR",
+    "INVALID_TABLE_NAME",
+  ],
+  title: "SearchErrorCode",
+  description:
+    "Stable error codes safe to expose without source text or credentials.",
+} as const
+
+export const $SearchIndexStatus = {
+  properties: {
+    state: {
+      $ref: "#/components/schemas/SearchState",
+    },
+    pending: {
+      type: "integer",
+      minimum: 0,
+      title: "Pending",
+      default: 0,
+    },
+    failed: {
+      type: "integer",
+      minimum: 0,
+      title: "Failed",
+      default: 0,
+    },
+    empty: {
+      type: "integer",
+      minimum: 0,
+      title: "Empty",
+      default: 0,
+    },
+    ready: {
+      type: "integer",
+      minimum: 0,
+      title: "Ready",
+      default: 0,
+    },
+    backfill_complete: {
+      type: "boolean",
+      title: "Backfill Complete",
+      default: false,
+    },
+    partial: {
+      type: "boolean",
+      title: "Partial",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["state"],
+  title: "SearchIndexStatus",
+  description: `Index availability and document counts for a collection.
+
+Attributes:
+    state: Effective workspace or collection search state.
+    pending: Documents awaiting work for the current index configuration.
+    failed: Documents that failed in the current index generation.
+    empty: Current documents that contain no searchable chunks.
+    ready: Current documents whose complete embeddings are published.
+    backfill_complete: Whether all source rows have been enumerated.
+    partial: Whether the index is unavailable or results may be incomplete.`,
+} as const
+
+export const $SearchMode = {
+  type: "string",
+  enum: ["full_text", "literal"],
+  title: "SearchMode",
+  description:
+    "Explicit lexical modes; omitted table mode remains a legacy policy.",
+} as const
+
+export const $SearchState = {
+  type: "string",
+  enum: ["disabled", "active", "paused", "reindex_required"],
+  title: "SearchState",
+  description: "Workspace availability states controlling search and indexing.",
 } as const
 
 export const $SecretArtifact = {
@@ -23674,6 +33163,43 @@ export const $SecretRead = {
       format: "uuid",
       title: "Workspace Id",
     },
+    source: {
+      $ref: "#/components/schemas/SecretSource",
+      default: "local",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
+    remote_key_mapping: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretKeyMapping",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -23731,10 +33257,585 @@ export const $SecretReadMinimal = {
       title: "Is Corrupted",
       default: false,
     },
+    source: {
+      $ref: "#/components/schemas/SecretSource",
+      default: "local",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    store_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Name",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
   },
   type: "object",
   required: ["id", "type", "name", "keys", "environment"],
   title: "SecretReadMinimal",
+} as const
+
+export const $SecretReferenceCheckResult = {
+  properties: {
+    ok: {
+      type: "boolean",
+      title: "Ok",
+    },
+    error_code: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretResolutionErrorCode",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message",
+    },
+    resolved_keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Resolved Keys",
+    },
+  },
+  type: "object",
+  required: ["ok"],
+  title: "SecretReferenceCheckResult",
+  description: "Outcome of a reference check. Never contains the remote value.",
+} as const
+
+export const $SecretSource = {
+  type: "string",
+  enum: ["local", "aws_secrets_manager"],
+  title: "SecretSource",
+  description: "Where a workspace secret's values live.",
+} as const
+
+export const $SecretStoreAuthorizationCreate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "SecretStoreAuthorizationCreate",
+  description: "Authorize a workspace to reference a store.",
+} as const
+
+export const $SecretStoreAuthorizationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "store_id", "workspace_id", "created_at"],
+  title: "SecretStoreAuthorizationRead",
+} as const
+
+export const $SecretStoreCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+      default: "aws_secrets_manager",
+    },
+    config: {
+      $ref: "#/components/schemas/AwsSecretsManagerStoreCreate",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+      description: "Allow all current and future workspaces.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["name", "config"],
+  title: "SecretStoreCreate",
+  description: "Create an organization-owned external secret store.",
+} as const
+
+export const $SecretStoreErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/SecretStoreRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "SecretStoreErrorResponse",
+  description:
+    "Invalid store configuration, or enabling a store before setup finishes.",
+} as const
+
+export const $SecretStoreMappingAffectedSecret = {
+  properties: {
+    secret_name: {
+      type: "string",
+      title: "Secret Name",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["secret_name", "environment", "path"],
+  title: "SecretStoreMappingAffectedSecret",
+} as const
+
+export const $SecretStoreMappingCandidate = {
+  properties: {
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    region: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Region",
+    },
+  },
+  type: "object",
+  required: ["store_id", "name", "region"],
+  title: "SecretStoreMappingCandidate",
+} as const
+
+export const $SecretStoreMappingRequirement = {
+  properties: {
+    source_store: {
+      type: "string",
+      title: "Source Store",
+    },
+    reason: {
+      $ref: "#/components/schemas/SecretStoreMappingRequirementReason",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    candidates: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreMappingCandidate",
+      },
+      type: "array",
+      title: "Candidates",
+    },
+    affected_secrets: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreMappingAffectedSecret",
+      },
+      type: "array",
+      title: "Affected Secrets",
+    },
+  },
+  type: "object",
+  required: [
+    "source_store",
+    "reason",
+    "message",
+    "candidates",
+    "affected_secrets",
+  ],
+  title: "SecretStoreMappingRequirement",
+} as const
+
+export const $SecretStoreMappingRequirementReason = {
+  type: "string",
+  enum: ["unresolved", "invalid_selection"],
+} as const
+
+export const $SecretStoreMappingSelection = {
+  properties: {
+    source_store: {
+      type: "string",
+      minLength: 1,
+      title: "Source Store",
+    },
+    target_store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Store Id",
+    },
+  },
+  type: "object",
+  required: ["source_store", "target_store_id"],
+  title: "SecretStoreMappingSelection",
+  description:
+    "User-selected store for one store name; null leaves its secrets unlinked.",
+} as const
+
+export const $SecretStoreProvider = {
+  type: "string",
+  enum: ["aws_secrets_manager"],
+  title: "SecretStoreProvider",
+  description: "Supported external secret store providers.",
+} as const
+
+export const $SecretStoreRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+    },
+    config: {
+      $ref: "#/components/schemas/AwsSecretsManagerStoreConfig",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+    },
+    tracecat_aws_account_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tracecat Aws Account Id",
+    },
+    tracecat_aws_principal_arn: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tracecat Aws Principal Arn",
+    },
+    aws_partition: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Aws Partition",
+      description: "AWS partition of the store region, when botocore knows it.",
+    },
+    authorized_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Authorized Workspace Ids",
+    },
+    reference_count: {
+      type: "integer",
+      title: "Reference Count",
+      default: 0,
+    },
+    workspace_usage: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreWorkspaceUsage",
+      },
+      type: "array",
+      title: "Workspace Usage",
+      description: "Referencing secret counts per workspace, most used first.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "name",
+    "provider",
+    "config",
+    "enabled",
+    "all_workspaces",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SecretStoreRead",
+  description:
+    "Organization view of a secret store, including trust-policy inputs.",
+} as const
+
+export const $SecretStoreRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    input: {
+      $ref: "#/components/schemas/JsonValue",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "SecretStoreRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the shared 422 response.",
+} as const
+
+export const $SecretStoreUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretsManagerStoreUpdate",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enabled",
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+      description: "Allow all current and future workspaces.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "SecretStoreUpdate",
+  description:
+    "Update an organization-owned secret store. Server-owned fields are immutable.",
+} as const
+
+export const $SecretStoreWorkspaceUsage = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    secret_count: {
+      type: "integer",
+      title: "Secret Count",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "secret_count"],
+  title: "SecretStoreWorkspaceUsage",
+  description: "Number of secrets in one workspace that reference a store.",
 } as const
 
 export const $SecretType = {
@@ -23773,7 +33874,7 @@ export const $SecretUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 1000,
+          maxLength: 255,
           minLength: 0,
         },
         {
@@ -23904,6 +34005,50 @@ export const $SecretValidationResult = {
   description: "Result of validating credentials.",
 } as const
 
+export const $SecuritySettingsRead = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+    },
+    ip_allowlists: {
+      items: {
+        $ref: "#/components/schemas/IPAllowlist",
+      },
+      type: "array",
+      title: "Ip Allowlists",
+    },
+  },
+  type: "object",
+  required: ["ip_allowlist_enabled", "ip_allowlists"],
+  title: "SecuritySettingsRead",
+  description: "Organization security settings.",
+} as const
+
+export const $SecuritySettingsUpdate = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+      description:
+        "Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.",
+      default: false,
+    },
+    ip_allowlists: {
+      items: {
+        $ref: "#/components/schemas/IPAllowlist",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Ip Allowlists",
+      description: "Named groups of allowed IP addresses or CIDR ranges.",
+    },
+  },
+  type: "object",
+  title: "SecuritySettingsUpdate",
+  description: "Organization security settings.",
+} as const
+
 export const $Select = {
   properties: {
     component_id: {
@@ -23934,6 +34079,54 @@ export const $Select = {
   },
   type: "object",
   title: "Select",
+} as const
+
+export const $ServerToolResultBlock = {
+  properties: {
+    tool_use_id: {
+      type: "string",
+      title: "Tool Use Id",
+    },
+    content: {
+      additionalProperties: true,
+      type: "object",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["tool_use_id", "content"],
+  title: "ServerToolResultBlock",
+} as const
+
+export const $ServerToolUseBlock = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      enum: [
+        "advisor",
+        "web_search",
+        "web_fetch",
+        "code_execution",
+        "bash_code_execution",
+        "text_editor_code_execution",
+        "tool_search_tool_regex",
+        "tool_search_tool_bm25",
+      ],
+      title: "Name",
+    },
+    input: {
+      additionalProperties: true,
+      type: "object",
+      title: "Input",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "input"],
+  title: "ServerToolUseBlock",
 } as const
 
 export const $ServiceAccountApiKeyCounts = {
@@ -24348,6 +34541,17 @@ export const $ServiceAccountUpdate = {
   title: "ServiceAccountUpdate",
 } as const
 
+export const $SessionMfaState = {
+  type: "string",
+  enum: [
+    "not_required",
+    "verified",
+    "challenge_required",
+    "enrollment_required",
+  ],
+  title: "SessionMfaState",
+} as const
+
 export const $SessionRead = {
   properties: {
     id: {
@@ -24369,6 +34573,40 @@ export const $SessionRead = {
       type: "string",
       format: "email",
       title: "User Email",
+    },
+    ip_address: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ip Address",
+    },
+    user_agent: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Agent",
+    },
+    last_seen_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Seen At",
     },
   },
   type: "object",
@@ -24480,6 +34718,96 @@ export const $SkillCreate = {
   required: ["name"],
   title: "SkillCreate",
   description: "Payload for creating a new logical skill.",
+} as const
+
+export const $SkillDirectoryItem = {
+  properties: {
+    type: {
+      type: "string",
+      const: "skill",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "type",
+    "id",
+    "name",
+    "slug",
+    "description",
+    "current_version_id",
+    "folder_id",
+    "tags",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SkillDirectoryItem",
+  description: "Skill as a directory item.",
 } as const
 
 export const $SkillDraftAttachUploadedBlobOp = {
@@ -24782,6 +35110,180 @@ export const $SkillFileEntry = {
     "Manifest entry for a skill file (used in both drafts and versions).",
 } as const
 
+export const $SkillFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "SkillFolderCreate",
+} as const
+
+export const $SkillFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "SkillFolderDelete",
+} as const
+
+export const $SkillFolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "SkillFolderDirectoryItem",
+} as const
+
+export const $SkillFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "SkillFolderMove",
+} as const
+
+export const $SkillFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
+  title: "SkillFolderRead",
+} as const
+
+export const $SkillFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "SkillFolderUpdate",
+} as const
+
+export const $SkillMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "SkillMoveToFolder",
+  description: "Payload for moving a skill into a folder.",
+} as const
+
 export const $SkillRead = {
   properties: {
     id: {
@@ -24793,6 +35295,12 @@ export const $SkillRead = {
       type: "string",
       format: "uuid",
       title: "Workspace Id",
+    },
+    origin: {
+      type: "string",
+      const: "workspace",
+      title: "Origin",
+      default: "workspace",
     },
     name: {
       type: "string",
@@ -24824,6 +35332,25 @@ export const $SkillRead = {
         },
       ],
       title: "Current Version Id",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
     },
     draft_revision: {
       type: "integer",
@@ -24905,6 +35432,12 @@ export const $SkillReadMinimal = {
       format: "uuid",
       title: "Workspace Id",
     },
+    origin: {
+      type: "string",
+      const: "workspace",
+      title: "Origin",
+      default: "workspace",
+    },
     name: {
       type: "string",
       title: "Name",
@@ -24935,6 +35468,25 @@ export const $SkillReadMinimal = {
         },
       ],
       title: "Current Version Id",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
     },
     created_at: {
       type: "string",
@@ -24967,6 +35519,53 @@ export const $SkillReadMinimal = {
 \`\`slug\`\` is the late-binding handle every skill API accepts; list
 responses must expose it so callers never have to guess it from \`\`name\`\`
 (names are not unique — slugs are, per live row).`,
+} as const
+
+export const $SkillTagCreate = {
+  properties: {
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+  },
+  type: "object",
+  required: ["tag_id"],
+  title: "SkillTagCreate",
+  description: "Payload for adding a tag to a skill.",
+} as const
+
+export const $SkillTagRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    color: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Color",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "ref", "color"],
+  title: "SkillTagRead",
+  description: "Tag data.",
 } as const
 
 export const $SkillUpload = {
@@ -25628,6 +36227,404 @@ export const $StringListFieldChange = {
   description: "List diff for preset version fields.",
 } as const
 
+export const $SubCasesAddedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "sub_cases_added",
+      title: "Type",
+      default: "sub_cases_added",
+    },
+    sub_cases: {
+      items: {
+        $ref: "#/components/schemas/CaseRef",
+      },
+      type: "array",
+      title: "Sub Cases",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["sub_cases", "created_at"],
+  title: "SubCasesAddedEventRead",
+  description: "Event for when cases are grouped under this case as sub-cases.",
+} as const
+
+export const $SubCasesRemovedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "sub_cases_removed",
+      title: "Type",
+      default: "sub_cases_removed",
+    },
+    sub_cases: {
+      items: {
+        $ref: "#/components/schemas/CaseRef",
+      },
+      type: "array",
+      title: "Sub Cases",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["sub_cases", "created_at"],
+  title: "SubCasesRemovedEventRead",
+  description: "Event for when sub-cases are removed from this case.",
+} as const
+
+export const $SyncDiffPage = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/PullResourceDiff",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "SyncDiffPage",
+  description:
+    "A stable page of diff metadata; file text is fetched separately.",
+} as const
+
+export const $SyncDirection = {
+  type: "string",
+  enum: ["push", "pull"],
+} as const
+
+export const $SyncOperationCommand = {
+  properties: {
+    command_id: {
+      type: "string",
+      format: "uuid",
+      title: "Command Id",
+    },
+    preview_revision: {
+      type: "integer",
+      minimum: 0,
+      title: "Preview Revision",
+    },
+    state_revision: {
+      type: "integer",
+      minimum: 0,
+      title: "State Revision",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["command_id", "preview_revision", "state_revision"],
+  title: "SyncOperationCommand",
+  description:
+    "Repeat the same command ID and reviewed revisions after a lost response.",
+} as const
+
+export const $SyncOperationCreate_Input = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    push: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportRequest-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    pull: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSyncPullRequest",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    compare_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Ref",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "direction"],
+  title: "SyncOperationCreate",
+  description:
+    "Start a preview; reuse the client-generated ID after a lost response.",
+} as const
+
+export const $SyncOperationCreate_Output = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    push: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportRequest-Output",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    pull: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSyncPullRequest",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    compare_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Ref",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "direction"],
+  title: "SyncOperationCreate",
+  description:
+    "Start a preview; reuse the client-generated ID after a lost response.",
+} as const
+
+export const $SyncOperationError = {
+  properties: {
+    detail: {
+      type: "string",
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "SyncOperationError",
+  description: "Expected operation conflict and diff lookup failures.",
+} as const
+
+export const $SyncOperationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    status: {
+      $ref: "#/components/schemas/SyncStatus",
+    },
+    stage: {
+      $ref: "#/components/schemas/SyncStage",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    preview: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportPreview",
+        },
+        {
+          $ref: "#/components/schemas/PullResult",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preview",
+    },
+    result: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SyncPushResult",
+        },
+        {
+          $ref: "#/components/schemas/PullResult",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Result",
+    },
+    diff_count: {
+      type: "integer",
+      title: "Diff Count",
+      default: 0,
+    },
+    can_retry: {
+      type: "boolean",
+      title: "Can Retry",
+      default: false,
+    },
+    data_applied: {
+      type: "boolean",
+      title: "Data Applied",
+      default: false,
+    },
+    inputs: {
+      $ref: "#/components/schemas/SyncOperationCreate-Output",
+    },
+    preview_revision: {
+      type: "integer",
+      title: "Preview Revision",
+      default: 0,
+    },
+    state_revision: {
+      type: "integer",
+      title: "State Revision",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "direction",
+    "status",
+    "stage",
+    "created_at",
+    "expires_at",
+    "inputs",
+  ],
+  title: "SyncOperationRead",
+  description:
+    "Small polling response, independent of the number of synced files.",
+} as const
+
 export const $SyncPreviewResource = {
   properties: {
     resource_type: {
@@ -25652,6 +36649,19 @@ export const $SyncPreviewResource = {
   title: "SyncPreviewResource",
 } as const
 
+export const $SyncPushResult = {
+  properties: {
+    commit: {
+      $ref: "#/components/schemas/CommitInfo",
+    },
+  },
+  type: "object",
+  required: ["commit"],
+  title: "SyncPushResult",
+  description:
+    "Compact durable push receipt; file details stay in paginated artifacts.",
+} as const
+
 export const $SyncResourceType = {
   type: "string",
   enum: [
@@ -25671,6 +36681,31 @@ export const $SyncResourceType = {
 
 Every member is adapter-backed: it can be projected to and imported from
 repository files.`,
+} as const
+
+export const $SyncStage = {
+  type: "string",
+  enum: [
+    "fetching",
+    "preparing",
+    "awaiting_confirmation",
+    "applying",
+    "finishing",
+    "finished",
+  ],
+} as const
+
+export const $SyncStatus = {
+  type: "string",
+  enum: [
+    "queued",
+    "running",
+    "ready",
+    "applying",
+    "completed",
+    "failed",
+    "expired",
+  ],
 } as const
 
 export const $SyntaxToken = {
@@ -25787,6 +36822,12 @@ export const $TableColumnCreate = {
         },
       ],
       title: "Default",
+    },
+    is_index: {
+      type: "boolean",
+      title: "Is Index",
+      description: "Whether to create a unique index on the column",
+      default: false,
     },
     options: {
       anyOf: [
@@ -26344,6 +37385,332 @@ export const $TableRowUpdate = {
   description: "Update model for a table row.",
 } as const
 
+export const $TableSearchConfiguration = {
+  properties: {
+    generation: {
+      type: "integer",
+      minimum: 0,
+      title: "Generation",
+      default: 0,
+    },
+    selected_column_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Selected Column Ids",
+    },
+    status: {
+      $ref: "#/components/schemas/TableSearchDisplayState",
+      default: "disabled",
+    },
+    index: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchIndexStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "TableSearchConfiguration",
+  description:
+    "Persisted selection with truthful readiness; never includes credentials.",
+} as const
+
+export const $TableSearchDisplayState = {
+  type: "string",
+  enum: [
+    "disabled",
+    "unavailable",
+    "indexing",
+    "ready",
+    "updating",
+    "needs_attention",
+  ],
+  title: "TableSearchDisplayState",
+} as const
+
+export const $TableSearchDocumentProgress = {
+  properties: {
+    document_id: {
+      type: "string",
+      format: "uuid",
+      title: "Document Id",
+    },
+    row_id: {
+      type: "string",
+      format: "uuid",
+      title: "Row Id",
+    },
+    state: {
+      $ref: "#/components/schemas/DocumentState",
+    },
+    revision: {
+      type: "integer",
+      title: "Revision",
+    },
+    expected_chunks: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expected Chunks",
+    },
+    sampled_chunks: {
+      type: "integer",
+      title: "Sampled Chunks",
+    },
+    sampled_embedded: {
+      type: "integer",
+      title: "Sampled Embedded",
+    },
+    chunks_capped: {
+      type: "boolean",
+      title: "Chunks Capped",
+    },
+    error_code: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Code",
+    },
+  },
+  type: "object",
+  required: [
+    "document_id",
+    "row_id",
+    "state",
+    "revision",
+    "expected_chunks",
+    "sampled_chunks",
+    "sampled_embedded",
+    "chunks_capped",
+    "error_code",
+  ],
+  title: "TableSearchDocumentProgress",
+  description:
+    "Bounded progress sample; chunk totals remain unknown until enumeration ends.",
+} as const
+
+export const $TableSearchErrorRead = {
+  properties: {
+    code: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchErrorCode",
+        },
+        {
+          type: "string",
+          const: "INVALID_SELECTION",
+        },
+      ],
+      title: "Code",
+    },
+  },
+  type: "object",
+  required: ["code"],
+  title: "TableSearchErrorRead",
+  description:
+    "Safe domain failure, including a stale generation precondition.",
+} as const
+
+export const $TableSearchErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/TableSearchErrorRead",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "TableSearchErrorResponse",
+} as const
+
+export const $TableSearchProgressPage = {
+  properties: {
+    generation: {
+      type: "integer",
+      title: "Generation",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/TableSearchDocumentProgress",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["generation", "items"],
+  title: "TableSearchProgressPage",
+} as const
+
+export const $TableSearchRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    input: {
+      $ref: "#/components/schemas/JsonValue",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "TableSearchRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the selection endpoint.",
+} as const
+
+export const $TableSearchRetry = {
+  properties: {
+    expected_generation: {
+      type: "integer",
+      minimum: 1,
+      title: "Expected Generation",
+    },
+    document_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Document Ids",
+    },
+  },
+  type: "object",
+  required: ["expected_generation", "document_ids"],
+  title: "TableSearchRetry",
+  description:
+    "Retry a bounded explicit set of failed documents in the current generation.",
+} as const
+
+export const $TableSearchSelection = {
+  properties: {
+    column_id: {
+      type: "string",
+      format: "uuid",
+      title: "Column Id",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    expected_generation: {
+      type: "integer",
+      minimum: 0,
+      title: "Expected Generation",
+    },
+  },
+  type: "object",
+  required: ["column_id", "enabled", "expected_generation"],
+  title: "TableSearchSelection",
+  description:
+    "Set one selection; generation zero denotes an absent collection.",
+} as const
+
+export const $TableSearchSelectionErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TableSearchErrorRead",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/TableSearchRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "TableSearchSelectionErrorResponse",
+  description: "Invalid column selection or malformed request parameters.",
+} as const
+
 export const $TableUpdate = {
   properties: {
     name: {
@@ -26899,37 +38266,6 @@ export const $TaskResult = {
         },
       ],
       title: "Error Typename",
-    },
-    interaction: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-    },
-    interaction_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction Id",
-    },
-    interaction_type: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction Type",
     },
     collection_index: {
       anyOf: [
@@ -27943,6 +39279,41 @@ export const $ToolResultBlock = {
   title: "ToolResultBlock",
 } as const
 
+export const $ToolTunnelFieldChange = {
+  properties: {
+    tool: {
+      type: "string",
+      title: "Tool",
+    },
+    old_value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old Value",
+    },
+    new_value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Value",
+    },
+  },
+  type: "object",
+  required: ["tool"],
+  title: "ToolTunnelFieldChange",
+  description: "Tunnel routing diff for a single tool.",
+} as const
+
 export const $ToolUIPartInputAvailable = {
   properties: {
     type: {
@@ -28167,9 +39538,523 @@ export const $Trigger = {
 
 export const $TriggerType = {
   type: "string",
-  enum: ["manual", "scheduled", "webhook", "case"],
+  enum: ["manual", "scheduled", "webhook", "case", "form"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
+} as const
+
+export const $TunnelAvailabilityRead = {
+  properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+      description:
+        "False when Tracecat runs without the Kubernetes gateway backend, e.g. on Docker Compose or Fargate.",
+    },
+  },
+  type: "object",
+  required: ["available"],
+  title: "TunnelAvailabilityRead",
+  description: "Whether this deployment can run tunnel gateways.",
+} as const
+
+export const $TunnelCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 63,
+      minLength: 1,
+      pattern: "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/TunnelProvider",
+      default: "pangolin",
+    },
+    endpoint: {
+      type: "string",
+      minLength: 1,
+      format: "uri",
+      title: "Endpoint",
+      description:
+        "Base URL of the Pangolin server, either Pangolin Cloud or self-hosted.",
+    },
+    client_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      format: "password",
+      title: "Client Secret",
+      writeOnly: true,
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Allowed Targets",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: [
+    "name",
+    "endpoint",
+    "client_id",
+    "client_secret",
+    "allowed_targets",
+  ],
+  title: "TunnelCreate",
+} as const
+
+export const $TunnelDetailRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/TunnelProvider",
+    },
+    endpoint: {
+      type: "string",
+      title: "Endpoint",
+    },
+    client_id: {
+      type: "string",
+      title: "Client Id",
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      title: "Allowed Targets",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    has_gateway_key: {
+      type: "boolean",
+      title: "Has Gateway Key",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    referenced_by: {
+      items: {
+        $ref: "#/components/schemas/TunnelReference",
+      },
+      type: "array",
+      title: "Referenced By",
+      description:
+        "MCP integrations, current agent preset versions and workflows that route through the tunnel. Each kind is capped at 200 entries.",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "name",
+    "description",
+    "provider",
+    "endpoint",
+    "client_id",
+    "allowed_targets",
+    "enabled",
+    "has_gateway_key",
+    "managed",
+    "created_at",
+    "updated_at",
+    "referenced_by",
+  ],
+  title: "TunnelDetailRead",
+  description: "A tunnel and the resources that reference it.",
+} as const
+
+export const $TunnelGatewayKeyRead = {
+  properties: {
+    tunnel_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tunnel Id",
+    },
+    gateway_key: {
+      type: "string",
+      title: "Gateway Key",
+      description:
+        "Configure this on the tunnel gateway. Issuing a new key revokes the old one.",
+    },
+  },
+  type: "object",
+  required: ["tunnel_id", "gateway_key"],
+  title: "TunnelGatewayKeyRead",
+  description:
+    "A newly issued gateway key. It is only returned once, at issue time.",
+} as const
+
+export const $TunnelProvider = {
+  type: "string",
+  enum: ["pangolin"],
+  title: "TunnelProvider",
+} as const
+
+export const $TunnelRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/TunnelProvider",
+    },
+    endpoint: {
+      type: "string",
+      title: "Endpoint",
+    },
+    client_id: {
+      type: "string",
+      title: "Client Id",
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      title: "Allowed Targets",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    has_gateway_key: {
+      type: "boolean",
+      title: "Has Gateway Key",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "name",
+    "description",
+    "provider",
+    "endpoint",
+    "client_id",
+    "allowed_targets",
+    "enabled",
+    "has_gateway_key",
+    "managed",
+    "created_at",
+    "updated_at",
+  ],
+  title: "TunnelRead",
+  description:
+    "Tunnel metadata. The client secret is write-only and never returned.",
+} as const
+
+export const $TunnelReference = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/TunnelReferenceKind",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+      description:
+        "Where in the resource the tunnel is set, e.g. an action or tool",
+    },
+  },
+  type: "object",
+  required: ["kind", "id", "name"],
+  title: "TunnelReference",
+  description: "A workspace resource that routes traffic through a tunnel.",
+} as const
+
+export const $TunnelReferenceKind = {
+  type: "string",
+  enum: ["mcp_integration", "agent_preset", "workflow"],
+  title: "TunnelReferenceKind",
+} as const
+
+export const $TunnelStatusRead = {
+  properties: {
+    tunnel_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tunnel Id",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
+    site_online: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Site Online",
+    },
+    gateway_ready: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Gateway Ready",
+    },
+  },
+  type: "object",
+  required: ["tunnel_id", "managed", "site_online"],
+  title: "TunnelStatusRead",
+} as const
+
+export const $TunnelTarget = {
+  properties: {
+    host: {
+      type: "string",
+      maxLength: 253,
+      minLength: 1,
+      title: "Host",
+      description:
+        "Exact hostname or IP address. Wildcards and CIDR ranges are not allowed.",
+    },
+    ports: {
+      items: {
+        type: "integer",
+        maximum: 65535,
+        minimum: 1,
+      },
+      type: "array",
+      maxItems: 64,
+      minItems: 1,
+      title: "Ports",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["host", "ports"],
+  title: "TunnelTarget",
+  description:
+    "A single private host and the TCP ports actions may reach through the tunnel.",
+} as const
+
+export const $TunnelUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+          pattern: "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    endpoint: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "uri",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+    allowed_targets: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/TunnelTarget",
+          },
+          type: "array",
+          maxItems: 100,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Targets",
+    },
+    enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enabled",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "TunnelUpdate",
 } as const
 
 export const $UIMessage = {
@@ -28463,6 +40348,12 @@ export const $UserMessage = {
               {
                 $ref: "#/components/schemas/ToolResultBlock",
               },
+              {
+                $ref: "#/components/schemas/ServerToolUseBlock",
+              },
+              {
+                $ref: "#/components/schemas/ServerToolResultBlock",
+              },
             ],
           },
           type: "array",
@@ -28503,6 +40394,16 @@ export const $UserMessage = {
         },
       ],
       title: "Tool Use Result",
+    },
+    origin: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MessageOrigin",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
@@ -28763,6 +40664,33 @@ export const $UserRoleAssignmentReadWithDetails = {
     "Read schema for a user role assignment with user and role details.",
 } as const
 
+export const $UserRoleAssignmentSpec = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["role_id"],
+  title: "UserRoleAssignmentSpec",
+  description:
+    "One desired direct assignment, with at most one role per scope.",
+} as const
+
 export const $UserRoleAssignmentUpdate = {
   properties: {
     role_id: {
@@ -28776,6 +40704,49 @@ export const $UserRoleAssignmentUpdate = {
   required: ["role_id"],
   title: "UserRoleAssignmentUpdate",
   description: "Update schema for a user role assignment (change role only).",
+} as const
+
+export const $UserRoleAssignmentsReplace = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    assignments: {
+      items: {
+        $ref: "#/components/schemas/UserRoleAssignmentSpec",
+      },
+      type: "array",
+      title: "Assignments",
+    },
+    expected_assignments: {
+      items: {
+        $ref: "#/components/schemas/RoleAssignmentSnapshot",
+      },
+      type: "array",
+      title: "Expected Assignments",
+    },
+    expected_group_assignments: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/RoleAssignmentSnapshot",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expected Group Assignments",
+    },
+  },
+  type: "object",
+  required: ["user_id", "assignments", "expected_assignments"],
+  title: "UserRoleAssignmentsReplace",
+  description:
+    "Replace a member's direct roles only if their access has not changed.",
 } as const
 
 export const $UserScopesRead = {
@@ -28793,6 +40764,47 @@ export const $UserScopesRead = {
   required: ["scopes"],
   title: "UserScopesRead",
   description: "Read schema for a user's effective scopes.",
+} as const
+
+export const $UserSearchRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email"],
+  title: "UserSearchRead",
+  description: "Identity fields returned by the org-scoped user email search.",
 } as const
 
 export const $UserSummary = {
@@ -29058,7 +41070,7 @@ export const $VariableCreate = {
       type: "string",
       maxLength: 255,
       minLength: 1,
-      pattern: "[a-z0-9_]+",
+      pattern: "^[a-z0-9_]+$",
       title: "Name",
     },
     description: {
@@ -29121,7 +41133,6 @@ export const $VariableRead = {
     },
     name: {
       type: "string",
-      pattern: "[a-z0-9_]+",
       title: "Name",
     },
     description: {
@@ -29198,7 +41209,6 @@ export const $VariableReadMinimal = {
     },
     name: {
       type: "string",
-      pattern: "[a-z0-9_]+",
       title: "Name",
     },
     description: {
@@ -29235,7 +41245,7 @@ export const $VariableUpdate = {
           type: "string",
           maxLength: 255,
           minLength: 1,
-          pattern: "[a-z0-9_]+",
+          pattern: "^[a-z0-9_]+$",
         },
         {
           type: "null",
@@ -29312,7 +41322,7 @@ export const $VariableUpdate = {
 
 export const $VcsProvider = {
   type: "string",
-  enum: ["github", "gitlab", "bitbucket"],
+  enum: ["github", "gitlab", "bitbucket", "bitbucket_data_center"],
   title: "VcsProvider",
   description: "Version control host backing a workspace sync repository.",
 } as const
@@ -29355,6 +41365,18 @@ export const $VercelChatRequest = {
       ],
       title: "Base Url",
       description: "Optional base URL for the model provider",
+    },
+    page_context: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChatPageContext",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "The page the chat is docked on. Only Workspace chat uses it.",
     },
   },
   type: "object",
@@ -30146,6 +42168,161 @@ export const $WatchtowerToolCallStatus = {
   description: "Tool call result status for Watchtower monitor APIs.",
 } as const
 
+export const $WebAuthnAuthenticationVerify = {
+  properties: {
+    credential: {
+      additionalProperties: true,
+      type: "object",
+      title: "Credential",
+      description:
+        "PublicKeyCredential.toJSON() output from navigator.credentials.get().",
+    },
+  },
+  type: "object",
+  required: ["credential"],
+  title: "WebAuthnAuthenticationVerify",
+} as const
+
+export const $WebAuthnCredentialRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    aaguid: {
+      type: "string",
+      format: "uuid",
+      title: "Aaguid",
+    },
+    transports: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Transports",
+    },
+    backup_eligible: {
+      type: "boolean",
+      title: "Backup Eligible",
+    },
+    backup_state: {
+      type: "boolean",
+      title: "Backup State",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "aaguid",
+    "transports",
+    "backup_eligible",
+    "backup_state",
+    "created_at",
+    "last_used_at",
+  ],
+  title: "WebAuthnCredentialRead",
+} as const
+
+export const $WebAuthnCredentialUpdate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WebAuthnCredentialUpdate",
+} as const
+
+export const $WebAuthnOptionsRead = {
+  properties: {
+    public_key: {
+      additionalProperties: true,
+      type: "object",
+      title: "Public Key",
+      description:
+        "PublicKeyCredential{Creation,Request}Options as JSON (base64url).",
+    },
+  },
+  type: "object",
+  required: ["public_key"],
+  title: "WebAuthnOptionsRead",
+} as const
+
+export const $WebAuthnRegistrationResult = {
+  properties: {
+    credential: {
+      $ref: "#/components/schemas/WebAuthnCredentialRead",
+    },
+    recovery_codes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Recovery Codes",
+      description:
+        "One-time recovery codes, returned only for the first security key.",
+    },
+  },
+  type: "object",
+  required: ["credential"],
+  title: "WebAuthnRegistrationResult",
+} as const
+
+export const $WebAuthnRegistrationVerify = {
+  properties: {
+    credential: {
+      additionalProperties: true,
+      type: "object",
+      title: "Credential",
+      description:
+        "PublicKeyCredential.toJSON() output from navigator.credentials.create().",
+    },
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["credential", "name"],
+  title: "WebAuthnRegistrationVerify",
+} as const
+
 export const $WebhookApiKeyGenerateResponse = {
   properties: {
     api_key: {
@@ -30334,6 +42511,55 @@ export const $WebhookRead = {
   title: "WebhookRead",
 } as const
 
+export const $WebhookRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    input: {
+      title: "Input",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "WebhookRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the shared 422 response.",
+} as const
+
 export const $WebhookStatus = {
   type: "string",
   enum: ["online", "offline"],
@@ -30455,6 +42681,53 @@ export const $WebhookUpdate = {
   },
   type: "object",
   title: "WebhookUpdate",
+} as const
+
+export const $WebhookWaitErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookWaitFailureDetail",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/WebhookRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "WebhookWaitErrorResponse",
+  description:
+    "Invalid request parameters or a classified user workflow failure.",
+} as const
+
+export const $WebhookWaitFailureDetail = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/RuntimeErrorKind",
+    },
+    wf_exec_id: {
+      type: "string",
+      pattern:
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Wf Exec Id",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      default: "Workflow execution failed. Check the workflow run for details.",
+    },
+  },
+  type: "object",
+  required: ["code", "wf_exec_id"],
+  title: "WebhookWaitFailureDetail",
+  description: "Public metadata for a user-owned workflow failure.",
 } as const
 
 export const $WorkflowAlias = {
@@ -30803,6 +43076,59 @@ export const $WorkflowDirectoryItem = {
   title: "WorkflowDirectoryItem",
 } as const
 
+export const $WorkflowDraftRead = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    draft_revision: {
+      type: "string",
+      title: "Draft Revision",
+    },
+    document: {
+      $ref: "#/components/schemas/WorkflowEditDocument-Output",
+    },
+  },
+  type: "object",
+  required: ["workflow_id", "draft_revision", "document"],
+  title: "WorkflowDraftRead",
+  description:
+    "Canonical editable draft document plus its content-hash revision.",
+} as const
+
+export const $WorkflowDraftUpdate = {
+  properties: {
+    document: {
+      $ref: "#/components/schemas/WorkflowEditDocument-Input",
+    },
+    base_revision: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Revision",
+    },
+  },
+  type: "object",
+  required: ["document"],
+  title: "WorkflowDraftUpdate",
+  description: `Wholesale replacement of a workflow draft.
+
+\`\`document\`\` is the full desired draft state (metadata, definition, layout,
+schedules, case trigger). \`\`schedules\`\` is optional: when omitted, the
+workflow's existing schedules are left untouched so they can be owned by
+the standalone \`\`/schedules\`\` resource; when present, they are replaced.
+Other omitted sections fall back to their defaults and are treated as
+changed. When \`\`base_revision\`\` is set, the update is rejected with 409 if
+the current draft revision differs.`,
+} as const
+
 export const $WorkflowDslPublish = {
   properties: {
     message: {
@@ -30909,6 +43235,183 @@ export const $WorkflowDslPublishResult = {
   type: "object",
   required: ["status", "branch", "base_branch", "message"],
   title: "WorkflowDslPublishResult",
+} as const
+
+export const $WorkflowEditDefinition_Input = {
+  properties: {
+    entrypoint: {
+      $ref: "#/components/schemas/DSLEntrypoint-Input",
+    },
+    actions: {
+      items: {
+        $ref: "#/components/schemas/ActionStatement-Input",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    config: {
+      $ref: "#/components/schemas/DSLConfig-Input",
+    },
+    returns: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Returns",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "WorkflowEditDefinition",
+} as const
+
+export const $WorkflowEditDefinition_Output = {
+  properties: {
+    entrypoint: {
+      $ref: "#/components/schemas/DSLEntrypoint-Output",
+    },
+    actions: {
+      items: {
+        $ref: "#/components/schemas/ActionStatement-Output",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    config: {
+      $ref: "#/components/schemas/DSLConfig-Output",
+    },
+    returns: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Returns",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "WorkflowEditDefinition",
+} as const
+
+export const $WorkflowEditDocument_Input = {
+  properties: {
+    metadata: {
+      $ref: "#/components/schemas/WorkflowEditMetadata",
+    },
+    definition: {
+      $ref: "#/components/schemas/WorkflowEditDefinition-Input",
+    },
+    layout: {
+      $ref: "#/components/schemas/WorkflowLayout",
+    },
+    schedules: {
+      items: {
+        $ref: "#/components/schemas/WorkflowSchedule",
+      },
+      type: "array",
+      title: "Schedules",
+    },
+    case_trigger: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseTriggerConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["metadata", "definition"],
+  title: "WorkflowEditDocument",
+} as const
+
+export const $WorkflowEditDocument_Output = {
+  properties: {
+    metadata: {
+      $ref: "#/components/schemas/WorkflowEditMetadata",
+    },
+    definition: {
+      $ref: "#/components/schemas/WorkflowEditDefinition-Output",
+    },
+    layout: {
+      $ref: "#/components/schemas/WorkflowLayout",
+    },
+    schedules: {
+      items: {
+        $ref: "#/components/schemas/WorkflowSchedule",
+      },
+      type: "array",
+      title: "Schedules",
+    },
+    case_trigger: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseTriggerConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["metadata", "definition"],
+  title: "WorkflowEditDocument",
+} as const
+
+export const $WorkflowEditMetadata = {
+  properties: {
+    title: {
+      type: "string",
+      maxLength: 100,
+      minLength: 3,
+      title: "Title",
+    },
+    description: {
+      type: "string",
+      maxLength: 1000,
+      title: "Description",
+    },
+    status: {
+      type: "string",
+      enum: ["online", "offline"],
+      title: "Status",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+    error_handler: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Handler",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["title", "description", "status"],
+  title: "WorkflowEditMetadata",
 } as const
 
 export const $WorkflowEntrypointValidationRequest = {
@@ -31275,6 +43778,20 @@ export const $WorkflowExecutionCreate = {
       ],
       title: "Inputs",
     },
+    case_task_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Task Id",
+      description:
+        "Case task that started this run. The run is then listed under the task's workflow runs.",
+    },
     time_anchor: {
       anyOf: [
         {
@@ -31563,6 +44080,30 @@ export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
         },
       ],
     },
+    fixed_from_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern:
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed From Execution Id",
+    },
+    fixed_from_event_id: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed From Event Id",
+    },
   },
   type: "object",
   required: [
@@ -31818,14 +44359,6 @@ export const $WorkflowExecutionRead = {
       title: "Events",
       description: "The events in the workflow execution",
     },
-    interactions: {
-      items: {
-        $ref: "#/components/schemas/InteractionRead",
-      },
-      type: "array",
-      title: "Interactions",
-      description: "The interactions in the workflow execution",
-    },
   },
   type: "object",
   required: [
@@ -31940,14 +44473,6 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
       type: "array",
       title: "Events",
       description: "Compact events in the workflow execution",
-    },
-    interactions: {
-      items: {
-        $ref: "#/components/schemas/InteractionRead",
-      },
-      type: "array",
-      title: "Interactions",
-      description: "The interactions in the workflow execution",
     },
   },
   type: "object",
@@ -32210,6 +44735,79 @@ export const $WorkflowExecutionTerminate = {
   title: "WorkflowExecutionTerminate",
 } as const
 
+export const $WorkflowExportCode = {
+  type: "string",
+  enum: [
+    "publish_required",
+    "missing_definition",
+    "no_actions",
+    "invalid_definition",
+    "missing_child_workflow",
+  ],
+} as const
+
+export const $WorkflowExportDiagnostic = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workflow Id",
+      description: "Authorized local workflow ID.",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+      description: "Workflow display title.",
+    },
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+      description: "Existing stable Git ID.",
+    },
+    source_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Path",
+      description: "Existing repository path.",
+    },
+    stage: {
+      $ref: "#/components/schemas/WorkflowExportStage",
+      description: "Export stage that failed.",
+    },
+    code: {
+      $ref: "#/components/schemas/WorkflowExportCode",
+      description: "Machine-readable corrective error code.",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      description: "Safe corrective message without workflow inputs.",
+    },
+  },
+  type: "object",
+  required: ["workflow_id", "workflow_title", "stage", "code", "message"],
+  title: "WorkflowExportDiagnostic",
+  description: "Safe workflow context for an export that cannot proceed.",
+} as const
+
+export const $WorkflowExportStage = {
+  type: "string",
+  enum: ["definition", "dependency"],
+} as const
+
 export const $WorkflowFolderCreate = {
   properties: {
     name: {
@@ -32232,6 +44830,11 @@ export const $WorkflowFolderDelete = {
     recursive: {
       type: "boolean",
       title: "Recursive",
+      default: false,
+    },
+    delete_workflows: {
+      type: "boolean",
+      title: "Delete Workflows",
       default: false,
     },
   },
@@ -32311,6 +44914,40 @@ export const $WorkflowFolderUpdate = {
   title: "WorkflowFolderUpdate",
 } as const
 
+export const $WorkflowLayout = {
+  properties: {
+    trigger: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/LayoutPosition",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    viewport: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/LayoutViewport",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      items: {
+        $ref: "#/components/schemas/LayoutActionPosition",
+      },
+      type: "array",
+      title: "Actions",
+    },
+  },
+  type: "object",
+  title: "WorkflowLayout",
+} as const
+
 export const $WorkflowMoveToFolder = {
   properties: {
     folder_path: {
@@ -32325,6 +44962,7 @@ export const $WorkflowMoveToFolder = {
       title: "Folder Path",
     },
   },
+  additionalProperties: false,
   type: "object",
   title: "WorkflowMoveToFolder",
 } as const
@@ -32644,6 +45282,215 @@ export const $WorkflowReadMinimal = {
   description: "Minimal version of WorkflowRead model for list endpoints.",
 } as const
 
+export const $WorkflowRerunActionMatch = {
+  properties: {
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    status: {
+      $ref: "#/components/schemas/WorkflowRerunActionStatus",
+    },
+    source_action: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Action",
+    },
+    target_action: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Action",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["ref", "status"],
+  title: "WorkflowRerunActionMatch",
+} as const
+
+export const $WorkflowRerunActionStatus = {
+  type: "string",
+  enum: ["fixed", "excluded", "runs", "not_in_target", "action_changed"],
+  title: "WorkflowRerunActionStatus",
+} as const
+
+export const $WorkflowRerunPlan = {
+  properties: {
+    source_execution_id: {
+      type: "string",
+      pattern:
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Source Execution Id",
+    },
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    use_draft: {
+      type: "boolean",
+      title: "Use Draft",
+    },
+    version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Version",
+    },
+    actions: {
+      items: {
+        $ref: "#/components/schemas/WorkflowRerunActionMatch",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    fixed_action_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Fixed Action Refs",
+    },
+    unmatched_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Unmatched Refs",
+    },
+    inputs_error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs Error",
+    },
+  },
+  type: "object",
+  required: [
+    "source_execution_id",
+    "workflow_id",
+    "use_draft",
+    "actions",
+    "fixed_action_refs",
+    "unmatched_refs",
+  ],
+  title: "WorkflowRerunPlan",
+} as const
+
+export const $WorkflowRerunRequest = {
+  properties: {
+    use_draft: {
+      type: "boolean",
+      title: "Use Draft",
+      description:
+        "Rerun against the current draft. Set false to use a published version.",
+      default: true,
+    },
+    version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Version",
+      description:
+        "Published version to rerun against when use_draft is false. Null uses the current published version.",
+    },
+    fixed_action_refs: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed Action Refs",
+      description:
+        "Action refs whose results to reuse. Null reuses every matching successful action; an empty list reruns everything.",
+    },
+    rerun_from_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Rerun From Ref",
+      description:
+        "Rerun from this action: it and every action downstream of it in the target run fresh.",
+    },
+  },
+  type: "object",
+  title: "WorkflowRerunRequest",
+} as const
+
+export const $WorkflowRerunResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    wf_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Wf Id",
+    },
+    wf_exec_id: {
+      type: "string",
+      pattern:
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Wf Exec Id",
+    },
+    plan: {
+      $ref: "#/components/schemas/WorkflowRerunPlan",
+    },
+  },
+  type: "object",
+  required: ["message", "wf_id", "wf_exec_id", "plan"],
+  title: "WorkflowRerunResponse",
+} as const
+
 export const $WorkflowRunReadMinimal = {
   properties: {
     id: {
@@ -32787,6 +45634,95 @@ export const $WorkflowRunReadMinimal = {
   title: "WorkflowRunReadMinimal",
 } as const
 
+export const $WorkflowSchedule = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["online", "offline"],
+      title: "Status",
+      default: "online",
+    },
+    inputs: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+    },
+    cron: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cron",
+    },
+    every: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Every",
+    },
+    offset: {
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Offset",
+    },
+    start_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start At",
+    },
+    end_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End At",
+    },
+    timeout: {
+      type: "number",
+      title: "Timeout",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "WorkflowSchedule",
+} as const
+
 export const $WorkflowSummary = {
   properties: {
     id: {
@@ -32858,6 +45794,15 @@ export const $WorkflowSyncPullRequest = {
       title: "Mcp Integration Mappings",
       description:
         "Explicit source-to-target MCP integration choices from the pull preview.",
+    },
+    secret_store_mappings: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreMappingSelection",
+      },
+      type: "array",
+      title: "Secret Store Mappings",
+      description:
+        "Target stores for AWS-backed secrets whose store name has no match.",
     },
   },
   type: "object",
@@ -33059,6 +46004,272 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceAgentModelAccessRead = {
+  properties: {
+    inherit_all: {
+      type: "boolean",
+      title: "Inherit All",
+      description:
+        "True when the workspace has no subset and uses every organization-enabled model.",
+    },
+    catalog_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Catalog Ids",
+      description:
+        "Catalog IDs in the workspace's subset. Empty when inherit_all is true.",
+    },
+    candidates: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceAgentModelCandidate",
+      },
+      type: "array",
+      title: "Candidates",
+      description:
+        "Models enabled for the organization. Provider URLs are left out: they can carry credentials, and a candidate may sit outside the workspace's subset.",
+    },
+  },
+  type: "object",
+  required: ["inherit_all", "catalog_ids", "candidates"],
+  title: "WorkspaceAgentModelAccessRead",
+  description:
+    "A workspace's model subset and the organization models it can pick from.",
+} as const
+
+export const $WorkspaceAgentModelAccessUpdate = {
+  properties: {
+    inherit_all: {
+      type: "boolean",
+      title: "Inherit All",
+    },
+    catalog_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Catalog Ids",
+    },
+  },
+  type: "object",
+  required: ["inherit_all"],
+  title: "WorkspaceAgentModelAccessUpdate",
+  description:
+    "Replace a workspace's model subset, or clear it to inherit every org model.",
+} as const
+
+export const $WorkspaceAgentModelCandidate = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Metadata",
+    },
+    custom_provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Name",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "custom_provider_id",
+    "organization_id",
+    "model_provider",
+    "model_name",
+    "model_metadata",
+  ],
+  title: "WorkspaceAgentModelCandidate",
+  description:
+    "Catalog entry a workspace can pick, labelled with its custom provider.",
+} as const
+
+export const $WorkspaceAgentModelListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceAgentModelRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    default_catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Catalog Id",
+      description:
+        "The organization's default model, if it is enabled for this workspace.",
+    },
+    has_org_default: {
+      type: "boolean",
+      title: "Has Org Default",
+      description:
+        "Whether the organization has a default model, enabled here or not.",
+      default: false,
+    },
+    workspace_subset_disabled: {
+      type: "boolean",
+      title: "Workspace Subset Disabled",
+      description:
+        "True when the workspace has a model subset and the organization has disabled every model in it.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WorkspaceAgentModelListResponse",
+  description: "Models a workspace can use, and its default model.",
+} as const
+
+export const $WorkspaceAgentModelRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Metadata",
+    },
+    custom_provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Name",
+    },
+    custom_provider_base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Base Url",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "custom_provider_id",
+    "organization_id",
+    "model_provider",
+    "model_name",
+    "model_metadata",
+  ],
+  title: "WorkspaceAgentModelRead",
+  description:
+    "Catalog entry a workspace can use, with its provider's runtime URL.",
+} as const
+
 export const $WorkspaceCreate = {
   properties: {
     name: {
@@ -33093,115 +46304,6 @@ export const $WorkspaceCreate = {
   type: "object",
   required: ["name"],
   title: "WorkspaceCreate",
-} as const
-
-export const $WorkspaceInvitationCreate = {
-  properties: {
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      title: "Role Id",
-    },
-  },
-  type: "object",
-  required: ["email", "role_id"],
-  title: "WorkspaceInvitationCreate",
-  description: "Request schema for creating a workspace invitation.",
-} as const
-
-export const $WorkspaceInvitationRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    workspace_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workspace Id",
-    },
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      title: "Role Id",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-    status: {
-      $ref: "#/components/schemas/InvitationStatus",
-    },
-    invited_by: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Invited By",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-    accepted_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Accepted At",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "workspace_id",
-    "email",
-    "role_id",
-    "role_name",
-    "status",
-    "invited_by",
-    "expires_at",
-    "accepted_at",
-    "created_at",
-  ],
-  title: "WorkspaceInvitationRead",
-  description: "Response schema for a workspace invitation.",
 } as const
 
 export const $WorkspaceMember = {
@@ -33242,9 +46344,20 @@ export const $WorkspaceMember = {
       type: "string",
       title: "Role Name",
     },
+    via_group: {
+      type: "boolean",
+      title: "Via Group",
+    },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "role_name"],
+  required: [
+    "user_id",
+    "first_name",
+    "last_name",
+    "email",
+    "role_name",
+    "via_group",
+  ],
   title: "WorkspaceMember",
 } as const
 
@@ -33279,6 +46392,150 @@ export const $WorkspaceMembershipRead = {
   title: "WorkspaceMembershipRead",
 } as const
 
+export const $WorkspacePackageManifest = {
+  properties: {
+    explicit: {
+      items: {
+        $ref: "#/components/schemas/PackageResourceEntry",
+      },
+      type: "array",
+      title: "Explicit",
+      description: "Resources matched by the include file.",
+    },
+    implied: {
+      items: {
+        $ref: "#/components/schemas/PackageResourceEntry",
+      },
+      type: "array",
+      title: "Implied",
+      description:
+        "Dependencies of explicit resources, included automatically.",
+    },
+    registry: {
+      items: {
+        $ref: "#/components/schemas/PackageRegistryRequirement",
+      },
+      type: "array",
+      title: "Registry",
+      description: "Custom registry versions the packaged actions resolve to.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "WorkspacePackageManifest",
+  description: "What a managed resources package export contains and needs.",
+} as const
+
+export const $WorkspacePackageRead = {
+  properties: {
+    is_source: {
+      type: "boolean",
+      title: "Is Source",
+      description: "Whether this workspace is the managed resources source.",
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+      description: "Branch the include file was read from.",
+    },
+    patterns: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Patterns",
+      description: "Include file patterns in file order.",
+    },
+    resources: {
+      items: {
+        $ref: "#/components/schemas/WorkspacePackageResource",
+      },
+      type: "array",
+      title: "Resources",
+      description: "Every syncable resource with its package status.",
+    },
+    warnings: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Warnings",
+      description: "Include file problems worth fixing.",
+    },
+  },
+  type: "object",
+  required: ["is_source"],
+  title: "WorkspacePackageRead",
+  description:
+    "The managed resources package selection of the source workspace.",
+} as const
+
+export const $WorkspacePackageResource = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Kind of resource.",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+      description: "Stable Git source id.",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+      description: "Workspace-local resource id.",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Human-readable resource name.",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+      description: "Primary repository path of the resource.",
+    },
+    pattern: {
+      type: "string",
+      title: "Pattern",
+      description: "Include pattern that selects the resource.",
+    },
+    status: {
+      $ref: "#/components/schemas/PackageResourceStatus",
+      description: `\`\`explicit\`\` when a pattern selects it, \`\`implied\`\` when only a dependency, \`\`excluded\`\` otherwise.`,
+    },
+    implied_by: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Implied By",
+      description: "Names of the explicit resources that need an implied one.",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "source_id",
+    "local_id",
+    "name",
+    "path",
+    "pattern",
+    "status",
+  ],
+  title: "WorkspacePackageResource",
+  description: "One source workspace resource as the package picker shows it.",
+} as const
+
 export const $WorkspaceRead = {
   properties: {
     id: {
@@ -33289,6 +46546,18 @@ export const $WorkspaceRead = {
     name: {
       type: "string",
       title: "Name",
+    },
+    default_agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Agent Preset Id",
     },
     settings: {
       anyOf: [
@@ -33304,6 +46573,13 @@ export const $WorkspaceRead = {
       type: "string",
       format: "uuid",
       title: "Organization Id",
+    },
+    unsafe_disable_secret_error_withholding_allowed: {
+      type: "boolean",
+      title: "Unsafe Disable Secret Error Withholding Allowed",
+      description:
+        "Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.",
+      default: false,
     },
   },
   type: "object",
@@ -33326,6 +46602,47 @@ export const $WorkspaceReadMinimal = {
   type: "object",
   required: ["id", "name"],
   title: "WorkspaceReadMinimal",
+} as const
+
+export const $WorkspaceSecretStoreRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+    },
+    region: {
+      type: "string",
+      title: "Region",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "provider", "region", "enabled"],
+  title: "WorkspaceSecretStoreRead",
+  description:
+    "Workspace view of an authorized store. Never exposes the external ID.",
 } as const
 
 export const $WorkspaceSettingsRead = {
@@ -33541,6 +46858,33 @@ export const $WorkspaceSettingsUpdate = {
   title: "WorkspaceSettingsUpdate",
 } as const
 
+export const $WorkspaceSyncExportError = {
+  properties: {
+    detail: {
+      type: "string",
+      title: "Detail",
+      description: "Human-readable failure summary.",
+    },
+    diagnostics: {
+      items: {
+        $ref: "#/components/schemas/WorkflowExportDiagnostic",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+    omitted_count: {
+      type: "integer",
+      title: "Omitted Count",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "WorkspaceSyncExportError",
+  description:
+    "Additive diagnostics while retaining the legacy string detail field.",
+} as const
+
 export const $WorkspaceSyncExportPreview = {
   properties: {
     resource_counts: {
@@ -33622,6 +46966,22 @@ export const $WorkspaceSyncExportPreviewRequest = {
       description:
         "Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.",
     },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to preview for a managed resources package export. ``None`` uses the include file at ``compare_ref``.",
+    },
   },
   type: "object",
   title: "WorkspaceSyncExportPreviewRequest",
@@ -33629,7 +46989,7 @@ export const $WorkspaceSyncExportPreviewRequest = {
     "Request a dry-run projection of what an export would push to Git.",
 } as const
 
-export const $WorkspaceSyncExportRequest = {
+export const $WorkspaceSyncExportRequest_Input = {
   properties: {
     message: {
       type: "string",
@@ -33680,6 +47040,98 @@ export const $WorkspaceSyncExportRequest = {
       title: "Include Schedules",
       description: "Whether to include workflow schedules in the export.",
       default: false,
+    },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.",
+    },
+  },
+  type: "object",
+  required: ["message", "branch"],
+  title: "WorkspaceSyncExportRequest",
+  description:
+    "Request to commit selected workspace resources to a Git branch.",
+} as const
+
+export const $WorkspaceSyncExportRequest_Output = {
+  properties: {
+    message: {
+      type: "string",
+      minLength: 1,
+      title: "Message",
+      description: "Commit message for the export.",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+      description: "Target branch to commit to.",
+    },
+    create_pr: {
+      type: "boolean",
+      title: "Create Pr",
+      description: "Whether to open a pull request for the commit.",
+      default: false,
+    },
+    pr_base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Base Branch",
+      description: "Base branch for the pull request, if created.",
+    },
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ResourceRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
+      description: "Specific resources to export, or ``None`` to export all.",
+    },
+    include_schedules: {
+      type: "boolean",
+      title: "Include Schedules",
+      description: "Whether to include workflow schedules in the export.",
+      default: false,
+    },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.",
     },
   },
   type: "object",
@@ -33763,6 +47215,20 @@ export const $WorkspaceUpdate = {
           type: "null",
         },
       ],
+    },
+    default_agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Agent Preset Id",
+      description:
+        "Default agent preset for this workspace. Set to null to clear.",
     },
   },
   type: "object",

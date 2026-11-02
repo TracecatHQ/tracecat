@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.common.config import TRACECAT__LITELLM_BASE_URL
+from tracecat.agent.gateway_providers import resolve_gateway_provider_config
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import mint_llm_token
@@ -24,6 +25,8 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.network import DisallowedUrlError
+from tracecat.outbound import create_outbound_http_client
 
 
 class LLMCompletionError(RuntimeError):
@@ -68,22 +71,18 @@ async def complete(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt},
     ]
-    passthrough = creds.get("CUSTOM_MODEL_PROVIDER_PASSTHROUGH", "").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    gateway_runtime = resolve_gateway_provider_config(
+        model_selection.model_provider, creds
+    )
 
     try:
         async with asyncio.timeout(timeout_seconds):
-            if passthrough:
+            if gateway_runtime is not None and gateway_runtime.passthrough:
                 resp = await _call_passthrough(
                     messages=messages,
-                    model_name=creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
-                    or model_selection.model_name,
-                    base_url=creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL"),
-                    api_key=creds.get("CUSTOM_MODEL_PROVIDER_API_KEY"),
+                    model_name=gateway_runtime.model_name or model_selection.model_name,
+                    base_url=gateway_runtime.base_url,
+                    api_key=gateway_runtime.api_key,
                     max_tokens=max_tokens,
                     timeout_seconds=timeout_seconds,
                 )
@@ -120,7 +119,7 @@ async def complete(
         raise LLMCompletionError(message) from e
     except httpx.RequestError as e:
         raise LLMCompletionError(f"LLM request failed: {e}") from e
-    except TracecatValidationError as e:
+    except (TracecatValidationError, DisallowedUrlError) as e:
         detail = str(e) or "model configuration failed validation"
         raise LLMCompletionError(f"LLM model configuration is invalid: {detail}") from e
 
@@ -157,7 +156,7 @@ async def _call_passthrough(
     timeout_seconds: float,
 ) -> str:
     if not base_url:
-        raise TracecatValidationError("Custom model passthrough base URL is required")
+        raise TracecatValidationError("Passthrough base URL is required")
     headers: dict[str, str] = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -167,7 +166,9 @@ async def _call_passthrough(
     }
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+    async with create_outbound_http_client(
+        origin_url=base_url, timeout=timeout_seconds
+    ) as client:
         resp = await client.post(
             f"{base_url.rstrip('/')}/chat/completions",
             headers=headers,

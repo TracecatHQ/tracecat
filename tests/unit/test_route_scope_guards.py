@@ -10,6 +10,10 @@ from fastapi import HTTPException
 from tracecat.agent.catalog import router as agent_catalog_router
 from tracecat.agent.folders import router as agent_folder_router
 from tracecat.agent.preset import router as agent_preset_router
+from tracecat.agent.skill import router as skill_router
+from tracecat.agent.skill.folders import router as skill_folder_router
+from tracecat.agent.skill.tags import definitions_router as skill_tag_definitions_router
+from tracecat.agent.skill.tags import router as skill_tags_router
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.auth.types import Role
 from tracecat.cases.dropdowns import router as case_dropdowns_router
@@ -21,8 +25,11 @@ from tracecat.cases.tags import router as case_tags_router
 from tracecat.cases.versions import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
+from tracecat.forms import internal_router as internal_forms_router
+from tracecat.forms import router as forms_router
 from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
+from tracecat.invitations import router as invitations_router
 from tracecat.organization import router as organization_router
 from tracecat.registry.actions import router as registry_actions_router
 from tracecat.registry.repositories import router as registry_repos_router
@@ -219,14 +226,40 @@ async def test_agent_folder_scope_guards(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (skill_folder_router.get_directory, "agent:read"),
+        (skill_router.list_skills, "agent:read"),
+        (skill_router.move_skill, "agent:update"),
+        (skill_tags_router.list_skill_tags, "agent:read"),
+        (skill_tags_router.add_skill_tag, "agent:update"),
+        (skill_tags_router.remove_skill_tag, "agent:update"),
+    ],
+)
+async def test_skill_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "endpoint",
     [
         agent_catalog_router.list_catalog,
         agent_catalog_router.get_catalog_entry,
+        agent_catalog_router.get_workspace_models,
+        agent_catalog_router.get_workspace_model_access,
     ],
 )
 async def test_agent_catalog_read_scope_guards(endpoint: AsyncEndpoint) -> None:
     await _assert_endpoint_requires_scope(endpoint, "agent:read")
+
+
+@pytest.mark.anyio
+async def test_workspace_model_access_update_requires_agent_update() -> None:
+    """Saving a workspace's model subset needs agent:update."""
+    await _assert_endpoint_requires_scope(
+        agent_catalog_router.update_workspace_model_access, "agent:update"
+    )
 
 
 @pytest.mark.anyio
@@ -254,6 +287,72 @@ async def test_agent_catalog_list_accepts_service_account_with_scope() -> None:
         organization_id=organization_id,
         service_account_id=uuid.uuid4(),
         scopes=frozenset({"agent:read"}),
+    )
+    token = ctx_role.set(allowed_role)
+    try:
+        with pytest.raises(TypeError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_registry_repository_sync_accepts_service_account_with_scope() -> None:
+    endpoint = cast(AsyncEndpoint, registry_repos_router.sync_registry_repository)
+    organization_id = uuid.uuid4()
+    denied_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:registry:read"}),
+    )
+    token = ctx_role.set(denied_role)
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+    allowed_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:registry:update"}),
+    )
+    token = ctx_role.set(allowed_role)
+    try:
+        with pytest.raises(TypeError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_list_org_members_accepts_service_account_with_scope() -> None:
+    endpoint = cast(AsyncEndpoint, organization_router.list_org_members)
+    organization_id = uuid.uuid4()
+    denied_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:rbac:read"}),
+    )
+    token = ctx_role.set(denied_role)
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+    allowed_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:member:read"}),
     )
     token = ctx_role.set(allowed_role)
     try:
@@ -304,6 +403,23 @@ async def test_agent_catalog_reads_reject_workspace_bound_service_accounts() -> 
     ],
 )
 async def test_agent_tag_definition_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (skill_tag_definitions_router.list_skill_tags, "agent:read"),
+        (skill_tag_definitions_router.get_skill_tag, "agent:read"),
+        (skill_tag_definitions_router.create_skill_tag, "agent:create"),
+        (skill_tag_definitions_router.update_skill_tag, "agent:update"),
+        (skill_tag_definitions_router.delete_skill_tag, "agent:delete"),
+    ],
+)
+async def test_skill_tag_definition_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
@@ -434,10 +550,22 @@ async def test_inbox_scope_guards(endpoint: AsyncEndpoint, required_scope: str) 
     ("endpoint", "required_scope"),
     [
         (organization_router.get_organization_entitlements, "org:read"),
-        (organization_router.revoke_invitation, "org:member:invite"),
     ],
 )
 async def test_organization_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (invitations_router.revoke_invitation, "org:member:invite"),
+    ],
+)
+async def test_invitations_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
@@ -554,6 +682,7 @@ async def test_workflow_execution_stop_scope_guards(
         (case_rows_router.batch_link_case_rows, "case:update"),
         (case_rows_router.batch_unlink_case_rows, "case:update"),
         (case_rows_router.unlink_case_row, "case:update"),
+        (case_rows_router.list_linked_cases, "case:read"),
     ],
 )
 async def test_case_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
@@ -608,6 +737,39 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
         endpoint,
         ("integration:create", "integration:read"),
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scopes"),
+    [
+        (forms_router.list_forms, ("form:read",)),
+        (forms_router.create_form, ("form:create",)),
+        (forms_router.get_form, ("form:read",)),
+        (forms_router.update_form, ("form:update",)),
+        (forms_router.delete_form, ("form:delete",)),
+        (forms_router.validate_form, ("form:read",)),
+        (forms_router.render_form, ("form:read",)),
+        (forms_router.search_form_users, ("form:read",)),
+        (forms_router.submit_form, ("form:read", "form:submit")),
+        (forms_router.upload_form_file, ("form:read", "form:submit")),
+        (forms_router.download_form_file, ("form:read",)),
+        (forms_router.list_form_submissions, ("form:submission:read",)),
+        (forms_router.get_form_submission, ("form:read",)),
+        (forms_router.delete_form_submission, ("form:submission:delete",)),
+        (internal_forms_router.list_forms, ("form:read",)),
+        (internal_forms_router.get_form, ("form:read",)),
+        (internal_forms_router.upsert_form, ("form:create", "form:update")),
+        (internal_forms_router.list_submissions, ("form:submission:read",)),
+        (internal_forms_router.get_submission, ("form:submission:read",)),
+        (internal_forms_router.delete_submission, ("form:submission:delete",)),
+        (internal_forms_router.download_file, ("form:submission:read",)),
+    ],
+)
+async def test_form_scope_guards(
+    endpoint: AsyncEndpoint, required_scopes: tuple[str, ...]
+) -> None:
+    await _assert_endpoint_requires_all_scopes(endpoint, required_scopes)
 
 
 @pytest.mark.anyio

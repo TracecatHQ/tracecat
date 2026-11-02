@@ -31,6 +31,10 @@ jest.mock("@/components/cases/case-panel-section", () => ({
   ),
 }))
 
+jest.mock("@/hooks/use-forms-access", () => ({
+  useFormsAccess: () => "hidden",
+}))
+
 jest.mock("@/components/copy-button", () => ({
   CopyButton: () => <button type="button">Copy</button>,
 }))
@@ -49,6 +53,7 @@ jest.mock("@/components/ui/dialog", () => ({
     onOpenChange?: (open: boolean) => void
     children: ReactNode
   }) => (open ? <div>{children}</div> : null),
+  DialogBody: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),

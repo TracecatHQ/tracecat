@@ -108,16 +108,24 @@ async def agent(
             "Per-tool approval overrides keyed by action name (e.g. 'core.cases.create_case'). Use true to require approval, false to allow auto-execution."
         ),
     ] = None,
+    tool_tunnels: Annotated[
+        dict[str, str] | None,
+        Doc(
+            "Workspace tunnel name keyed by action name (e.g. 'tools.sublime_security.list_messages'). Calls to that tool go through the tunnel."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     raise ActionIsInterfaceError()
 
 
 @registry.register(
     default_title="Run agent preset",
-    description="Run an AI agent using a saved agent preset.",
+    description=(
+        "Run an AI agent using a saved agent preset. Tools come from the preset "
+        "and its skills."
+    ),
     display_group="AI",
     namespace="ai",
-    required_entitlements=["agent_addons"],
 )
 async def preset_agent(
     preset: Annotated[
@@ -143,16 +151,26 @@ async def preset_agent(
     actions: Annotated[
         list[str] | None,
         Doc(
-            "Optional override for the actions (e.g. 'tools.slack.post_message') that the agent should be allowed to call."
+            "Optional. Swaps the preset's registry actions for this run (MCP tools "
+            "stay; an empty list is ignored). Handy for tests and evals; tools the "
+            "agent normally needs fit better on the preset or a skill."
         ),
         ActionType(multiple=True),
     ] = None,
     instructions: Annotated[
         str | None,
         Doc(
-            "Additional instructions to append to the preset instructions for this run."
+            "Appended to the preset instructions for this run; durable instructions "
+            "fit better on the preset."
         ),
         TextArea(),
+    ] = None,
+    output_type: Annotated[
+        OutputType | None,
+        Doc(
+            "Optional. Replaces the preset's output type for this run. Select from "
+            "a list of supported types or provide a JSONSchema."
+        ),
     ] = None,
     session_id: Annotated[
         str | None,

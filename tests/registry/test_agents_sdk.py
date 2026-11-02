@@ -106,6 +106,84 @@ async def test_restore_skill_version_uses_restore_endpoint(
 
 
 @pytest.mark.anyio
+async def test_get_skill_draft_uses_draft_endpoint(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    mock_tracecat_client.get.return_value = {"revision": 2}
+
+    result = await agents_client.get_skill_draft("skill-id", skill_uuid="skill-uuid")
+
+    assert result == {"revision": 2}
+    mock_tracecat_client.get.assert_awaited_once_with("/agent/skills/skill-uuid/draft")
+
+
+@pytest.mark.anyio
+async def test_get_skill_draft_file_uses_path_query_parameter(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    mock_tracecat_client.get.return_value = {"path": "SKILL.md"}
+
+    result = await agents_client.get_skill_draft_file(
+        skill_id="skill-id",
+        path="SKILL.md",
+        skill_uuid="skill-uuid",
+    )
+
+    assert result == {"path": "SKILL.md"}
+    mock_tracecat_client.get.assert_awaited_once_with(
+        "/agent/skills/skill-uuid/draft/file",
+        params={"path": "SKILL.md"},
+    )
+
+
+@pytest.mark.anyio
+async def test_patch_skill_draft_sends_revision_and_operations(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    operations = [
+        {
+            "op": "upsert_text_file",
+            "path": "SKILL.md",
+            "content": "draft",
+        }
+    ]
+    mock_tracecat_client.patch.return_value = {"revision": 3}
+
+    result = await agents_client.patch_skill_draft(
+        skill_id="skill-id",
+        base_revision=2,
+        operations=operations,
+        skill_uuid="skill-uuid",
+    )
+
+    assert result == {"revision": 3}
+    mock_tracecat_client.patch.assert_awaited_once_with(
+        "/agent/skills/skill-uuid/draft",
+        json={"base_revision": 2, "operations": operations},
+    )
+
+
+@pytest.mark.anyio
+async def test_publish_skill_draft_uses_publish_endpoint(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    mock_tracecat_client.post.return_value = {"id": "version-id"}
+
+    result = await agents_client.publish_skill_draft(
+        "skill-id", skill_uuid="skill-uuid"
+    )
+
+    assert result == {"id": "version-id"}
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/agent/skills/skill-uuid/publish"
+    )
+
+
+@pytest.mark.anyio
 async def test_create_preset_omits_model_fields_when_not_provided(
     agents_client: AgentsClient,
     mock_tracecat_client: MagicMock,

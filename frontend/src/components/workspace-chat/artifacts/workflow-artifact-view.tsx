@@ -23,7 +23,7 @@ import {
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useCompactWorkflowExecution, useOrgAppSettings } from "@/lib/hooks"
+import { useCompactWorkflowExecution } from "@/lib/hooks"
 import {
   useWorkflowBuilder,
   WorkflowBuilderProvider,
@@ -132,7 +132,6 @@ function CompactWorkflowEvents() {
 }
 
 function CompactWorkflowEventsList({ executionId }: { executionId: string }) {
-  const { appSettings } = useOrgAppSettings()
   const { sidebarRef } = useWorkflowBuilder()
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(executionId)
@@ -184,7 +183,6 @@ function CompactWorkflowEventsList({ executionId }: { executionId: string }) {
 
   const tabItems = buildEventsTabItems({
     execution,
-    interactionsEnabled: !!appSettings?.app_interactions_enabled,
     embedded: true,
   })
 

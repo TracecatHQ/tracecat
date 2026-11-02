@@ -15,6 +15,7 @@ import type {
   MCPPersonalAccessTokenRead,
 } from "@/client"
 import { CopyButton } from "@/components/copy-button"
+import { ListHeaderSearch } from "@/components/list-header-search"
 import { AlertNotification } from "@/components/notifications"
 import {
   AlertDialog,
@@ -30,6 +31,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -222,8 +224,8 @@ function CreateTokenDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={handleSubmit} className="space-y-5">
+      <DialogContent size="md">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader>
             <DialogTitle>Create MCP token</DialogTitle>
             <DialogDescription>
@@ -231,63 +233,58 @@ function CreateTokenDialog({
               cannot use OIDC.
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="mcp-token-name">Name</Label>
-              <Input
-                id="mcp-token-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Claude Code"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Expiration</Label>
-              <Select
-                value={expirationPreset}
-                onValueChange={(value) =>
-                  setExpirationPreset(value as ExpirationPreset)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EXPIRATION_PRESETS.map((preset) => (
-                    <SelectItem key={preset.value} value={preset.value}>
-                      {preset.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {expirationPreset === "custom" ? (
+          <DialogBody>
+            <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="mcp-token-custom-expiration">
-                  Custom expiration
-                </Label>
+                <Label htmlFor="mcp-token-name">Name</Label>
                 <Input
-                  id="mcp-token-custom-expiration"
-                  type="datetime-local"
-                  value={customExpiration}
-                  onChange={(event) => setCustomExpiration(event.target.value)}
+                  id="mcp-token-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Claude Code"
                 />
               </div>
-            ) : null}
-          </div>
 
+              <div className="space-y-2">
+                <Label>Expiration</Label>
+                <Select
+                  value={expirationPreset}
+                  onValueChange={(value) =>
+                    setExpirationPreset(value as ExpirationPreset)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXPIRATION_PRESETS.map((preset) => (
+                      <SelectItem key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {expirationPreset === "custom" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="mcp-token-custom-expiration">
+                    Custom expiration
+                  </Label>
+                  <Input
+                    id="mcp-token-custom-expiration"
+                    type="datetime-local"
+                    value={customExpiration}
+                    onChange={(event) =>
+                      setCustomExpiration(event.target.value)
+                    }
+                  />
+                </div>
+              ) : null}
+            </div>
+          </DialogBody>
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={pending}>
+            <Button size="sm" type="submit" disabled={pending}>
               {pending ? "Creating..." : "Create token"}
             </Button>
           </DialogFooter>
@@ -311,7 +308,7 @@ function IssuedTokenDialog({
       open={issuedCredential !== null}
       onOpenChange={(open) => !open && onClose()}
     >
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl overflow-hidden">
+      <DialogContent size="sm" className="w-[calc(100vw-2rem)] max-w-2xl">
         <DialogHeader>
           <DialogTitle>MCP personal access token</DialogTitle>
           <DialogDescription>
@@ -327,22 +324,22 @@ function IssuedTokenDialog({
             on connecting your client.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="flex min-w-0 max-w-full items-center gap-3 rounded-lg bg-muted/60 px-4 py-3.5">
-          <code className="min-w-0 flex-1 truncate font-mono text-sm text-foreground/90 select-all">
-            {rawToken}
-          </code>
-          <CopyButton
-            value={rawToken}
-            toastMessage="MCP token copied."
-            tooltipMessage="Copy token"
-            className="size-6 shrink-0"
-            iconClassName="size-4 text-foreground/70"
-          />
-        </div>
-
+        <DialogBody>
+          <div className="flex min-w-0 max-w-full items-center gap-3 rounded-lg bg-muted/60 px-4 py-3.5">
+            <code className="min-w-0 flex-1 truncate font-mono text-sm text-foreground/90 select-all">
+              {rawToken}
+            </code>
+            <CopyButton
+              value={rawToken}
+              toastMessage="MCP token copied."
+              tooltipMessage="Copy token"
+              className="size-6 shrink-0"
+              iconClassName="size-4 text-foreground/70"
+            />
+          </div>
+        </DialogBody>
         <DialogFooter>
-          <Button type="button" onClick={onClose}>
+          <Button size="sm" type="button" onClick={onClose}>
             Done
           </Button>
         </DialogFooter>
@@ -541,21 +538,11 @@ export function WorkspaceMcpAccess() {
     <div className="flex size-full flex-col">
       <div className="shrink-0">
         <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-7 shrink-0 items-center justify-center">
-              <SearchIcon className="size-4 text-muted-foreground" />
-            </div>
-            <Input
-              type="text"
-              placeholder="Search MCP tokens..."
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className={cn(
-                "h-7 w-64 border-none bg-transparent p-0 text-sm shadow-none outline-none",
-                "placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
-              )}
-            />
-          </div>
+          <ListHeaderSearch
+            placeholder="Search MCP tokens..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
 
           <div className="ml-auto flex items-center gap-3">
             <span className="text-xs text-muted-foreground">

@@ -1,64 +1,91 @@
 """PostgreSQL advisory lock helpers for distributed coordination."""
 
 import hashlib
-from collections.abc import AsyncIterator
+import uuid
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
+from sqlalchemy.orm import Session
 
+from tracecat.db.exceptions import AdvisoryLockLostError
 from tracecat.identifiers import WorkspaceID
+
+_HOLDS_LOCK = text(
+    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory'"
+    " AND granted AND pid = pg_backend_pid() AND objsubid = 1"
+    " AND classid::bigint = :high AND objid::bigint = :low)"
+)
 
 
 @asynccontextmanager
-async def pg_advisory_lock(session: AsyncSession, key: int) -> AsyncIterator[None]:
-    """Acquire a PostgreSQL advisory lock with the given key.
+async def hold_pg_advisory_xact_lock(
+    engine: AsyncEngine, key: int, *, wait: bool = True
+) -> AsyncIterator[AsyncConnection | None]:
+    """Hold a transaction-scoped lock on a dedicated connection.
+
+    The lock's transaction stays open until the context exits, so work that
+    commits several times on other connections stays serialized. The lock
+    never outlives that transaction, which keeps it correct behind a
+    transaction-mode connection pooler. Finish the protected work inside the
+    context so a waiter starts only after that work has committed, and guard
+    its sessions with ``require_lock_holder_on_commit``.
 
     Args:
-        session: Database session
+        engine: Engine to check the lock connection out of
         key: 64-bit integer key for the lock
+        wait: Block until the lock is free instead of trying once
 
     Yields:
-        None while lock is held
-
-    Raises:
-        ValueError: If key is out of valid range for PostgreSQL advisory locks
-
-    Note:
-        Key must be a 64-bit signed integer (-2^63 to 2^63-1)
-    """
-    if not (-(2**63) <= key < 2**63):
-        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
-
-    try:
-        # Acquire the lock (blocks until available)
-        await session.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
-        yield
-    finally:
-        # Always release the lock
-        await session.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
-
-
-async def try_pg_advisory_lock(session: AsyncSession, key: int) -> bool:
-    """Try to acquire a PostgreSQL advisory lock without blocking.
-
-    Args:
-        session: Database session
-        key: 64-bit integer key for the lock
-
-    Returns:
-        True if lock was acquired, False if already held
+        The holder connection, or None if ``wait`` is unset and the lock is held
 
     Raises:
         ValueError: If key is out of valid range for PostgreSQL advisory locks
     """
     if not (-(2**63) <= key < 2**63):
         raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
+    # Closing the connection rolls back its transaction, releasing the lock.
+    lock_fn = "pg_advisory_xact_lock" if wait else "pg_try_advisory_xact_lock"
+    async with engine.connect() as connection:
+        # The transaction idles while other connections do the work. A server
+        # idle timeout would end it and release the lock mid-work.
+        await connection.execute(
+            text("SET LOCAL idle_in_transaction_session_timeout = 0")
+        )
+        result = await connection.execute(text(f"SELECT {lock_fn}(:key)"), {"key": key})
+        yield connection if wait or result.scalar() is True else None
 
-    result = await session.execute(
-        text("SELECT pg_try_advisory_lock(:key)"), {"key": key}
-    )
-    return result.scalar() is True
+
+def require_lock_holder_on_commit(
+    session: AsyncSession, holder: AsyncConnection, key: int
+) -> None:
+    """Fail each commit of ``session`` unless ``holder`` still holds the lock.
+
+    If the holder's transaction ends, PostgreSQL releases its lock while this
+    session's connection stays usable. Checking the holder first keeps a
+    commit from landing after another process has taken the lock.
+    """
+
+    if not (-(2**63) <= key < 2**63):
+        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
+    if (holder_connection := holder.sync_connection) is None:
+        raise RuntimeError("Lock holder connection is not open")
+    # pg_locks splits a bigint advisory key into two 32-bit halves.
+    key_parts = {"high": (key >> 32) & 0xFFFFFFFF, "low": key & 0xFFFFFFFF}
+
+    def check_holder(sync_session: Session) -> None:
+        # Commit flushes after this hook; flush first so no write waits after
+        # the check.
+        sync_session.flush()
+        try:
+            held = holder_connection.execute(_HOLDS_LOCK, key_parts).scalar()
+        except Exception as exc:
+            raise AdvisoryLockLostError("Advisory lock holder ended") from exc
+        if held is not True:
+            raise AdvisoryLockLostError("Advisory lock is no longer held")
+
+    event.listen(session.sync_session, "before_commit", check_holder)
 
 
 async def try_pg_advisory_xact_lock(session: AsyncSession, key: int) -> bool:
@@ -72,26 +99,37 @@ async def try_pg_advisory_xact_lock(session: AsyncSession, key: int) -> bool:
     return result.scalar() is True
 
 
-async def pg_advisory_unlock(session: AsyncSession, key: int) -> bool:
-    """Release a PostgreSQL advisory lock.
+async def pg_advisory_xact_lock(session: AsyncSession, key: int) -> None:
+    """Acquire a transaction-scoped lock; use before reading at READ COMMITTED.
 
-    Args:
-        session: Database session
-        key: 64-bit integer key for the lock
-
-    Returns:
-        True if lock was released, False if not held by this session
-
-    Raises:
-        ValueError: If key is out of valid range for PostgreSQL advisory locks
+    Repeatable snapshots that may wait need ``hold_pg_advisory_xact_lock``
+    before the snapshot transaction starts instead.
     """
     if not (-(2**63) <= key < 2**63):
         raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
-    result = await session.execute(
-        text("SELECT pg_advisory_unlock(:key)"), {"key": key}
-    )
-    return result.scalar() is True
+
+async def lock_mcp_refresh_token_users(
+    session: AsyncSession, user_ids: Iterable[uuid.UUID]
+) -> None:
+    """Take the transaction-scoped MCP refresh-token lock of each user.
+
+    Rotation holds a user's lock until it commits, and the membership-delete
+    trigger takes it before revoking, so a removal sees a rotation's
+    replacement token. A transaction that also locks other users' token rows
+    and then removes memberships must take these locks first, or it can
+    deadlock with a rotation. Users are locked in a stable order. The key must
+    match ``revoke_mcp_tokens_on_membership_delete()``.
+    """
+    for user_id in sorted(set(user_ids)):
+        await session.execute(
+            text(
+                "SELECT pg_advisory_xact_lock(hashtextextended("
+                "'mcp_refresh_token:' || CAST(:user_id AS uuid)::text, 0))"
+            ),
+            {"user_id": user_id},
+        )
 
 
 def derive_lock_key(workspace_id: WorkspaceID, repo_url: str) -> int:

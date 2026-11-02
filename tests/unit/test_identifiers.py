@@ -4,6 +4,8 @@ from typing import Self
 from uuid import UUID
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import BaseModel, TypeAdapter
 
 from tracecat.identifiers.common import (
@@ -14,9 +16,98 @@ from tracecat.identifiers.common import (
 from tracecat.identifiers.workflow import (
     WF_EXEC_ID_PATTERN,
     WF_EXEC_ID_SCHEMA_PATTERN,
+    AnyWorkflowIDPath,
+    AnyWorkflowIDQuery,
+    OptionalAnyWorkflowIDQuery,
     WorkflowExecutionID,
     WorkflowUUID,
 )
+
+
+@pytest.fixture
+def workflow_id_client() -> TestClient:
+    app = FastAPI()
+
+    def get_by_path(workflow_id: AnyWorkflowIDPath) -> str:
+        return str(workflow_id)
+
+    def get_by_query(workflow_id: AnyWorkflowIDQuery) -> str:
+        return str(workflow_id)
+
+    def get_by_optional_query(workflow_id: OptionalAnyWorkflowIDQuery) -> str | None:
+        return str(workflow_id) if workflow_id is not None else None
+
+    app.add_api_route("/workflows/{workflow_id}", get_by_path)
+    app.add_api_route("/workflows", get_by_query)
+    app.add_api_route("/optional-workflows", get_by_optional_query)
+    return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    ("url", "location"),
+    [
+        ("/workflows/{workflow_id}", "path"),
+        ("/workflows?workflow_id={workflow_id}", "query"),
+        ("/optional-workflows?workflow_id={workflow_id}", "query"),
+    ],
+)
+@pytest.mark.parametrize(
+    "workflow_id",
+    [
+        pytest.param("wf_12345678-1234-4234-8234-123456789012", id="prefixed-uuid"),
+        pytest.param("wf_abc-def", id="non-base62-char"),
+        pytest.param("wf_" + "z" * 22, id="uuid-overflow"),
+        pytest.param("prefix_wf_abc", id="embedded-prefix"),
+        pytest.param("wf-" + "1" * 32 + "invalid", id="legacy-trailing-junk"),
+    ],
+)
+def test_workflow_id_dependencies_reject_malformed_ids(
+    workflow_id_client: TestClient, url: str, location: str, workflow_id: str
+) -> None:
+    response = workflow_id_client.get(url.format(workflow_id=workflow_id))
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == [location, "workflow_id"]
+    assert error["type"] == "value_error"
+    assert error["msg"] == (
+        "Invalid workflow ID. Expected a UUID or a short ID (wf_<base62>)."
+    )
+    assert error["input"] == workflow_id
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/workflows/{workflow_id}",
+        "/workflows?workflow_id={workflow_id}",
+        "/optional-workflows?workflow_id={workflow_id}",
+    ],
+)
+@pytest.mark.parametrize("id_format", ["uuid", "short", "legacy"])
+def test_workflow_id_dependencies_accept_valid_ids(
+    workflow_id_client: TestClient, url: str, id_format: str
+) -> None:
+    workflow_id = WorkflowUUID.new_uuid4()
+    raw_id = {
+        "uuid": str(workflow_id),
+        "short": workflow_id.short(),
+        "legacy": workflow_id.to_legacy(),
+    }[id_format]
+
+    response = workflow_id_client.get(url.format(workflow_id=raw_id))
+
+    assert response.status_code == 200
+    assert response.json() == str(workflow_id)
+
+
+def test_optional_workflow_id_dependency_accepts_omitted_id(
+    workflow_id_client: TestClient,
+) -> None:
+    response = workflow_id_client.get("/optional-workflows")
+
+    assert response.status_code == 200
+    assert response.json() is None
 
 
 def test_id_to_short() -> None:
@@ -83,6 +174,7 @@ class TestTracecatUUID:
         # Test conversion back from short format
         recovered = MockUUID.from_short(short_id)
         assert recovered == uuid_obj
+        assert MockUUID.make_short(test_uuid) == short_id
 
     def test_new_uuid4(self) -> None:
         """Test generation of new UUID4."""
@@ -91,15 +183,6 @@ class TestTracecatUUID:
 
         assert isinstance(uuid1, MockUUID)
         assert uuid1 != uuid2  # Verify uniqueness
-
-    def test_make_short(self) -> None:
-        """Test make_short class method."""
-
-        original_uuid = UUID(int=12345)
-        short_id = MockUUID.make_short(original_uuid)
-
-        assert short_id.startswith("test_")
-        assert len(short_id) == len("test_") + 22
 
     def test_from_any_invalid(self) -> None:
         """Test new with invalid input."""
@@ -133,25 +216,15 @@ class TestTracecatUUID:
         assert uuid1 != "not-a-uuid"
         assert uuid1 != 12345
 
-    def test_equality_with_normal_uuid(self) -> None:
-        """Test that TracecatUUID instances can be compared with normal UUIDs."""
-
-        test_uuid = MockUUID(int=12345)
-        normal_uuid = UUID(int=12345)
-        assert test_uuid == normal_uuid
-
 
 class TestWorkflowUUID:
     """Test suite for WorkflowUUID."""
-
-    def test_prefix(self) -> None:
-        """Test WorkflowUUID prefix."""
-        assert WorkflowUUID.prefix == "wf_"
 
     def test_roundtrip(self) -> None:
         """Test conversion to and from short format."""
         original = WorkflowUUID.new_uuid4()
         short_id = original.short()
+        assert short_id.startswith("wf_")
         recovered = WorkflowUUID.from_short(short_id)
         assert original == recovered
 
@@ -183,89 +256,41 @@ class TestWorkflowUUID:
                 WorkflowUUID.from_legacy(invalid_id)
 
 
-def test_tracecat_uuid_serialization(test_uuid_str):
-    """Test that TracecatUUID can be serialized and deserialized correctly."""
+def test_tracecat_uuid_construction_and_serialization(test_uuid_str):
+    """TracecatUUID accepts every supported input form and round-trips via JSON."""
 
     class TestModel(BaseModel):
-        """Test model that uses TestUUID."""
-
         id: MockUUID
 
-    original_uuid = UUID(test_uuid_str)
-    test_uuid = MockUUID.from_uuid(original_uuid)
-
-    assert MockUUID.new(test_uuid_str) == test_uuid
-    assert MockUUID.new(test_uuid) == test_uuid
-    assert MockUUID.new(test_uuid.short()) == test_uuid
-
-    # Create a model instance
-    model = TestModel(id=test_uuid)
-
-    # Serialize to dict/JSON
-    serialized_json = model.model_dump_json()
-    assert serialized_json == f'{{"id":"{test_uuid}"}}'
-
-    serialized_python = model.model_dump()
-    assert serialized_python == {"id": test_uuid}
-
-    # Try from uuid string
-
-    # Deserialize back
-    deserialized = TestModel.model_validate_json(serialized_json)
-
-    # Verify the UUID matches
-    assert isinstance(deserialized.id, MockUUID)
-    assert deserialized.id == test_uuid
-    assert str(deserialized.id) == str(original_uuid)
-
-    # Test direct string UUID initialization
-    str_model = TestModel(id=str(original_uuid))  # type: ignore
-    assert str_model.id == test_uuid
-
-
-def test_tracecat_uuid_construction(test_uuid_str):
-    """Test that TracecatUUID can be constructed from various inputs."""
     original_uuid = UUID(test_uuid_str)
     test_uuid = MockUUID.from_uuid(original_uuid)
     short_id = test_uuid.short()
 
-    # Test model construction
-    class TestModel(BaseModel):
-        """Test model that uses MockUUID."""
-
-        id: MockUUID
-
-    from_uuid_str = TestModel(id=test_uuid_str)  # type: ignore
-    assert isinstance(from_uuid_str.id, MockUUID)
-    assert from_uuid_str.id == test_uuid
-
-    json_str = f'{{"id":"{test_uuid_str}"}}'
-    from_json_str = TestModel.model_validate_json(json_str)
-    assert isinstance(from_json_str.id, MockUUID)
-    assert from_json_str.id == MockUUID(test_uuid_str)
-
-    json_dict = {"id": test_uuid}
-    from_json_dict = TestModel.model_validate(json_dict)
-    assert isinstance(from_json_dict.id, MockUUID)
-    assert from_json_dict.id == test_uuid
-
-    # short id
+    assert MockUUID.new(test_uuid_str) == test_uuid
+    assert MockUUID.new(test_uuid) == test_uuid
+    assert MockUUID.new(short_id) == test_uuid
     assert MockUUID.from_short(short_id) == test_uuid
-
-    # We actually get a type error here, but it works anyway
-    from_short_str = TestModel(id=short_id)  # type: ignore
-    assert isinstance(from_short_str.id, MockUUID)
-    assert from_short_str.id == test_uuid
-
+    assert MockUUID.from_legacy(f"test-legacy-{test_uuid.hex}") == test_uuid
+    assert MockUUID.new(f"test-legacy-{test_uuid.hex}") == test_uuid
     with pytest.raises(
         ValueError, match="Invalid prefix 'test_' for MockUUID, expected 'test_'"
     ):
         MockUUID.from_short("invalid_12345")
 
-    # Legacy
+    for value in (test_uuid, test_uuid_str, short_id):
+        model = TestModel(id=value)  # type: ignore[arg-type]
+        assert isinstance(model.id, MockUUID)
+        assert model.id == test_uuid
 
-    assert MockUUID.from_legacy(f"test-legacy-{test_uuid.hex}") == test_uuid
-    assert MockUUID.new(f"test-legacy-{test_uuid.hex}") == test_uuid
+    model = TestModel(id=test_uuid)
+    serialized_json = model.model_dump_json()
+    assert serialized_json == f'{{"id":"{test_uuid}"}}'
+    assert model.model_dump() == {"id": test_uuid}
+
+    deserialized = TestModel.model_validate_json(serialized_json)
+    assert isinstance(deserialized.id, MockUUID)
+    assert deserialized.id == test_uuid
+    assert str(deserialized.id) == str(original_uuid)
 
 
 def test_workflow_execution_id_schema_pattern_has_no_python_named_groups() -> None:

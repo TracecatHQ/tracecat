@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
+
+from tracecat.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
     from tracecat.agent.catalog.types import ModelKey
@@ -11,11 +14,15 @@ if TYPE_CHECKING:
         CatalogMappingRequirement,
         McpIntegrationMappingRequirement,
         PullDiagnostic,
+        PullResult,
+        SecretStoreMappingRequirement,
     )
     from tracecat.workspace_sync.schemas import (
         AgentPresetResourceSpec,
         McpIntegrationHint,
+        SecretMetadataResourceSpec,
         WorkflowResourceSpec,
+        WorkspaceProjection,
         WorkspaceRemoteSnapshot,
     )
 
@@ -97,10 +104,72 @@ class CorrelatedMcpIntegrationRefs:
     requirements: list[McpIntegrationMappingRequirement]
 
 
-class PreparedSnapshot(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class CorrelatedSecretStores:
+    """Secret metadata with mapped store names, plus diagnostics and requirements."""
+
+    secret_metadata: dict[str, SecretMetadataResourceSpec]
+    diagnostics: list[PullDiagnostic]
+    requirements: list[SecretStoreMappingRequirement]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedSnapshot:
     """Snapshot with deployment-local references resolved, plus any diagnostics."""
 
     snapshot: WorkspaceRemoteSnapshot
     diagnostics: list[PullDiagnostic]
     catalog_mapping_requirements: list[CatalogMappingRequirement]
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
+    secret_store_mapping_requirements: list[SecretStoreMappingRequirement]
+    library_skill_installs: list[str]
+
+
+type WorkflowExportStage = Literal["definition", "dependency"]
+type WorkflowExportCode = Literal[
+    "publish_required",
+    "missing_definition",
+    "no_actions",
+    "invalid_definition",
+    "missing_child_workflow",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedPullPreview:
+    """A correlated immutable pull plan paired with its validated review."""
+
+    snapshot: WorkspaceRemoteSnapshot
+    preview: PullResult
+
+
+@dataclass(frozen=True, slots=True)
+class PushProjection:
+    """What one push writes, and the remote roots it may delete stale files in."""
+
+    projection: WorkspaceProjection
+    delete_roots: tuple[str, ...]
+    package_include: str | None = None
+    """Include file text when the push is a managed resources package export."""
+
+
+@dataclass(frozen=True, slots=True)
+class SyncMappingTarget:
+    """Desired sync mapping state for one projected or imported resource."""
+
+    resource_type: str
+    source_id: str
+    source_path: str
+    local_id: uuid.UUID
+
+
+class SyncCommitConflictError(TracecatValidationError):
+    """The target Git ref moved after the reviewed revision was checked."""
+
+
+class SyncWorkflowImportError(Exception):
+    """Retain the failing source workflow after a transaction rollback."""
+
+    def __init__(self, diagnostic: PullDiagnostic, message: str) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic

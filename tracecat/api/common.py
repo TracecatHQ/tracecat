@@ -1,15 +1,22 @@
+import re
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler as default_http_handler
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
+from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
     AddSearchAttributesRequest,
     ListSearchAttributesRequest,
     RemoveSearchAttributesRequest,
 )
+from temporalio.service import RPCError, RPCStatusCode
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -20,15 +27,18 @@ from tenacity import (
 from tracecat.auth.types import Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
+from tracecat.db.errors import is_data_error
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_auth_pool_exhaustion
 from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
 )
+from tracecat.tables.exceptions import TableRowError
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 # All Tracecat search attributes are Keyword-typed.
@@ -36,6 +46,60 @@ _SEARCH_ATTRIBUTE_TYPES: dict[str, IndexedValueType.ValueType] = {
     attr.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
     for attr in TemporalSearchAttr
 }
+
+
+def without_inputs(errors: Sequence[Any]) -> list[Any]:
+    """Request validation errors without the rejected input.
+
+    The input can be large or sensitive, such as an inline image, so it is
+    never logged.
+    """
+    return [
+        {key: value for key, value in error.items() if key != "input"}
+        if isinstance(error, Mapping)
+        else error
+        for error in errors
+    ]
+
+
+_SURROGATES = re.compile(r"[\ud800-\udfff]")
+
+
+def serialize_validation_errors(errors: Sequence[Any]) -> list[Any]:
+    """Make validation errors safe for UTF-8 JSON."""
+    errors = _replace_surrogates(errors)
+    return _replace_surrogates(to_jsonable_python(errors, fallback=str))
+
+
+def _replace_surrogates(value: Any) -> Any:
+    # pydantic_core rejects surrogate keys; fallback=str can reintroduce them.
+    if isinstance(value, str):
+        return value if value.isascii() else _SURROGATES.sub("\ufffd", value)
+    if isinstance(value, (list, tuple)):
+        return [_replace_surrogates(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            (
+                _replace_surrogates(key) if isinstance(key, str) else key
+            ): _replace_surrogates(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+async def database_exception_handler(request: Request, exc: Exception) -> Response:
+    # Handled here, not in the catch-all, so rejected client data does not page.
+    if not is_data_error(exc):
+        raise exc
+    logger.warning(
+        "Database rejected request data",
+        error_type=type(exc).__name__,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": "Request contains a value that cannot be stored"},
+    )
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
@@ -54,7 +118,9 @@ async def generic_exception_handler(request: Request, exc: Exception) -> Respons
 
 async def http_exception_handler(request: Request, exc: Exception) -> Response:
     """Log HTTP exceptions with tenant context for observability."""
-    http_exc = exc if isinstance(exc, HTTPException) else HTTPException(500, str(exc))
+    http_exc = (
+        exc if isinstance(exc, StarletteHTTPException) else HTTPException(500, str(exc))
+    )
     role = ctx_role.get()
     log_method = logger.warning if http_exc.status_code < 500 else logger.error
     log_method(
@@ -78,6 +144,8 @@ def auth_pool_exhausted_exception_handler(
         if isinstance(exc, AuthPoolExhaustedError)
         else AuthPoolExhaustedError(str(exc))
     )
+    if isinstance(exc, AuthPoolExhaustedError):
+        capture_auth_pool_exhaustion(exc)
     logger.error(
         "Authentication database pool exhausted",
         exc=auth_exc,
@@ -168,6 +236,20 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
             "message": msg,
             "detail": tracecat_exc.detail,
         },
+    )
+
+
+async def table_row_exception_handler(request: Request, exc: Exception) -> Response:
+    """Report invalid row input as a client error, without capturing an outage."""
+    if not isinstance(exc, TableRowError):
+        raise exc
+    status_code = (
+        status.HTTP_409_CONFLICT
+        if exc.code == "duplicate_value"
+        else status.HTTP_400_BAD_REQUEST
+    )
+    return await http_exception_handler(
+        request, HTTPException(status_code=status_code, detail=exc.detail)
     )
 
 
@@ -273,6 +355,16 @@ async def add_temporal_search_attributes():
             )
         )
     except Exception as e:
+        if isinstance(e, RPCError) and e.status == RPCStatusCode.PERMISSION_DENIED:
+            # Cloud runtime credentials may lack operator-service access.
+            # Attributes must be provisioned externally in these deployments.
+            logger.warning(
+                "Skipping automatic Temporal search attribute registration: "
+                "operator access denied; provision search attributes externally",
+                namespace=namespace,
+                exc=e,
+            )
+            return
         logger.error(
             "Error adding temporal search attributes",
             exc=e,

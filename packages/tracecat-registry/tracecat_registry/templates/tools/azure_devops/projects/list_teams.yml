@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: List teams
+  description: "List teams in a project."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/core/teams/get-teams?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_teams
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    mine:
+      type: bool | None
+      description: "Return only teams the authenticated user is a member of."
+      default: null
+    top:
+      type: int | None
+      description: "Maximum number of teams to return."
+      default: null
+    skip:
+      type: int | None
+      description: "Number of teams to skip."
+      default: null
+    expand_identity:
+      type: bool | None
+      description: "Expand identity information in the result."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            $mine: ${{ inputs.mine }}
+            $top: ${{ inputs.top }}
+            $skip: ${{ inputs.skip }}
+            $expandIdentity: ${{ inputs.expand_identity }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.3"
+              return query
+    - ref: list_teams
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/_apis/projects/${{ FN.url_encode(inputs.project) }}/teams
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_teams.result }}

@@ -32,6 +32,7 @@ class TurnLifecycle(StrEnum):
     Never persisted to the DB - Temporal owns turn lifecycle. Computed from
     ``describe_workflow(curr_run_id)`` on the (cold) reconnect path.
 
+    - UNAVAILABLE: the backend is not installed; the live outcome is unknown.
     - NONE: no current run; nothing to attach to (-> 204).
     - RUNNING: workflow live; join the Redis stream from the client cursor.
     - COMPLETED: turn done; canonical history is in the DB (-> 204).
@@ -46,6 +47,7 @@ class TurnLifecycle(StrEnum):
       the `data-cancelled` stream event emitted mid-turn, not this value.
     """
 
+    UNAVAILABLE = "unavailable"
     NONE = "none"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -102,3 +104,5 @@ class PreparedAgentTurn:
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
+    backend_id: str
+    harness_type: str | None

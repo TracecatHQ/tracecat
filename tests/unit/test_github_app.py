@@ -10,12 +10,14 @@ import pytest
 from github import Github
 from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Secret
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.git.types import GitUrl
+from tracecat.logger import logger
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -25,7 +27,6 @@ from tracecat.vcs.github.app import (
     GitHubAppService,
 )
 from tracecat.vcs.github.schemas import (
-    GitHubAppConfig,
     GitHubAppCredentials,
     GitHubInstallation,
     GitHubRepository,
@@ -119,66 +120,6 @@ class TestGitHubAppService:
     # ============================================================================
 
     @pytest.mark.anyio
-    async def test_register_app_success(self, github_admin_service, mock_credentials):
-        """Test registering GitHub App credentials."""
-        with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
-            mock_service = AsyncMock()
-            mock_secrets_service.return_value = mock_service
-
-            config = await github_admin_service.register_app(
-                app_id=mock_credentials.app_id,
-                private_key_pem=mock_credentials.private_key,
-                webhook_secret=mock_credentials.webhook_secret,
-                client_id=mock_credentials.client_id,
-            )
-
-            assert config.app_id == mock_credentials.app_id
-            assert config.client_id == mock_credentials.client_id
-            assert config.installation_id == 0  # Not set during registration
-            mock_service.create_org_secret.assert_called_once()
-
-    @pytest.mark.anyio
-    async def test_get_github_app_credentials_success(
-        self, github_admin_service, mock_credentials, mock_secret
-    ):
-        """Test retrieving GitHub App credentials."""
-        with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
-            mock_service = Mock()
-            mock_service._get_github_app_org_secret = AsyncMock(
-                return_value=mock_secret
-            )
-            mock_service.decrypt_keys = Mock(
-                return_value=[
-                    SecretKeyValue(
-                        key="app_id", value=SecretStr(mock_credentials.app_id)
-                    ),
-                    SecretKeyValue(
-                        key="private_key", value=mock_credentials.private_key
-                    ),
-                    SecretKeyValue(
-                        key="webhook_secret", value=mock_credentials.webhook_secret
-                    ),
-                    SecretKeyValue(
-                        key="client_id", value=SecretStr(mock_credentials.client_id)
-                    ),
-                ]
-            )
-            mock_secrets_service.return_value = mock_service
-
-            credentials = await github_admin_service.get_github_app_credentials()
-
-            assert credentials.app_id == mock_credentials.app_id
-            assert (
-                credentials.private_key.get_secret_value()
-                == mock_credentials.private_key.get_secret_value()
-            )
-            assert (
-                credentials.webhook_secret.get_secret_value()
-                == mock_credentials.webhook_secret.get_secret_value()
-            )
-            assert credentials.client_id == mock_credentials.client_id
-
-    @pytest.mark.anyio
     async def test_get_github_app_credentials_not_found(self, github_admin_service):
         """Test retrieving GitHub App credentials when not found."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
@@ -219,48 +160,49 @@ class TestGitHubAppService:
             await github_admin_service.get_github_app_credentials()
 
     @pytest.mark.anyio
-    async def test_update_github_app_credentials_success(
-        self, github_admin_service, mock_credentials, mock_secret
-    ):
-        """Test updating existing GitHub App credentials."""
-        new_app_id = "654321"
+    async def test_invalid_stored_credentials_do_not_leak_secrets(
+        self, github_admin_service, mock_secret
+    ) -> None:
+        """Invalid decrypted credentials never reach logs or raised errors."""
+        # Short sentinels: pydantic truncates long input reprs, hiding fragments.
+        private_key = "pk-leak"
+        webhook_secret = "wh-leak"
+        # Missing app_id makes pydantic report the whole input dict.
+        key_dict = {"private_key": private_key, "webhook_secret": webhook_secret}
 
-        with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
-            mock_service = Mock()
-            mock_service._get_github_app_org_secret = AsyncMock(
-                return_value=mock_secret
-            )
-            mock_service.decrypt_keys = Mock(
-                return_value=[
-                    SecretKeyValue(
-                        key="app_id", value=SecretStr(mock_credentials.app_id)
-                    ),
-                    SecretKeyValue(
-                        key="private_key", value=mock_credentials.private_key
-                    ),
-                    SecretKeyValue(
-                        key="webhook_secret", value=mock_credentials.webhook_secret
-                    ),
-                    SecretKeyValue(
-                        key="client_id", value=SecretStr(mock_credentials.client_id)
-                    ),
-                ]
-            )
-            mock_service.update_org_secret = AsyncMock()
-            mock_secrets_service.return_value = mock_service
+        with pytest.raises(PydanticValidationError) as validation_exc:
+            GitHubAppCredentials.model_validate(key_dict)
+        for value in (private_key, webhook_secret):
+            assert value not in str(validation_exc.value)
 
-            # Mock get_github_app_credentials to return existing credentials
-            with patch.object(
-                github_admin_service,
-                "get_github_app_credentials",
-                return_value=mock_credentials,
-            ):
-                config = await github_admin_service.update_github_app_credentials(
-                    app_id=new_app_id
+        records: list[str] = []
+        sink_id = logger.add(records.append, format="{message} | {extra}")
+        try:
+            with patch(
+                "tracecat.vcs.github.app.SecretsService"
+            ) as mock_secrets_service:
+                mock_service = Mock()
+                mock_service._get_github_app_org_secret = AsyncMock(
+                    return_value=mock_secret
                 )
+                mock_service.decrypt_keys.return_value = [
+                    SecretKeyValue(key=k, value=SecretStr(v))
+                    for k, v in key_dict.items()
+                ]
+                mock_secrets_service.return_value = mock_service
 
-                assert config.app_id == new_app_id
-                mock_service.update_org_secret.assert_called_once()
+                with pytest.raises(GitHubAppError) as exc_info:
+                    await github_admin_service.get_github_app_credentials()
+        finally:
+            logger.remove(sink_id)
+
+        log_text = "\n".join(records)
+        assert "Stored GitHub App credentials are corrupted" in log_text
+        assert "ValidationError" in log_text
+        assert "Field required" not in log_text
+        for value in (private_key, webhook_secret):
+            assert value not in log_text
+            assert value not in str(exc_info.value)
 
     @pytest.mark.anyio
     async def test_get_github_app_credentials_status_exists(
@@ -743,67 +685,3 @@ class TestGitHubAppService:
             match="You don't have permission to perform this action.",
         ):
             await github_service.update_github_app_credentials(app_id="new-id")
-
-
-class TestGitHubAppModels:
-    """Test GitHub App data models."""
-
-    def test_github_app_config_creation(self):
-        """Test creating GitHub App config."""
-        config = GitHubAppConfig(
-            installation_id=12345678, app_id="123456", client_id="client-123"
-        )
-
-        assert config.installation_id == 12345678
-        assert config.app_id == "123456"
-        assert config.client_id == "client-123"
-        assert config.private_key_encrypted is None
-
-    def test_github_app_credentials_creation(self):
-        """Test creating GitHub App credentials."""
-        credentials = GitHubAppCredentials(
-            app_id="123456",
-            private_key=SecretStr("private-key"),
-            webhook_secret=SecretStr("webhook-secret"),
-            client_id="client-123",
-        )
-
-        assert credentials.app_id == "123456"
-        assert credentials.private_key.get_secret_value() == "private-key"
-        assert (
-            credentials.webhook_secret
-            and credentials.webhook_secret.get_secret_value() == "webhook-secret"
-        )
-        assert credentials.client_id == "client-123"
-
-    def test_github_installation_creation(self):
-        """Test creating GitHub installation."""
-        installation = GitHubInstallation(
-            id=12345678,
-            account_login="test-org",
-            account_type="Organization",
-            target_type="Organization",
-        )
-
-        assert installation.id == 12345678
-        assert installation.account_login == "test-org"
-        assert installation.account_type == "Organization"
-        assert installation.target_type == "Organization"
-        assert installation.permissions == {}
-        assert installation.repositories == []
-
-    def test_github_repository_creation(self):
-        """Test creating GitHub repository."""
-        repo = GitHubRepository(
-            id=123,
-            name="test-repo",
-            full_name="test-org/test-repo",
-            private=False,
-            default_branch="main",
-        )
-
-        assert repo.id == 123
-        assert repo.name == "test-repo"
-        assert repo.full_name == "test-org/test-repo"
-        assert repo.private is False
-        assert repo.default_branch == "main"

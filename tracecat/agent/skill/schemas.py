@@ -15,14 +15,10 @@ from pydantic import (
     field_validator,
 )
 
+from tracecat.agent.skill.types import SkillOrigin
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
-
-# Reserved name prefix for built-in/platform skills. User- and preset-authored
-# skills may not use it, so platform skills (staged into the same on-disk skills
-# directory) can never collide with a user skill of the same name. Kept in sync
-# with ``tracecat.agent.skill.builtin.BUILTIN_SKILL_NAME_PREFIX``.
-RESERVED_SKILL_NAME_PREFIX = "tracecat-"
+from tracecat.tags.schemas import TagRead
 
 
 def _validate_skill_name(value: str) -> str:
@@ -33,16 +29,6 @@ def _validate_skill_name(value: str) -> str:
     return value
 
 
-def _validate_new_skill_name(value: str) -> str:
-    value = _validate_skill_name(value)
-    if value.startswith(RESERVED_SKILL_NAME_PREFIX):
-        raise ValueError(
-            f"Skill name must not start with the reserved prefix "
-            f"{RESERVED_SKILL_NAME_PREFIX!r}"
-        )
-    return value
-
-
 _SKILL_NAME_CONSTRAINTS = StringConstraints(
     strip_whitespace=True,
     min_length=1,
@@ -50,22 +36,13 @@ _SKILL_NAME_CONSTRAINTS = StringConstraints(
     pattern=r"^[a-z0-9-]+$",
 )
 
-# Identifier-shaped skill name/slug. Slug lookups use this lenient shape so
-# legacy ``tracecat-*`` rows from before the prefix was reserved remain readable.
+# Portable skill names do not encode ownership; origin is assigned by the host.
 SkillName = Annotated[
     str,
     _SKILL_NAME_CONSTRAINTS,
     AfterValidator(_validate_skill_name),
 ]
 
-# Skill name for create/upload/publish payloads. Additionally rejects the
-# reserved built-in prefix so no new user skill can collide with a platform
-# skill staged into the same on-disk skills directory.
-NewSkillName = Annotated[
-    str,
-    _SKILL_NAME_CONSTRAINTS,
-    AfterValidator(_validate_new_skill_name),
-]
 SkillPath = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=1024),
@@ -95,10 +72,13 @@ class SkillRead(Schema):
 
     id: uuid.UUID
     workspace_id: WorkspaceID
+    origin: Literal[SkillOrigin.WORKSPACE] = Field(default=SkillOrigin.WORKSPACE)
     name: str
     slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
+    folder_id: uuid.UUID | None = Field(default=None)
+    tags: list[TagRead] = Field(default_factory=list)
     draft_revision: int
     created_at: datetime
     updated_at: datetime
@@ -121,19 +101,28 @@ class SkillReadMinimal(Schema):
 
     id: uuid.UUID
     workspace_id: WorkspaceID
+    origin: Literal[SkillOrigin.WORKSPACE] = Field(default=SkillOrigin.WORKSPACE)
     name: str
     slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
+    folder_id: uuid.UUID | None = Field(default=None)
+    tags: list[TagRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = Field(default=None)
 
 
+class SkillMoveToFolder(Schema):
+    """Payload for moving a skill into a folder."""
+
+    folder_path: str | None = Field(default=None)
+
+
 class SkillCreate(Schema):
     """Payload for creating a new logical skill."""
 
-    name: NewSkillName
+    name: SkillName
     description: str | None = Field(default=None, max_length=4000)
 
 
@@ -148,7 +137,7 @@ class SkillUploadFile(Schema):
 class SkillUpload(Schema):
     """Payload for importing a full skill draft in one request."""
 
-    name: NewSkillName
+    name: SkillName
     files: list[SkillUploadFile] = Field(min_length=1)
 
 

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Iterator, Sequence
+import concurrent.futures
+from collections.abc import Coroutine, Iterable, Iterator, Sequence
 from types import TracebackType
 from typing import Any, Self
+
+from pydantic import SecretStr
+from tracecat_ee.secrets.stores.backends import get_backend
 
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
@@ -15,8 +19,30 @@ from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
+from tracecat.secrets.enums import SecretStoreProvider
 from tracecat.secrets.schemas import SecretKeyValue, SecretSearch
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import (
+    SecretsService,
+    build_external_secret_reference,
+    is_external_reference,
+)
+from tracecat.secrets.types import ExternalSecretReference
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
+
+
+def _run_coroutine_sync[T](coro: Coroutine[Any, Any, T]) -> T:
+    """Run a coroutine to completion from synchronous code.
+
+    Falls back to a worker thread when an event loop is already running in
+    this thread so ``asyncio.run()`` is never nested.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 class AuthSandbox:
@@ -41,6 +67,8 @@ class AuthSandbox:
         self._role = role or ctx_role.get()
         self._secret_paths = set(secrets or [])
         self._secret_objs: Sequence[BaseSecret] = []
+        self._external_references: list[ExternalSecretReference] = []
+        self._external_values: dict[str, dict[str, str]] = {}
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
@@ -48,8 +76,13 @@ class AuthSandbox:
 
     def __enter__(self) -> Self:
         if self._secret_paths:
-            self._secret_objs = asyncio.run(self._get_secrets())
-            self._set_secrets()
+            try:
+                self._secret_objs = _run_coroutine_sync(self._load_secrets())
+                self._set_secrets()
+            except BaseException:
+                # __exit__ never runs on a failed entry; drop fetched plaintext.
+                self._unset_secrets()
+                raise
         return self
 
     def __exit__(
@@ -67,9 +100,34 @@ class AuthSandbox:
 
     async def __aenter__(self) -> Self:
         if self._secret_paths:
-            self._secret_objs = await self._get_secrets()
-            self._set_secrets()
+            try:
+                self._secret_objs = await self._load_secrets()
+                self._set_secrets()
+            except BaseException:
+                self._unset_secrets()
+                raise
         return self
+
+    async def _load_secrets(self) -> Sequence[BaseSecret]:
+        """Load DB rows, then resolve any externally backed aliases remotely.
+
+        The DB session is closed inside ``_get_secrets`` before any remote call.
+        Configured external aliases fail explicitly even when optional.
+        """
+        secrets = await self._get_secrets()
+        self._external_references = [
+            build_external_secret_reference(secret)
+            for secret in secrets
+            if is_external_reference(secret)
+        ]
+        by_provider: dict[SecretStoreProvider, list[ExternalSecretReference]] = {}
+        for reference in self._external_references:
+            by_provider.setdefault(reference.provider, []).append(reference)
+        self._external_values = {}
+        for provider, references in by_provider.items():
+            resolved = await get_backend(provider).resolve(references)
+            self._external_values.update(resolved)
+        return secrets
 
     async def __aexit__(
         self,
@@ -88,6 +146,15 @@ class AuthSandbox:
         """Iterate over the secrets."""
         try:
             for secret in self._secret_objs:
+                if is_external_reference(secret):
+                    for key, value in self._external_values.get(
+                        secret.name, {}
+                    ).items():
+                        yield (
+                            secret.name,
+                            SecretKeyValue(key=key, value=SecretStr(value)),
+                        )
+                    continue
                 keyvalues = decrypt_keyvalues(
                     secret.encrypted_keys, key=self._encryption_key
                 )
@@ -113,6 +180,7 @@ class AuthSandbox:
         for secret in self._secret_objs:
             if secret.name in self._context:
                 del self._context[secret.name]
+        self._external_values.clear()
 
     async def _get_secrets(self) -> Sequence[BaseSecret]:
         """Retrieve secrets from a secrets manager."""
@@ -135,6 +203,10 @@ class AuthSandbox:
             secrets = await service.search_secrets(
                 SecretSearch(names=unique_secret_names, environment=self._environment)
             )
+            if any(is_external_reference(secret) for secret in secrets):
+                await check_entitlement(
+                    service.session, service.role, Entitlement.EXTERNAL_SECRET_STORES
+                )
 
         # Filter out optional secrets
         unique_req_secret_names = {

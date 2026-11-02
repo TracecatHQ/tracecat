@@ -3,7 +3,7 @@
 import uuid
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import sqlalchemy as sa
@@ -14,6 +14,8 @@ from tracecat_registry._internal import secrets as registry_secrets
 
 import tracecat.agent.service as agent_service
 from tracecat import config as tracecat_config
+from tracecat.agent.bedrock import BedrockDiscoveredModel, BedrockError
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.activities import _load_custom_model_provider_creds
 from tracecat.agent.preset.service import AgentPresetService
@@ -26,13 +28,20 @@ from tracecat.db.models import (
     AgentModelAccess,
     Organization,
     OrganizationSecret,
+    OrganizationSecretStore,
+    Secret,
     Workspace,
+)
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    TracecatNotFoundError,
 )
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
-from tracecat.secrets.enums import SecretType
+from tracecat.secrets.enums import SecretSource, SecretType
 from tracecat.secrets.schemas import SecretKeyValue
+from tracecat.secrets.types import ExternalSecretReference
 
 
 @pytest.fixture
@@ -45,6 +54,74 @@ def role() -> Role:
         user_id=uuid.uuid4(),
         scopes=frozenset({"agent:read", "org:secret:read"}),
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("source", ["local", "aws"])
+async def test_workspace_provider_credentials_resolve_source_and_preserve_fallback(
+    role: Role, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(tracecat_config, "TRACECAT__DB_ENCRYPTION_KEY", encryption_key)
+    service = AgentManagementService(AsyncMock(), role=role)
+    secret = Secret(
+        id=uuid.uuid4(),
+        workspace_id=role.workspace_id,
+        name="openai",
+        environment="default",
+        source=SecretSource.LOCAL,
+        encrypted_keys=encrypt_keyvalues(
+            [SecretKeyValue(key="OPENAI_API_KEY", value=SecretStr("local-key"))],
+            key=encryption_key,
+        ),
+    )
+    if source.startswith("aws"):
+        secret.source = SecretSource.AWS_SECRETS_MANAGER
+        secret.encrypted_keys = encrypt_keyvalues([], key=encryption_key)
+        secret.store = OrganizationSecretStore(
+            id=uuid.uuid4(),
+            organization_id=role.organization_id,
+            name="test-store",
+            enabled=True,
+            provider="aws_secrets_manager",
+            config={
+                "provider": "aws_secrets_manager",
+                "role_arn": "arn:aws:iam::123456789012:role/test-reader",
+                "region": "us-east-1",
+                "external_id": "test-external-id",
+            },
+        )
+        secret.remote_reference = "test-provider-key"
+        secret.remote_key_mapping = {"mode": "whole_string", "keys": ["OPENAI_API_KEY"]}
+
+    monkeypatch.setattr(agent_service, "check_entitlement", AsyncMock())
+    search = AsyncMock(return_value=[secret])
+    monkeypatch.setattr(service.secrets_service, "search_secrets", search)
+
+    class _StubBackend:
+        """Local-source secrets must never reach a store backend."""
+
+        async def resolve(
+            self, references: list[ExternalSecretReference]
+        ) -> dict[str, dict[str, str]]:
+            assert source == "aws"
+            assert len(references) == 1
+            assert secret.store is not None
+            assert references[0].store_id == secret.store.id
+            return {"openai": {"OPENAI_API_KEY": "remote-key"}}
+
+    monkeypatch.setattr(agent_service, "get_backend", lambda provider: _StubBackend())
+    assert service.presets is not None
+    monkeypatch.setattr(
+        service.presets,
+        "resolve_agent_preset_config",
+        AsyncMock(
+            return_value=AgentConfig(model_name="gpt-4.1", model_provider="openai")
+        ),
+    )
+    expected = {"local": "local-key", "aws": "remote-key"}
+    async with service.with_preset_config(preset_id=uuid.uuid4()):
+        assert registry_secrets.get("OPENAI_API_KEY") == expected[source]
 
 
 def _db_role(org: Organization, workspace: Workspace | None = None) -> Role:
@@ -124,20 +201,54 @@ async def _grant_access(
     await session.flush()
 
 
+@pytest.fixture
+def encryption_key(monkeypatch: pytest.MonkeyPatch) -> str:
+    key = Fernet.generate_key().decode()
+    monkeypatch.setattr(tracecat_config, "TRACECAT__DB_ENCRYPTION_KEY", key)
+    return key
+
+
+def _encrypt(values: dict[str, str], key: str) -> bytes:
+    return encrypt_keyvalues(
+        [SecretKeyValue(key=k, value=SecretStr(v)) for k, v in values.items()],
+        key=key,
+    )
+
+
+async def _custom_provider(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    base_url: str | None = "https://llm.example.com/v1",
+    passthrough: bool = False,
+    encrypted_config: bytes | None = None,
+) -> AgentCustomProvider:
+    provider = AgentCustomProvider(
+        organization_id=org_id,
+        display_name="Migrated provider",
+        base_url=base_url,
+        passthrough=passthrough,
+        encrypted_config=encrypted_config,
+    )
+    session.add(provider)
+    await session.flush()
+    return provider
+
+
+def _db_service(
+    session: AsyncSession, org: Organization, workspace: Workspace
+) -> AgentManagementService:
+    return AgentManagementService(session=session, role=_db_role(org, workspace))
+
+
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
 async def test_get_catalog_credentials_respects_workspace_override_access(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
-    monkeypatch: pytest.MonkeyPatch,
+    encryption_key: str,
 ) -> None:
-    encryption_key = Fernet.generate_key().decode()
-    monkeypatch.setattr(
-        tracecat_config,
-        "TRACECAT__DB_ENCRYPTION_KEY",
-        encryption_key,
-    )
     inherited_catalog = await _seed_catalog(
         session,
         org_id=None,
@@ -155,6 +266,12 @@ async def test_get_catalog_credentials_respects_workspace_override_access(
         org_id=svc_organization.id,
         catalog_id=inherited_catalog.id,
     )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=workspace_catalog.id,
+    )
+    # The workspace subset narrows the org set to one model.
     await _grant_access(
         session,
         org_id=svc_organization.id,
@@ -177,10 +294,7 @@ async def test_get_catalog_credentials_respects_workspace_override_access(
     )
     await session.commit()
 
-    service = AgentManagementService(
-        session=session,
-        role=_db_role(svc_organization, svc_workspace),
-    )
+    service = _db_service(session, svc_organization, svc_workspace)
 
     with pytest.raises(agent_service.TracecatAuthorizationError):
         await service.get_catalog_credentials(inherited_catalog.id)
@@ -194,23 +308,11 @@ async def test_get_catalog_credentials_uses_live_cloud_secret_with_catalog_metad
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
-    monkeypatch: pytest.MonkeyPatch,
+    encryption_key: str,
 ) -> None:
-    encryption_key = Fernet.generate_key().decode()
-    monkeypatch.setattr(
-        tracecat_config,
-        "TRACECAT__DB_ENCRYPTION_KEY",
+    migrated_blob = _encrypt(
+        {"AWS_ACCESS_KEY_ID": "old-key", "AWS_INFERENCE_PROFILE_ID": "old-target"},
         encryption_key,
-    )
-    migrated_blob = encrypt_keyvalues(
-        [
-            SecretKeyValue(key="AWS_ACCESS_KEY_ID", value=SecretStr("old-key")),
-            SecretKeyValue(
-                key="AWS_INFERENCE_PROFILE_ID",
-                value=SecretStr("old-target"),
-            ),
-        ],
-        key=encryption_key,
     )
     catalog = await _seed_catalog(
         session,
@@ -238,10 +340,7 @@ async def test_get_catalog_credentials_uses_live_cloud_secret_with_catalog_metad
     )
     await session.commit()
 
-    service = AgentManagementService(
-        session=session,
-        role=_db_role(svc_organization, svc_workspace),
-    )
+    service = _db_service(session, svc_organization, svc_workspace)
 
     credentials = await service.get_catalog_credentials(catalog.id)
 
@@ -257,23 +356,14 @@ async def test_get_catalog_credentials_uses_migrated_cloud_target_as_fallback(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
-    monkeypatch: pytest.MonkeyPatch,
+    encryption_key: str,
 ) -> None:
-    encryption_key = Fernet.generate_key().decode()
-    monkeypatch.setattr(
-        tracecat_config,
-        "TRACECAT__DB_ENCRYPTION_KEY",
+    migrated_blob = _encrypt(
+        {
+            "AWS_ACCESS_KEY_ID": "old-key",
+            "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+        },
         encryption_key,
-    )
-    migrated_blob = encrypt_keyvalues(
-        [
-            SecretKeyValue(key="AWS_ACCESS_KEY_ID", value=SecretStr("old-key")),
-            SecretKeyValue(
-                key="AWS_MODEL_ID",
-                value=SecretStr("anthropic.claude-3-haiku-20240307-v1:0"),
-            ),
-        ],
-        key=encryption_key,
     )
     catalog = await _seed_catalog(
         session,
@@ -300,10 +390,7 @@ async def test_get_catalog_credentials_uses_migrated_cloud_target_as_fallback(
     )
     await session.commit()
 
-    service = AgentManagementService(
-        session=session,
-        role=_db_role(svc_organization, svc_workspace),
-    )
+    service = _db_service(session, svc_organization, svc_workspace)
 
     credentials = await service.get_catalog_credentials(catalog.id)
 
@@ -318,44 +405,20 @@ async def test_get_catalog_credentials_preserves_migrated_custom_provider_base_u
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
-    monkeypatch: pytest.MonkeyPatch,
+    encryption_key: str,
 ) -> None:
-    encryption_key = Fernet.generate_key().decode()
-    monkeypatch.setattr(
-        tracecat_config,
-        "TRACECAT__DB_ENCRYPTION_KEY",
+    migrated_blob = _encrypt(
+        {
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "sk-custom",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/custom-model",
+            "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
+        },
         encryption_key,
     )
-    migrated_blob = encrypt_keyvalues(
-        [
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
-                value=SecretStr("https://llm.example.com/v1"),
-            ),
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_API_KEY",
-                value=SecretStr("sk-custom"),
-            ),
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_MODEL_NAME",
-                value=SecretStr("provider/custom-model"),
-            ),
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
-                value=SecretStr("true"),
-            ),
-        ],
-        key=encryption_key,
+    provider = await _custom_provider(
+        session, svc_organization.id, base_url=None, encrypted_config=migrated_blob
     )
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Migrated provider",
-        base_url=None,
-        passthrough=False,
-        encrypted_config=migrated_blob,
-    )
-    session.add(provider)
-    await session.flush()
     catalog = await _seed_catalog(
         session,
         org_id=svc_organization.id,
@@ -371,10 +434,7 @@ async def test_get_catalog_credentials_preserves_migrated_custom_provider_base_u
     )
     await session.commit()
 
-    service = AgentManagementService(
-        session=session,
-        role=_db_role(svc_organization, svc_workspace),
-    )
+    service = _db_service(session, svc_organization, svc_workspace)
 
     credentials = await service.get_catalog_credentials(catalog.id)
 
@@ -406,46 +466,25 @@ async def test_get_catalog_credentials_distinct_models_share_one_custom_provider
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
-    monkeypatch: pytest.MonkeyPatch,
+    encryption_key: str,
 ) -> None:
     """Each catalog row resolves to its own model_name even when several rows
     share one custom provider whose blob carries a stale, provider-wide
     CUSTOM_MODEL_PROVIDER_MODEL_NAME (regression: every selection collapsing
     onto the single legacy model name).
     """
-    encryption_key = Fernet.generate_key().decode()
-    monkeypatch.setattr(
-        tracecat_config,
-        "TRACECAT__DB_ENCRYPTION_KEY",
+    # Migrated/legacy blob carrying one shared model name for the provider.
+    migrated_blob = _encrypt(
+        {
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "sk-custom",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "stale/opus-4-6",
+        },
         encryption_key,
     )
-    # Migrated/legacy blob carrying one shared model name for the provider.
-    migrated_blob = encrypt_keyvalues(
-        [
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
-                value=SecretStr("https://llm.example.com/v1"),
-            ),
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_API_KEY",
-                value=SecretStr("sk-custom"),
-            ),
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_MODEL_NAME",
-                value=SecretStr("stale/opus-4-6"),
-            ),
-        ],
-        key=encryption_key,
+    provider = await _custom_provider(
+        session, svc_organization.id, encrypted_config=migrated_blob
     )
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Shared provider",
-        base_url="https://llm.example.com/v1",
-        passthrough=False,
-        encrypted_config=migrated_blob,
-    )
-    session.add(provider)
-    await session.flush()
 
     gemini = await _seed_catalog(
         session,
@@ -469,10 +508,7 @@ async def test_get_catalog_credentials_distinct_models_share_one_custom_provider
         )
     await session.commit()
 
-    service = AgentManagementService(
-        session=session,
-        role=_db_role(svc_organization, svc_workspace),
-    )
+    service = _db_service(session, svc_organization, svc_workspace)
 
     gemini_creds = await service.get_catalog_credentials(gemini.id)
     opus_creds = await service.get_catalog_credentials(opus.id)
@@ -497,45 +533,24 @@ async def test_get_catalog_credentials_legacy_placeholder_row_keeps_blob_model_n
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
-    monkeypatch: pytest.MonkeyPatch,
+    encryption_key: str,
 ) -> None:
     """The single legacy backfill catalog row carries the "custom" placeholder
     model_name; the real upstream model name lives in the provider blob. For
     that row the blob's model name must stay authoritative (the per-row pin is
     only for real, discovered per-model rows).
     """
-    encryption_key = Fernet.generate_key().decode()
-    monkeypatch.setattr(
-        tracecat_config,
-        "TRACECAT__DB_ENCRYPTION_KEY",
+    migrated_blob = _encrypt(
+        {
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "sk-custom",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/real-upstream-model",
+        },
         encryption_key,
     )
-    migrated_blob = encrypt_keyvalues(
-        [
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
-                value=SecretStr("https://llm.example.com/v1"),
-            ),
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_API_KEY",
-                value=SecretStr("sk-custom"),
-            ),
-            SecretKeyValue(
-                key="CUSTOM_MODEL_PROVIDER_MODEL_NAME",
-                value=SecretStr("provider/real-upstream-model"),
-            ),
-        ],
-        key=encryption_key,
+    provider = await _custom_provider(
+        session, svc_organization.id, encrypted_config=migrated_blob
     )
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Migrated provider",
-        base_url="https://llm.example.com/v1",
-        passthrough=False,
-        encrypted_config=migrated_blob,
-    )
-    session.add(provider)
-    await session.flush()
     # The backfill writes the "custom" placeholder on the legacy linked row.
     catalog = await _seed_catalog(
         session,
@@ -551,10 +566,7 @@ async def test_get_catalog_credentials_legacy_placeholder_row_keeps_blob_model_n
     )
     await session.commit()
 
-    service = AgentManagementService(
-        session=session,
-        role=_db_role(svc_organization, svc_workspace),
-    )
+    service = _db_service(session, svc_organization, svc_workspace)
 
     credentials = await service.get_catalog_credentials(catalog.id)
 
@@ -573,15 +585,7 @@ async def test_load_custom_model_provider_creds_requires_catalog_access(
     svc_organization: Organization,
     svc_workspace: Workspace,
 ) -> None:
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Disabled provider",
-        base_url="https://llm.example.com/v1",
-        passthrough=True,
-        encrypted_config=None,
-    )
-    session.add(provider)
-    await session.flush()
+    provider = await _custom_provider(session, svc_organization.id, passthrough=True)
     catalog = await _seed_catalog(
         session,
         org_id=svc_organization.id,
@@ -591,10 +595,7 @@ async def test_load_custom_model_provider_creds_requires_catalog_access(
     )
     await session.commit()
 
-    service = AgentManagementService(
-        session=session,
-        role=_db_role(svc_organization, svc_workspace),
-    )
+    service = _db_service(session, svc_organization, svc_workspace)
 
     with pytest.raises(agent_service.TracecatAuthorizationError):
         await _load_custom_model_provider_creds(
@@ -629,14 +630,8 @@ async def test_delete_custom_provider_legacy_secret_preserves_v2_catalog_access(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
-    monkeypatch: pytest.MonkeyPatch,
+    encryption_key: str,
 ) -> None:
-    encryption_key = Fernet.generate_key().decode()
-    monkeypatch.setattr(
-        tracecat_config,
-        "TRACECAT__DB_ENCRYPTION_KEY",
-        encryption_key,
-    )
     await _seed_org_secret(
         session,
         org_id=svc_organization.id,
@@ -644,15 +639,7 @@ async def test_delete_custom_provider_legacy_secret_preserves_v2_catalog_access(
         values={"CUSTOM_MODEL_PROVIDER_API_KEY": "legacy-key"},
         encryption_key=encryption_key,
     )
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Migrated provider",
-        base_url="https://llm.example.com/v1",
-        passthrough=True,
-        encrypted_config=None,
-    )
-    session.add(provider)
-    await session.flush()
+    provider = await _custom_provider(session, svc_organization.id, passthrough=True)
     v2_catalog = await _seed_catalog(
         session,
         org_id=svc_organization.id,
@@ -678,10 +665,7 @@ async def test_delete_custom_provider_legacy_secret_preserves_v2_catalog_access(
     )
     await session.commit()
 
-    service = AgentManagementService(
-        session=session,
-        role=_db_role(svc_organization, svc_workspace),
-    )
+    service = _db_service(session, svc_organization, svc_workspace)
 
     await service.delete_provider_credentials("custom-model-provider")
 
@@ -747,25 +731,39 @@ async def test_with_model_config_sets_registry_and_env_context(role: Role) -> No
     assert secrets_manager.get("ANTHROPIC_API_KEY") is None
 
 
-@pytest.mark.anyio
-async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> None:
+def _service_with_preset(
+    role: Role,
+    config: AgentConfig,
+    *,
+    workspace_credentials: dict[str, str] | None,
+    runtime_credentials: dict[str, str] | None = None,
+) -> AgentManagementService:
     service = AgentManagementService(AsyncMock(), role=role)
     service.presets = cast(
         AgentPresetService,
-        SimpleNamespace(
-            resolve_agent_preset_config=AsyncMock(
-                return_value=AgentConfig(
-                    model_name="claude-opus-4-5-20251101",
-                    model_provider="anthropic",
-                )
-            )
-        ),
+        SimpleNamespace(resolve_agent_preset_config=AsyncMock(return_value=config)),
     )
     service.get_workspace_provider_credentials = AsyncMock(
-        return_value={"ANTHROPIC_API_KEY": "workspace-key"}
+        return_value=workspace_credentials
     )
     service.get_runtime_provider_credentials = AsyncMock(
-        return_value={"ANTHROPIC_API_KEY": "org-key"}
+        return_value=runtime_credentials
+    )
+    return service
+
+
+_OPUS_CONFIG = AgentConfig(
+    model_name="claude-opus-4-5-20251101", model_provider="anthropic"
+)
+
+
+@pytest.mark.anyio
+async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> None:
+    service = _service_with_preset(
+        role,
+        _OPUS_CONFIG,
+        workspace_credentials={"ANTHROPIC_API_KEY": "workspace-key"},
+        runtime_credentials={"ANTHROPIC_API_KEY": "org-key"},
     )
 
     assert registry_secrets.get_or_default("ANTHROPIC_API_KEY") is None
@@ -777,34 +775,25 @@ async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> N
 
     assert registry_secrets.get_or_default("ANTHROPIC_API_KEY") is None
     assert secrets_manager.get("ANTHROPIC_API_KEY") is None
-    service.get_runtime_provider_credentials.assert_not_awaited()
+    cast(AsyncMock, service.get_runtime_provider_credentials).assert_not_awaited()
 
 
 @pytest.mark.anyio
 async def test_with_preset_config_catalog_falls_back_to_workspace_credentials(
     role: Role,
 ) -> None:
-    service = AgentManagementService(AsyncMock(), role=role)
     catalog_id = uuid.uuid4()
-    service.presets = cast(
-        AgentPresetService,
-        SimpleNamespace(
-            resolve_agent_preset_config=AsyncMock(
-                return_value=AgentConfig(
-                    model_name="legacy-claude",
-                    model_provider="anthropic",
-                    catalog_id=catalog_id,
-                )
-            )
+    service = _service_with_preset(
+        role,
+        AgentConfig(
+            model_name="legacy-claude",
+            model_provider="anthropic",
+            catalog_id=catalog_id,
         ),
+        workspace_credentials={"ANTHROPIC_API_KEY": "workspace-key"},
+        runtime_credentials={"ANTHROPIC_API_KEY": "org-key"},
     )
     service.get_catalog_credentials = AsyncMock(return_value=None)
-    service.get_workspace_provider_credentials = AsyncMock(
-        return_value={"ANTHROPIC_API_KEY": "workspace-key"}
-    )
-    service.get_runtime_provider_credentials = AsyncMock(
-        return_value={"ANTHROPIC_API_KEY": "org-key"}
-    )
 
     async with service.with_preset_config(preset_id=uuid.uuid4()) as config:
         assert config.catalog_id is None
@@ -814,60 +803,65 @@ async def test_with_preset_config_catalog_falls_back_to_workspace_credentials(
         assert secrets_manager.get("ANTHROPIC_API_KEY") == "workspace-key"
 
     service.get_catalog_credentials.assert_awaited_once_with(catalog_id)
-    service.get_runtime_provider_credentials.assert_not_awaited()
+    cast(AsyncMock, service.get_runtime_provider_credentials).assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_with_preset_config_without_credentials_raises_credentials_error(
+    role: Role,
+) -> None:
+    """Missing provider credentials get their own error so chat can show it."""
+    service = _service_with_preset(
+        role,
+        _OPUS_CONFIG,
+        workspace_credentials=None,
+        runtime_credentials=None,
+    )
+
+    with pytest.raises(
+        AgentProviderCredentialsNotFoundError,
+        match="No credentials found for provider 'anthropic'",
+    ):
+        async with service.with_preset_config(preset_id=uuid.uuid4()):
+            pass
 
 
 @pytest.mark.anyio
 async def test_with_preset_config_legacy_path_falls_back_to_org_credentials(
     role: Role,
 ) -> None:
-    service = AgentManagementService(AsyncMock(), role=role)
-    service.presets = cast(
-        AgentPresetService,
-        SimpleNamespace(
-            resolve_agent_preset_config=AsyncMock(
-                return_value=AgentConfig(
-                    model_name="claude-opus-4-5-20251101",
-                    model_provider="anthropic",
-                )
-            )
-        ),
-    )
-    service.get_workspace_provider_credentials = AsyncMock(return_value=None)
-    service.get_runtime_provider_credentials = AsyncMock(
-        return_value={"ANTHROPIC_API_KEY": "org-key"}
+    service = _service_with_preset(
+        role,
+        _OPUS_CONFIG,
+        workspace_credentials=None,
+        runtime_credentials={"ANTHROPIC_API_KEY": "org-key"},
     )
 
     async with service.with_preset_config(preset_id=uuid.uuid4()):
         assert registry_secrets.get("ANTHROPIC_API_KEY") == "org-key"
         assert secrets_manager.get("ANTHROPIC_API_KEY") == "org-key"
 
-    service.get_runtime_provider_credentials.assert_awaited_once_with("anthropic")
+    cast(AsyncMock, service.get_runtime_provider_credentials).assert_awaited_once_with(
+        "anthropic"
+    )
 
 
 @pytest.mark.anyio
 async def test_with_preset_config_loads_custom_passthrough_base_url_from_workspace_secret(
     role: Role,
 ) -> None:
-    service = AgentManagementService(AsyncMock(), role=role)
-    service.presets = cast(
-        AgentPresetService,
-        SimpleNamespace(
-            resolve_agent_preset_config=AsyncMock(
-                return_value=AgentConfig(
-                    model_name="customer-alias",
-                    model_provider="custom-model-provider",
-                    base_url=None,
-                )
-            )
+    service = _service_with_preset(
+        role,
+        AgentConfig(
+            model_name="customer-alias",
+            model_provider="custom-model-provider",
+            base_url=None,
         ),
-    )
-    service.get_workspace_provider_credentials = AsyncMock(
-        return_value={
+        workspace_credentials={
             "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://litellm.customer.example",
             "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "customer-routed-model",
             "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
-        }
+        },
     )
 
     async with service.with_preset_config(preset_id=uuid.uuid4()) as config:
@@ -876,18 +870,9 @@ async def test_with_preset_config_loads_custom_passthrough_base_url_from_workspa
         assert config.model_name == "customer-routed-model"
         assert config.passthrough is True
 
-    service.get_workspace_provider_credentials.assert_awaited_once_with(
-        "custom-model-provider"
-    )
-
-
-@pytest.mark.anyio
-async def test_list_providers_excludes_removed_litellm_provider(role: Role) -> None:
-    service = AgentManagementService(AsyncMock(), role=role)
-
-    providers = await service.list_providers()
-
-    assert "litellm" not in providers
+    cast(
+        AsyncMock, service.get_workspace_provider_credentials
+    ).assert_awaited_once_with("custom-model-provider")
 
 
 @pytest.mark.anyio
@@ -910,6 +895,26 @@ async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
     assert credentials["TRACECAT_AWS_EXTERNAL_ID"] == build_workspace_external_id(
         role.workspace_id
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("row_exists", [True, False])
+async def test_with_model_config_without_credentials_checks_catalog_row(
+    role: Role, row_exists: bool
+) -> None:
+    """Only a default model whose catalog row exists reports missing credentials."""
+    service = AgentManagementService(AsyncMock(), role=role)
+    catalog_id = uuid.uuid4()
+    service._get_default_model_catalog_id_setting = AsyncMock(return_value=catalog_id)
+    service.get_catalog_credentials = AsyncMock(return_value=None)
+    service.session = AsyncMock()
+    service.session.scalar = AsyncMock(return_value=catalog_id if row_exists else None)
+
+    with pytest.raises(TracecatNotFoundError) as exc_info:
+        async with service.with_model_config():
+            pass
+
+    assert (type(exc_info.value) is AgentProviderCredentialsNotFoundError) is row_exists
 
 
 @pytest.mark.anyio
@@ -952,34 +957,37 @@ async def test_with_model_config_injects_bedrock_external_id(role: Role) -> None
     assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") is None
 
 
-def test_catalog_target_credentials_serializes_bool_use_converse_true() -> None:
-    """use_converse=True stored in JSONB as a bool must project to the string 'true'."""
-    row = SimpleNamespace(
-        model_provider="bedrock",
-        model_metadata={
-            "inference_profile_id": "us.anthropic.claude-3-haiku",
-            "use_converse": True,
-        },
-    )
+@pytest.mark.parametrize(
+    ("metadata", "target_key", "expected_flag"),
+    [
+        (
+            {
+                "inference_profile_id": "us.anthropic.claude-3-haiku",
+                "use_converse": True,
+            },
+            "AWS_INFERENCE_PROFILE_ID",
+            "true",
+        ),
+        (
+            {
+                "model_id": "anthropic.claude-3-haiku-20240307-v1:0",
+                "use_converse": False,
+            },
+            "AWS_MODEL_ID",
+            "false",
+        ),
+    ],
+)
+def test_catalog_target_credentials_serializes_bool_use_converse(
+    metadata: dict[str, object], target_key: str, expected_flag: str
+) -> None:
+    """use_converse stored in JSONB as a bool must project to 'true'/'false'."""
+    row = SimpleNamespace(model_provider="bedrock", model_metadata=metadata)
     svc = AgentManagementService.__new__(AgentManagementService)
     creds = svc._catalog_target_credentials(cast(AgentCatalog, row))
-    assert creds["AWS_INFERENCE_PROFILE_ID"] == "us.anthropic.claude-3-haiku"
-    assert creds["AWS_BEDROCK_USE_CONVERSE"] == "true"
-
-
-def test_catalog_target_credentials_serializes_bool_use_converse_false() -> None:
-    """use_converse=False stored in JSONB must project to the string 'false'."""
-    row = SimpleNamespace(
-        model_provider="bedrock",
-        model_metadata={
-            "model_id": "anthropic.claude-3-haiku-20240307-v1:0",
-            "use_converse": False,
-        },
-    )
-    svc = AgentManagementService.__new__(AgentManagementService)
-    creds = svc._catalog_target_credentials(cast(AgentCatalog, row))
-    assert creds["AWS_MODEL_ID"] == "anthropic.claude-3-haiku-20240307-v1:0"
-    assert creds["AWS_BEDROCK_USE_CONVERSE"] == "false"
+    target = metadata.get("inference_profile_id") or metadata.get("model_id")
+    assert creds[target_key] == target
+    assert creds["AWS_BEDROCK_USE_CONVERSE"] == expected_flag
 
 
 @pytest.mark.anyio
@@ -1052,3 +1060,143 @@ async def test_get_providers_status_includes_builtin_configs_without_enabled_mod
     assert set(PROVIDER_CREDENTIAL_CONFIGS).issubset(status)
     assert status["anthropic"] is True
     assert status["openai"] is False
+
+
+@pytest.mark.anyio
+async def test_refresh_bedrock_catalog_syncs_models_and_subscriptions(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role = role.model_copy(update={"scopes": frozenset({"agent:update"})})
+    service = AgentManagementService(AsyncMock(), role=role)
+    credentials = {"AWS_BEARER_TOKEN_BEDROCK": "synthetic", "AWS_REGION": "us-east-1"}
+    service.get_provider_credentials = AsyncMock(return_value=credentials)
+    service._auto_grant_provider_access = AsyncMock()
+    client = object()
+    create_client = Mock(return_value=client)
+    discovered = [
+        BedrockDiscoveredModel(
+            model_name="vendor.a-v1",
+            display_name="A",
+            foundation_model_id="vendor.a-v1",
+            model_id="vendor.a-v1",
+        )
+    ]
+    subscriptions = {
+        "vendor.a-v1": {"status": "subscribed", "checked_at": "t"},
+        "vendor.manual-v1": {"status": "not_subscribed", "checked_at": "t"},
+    }
+    get_subscriptions = Mock(return_value=subscriptions)
+    monkeypatch.setattr(agent_service, "create_bedrock_client", create_client)
+    monkeypatch.setattr(
+        agent_service, "list_bedrock_models", Mock(return_value=discovered)
+    )
+    monkeypatch.setattr(agent_service, "get_bedrock_subscriptions", get_subscriptions)
+    manual_row = SimpleNamespace(model_metadata={"model_id": "vendor.manual-v1"})
+    monkeypatch.setattr(
+        AgentCatalogService,
+        "list_bedrock_rows",
+        AsyncMock(return_value=[manual_row]),
+    )
+    sync = AsyncMock(return_value=1)
+    monkeypatch.setattr(AgentCatalogService, "sync_bedrock_models", sync)
+
+    count = await service.refresh_bedrock_catalog()
+
+    assert count == 1
+    create_client.assert_called_once_with(credentials, external_ids=[])
+    _, foundation_ids = get_subscriptions.call_args.args
+    assert set(foundation_ids) == {"vendor.a-v1", "vendor.manual-v1"}
+    sync.assert_awaited_once_with(
+        org_id=role.organization_id,
+        models=discovered,
+        subscriptions=subscriptions,
+    )
+    service._auto_grant_provider_access.assert_awaited_once_with("bedrock")
+
+
+@pytest.mark.anyio
+async def test_refresh_bedrock_catalog_requires_credentials(role: Role) -> None:
+    role = role.model_copy(update={"scopes": frozenset({"agent:update"})})
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_provider_credentials = AsyncMock(return_value=None)
+
+    with pytest.raises(TracecatNotFoundError):
+        await service.refresh_bedrock_catalog()
+
+
+@pytest.mark.anyio
+async def test_refresh_bedrock_catalog_role_mode_tries_workspace_external_ids(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role = role.model_copy(update={"scopes": frozenset({"agent:update"})})
+    assert role.workspace_id is not None
+    other_workspace_id = uuid.uuid4()
+    session = AsyncMock()
+    session.execute.return_value = Mock(
+        scalars=Mock(
+            return_value=Mock(
+                all=Mock(return_value=[role.workspace_id, other_workspace_id])
+            )
+        )
+    )
+    service = AgentManagementService(session, role=role)
+    credentials = {"AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role"}
+    service.get_provider_credentials = AsyncMock(return_value=credentials)
+    create_client = Mock(side_effect=BedrockError("Failed to assume"))
+    monkeypatch.setattr(agent_service, "create_bedrock_client", create_client)
+
+    with pytest.raises(ValueError, match="Failed to assume"):
+        await service.refresh_bedrock_catalog()
+
+    create_client.assert_called_once_with(
+        credentials,
+        external_ids=[
+            build_workspace_external_id(role.workspace_id),
+            build_workspace_external_id(other_workspace_id),
+        ],
+    )
+
+
+@pytest.mark.anyio
+async def test_subscribe_bedrock_model_resolves_profile_and_records_status(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role = role.model_copy(update={"scopes": frozenset({"agent:update"})})
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_provider_credentials = AsyncMock(
+        return_value={"AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "b"}
+    )
+    catalog_id = uuid.uuid4()
+    row = SimpleNamespace(
+        id=catalog_id,
+        organization_id=role.organization_id,
+        model_provider="bedrock",
+        model_name="profile",
+        model_metadata={"inference_profile_id": "us.vendor.a-v1"},
+    )
+    monkeypatch.setattr(
+        AgentCatalogService, "get_catalog_entry", AsyncMock(return_value=row)
+    )
+    record = AsyncMock()
+    monkeypatch.setattr(AgentCatalogService, "set_bedrock_subscription", record)
+    client = object()
+    monkeypatch.setattr(
+        agent_service, "create_bedrock_client", Mock(return_value=client)
+    )
+    resolve = Mock(return_value="vendor.a-v1")
+    monkeypatch.setattr(agent_service, "resolve_profile_foundation_model_id", resolve)
+    subscription = {"status": "pending", "checked_at": "t"}
+    subscribe = Mock(return_value=subscription)
+    monkeypatch.setattr(agent_service, "subscribe_bedrock_model", subscribe)
+
+    result = await service.subscribe_bedrock_model(catalog_id)
+
+    assert result == subscription
+    resolve.assert_called_once_with(client, "us.vendor.a-v1")
+    subscribe.assert_called_once_with(client, "vendor.a-v1")
+    record.assert_awaited_once_with(
+        org_id=role.organization_id,
+        catalog_id=catalog_id,
+        foundation_model_id="vendor.a-v1",
+        subscription=subscription,
+    )

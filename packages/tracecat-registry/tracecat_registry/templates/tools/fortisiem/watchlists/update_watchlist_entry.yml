@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Update watch list entry
+  description: Update a watch list entry. The entry object must contain a valid entry id, otherwise it is saved as a new entry in the ungrouped watch list.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/893786/watchlist-integration#update-specific-watch-list-entry
+  namespace: tools.fortisiem
+  name: update_watchlist_entry
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    entry:
+      type: dict[str, Any]
+      description: 'Watch list entry JSON object. Fields: id (required to update), entryValue (required), description, inclusive, count, custId, triggeringRules, ageOut, disableAgeout, firstSeen, lastSeen, expiredTime, state, dataCreationType (SYSTEM or USER).'
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/watchlist/entry/save
+        method: POST
+        payload: ${{ inputs.entry }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

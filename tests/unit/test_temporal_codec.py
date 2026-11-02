@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import base64
 import uuid
+from collections.abc import Callable
 
 import orjson
 import pytest
@@ -300,13 +300,24 @@ def test_get_data_converter_switches_failure_converter_with_encryption(
 
 
 @pytest.mark.anyio
-async def test_encryption_codec_passes_through_binary_null_payload(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            Payload(metadata={"encoding": b"binary/null"}, data=b"\x00\x01\x02"),
+            id="binary_null",
+        ),
+        pytest.param(
+            Payload(metadata={"encoding": b"json/plain"}, data=b""), id="empty_data"
+        ),
+    ],
+)
+async def test_encryption_codec_passes_through_unencryptable_payload(
+    monkeypatch: pytest.MonkeyPatch, payload: Payload
 ) -> None:
-    """Payloads with encoding=binary/null are not encrypted."""
+    """Payloads with encoding=binary/null or empty data are not encrypted."""
     _enable_encryption(monkeypatch)
     codec = EncryptionPayloadCodec(enabled=True)
-    payload = Payload(metadata={"encoding": b"binary/null"}, data=b"\x00\x01\x02")
 
     token = _set_workspace_role()
     try:
@@ -315,110 +326,82 @@ async def test_encryption_codec_passes_through_binary_null_payload(
         ctx_role.reset(token)
 
     assert len(encoded) == 1
-    assert encoded[0].metadata["encoding"] == b"binary/null"
+    assert encoded[0].metadata["encoding"] == payload.metadata["encoding"]
     assert encoded[0].data == payload.data
 
 
-@pytest.mark.anyio
-async def test_encryption_codec_passes_through_empty_data_payload(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Payloads with empty data are not encrypted."""
-    _enable_encryption(monkeypatch)
-    codec = EncryptionPayloadCodec(enabled=True)
-    payload = Payload(metadata={"encoding": b"json/plain"}, data=b"")
-
-    token = _set_workspace_role()
-    try:
-        encoded = await codec.encode([payload])
-    finally:
-        ctx_role.reset(token)
-
-    assert len(encoded) == 1
-    assert encoded[0].data == b""
+_DECRYPT_FAILED = "Failed to decrypt Temporal payload"
 
 
-@pytest.mark.anyio
-async def test_encryption_codec_decode_fails_on_missing_workspace_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tracecat-encrypted payloads fail closed when workspace ID is missing."""
-    _enable_encryption(monkeypatch)
-    codec = EncryptionPayloadCodec(enabled=True)
+def _drop(
+    key: str,
+) -> Callable[[dict[str, bytes], bytes], tuple[dict[str, bytes], bytes]]:
+    def tamper(
+        metadata: dict[str, bytes], data: bytes
+    ) -> tuple[dict[str, bytes], bytes]:
+        del metadata[key]
+        return metadata, data
 
-    bad_payload = Payload(
-        metadata={
-            "encoding": TRACECAT_TEMPORAL_ENCODING,
-            # tracecat_workspace_id intentionally omitted
-            "tracecat_key_id": b"v1",
-            "tracecat_nonce": base64.urlsafe_b64encode(b"012345678901"),
-        },
-        data=b"ciphertext",
-    )
+    return tamper
 
-    with pytest.raises(
-        TemporalPayloadCodecError, match="Failed to decrypt Temporal payload"
-    ):
-        await codec.decode([bad_payload])
+
+def _set(
+    key: str, value: bytes
+) -> Callable[[dict[str, bytes], bytes], tuple[dict[str, bytes], bytes]]:
+    def tamper(
+        metadata: dict[str, bytes], data: bytes
+    ) -> tuple[dict[str, bytes], bytes]:
+        metadata[key] = value
+        return metadata, data
+
+    return tamper
 
 
 @pytest.mark.anyio
-async def test_encryption_codec_decode_fails_on_missing_key_id(
+@pytest.mark.parametrize(
+    ("tamper", "match"),
+    [
+        pytest.param(
+            _drop("tracecat_workspace_id"), _DECRYPT_FAILED, id="missing_workspace_id"
+        ),
+        pytest.param(_drop("tracecat_key_id"), _DECRYPT_FAILED, id="missing_key_id"),
+        pytest.param(_drop("tracecat_nonce"), _DECRYPT_FAILED, id="missing_nonce"),
+        pytest.param(
+            _set("tracecat_key_id", b"unknown"), _DECRYPT_FAILED, id="unknown_key_id"
+        ),
+        pytest.param(
+            lambda metadata, data: (metadata, b"\xff" * len(data)),
+            _DECRYPT_FAILED,
+            id="tampered_ciphertext",
+        ),
+        pytest.param(
+            _set("tracecat_original_encoding", b"binary/null"),
+            _DECRYPT_FAILED,
+            id="tampered_original_encoding",
+        ),
+        pytest.param(
+            _set("encoding", b"binary/null"),
+            "Encrypted Temporal payload has an invalid encoding marker",
+            id="tampered_encoding_marker",
+        ),
+        pytest.param(
+            _set("tracecat_workspace_id", str(WORKSPACE_ID_B).encode()),
+            _DECRYPT_FAILED,
+            id="cross_workspace",
+        ),
+    ],
+)
+async def test_encryption_codec_decode_fails_closed_on_tampered_payload(
     monkeypatch: pytest.MonkeyPatch,
+    tamper: Callable[[dict[str, bytes], bytes], tuple[dict[str, bytes], bytes]],
+    match: str,
 ) -> None:
-    """Tracecat-encrypted payloads fail closed when key id is missing."""
+    """Tracecat-encrypted payloads fail closed when metadata is missing or tampered,
+    the ciphertext is modified, or the workspace ID is swapped to another workspace."""
     _enable_encryption(monkeypatch)
     codec = EncryptionPayloadCodec(enabled=True)
 
-    bad_payload = Payload(
-        metadata={
-            "encoding": TRACECAT_TEMPORAL_ENCODING,
-            "tracecat_workspace_id": str(WORKSPACE_ID).encode(),
-            # tracecat_key_id intentionally omitted
-            "tracecat_nonce": base64.urlsafe_b64encode(b"012345678901"),
-        },
-        data=b"ciphertext",
-    )
-
-    with pytest.raises(
-        TemporalPayloadCodecError, match="Failed to decrypt Temporal payload"
-    ):
-        await codec.decode([bad_payload])
-
-
-@pytest.mark.anyio
-async def test_encryption_codec_decode_fails_on_missing_nonce(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tracecat-encrypted payloads fail closed when nonce is missing."""
-    _enable_encryption(monkeypatch)
-    codec = EncryptionPayloadCodec(enabled=True)
-
-    bad_payload = Payload(
-        metadata={
-            "encoding": TRACECAT_TEMPORAL_ENCODING,
-            "tracecat_workspace_id": str(WORKSPACE_ID).encode(),
-            "tracecat_key_id": b"v1",
-            # tracecat_nonce intentionally omitted
-        },
-        data=b"ciphertext",
-    )
-
-    with pytest.raises(
-        TemporalPayloadCodecError, match="Failed to decrypt Temporal payload"
-    ):
-        await codec.decode([bad_payload])
-
-
-@pytest.mark.anyio
-async def test_encryption_codec_decode_fails_on_unknown_key_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tracecat-encrypted payloads fail closed when key id is unknown."""
-    _enable_encryption(monkeypatch)
-    codec = EncryptionPayloadCodec(enabled=True)
-
-    token = _set_workspace_role()
+    token = _set_workspace_role(WORKSPACE_ID)
     try:
         encoded = await codec.encode(
             [Payload(metadata={"encoding": b"json/plain"}, data=b'{"ok":true}')]
@@ -426,124 +409,10 @@ async def test_encryption_codec_decode_fails_on_unknown_key_id(
     finally:
         ctx_role.reset(token)
 
-    unknown_key_metadata = dict(encoded[0].metadata)
-    unknown_key_metadata["tracecat_key_id"] = b"unknown"
-    unknown_key_payload = Payload(
-        metadata=unknown_key_metadata,
-        data=encoded[0].data,
-    )
+    metadata, data = tamper(dict(encoded[0].metadata), encoded[0].data)
 
-    with pytest.raises(
-        TemporalPayloadCodecError, match="Failed to decrypt Temporal payload"
-    ):
-        await codec.decode([unknown_key_payload])
-
-
-@pytest.mark.anyio
-async def test_encryption_codec_decode_fails_on_tampered_ciphertext(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tracecat-encrypted payloads fail closed when ciphertext is tampered with."""
-    _enable_encryption(monkeypatch)
-    codec = EncryptionPayloadCodec(enabled=True)
-
-    token = _set_workspace_role()
-    try:
-        encoded = await codec.encode(
-            [Payload(metadata={"encoding": b"json/plain"}, data=b'{"ok":true}')]
-        )
-    finally:
-        ctx_role.reset(token)
-
-    tampered = Payload(
-        metadata=dict(encoded[0].metadata),
-        data=b"\xff" * len(encoded[0].data),
-    )
-
-    with pytest.raises(
-        TemporalPayloadCodecError, match="Failed to decrypt Temporal payload"
-    ):
-        await codec.decode([tampered])
-
-
-@pytest.mark.anyio
-async def test_encryption_codec_decode_fails_on_tampered_original_encoding(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tracecat-encrypted payloads fail closed when original encoding is tampered."""
-    _enable_encryption(monkeypatch)
-    codec = EncryptionPayloadCodec(enabled=True)
-
-    token = _set_workspace_role()
-    try:
-        encoded = await codec.encode(
-            [Payload(metadata={"encoding": b"json/plain"}, data=b'{"ok":true}')]
-        )
-    finally:
-        ctx_role.reset(token)
-
-    tampered_metadata = dict(encoded[0].metadata)
-    tampered_metadata["tracecat_original_encoding"] = b"binary/null"
-    tampered = Payload(metadata=tampered_metadata, data=encoded[0].data)
-
-    with pytest.raises(
-        TemporalPayloadCodecError, match="Failed to decrypt Temporal payload"
-    ):
-        await codec.decode([tampered])
-
-
-@pytest.mark.anyio
-async def test_encryption_codec_decode_fails_on_tampered_encoding_marker(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tracecat-encrypted payloads fail closed when encoding marker is tampered."""
-    _enable_encryption(monkeypatch)
-    codec = EncryptionPayloadCodec(enabled=True)
-
-    token = _set_workspace_role()
-    try:
-        encoded = await codec.encode(
-            [Payload(metadata={"encoding": b"json/plain"}, data=b'{"ok":true}')]
-        )
-    finally:
-        ctx_role.reset(token)
-
-    tampered_metadata = dict(encoded[0].metadata)
-    tampered_metadata["encoding"] = b"binary/null"
-    tampered = Payload(metadata=tampered_metadata, data=encoded[0].data)
-
-    with pytest.raises(
-        TemporalPayloadCodecError,
-        match="Encrypted Temporal payload has an invalid encoding marker",
-    ):
-        await codec.decode([tampered])
-
-
-@pytest.mark.anyio
-async def test_encryption_codec_cross_workspace_decode_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tracecat-encrypted payloads fail closed when workspace metadata is tampered."""
-    _enable_encryption(monkeypatch)
-    codec = EncryptionPayloadCodec(enabled=True)
-    payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"ws":"a"}')
-
-    # Encrypt under workspace A
-    token_a = _set_workspace_role(WORKSPACE_ID)
-    try:
-        encoded = await codec.encode([payload])
-    finally:
-        ctx_role.reset(token_a)
-
-    # Swap workspace ID in metadata to workspace B
-    tampered_metadata = dict(encoded[0].metadata)
-    tampered_metadata["tracecat_workspace_id"] = str(WORKSPACE_ID_B).encode()
-    wrong_ws_payload = Payload(metadata=tampered_metadata, data=encoded[0].data)
-
-    with pytest.raises(
-        TemporalPayloadCodecError, match="Failed to decrypt Temporal payload"
-    ):
-        await codec.decode([wrong_ws_payload])
+    with pytest.raises(TemporalPayloadCodecError, match=match):
+        await codec.decode([Payload(metadata=metadata, data=data)])
 
 
 # --- Encode fail-closed tests ---

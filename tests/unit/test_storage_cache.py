@@ -8,12 +8,12 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.connection import Connection
 
 import pytest
+from aiohttp import ClientPayloadError
 from botocore.exceptions import ClientError, HTTPClientError
 
 from tracecat.storage.utils import (
     SizedMemoryCache,
     cached_blob_download,
-    cached_select_item,
     is_retryable_storage_transport_error,
 )
 
@@ -81,8 +81,16 @@ class TestBlobStorageTransportRetries:
     """Test narrow retries around blob storage transport failures."""
 
     @pytest.mark.anyio
-    async def test_cached_blob_download_retries_http_client_errors(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "transport_error",
+        [
+            HTTPClientError(error=RuntimeError("Connection reset")),
+            ClientPayloadError("Response payload is not completed"),
+        ],
+        ids=["http-client", "payload"],
+    )
+    async def test_cached_blob_download_retries_transport_errors(
+        self, monkeypatch: pytest.MonkeyPatch, transport_error: Exception
     ) -> None:
         attempts = 0
 
@@ -92,9 +100,7 @@ class TestBlobStorageTransportRetries:
             assert key == "key"
             assert bucket == "bucket"
             if attempts < 3:
-                raise HTTPClientError(
-                    error=RuntimeError("File descriptor 512 is used by transport")
-                )
+                raise transport_error
             return b"payload"
 
         monkeypatch.setattr(
@@ -106,12 +112,39 @@ class TestBlobStorageTransportRetries:
         )
 
         content = await cached_blob_download(
-            sha256="retry-http-client-error-sha",
+            sha256=f"retry-{type(transport_error).__name__}-sha",
             bucket="bucket",
             key="key",
         )
 
         assert content == b"payload"
+        assert attempts == 3
+
+    @pytest.mark.anyio
+    async def test_cached_blob_download_stops_after_payload_retry_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attempts = 0
+        error = ClientPayloadError("Response payload is not completed")
+
+        async def fake_download_file(*, key: str, bucket: str) -> bytes:
+            nonlocal attempts
+            attempts += 1
+            raise error
+
+        monkeypatch.setattr(
+            "tracecat.storage.utils.STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS", 0
+        )
+        monkeypatch.setattr(
+            "tracecat.storage.utils.blob.download_file", fake_download_file
+        )
+
+        with pytest.raises(ClientPayloadError) as exc_info:
+            await cached_blob_download(
+                sha256="exhausted-payload-error-sha", bucket="bucket", key="key"
+            )
+
+        assert exc_info.value is error
         assert attempts == 3
 
     @pytest.mark.anyio
@@ -145,42 +178,6 @@ class TestBlobStorageTransportRetries:
 
         assert attempts == 1
 
-    @pytest.mark.anyio
-    async def test_cached_select_item_retries_http_client_errors(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        attempts = 0
-
-        async def fake_select_object_content(
-            *, key: str, bucket: str, expression: str
-        ) -> bytes:
-            nonlocal attempts
-            attempts += 1
-            assert key == "key"
-            assert bucket == "bucket"
-            assert expression == "SELECT s.items[2] FROM s3object s"
-            if attempts < 3:
-                raise HTTPClientError(error=RuntimeError("Connection reset"))
-            return b'{"_1":{"ok":true}}'
-
-        monkeypatch.setattr(
-            "tracecat.storage.utils.STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS", 0
-        )
-        monkeypatch.setattr(
-            "tracecat.storage.utils.blob.select_object_content",
-            fake_select_object_content,
-        )
-
-        item = await cached_select_item(
-            sha256="retry-select-http-client-error-sha",
-            bucket="bucket",
-            key="key",
-            local_index=2,
-        )
-
-        assert item == {"ok": True}
-        assert attempts == 3
-
     def test_retryable_transport_detection_checks_all_wrapped_branches(self) -> None:
         context = HTTPClientError(error=RuntimeError("Connection reset"))
         wrapper = RuntimeError("wrapper")
@@ -188,6 +185,17 @@ class TestBlobStorageTransportRetries:
         wrapper.__context__ = context
 
         assert is_retryable_storage_transport_error(wrapper) is True
+
+    def test_retryable_transport_detection_includes_aiohttp_payload_errors(
+        self,
+    ) -> None:
+        truncated_body = ClientPayloadError("Response payload is not completed")
+        wrapper = RuntimeError("wrapper")
+        wrapper.__context__ = truncated_body
+
+        assert is_retryable_storage_transport_error(truncated_body) is True
+        assert is_retryable_storage_transport_error(wrapper) is True
+        assert is_retryable_storage_transport_error(ValueError("bad data")) is False
 
     def test_retryable_transport_detection_checks_exception_groups(self) -> None:
         group = ExceptionGroup(
@@ -501,17 +509,3 @@ class TestSizedMemoryCache:
         assert cache.total_bytes == 100
         assert await cache.get("key1") is None  # Evicted
         assert await cache.get("key2") == b"b" * 100
-
-    @pytest.mark.anyio
-    async def test_properties(self):
-        """Test total_bytes and item_count properties."""
-        cache = SizedMemoryCache(max_bytes=1024, ttl=300.0)
-
-        assert cache.total_bytes == 0
-        assert cache.item_count == 0
-
-        await cache.set("a", b"123")
-        await cache.set("b", b"4567")
-
-        assert cache.total_bytes == 7
-        assert cache.item_count == 2

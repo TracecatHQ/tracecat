@@ -1,4 +1,4 @@
-"""Lightweight output format helpers for the Claude SDK runtime.
+"""Shared output schema normalization and Claude SDK formatting.
 
 This module is safe to import in sandboxed runtimes with a minimal import
 footprint.
@@ -85,46 +85,40 @@ def _schema_from_output_type(output_type: dict[str, Any]) -> dict[str, Any]:
     return extracted if extracted is not None else output_type
 
 
-def build_sdk_output_format(
+def build_output_schema(
     output_type: str | dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    """Convert Tracecat's output_type into Claude SDK's output_format shape.
+    """Normalize Tracecat's output type into a provider-independent JSON Schema.
 
-    The Claude SDK expects ``output_format`` as::
-
-        {"type": "json_schema", "schema": <json_schema_dict>}
-
-    For dict output_type, we accept either:
-    - a raw JSON Schema object
-    - a schema bundle like
-      ``{"name": "...", "schema": {...}, "strict": true}``
-    - an already-wrapped ``{"type": "json_schema", "schema": {...}}`` object
-
-    In all dict cases we pass only the inner JSON Schema to the Claude SDK.
-    For primitive strings ("int", "str", etc.), we wrap in a
-    ``{"type": "object", "properties": {"result": <primitive>}, ...}``
-    envelope — same wrapping the gateway used to do.
-
-    Returns ``None`` if output_type is ``None`` or unrecognised.
+    Accepts raw schemas, provider format wrappers, and primitive type aliases.
+    Primitive aliases use the standard object envelope with a ``result`` field.
+    Returns ``None`` for absent or unrecognized output types.
     """
     if output_type is None:
         return None
 
     if isinstance(output_type, dict):
-        return {"type": "json_schema", "schema": _schema_from_output_type(output_type)}
+        return _schema_from_output_type(output_type)
 
-    if isinstance(output_type, str) and output_type in _PRIMITIVE_JSON_SCHEMAS:
+    if output_type in _PRIMITIVE_JSON_SCHEMAS:
         return {
-            "type": "json_schema",
-            "schema": {
-                "type": "object",
-                "properties": {"result": _PRIMITIVE_JSON_SCHEMAS[output_type]},
-                "required": ["result"],
-                "additionalProperties": False,
-            },
+            "type": "object",
+            "properties": {"result": _PRIMITIVE_JSON_SCHEMAS[output_type]},
+            "required": ["result"],
+            "additionalProperties": False,
         }
 
     logger.warning(
         "Unknown output_type, skipping output_format", output_type=output_type
     )
     return None
+
+
+def build_sdk_output_format(
+    output_type: str | dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Wrap Tracecat's output schema in Claude SDK's output_format shape."""
+    schema = build_output_schema(output_type)
+    if schema is None:
+        return None
+    return {"type": "json_schema", "schema": schema}

@@ -1,0 +1,96 @@
+type: action
+definition:
+  title: Run pipeline
+  description: "Run a YAML pipeline, optionally overriding the branch, template parameters, and variables."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/pipelines/runs/run-pipeline?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: run_pipeline
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    pipeline_id:
+      type: int
+      description: "Pipeline ID."
+    resources:
+      type: dict[str, Any] | None
+      description: "Run resources, e.g. `{\"repositories\": {\"self\": {\"refName\": \"refs/heads/main\"}}}` to pick the branch."
+      default: null
+    template_parameters:
+      type: dict[str, Any] | None
+      description: "Runtime template parameter values."
+      default: null
+    variables:
+      type: dict[str, Any] | None
+      description: "Variable overrides, e.g. `{\"env\": {\"value\": \"prod\"}}`."
+      default: null
+    stages_to_skip:
+      type: list[str] | None
+      description: "Stage names to skip."
+      default: null
+    preview_run:
+      type: bool | None
+      description: "Preview the final YAML without running the pipeline."
+      default: null
+    yaml_override:
+      type: str | None
+      description: "YAML to use instead of the pipeline's YAML (preview runs only)."
+      default: null
+    pipeline_version:
+      type: int | None
+      description: "Pipeline version to run."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            pipelineVersion: ${{ inputs.pipeline_version }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.1"
+              return query
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          fields:
+            resources: ${{ inputs.resources }}
+            templateParameters: ${{ inputs.template_parameters }}
+            variables: ${{ inputs.variables }}
+            stagesToSkip: ${{ inputs.stages_to_skip }}
+            previewRun: ${{ inputs.preview_run }}
+            yamlOverride: ${{ inputs.yaml_override }}
+        script: |
+          def main(fields):
+              return {k: v for k, v in fields.items() if v is not None}
+    - ref: run_pipeline
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/pipelines/${{ FN.url_encode(inputs.pipeline_id) }}/runs
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+          Content-Type: application/json
+        params: ${{ steps.build_params.result }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.run_pipeline.result }}

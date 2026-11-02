@@ -106,6 +106,7 @@ class _AsyncClientProxy:
 cases = _SyncClientProxy(lambda: get_context().cases)
 agents = _SyncClientProxy(lambda: get_context().agents)
 deduplicate = _SyncClientProxy(lambda: get_context().deduplicate)
+forms = _SyncClientProxy(lambda: get_context().forms)
 tables = _SyncClientProxy(lambda: get_context().tables)
 variables = _SyncClientProxy(lambda: get_context().variables)
 workflows = _SyncClientProxy(lambda: get_context().workflows)
@@ -117,4 +118,12 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["agents", "cases", "deduplicate", "tables", "variables", "workflows"]
+__all__ = [
+    "agents",
+    "cases",
+    "deduplicate",
+    "forms",
+    "tables",
+    "variables",
+    "workflows",
+]

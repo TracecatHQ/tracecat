@@ -15,10 +15,20 @@ from tracecat.cases.attachments.schemas import (
     CaseAttachmentRead,
     InternalCaseAttachmentDownloadResponse,
 )
+from tracecat.cases.dependencies import ExecutorCaseIDPath
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
+from tracecat.storage.exceptions import (
+    FileContentMismatchError,
+    FileExtensionError,
+    FileMimeTypeError,
+    FileNameError,
+    FileSizeError,
+    MaxAttachmentsExceededError,
+    StorageLimitExceededError,
+)
 
 router = APIRouter(
     tags=["internal-case-attachments"],
@@ -39,7 +49,7 @@ async def list_attachments(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
 ) -> list[CaseAttachmentRead]:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -75,7 +85,7 @@ async def create_attachment(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     params: ExecutorAttachmentCreateRequest,
 ) -> CaseAttachmentRead:
     service = CasesService(session, role)
@@ -94,15 +104,75 @@ async def create_attachment(
             detail=f"Invalid base64 content: {str(e)}",
         ) from e
 
-    attachment = await service.attachments.create_attachment(
-        case,
-        CaseAttachmentCreate(
-            file_name=params.filename or "unnamed",
-            content_type=params.content_type or "application/octet-stream",
-            size=len(content),
-            content=content,
-        ),
+    attachment_params = CaseAttachmentCreate(
+        file_name=params.filename or "unnamed",
+        content_type=params.content_type or "application/octet-stream",
+        size=len(content),
+        content=content,
     )
+    try:
+        attachment = await service.attachments.create_attachment(
+            case,
+            attachment_params,
+        )
+    except FileExtensionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={
+                "error": "unsupported_file_extension",
+                "message": str(e),
+                "extension": e.extension,
+                "allowed_extensions": e.allowed_extensions,
+            },
+        ) from e
+    except FileMimeTypeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={
+                "error": "unsupported_content_type",
+                "message": str(e),
+                "content_type": e.mime_type,
+                "allowed_types": e.allowed_types,
+                "detected_types": e.detected_types,
+            },
+        ) from e
+    except FileSizeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "error": "file_too_large",
+                "message": str(e),
+            },
+        ) from e
+    except (FileContentMismatchError, FileNameError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "file_validation_failed",
+                "message": str(e),
+            },
+        ) from e
+    except MaxAttachmentsExceededError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "max_attachments_exceeded",
+                "message": str(e),
+                "current_count": e.current_count,
+                "max_count": e.max_count,
+            },
+        ) from e
+    except StorageLimitExceededError as e:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "error": "storage_limit_exceeded",
+                "message": str(e),
+                "current_size_mb": round(e.current_size / 1024 / 1024, 2),
+                "new_file_size_mb": round(e.new_file_size / 1024 / 1024, 2),
+                "max_size_mb": round(e.max_size / 1024 / 1024, 2),
+            },
+        ) from e
     return CaseAttachmentRead(
         id=attachment.id,
         case_id=attachment.case_id,
@@ -124,7 +194,7 @@ async def get_attachment_download_info(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
     request: Request,
     preview: bool = Query(
@@ -183,7 +253,7 @@ async def get_attachment_download_info(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate download URL: {str(e)}",
+            detail="Failed to generate download URL",
         ) from e
 
 
@@ -193,7 +263,7 @@ async def download_attachment_content(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
 ) -> dict[str, str]:
     service = CasesService(session, role)
@@ -227,7 +297,7 @@ async def delete_attachment(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
 ) -> None:
     service = CasesService(session, role)
@@ -276,7 +346,7 @@ async def delete_attachment(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete attachment: {str(e)}",
+            detail="Failed to delete attachment",
         ) from e
 
 
@@ -289,7 +359,7 @@ async def get_attachment_metadata(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
 ) -> CaseAttachmentRead:
     """Get attachment metadata without download URL.
@@ -330,7 +400,7 @@ async def get_attachment_url(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
     expiry: int | None = Query(None, description="Optional URL expiry time in seconds"),
 ) -> str:
@@ -374,5 +444,5 @@ async def get_attachment_url(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate download URL: {str(e)}",
+            detail="Failed to generate download URL",
         ) from e

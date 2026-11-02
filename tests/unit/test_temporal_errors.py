@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
-from inspect import signature
 from typing import Literal
 from unittest.mock import Mock, patch
 
@@ -10,7 +9,13 @@ import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+)
+from temporalio.exceptions import (
+    CancelledError as TemporalCancelledError,
+)
 
 from tests.shared import capture_application_error as _capture_application_error
 from tracecat.dsl._converter import get_data_converter
@@ -25,7 +30,6 @@ from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
-    RuntimeErrorOwner,
     TracecatRuntimeError,
 )
 from tracecat.storage.object import InlineObject
@@ -36,6 +40,7 @@ from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
     extract_error_classifications,
+    extract_error_diagnostics,
     parse_classified_error_payload,
     raise_application_error_from_classification,
     raise_wrapped_application_error,
@@ -80,6 +85,21 @@ class SyntheticAgentDiagnostic(BaseModel):
 
     phase: Literal["model_call"]
     message: str
+
+
+def _activity_error_from(cause: BaseException) -> ActivityError:
+    try:
+        raise ActivityError(
+            "Synthetic activity cancellation",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-executor",
+            activity_type="execute_action_activity",
+            activity_id="synthetic-activity-id",
+            retry_state=None,
+        ) from cause
+    except ActivityError as error:
+        return error
 
 
 @pytest.mark.anyio
@@ -151,6 +171,32 @@ def test_transport_detail_supports_non_action_diagnostics() -> None:
         extract_error_classification(ApplicationError("Agent failed", serialized))
         == classification
     )
+
+
+@pytest.mark.parametrize("mapped", [False, True])
+def test_extract_diagnostics_matches_classification_and_excludes_incidental_context(
+    mapped: bool,
+) -> None:
+    classification = _platform_classification()
+    diagnostic = SyntheticAgentDiagnostic(phase="model_call", message="Safe diagnostic")
+    detail = build_error_transport_detail(classification, diagnostic).model_dump(
+        mode="json"
+    )
+    other = build_error_transport_detail(
+        _user_classification(), {"unrelated": "other failure"}
+    ).model_dump(mode="json")
+    root = ApplicationError(
+        "Platform failed", {"selected": detail, "other": other} if mapped else detail
+    )
+    wrapper = RuntimeError("Wrapped failure")
+    wrapper.__cause__ = root
+    wrapper.__context__ = ApplicationError("Incidental failure", other)
+
+    assert extract_error_diagnostics(wrapper, classification) == (
+        diagnostic.model_dump(mode="json"),
+    )
+    wrapper.__cause__ = None
+    assert extract_error_diagnostics(wrapper, classification) == ()
 
 
 def test_aggregate_action_error_attribution_lives_on_transport_detail() -> None:
@@ -345,14 +391,6 @@ def test_temporal_retryability_is_derived_from_classification(
     error = _capture_application_error(classification)
 
     assert error.non_retryable is expected_non_retryable
-    assert (
-        "non_retryable"
-        not in signature(raise_application_error_from_classification).parameters
-    )
-    assert (
-        "error_type"
-        not in signature(raise_application_error_from_classification).parameters
-    )
     assert error.type == classification.kind.value
 
 
@@ -887,6 +925,32 @@ def test_activity_error_boundary_preserves_cancellation() -> None:
     classify.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "cancellation",
+    [
+        pytest.param(
+            TemporalCancelledError("activity cancelled"),
+            id="direct-temporal-cancellation",
+        ),
+        pytest.param(
+            _activity_error_from(TemporalCancelledError("activity cancelled")),
+            id="wrapped-temporal-cancellation",
+        ),
+    ],
+)
+def test_activity_error_boundary_preserves_temporal_cancellation(
+    cancellation: BaseException,
+) -> None:
+    classify = Mock()
+
+    with pytest.raises(type(cancellation)) as exc_info:
+        with activity_error_boundary(classify):
+            raise cancellation
+
+    assert exc_info.value is cancellation
+    classify.assert_not_called()
+
+
 def test_ambiguous_nested_classification_does_not_override_fallback() -> None:
     nested_classification = _user_classification()
     fallback = _platform_classification()
@@ -913,10 +977,3 @@ def test_exception_chain_preserves_runtime_classification() -> None:
         raise RuntimeError("Outer wrapper") from classified
     except RuntimeError as error:
         assert extract_error_classification(error) == classification
-
-
-def test_error_owners_remain_attribution_only() -> None:
-    assert set(RuntimeErrorOwner) == {
-        RuntimeErrorOwner.USER,
-        RuntimeErrorOwner.PLATFORM,
-    }

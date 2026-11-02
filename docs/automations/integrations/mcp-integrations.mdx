@@ -1,12 +1,13 @@
 ---
 title: "MCP servers"
-description: "Connect custom remote and stdio MCP servers to Tracecat agents, or use the Enterprise catalog of preconfigured servers."
+description: "Connect MCP servers from the Tracecat catalog, or bring your own remote and stdio servers, and attach them to agents and presets."
 ---
 
 ## Overview
 
-Tracecat supports two MCP integration types:
+Tracecat supports three ways to connect an MCP server:
 
+- Catalog of 50+ preconfigured servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty
 - Remote MCP over URL (`HTTP` or `SSE`)
 - Local MCP over `stdio`
 
@@ -14,17 +15,19 @@ Tracecat supports two MCP integration types:
 
 <Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
 
-In open-source deployments, bring your own remote or `stdio` MCP server. Select the saved integration in the `mcp_integrations` input on `ai.agent`.
+All three connection types are open source. Select the saved integration in the `mcp_integrations` input on `ai.agent`, or attach it to a reusable agent preset. Per-tool approvals on remote MCP integrations, and reviewing them in the agent inbox, are also open source. See [Human-in-the-loop](/agents/human-in-the-loop).
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-Enterprise includes a catalog of 50+ preconfigured MCP servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty. You can also attach MCP integrations to reusable agent presets.
+Approving tool calls from Slack or Microsoft Teams through agent channels is Enterprise-only.
 
 ![MCP options](/img/integrations/mcp-options.png)
 
 ## Remote MCP
 
 Use remote MCP when the server is exposed over a URL.
+
+Tracecat rejects server URLs that resolve to private, loopback, or link-local addresses with `Host is not allowed`. For a self-hosted MCP server on your network, add its IP or CIDR to `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS`; see [Private endpoints](/agents/llm-providers#private-endpoints).
 
 Authentication modes:
 
@@ -46,14 +49,12 @@ For a custom remote MCP server, first create a custom OAuth provider in [OAuth](
 
 ```json
 {
-  "Authorization": "Bearer token123",
+  "Authorization": "Bearer ${{ SECRETS.mcp_api.API_KEY }}",
   "X-API-Key": "abc123"
 }
 ```
 
-<Info>
-Remote MCP custom header JSON does not resolve `${{ SECRETS.* }}` or `${{ VARS.* }}`. Header values are sent as literal strings.
-</Info>
+Header values support `${{ SECRETS.* }}` and `${{ VARS.* }}` from your workspace's `default` environment. Tracecat resolves them when testing the connection or calling a tool. Header names and literal values stay unchanged. To save or test headers that contain expressions, you need the `integration:update` permission.
 
 ## Stdio MCP
 
@@ -76,7 +77,7 @@ Expression support differs by MCP integration type:
 
 - `stdio` environment variables support `${{ SECRETS.* }}` and `${{ VARS.* }}`.
 - Remote MCP OAuth mode does not need secret expressions for the bearer token because Tracecat injects the OAuth token automatically.
-- Remote MCP custom header JSON does not currently resolve `${{ SECRETS.* }}` or `${{ VARS.* }}`.
+- Remote MCP `Custom` header values support `${{ SECRETS.* }}` and `${{ VARS.* }}` from your workspace's `default` environment.
 
 ## Related pages
 

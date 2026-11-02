@@ -16,7 +16,7 @@ import os
 import re
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +27,7 @@ import orjson
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    CLIConnectionError,
     HookMatcher,
     SandboxSettings,
     Transport,
@@ -52,11 +53,11 @@ from claude_agent_sdk.types import (
 from tracecat.agent.common.config import (
     AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
 )
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxProcessExitError,
-    AgentSandboxValidationError,
 )
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -81,6 +82,7 @@ from tracecat.agent.error_policy import (
     AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES,
     agent_runtime_failure,
 )
+from tracecat.agent.gateway_providers import is_gateway_provider
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -88,8 +90,8 @@ from tracecat.agent.mcp.metadata import (
 )
 from tracecat.agent.mcp.utils import (
     LEGACY_REGISTRY_MCP_SERVER_NAME,
+    MCP_TOOL_NAME_RE,
     REGISTRY_MCP_SERVER_NAME,
-    STDIO_MCP_TOOL_NAME_RE,
     action_name_to_mcp_tool_name,
     normalize_mcp_tool_name,
 )
@@ -102,6 +104,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_synthetic_session_line,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_NAME
 from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
 from tracecat.runtime.errors import RuntimeErrorClassification
@@ -118,6 +121,7 @@ CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 _SESSION_FRAME_MARGIN = 4096
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
+ROOT_MESSAGE_DONE_TIMEOUT_SECONDS = 120.0
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -129,7 +133,7 @@ def _claude_project_dir_name(cwd: Path) -> str:
     """
     sanitized = CLAUDE_PROJECT_DIR_SANITIZE_RE.sub("-", str(cwd))
     if len(sanitized) > CLAUDE_PROJECT_DIR_MAX_LENGTH:
-        raise AgentSandboxValidationError(
+        raise AgentPreparationError(
             "Claude runtime cwd is too long for deterministic session persistence: "
             f"sanitized path length {len(sanitized)} exceeds "
             f"{CLAUDE_PROJECT_DIR_MAX_LENGTH}. Shorten TMPDIR or the runtime cwd."
@@ -173,6 +177,7 @@ class RuntimeEventWriter(Protocol):
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
     ) -> None:
         """Send a terminal runtime error with optional trusted attribution."""
 
@@ -194,7 +199,7 @@ def _sandbox_process_exit_error(
     ``AgentSandboxValidationError``, say -- would reach the activity as a
     process exit and lose its own attribution.
     """
-    if TRACECAT__DISABLE_NSJAIL:
+    if not TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
         # Without a jail no rlimit was installed, so the exit code carries no
         # resource-limit meaning. A direct process that aborts or that the host
         # OOM-kills is a platform failure, and attributing it to the caller
@@ -245,6 +250,9 @@ CLAUDE_CODE_STATEFUL_TOOLS = [
     "CronList",
     "EnterWorktree",
     "ExitWorktree",
+    # Session wakeups and agent discovery need an interactive harness.
+    "ScheduleWakeup",
+    "ListAgents",
 ]
 
 DISALLOWED_TOOLS = [
@@ -356,6 +364,9 @@ class ClaudeAgentRuntime:
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
         self._pending_approval_tool_ids: set[str] = set()
+        # Set while no root assistant message is streaming.
+        self._root_message_done = asyncio.Event()
+        self._root_message_done.set()
         self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
         self._interrupt_requested: str | None = None
@@ -413,6 +424,17 @@ class ClaudeAgentRuntime:
     @staticmethod
     def _subagent_registry_server_name(alias: str) -> str:
         return f"{SUBAGENT_REGISTRY_MCP_SERVER_PREFIX}{alias}"
+
+    @classmethod
+    def _reserved_subagent_server_names(cls, aliases: Iterable[str]) -> set[str]:
+        return {
+            name
+            for alias in aliases
+            for name in (
+                cls._subagent_registry_server_name(alias),
+                f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{alias}",
+            )
+        }
 
     @staticmethod
     def _trusted_mcp_server_config(auth_token: str) -> McpHttpServerConfig:
@@ -517,7 +539,7 @@ class ClaudeAgentRuntime:
             name = tool.get("name")
             if not name:
                 continue
-            if not STDIO_MCP_TOOL_NAME_RE.fullmatch(name):
+            if not MCP_TOOL_NAME_RE.fullmatch(name):
                 logger.warning(
                     "Skipping stdio MCP tool with unsupported name",
                     tool_name=name,
@@ -717,14 +739,14 @@ class ClaudeAgentRuntime:
         ~/.claude/projects/{encoded-cwd}/{session_id}.jsonl
 
         Raises:
-            AgentSandboxValidationError: If sdk_session_id contains path traversal.
+            AgentPreparationError: If sdk_session_id contains path traversal.
         """
         # Validate session ID to prevent path traversal
         # Only allow alphanumeric, hyphens, and underscores
         if not sdk_session_id or not all(
             c.isalnum() or c in "-_" for c in sdk_session_id
         ):
-            raise AgentSandboxValidationError(
+            raise AgentPreparationError(
                 f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
             )
 
@@ -770,7 +792,6 @@ class ClaudeAgentRuntime:
         resume_session_id: str | None = None
         fork_session = False
         mcp_servers: dict[str, McpServerConfig] = {}
-        session_file_task: asyncio.Task[Path] | None = None
 
         if payload.sdk_session_id and payload.sdk_session_data:
             resume_session_id = payload.sdk_session_id
@@ -780,20 +801,11 @@ class ClaudeAgentRuntime:
                 self._last_seen_byte_offset = len(session_data.encode("utf-8"))
                 self._sdk_session_id = resume_session_id
 
-        async with asyncio.TaskGroup() as tg:
-            if (
-                write_session_file
-                and payload.sdk_session_id
-                and payload.sdk_session_data
-            ):
-                session_file_task = tg.create_task(
-                    self._write_session_file(
-                        payload.sdk_session_id, payload.sdk_session_data
-                    )
-                )
-
-        if session_file_task is not None:
-            _ = session_file_task.result()
+        # Await directly: a TaskGroup would wrap typed failures in an ExceptionGroup.
+        if write_session_file and payload.sdk_session_id and payload.sdk_session_data:
+            await self._write_session_file(
+                payload.sdk_session_id, payload.sdk_session_data
+            )
 
         if self.registry_tools:
             mcp_servers[REGISTRY_MCP_SERVER_NAME] = self._trusted_mcp_server_config(
@@ -1103,6 +1115,19 @@ class ClaudeAgentRuntime:
         """
         await self._emit_approval_request(tool_name, tool_input, tool_use_id)
 
+        # The CLI runs a tool as soon as its block streams, so interrupting now
+        # would cut off the parallel calls the model has yet to write.
+        try:
+            await asyncio.wait_for(
+                self._root_message_done.wait(),
+                timeout=ROOT_MESSAGE_DONE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Assistant message still streaming, interrupting anyway",
+                tool_name=tool_name,
+            )
+
         logger.info("Approval request streamed, interrupting", tool_name=tool_name)
 
         await self._interrupt_once()
@@ -1215,7 +1240,16 @@ class ClaudeAgentRuntime:
             )
             self._was_interrupted = True
             self._interrupt_sent = True
-            await self.client.interrupt()
+            client = self.client
+            try:
+                await client.interrupt()
+            except (CLIConnectionError, BrokenPipeError, ConnectionResetError):
+                # The turn can enter SDK teardown while the interrupt write is
+                # suspended. Its original outcome belongs to run(), not this
+                # best-effort stop request. Live connection errors still fail.
+                if self.client is client:
+                    raise
+                logger.debug("Claude runtime closed while interrupting")
 
     async def _pre_tool_use_hook(
         self,
@@ -1395,10 +1429,17 @@ class ClaudeAgentRuntime:
         self,
         *,
         payload: RuntimeInitPayload,
+        existing_mcp_names: set[str] | None = None,
     ) -> dict[str, AgentDefinition] | None:
         if not payload.subagents:
             return None
 
+        used_mcp_names = set(existing_mcp_names or ())
+        used_mcp_names.update(
+            self._reserved_subagent_server_names(
+                child.alias for child in payload.subagents
+            )
+        )
         definitions: dict[str, AgentDefinition] = {}
         for subagent in payload.subagents:
             registry_server_name = self._subagent_registry_server_name(subagent.alias)
@@ -1414,7 +1455,11 @@ class ClaudeAgentRuntime:
             stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=subagent.config.mcp_servers,
                 name_prefix=f"subagent-{subagent.alias}",
-                existing_names={registry_server_name},
+                existing_names=used_mcp_names,
+            )
+            used_mcp_names.update(stdio_mcp_spec.servers)
+            self._stdio_approval_blocked_tools.update(
+                stdio_mcp_spec.blocked_approval_tools
             )
             mcp_server_configs.extend(
                 {server_name: server_config}
@@ -1453,6 +1498,13 @@ class ClaudeAgentRuntime:
                 mcpServers=mcp_server_configs or None,
                 disallowedTools=disallowed_tools,
                 maxTurns=subagent.max_turns,
+                # Preloading needs no Skill/Read grant; qualified names keep
+                # workspace namesakes from shadowing the staged plugin copy.
+                skills=[
+                    f"{PLATFORM_SKILL_PLUGIN_NAME}:{slug}"
+                    for slug in subagent.config.library_skills or []
+                ]
+                or None,
             )
 
         return definitions
@@ -1554,8 +1606,10 @@ class ClaudeAgentRuntime:
     @staticmethod
     def _sandbox_settings() -> SandboxSettings:
         """Build Claude SDK sandbox settings for direct mode."""
-        sandbox_settings = SandboxSettings(enabled=TRACECAT__DISABLE_NSJAIL)
-        if TRACECAT__DISABLE_NSJAIL:
+        sandbox_settings = SandboxSettings(
+            enabled=not TRACECAT__EXECUTOR_BACKEND.uses_nsjail
+        )
+        if not TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
             sandbox_settings["enableWeakerNestedSandbox"] = True
             sandbox_settings["allowUnsandboxedCommands"] = False
         return sandbox_settings
@@ -1564,7 +1618,9 @@ class ClaudeAgentRuntime:
     def _sdk_env(payload: RuntimeInitPayload) -> dict[str, str]:
         """Return child-process environment overrides for the Claude SDK."""
         env = {"ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token}
-        if payload.config.model_provider == "custom-model-provider":
+        # Gateway providers serve models the CLI cannot size, so pin a
+        # conservative auto-compact window instead of the Claude default.
+        if is_gateway_provider(payload.config.model_provider):
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
@@ -1575,6 +1631,10 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = (
             "false" if payload.config.model_provider == "bedrock" else "true"
         )
+        # The CLI backgrounds subagents and Bash by default, ending the turn
+        # before results arrive. The sandbox never re-invokes the agent, so
+        # force synchronous execution.
+        env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
         # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
         # shim points the SDK at its OtelBridge).
         if payload.agent_otel_sandbox_env:
@@ -1752,14 +1812,9 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
-            reserved_subagent_server_names = {
-                server_name
-                for subagent in payload.subagents
-                for server_name in (
-                    self._subagent_registry_server_name(subagent.alias),
-                    f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{subagent.alias}",
-                )
-            }
+            reserved_subagent_server_names = self._reserved_subagent_server_names(
+                subagent.alias for subagent in payload.subagents
+            )
             stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=payload.config.mcp_servers,
                 existing_names=set(mcp_servers) | reserved_subagent_server_names,
@@ -1767,7 +1822,9 @@ class ClaudeAgentRuntime:
             self._stdio_approval_blocked_tools = stdio_mcp_spec.blocked_approval_tools
             stdio_mcp_servers = stdio_mcp_spec.servers
             mcp_servers.update(stdio_mcp_servers)
-            agent_definitions = self._build_agent_definitions(payload=payload)
+            agent_definitions = self._build_agent_definitions(
+                payload=payload, existing_mcp_names=set(mcp_servers)
+            )
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""
@@ -1885,9 +1942,18 @@ class ClaudeAgentRuntime:
                                 first_stream_event_logged = True
                                 log_benchmark_phase("runtime_first_stream_event")
 
-                            # Partial streaming delta - forward to UI
-                            unified = self._stream_adapter.to_unified_event(message)
-                            await self._event_writer.send_stream_event(unified)
+                            if message.parent_tool_use_id is None:
+                                event_type = message.event.get("type")
+                                if event_type == "message_start":
+                                    self._root_message_done.clear()
+                                elif event_type == "message_stop":
+                                    self._root_message_done.set()
+
+                            # Partial streaming delta - forward to UI.
+                            # ping events are upstream keep-alives with no content
+                            if message.event.get("type") != "ping":
+                                unified = self._stream_adapter.to_unified_event(message)
+                                await self._event_writer.send_stream_event(unified)
                             self._session_flush_event.set()
 
                         elif isinstance(message, ResultMessage):
@@ -1927,6 +1993,9 @@ class ClaudeAgentRuntime:
                             elif isinstance(message, UserMessage):
                                 await self._emit_user_tool_results(message)
                 finally:
+                    # Stop accepting interrupts before SDK context teardown
+                    # closes the transport, including while stderr drains.
+                    self.client = None
                     stderr_task.cancel()
                     try:
                         await stderr_task
@@ -1959,6 +2028,7 @@ class ClaudeAgentRuntime:
             await self._event_writer.send_error(
                 failure.message,
                 classification=failure.classification,
+                cause=error,
             )
             if error is e:
                 raise

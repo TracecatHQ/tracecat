@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 import tracecat.agent.executor.loopback as loopback_module
+from tracecat.agent.channels.sinks.session import AgentStreamSink, FanoutStreamSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE, MessageType, build_message
@@ -21,9 +22,11 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.error_policy import (
+    agent_executor_unclassified,
+    user_agent_execution_failed,
+)
 from tracecat.agent.executor.loopback import (
-    AgentStreamSink,
-    FanoutStreamSink,
     LoopbackHandler,
     LoopbackInput,
     RuntimeEnvelopeProtocolError,
@@ -35,6 +38,7 @@ from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.db.models import AgentSessionHistory
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -43,13 +47,6 @@ from tracecat.runtime.errors import (
 
 
 class _FakeStream:
-    def __init__(self) -> None:
-        self.append = AsyncMock()
-        self.error = AsyncMock()
-        self.done = AsyncMock()
-
-
-class _FakeExternalSink:
     def __init__(self) -> None:
         self.append = AsyncMock()
         self.error = AsyncMock()
@@ -111,73 +108,33 @@ def loopback_input(tmp_path: Path) -> LoopbackInput:
 
 
 @pytest.mark.anyio
-async def test_initialize_stream_sink_falls_back_to_redis_on_external_lookup_error(
+async def test_terminal_error_falls_back_to_redis_on_external_lookup_error(
     monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
 ) -> None:
     handler = LoopbackHandler(input=loopback_input)
     external_lookup = AsyncMock(side_effect=SQLAlchemyError("database unavailable"))
-    monkeypatch.setattr(handler, "_build_external_channel_sink", external_lookup)
-
-    fake_stream = _FakeStream()
-    stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
-
-    sink = await handler._initialize_stream_sink()
-
-    assert isinstance(sink, AgentStreamSink)
-    assert sink.stream is fake_stream
-    external_lookup.assert_awaited_once()
-    stream_new.assert_awaited_once_with(
-        session_id=loopback_input.session_id,
-        workspace_id=loopback_input.workspace_id,
-        stream_id=loopback_input.active_stream_id,
-    )
-
-
-@pytest.mark.anyio
-async def test_initialize_stream_sink_uses_fanout_when_external_sink_available(
-    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
-) -> None:
-    handler = LoopbackHandler(input=loopback_input)
-    external_sink = _FakeExternalSink()
     monkeypatch.setattr(
-        handler,
-        "_build_external_channel_sink",
-        AsyncMock(return_value=external_sink),
+        "tracecat.agent.channels.sinks.session._build_external_channel_sink",
+        external_lookup,
     )
+
     fake_stream = _FakeStream()
     stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
-
-    sink = await handler._initialize_stream_sink()
-    event = UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
-    await sink.append(event)
-
-    assert isinstance(sink, FanoutStreamSink)
-    fake_stream.append.assert_awaited_once_with(event)
-    external_sink.append.assert_awaited_once_with(event)
-
-
-@pytest.mark.anyio
-async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
-    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
-) -> None:
-    handler = LoopbackHandler(input=loopback_input)
     monkeypatch.setattr(
-        handler,
-        "_build_external_channel_sink",
-        AsyncMock(side_effect=SQLAlchemyError("database unavailable")),
+        "tracecat.agent.channels.sinks.session.AgentStream.new", stream_new
     )
 
-    fake_stream = _FakeStream()
-    stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
-
-    emitted = await handler.emit_terminal_error("runtime exited before connect")
+    emitted = await handler.emit_terminal_error(
+        "runtime exited before connect",
+        classification=agent_executor_unclassified(),
+    )
 
     assert emitted is True
     assert handler.build_result().terminal_stream_error_emitted is True
-    assert isinstance(handler._stream_sink, AgentStreamSink)
+    sink = handler._stream_sink
+    assert isinstance(sink, AgentStreamSink)
+    assert sink.stream is fake_stream
+    external_lookup.assert_awaited_once()
     stream_new.assert_awaited_once_with(
         session_id=loopback_input.session_id,
         workspace_id=loopback_input.workspace_id,
@@ -193,18 +150,22 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
 ) -> None:
     handler = LoopbackHandler(input=loopback_input)
     monkeypatch.setattr(
-        handler,
-        "_build_external_channel_sink",
+        "tracecat.agent.channels.sinks.session._build_external_channel_sink",
         AsyncMock(side_effect=SQLAlchemyError("database unavailable")),
     )
 
     fake_stream = _FakeStream()
     stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.AgentStream.new", stream_new
+    )
 
     handler._started_compaction_event = True
 
-    emitted = await handler.emit_terminal_error("runtime exited before connect")
+    emitted = await handler.emit_terminal_error(
+        "runtime exited before connect",
+        classification=agent_executor_unclassified(),
+    )
 
     assert emitted is True
     assert handler.build_result().terminal_stream_error_emitted is True
@@ -235,10 +196,42 @@ async def test_emit_terminal_error_bounds_stalled_stream_sink(
     fake_stream.error.side_effect = stalled_error
     handler._stream_sink = fake_stream
 
-    emitted = await handler.emit_terminal_error("provider request failed")
+    classification = agent_executor_unclassified()
+    emitted = await handler.emit_terminal_error(
+        "provider request failed",
+        classification=classification,
+    )
 
     assert emitted is False
-    assert handler.build_result().terminal_stream_error_emitted is False
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "provider request failed"
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is False
+    fake_stream.error.assert_awaited_once_with("provider request failed")
+
+
+@pytest.mark.anyio
+async def test_emit_terminal_error_retains_state_when_stream_sink_fails(
+    loopback_input: LoopbackInput,
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    fake_stream = _FakeStream()
+    fake_stream.error.side_effect = OSError("stream unavailable")
+    handler._stream_sink = fake_stream
+    classification = agent_executor_unclassified()
+
+    emitted = await handler.emit_terminal_error(
+        "provider request failed",
+        classification=classification,
+    )
+
+    assert emitted is False
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "provider request failed"
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is False
     fake_stream.error.assert_awaited_once_with("provider request failed")
 
 
@@ -258,10 +251,18 @@ async def test_emit_terminal_error_bounds_stalled_stream_sink_initialization(
     initialize_stream_sink = AsyncMock(side_effect=stalled_initialization)
     monkeypatch.setattr(handler, "_initialize_stream_sink", initialize_stream_sink)
 
-    emitted = await handler.emit_terminal_error("provider request failed")
+    classification = agent_executor_unclassified()
+    emitted = await handler.emit_terminal_error(
+        "provider request failed",
+        classification=classification,
+    )
 
     assert emitted is False
-    assert handler.build_result().terminal_stream_error_emitted is False
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "provider request failed"
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is False
     initialize_stream_sink.assert_awaited_once()
 
 
@@ -321,68 +322,56 @@ async def test_persist_session_line_preserves_raw_nul_content(
     session.commit.assert_awaited_once()
 
 
-def test_should_suppress_pending_approval_tool_result() -> None:
+@pytest.mark.parametrize(
+    ("pending_approval", "tool_output", "is_error", "suppressed"),
+    [
+        pytest.param(True, {"id": "case-123"}, False, True, id="pending-approval"),
+        pytest.param(
+            False,
+            "The user doesn't want to take this action right now.",
+            True,
+            True,
+            id="synthetic-interrupt",
+        ),
+        pytest.param(
+            False,
+            [
+                {
+                    "type": "text",
+                    "text": (
+                        "STOP what you are doing and wait for the user to tell you"
+                        " how to proceed."
+                    ),
+                }
+            ],
+            True,
+            True,
+            id="nested-interrupt",
+        ),
+        pytest.param(
+            False, "Tool execution failed: timeout", True, False, id="normal-error"
+        ),
+    ],
+)
+def test_should_suppress_stream_event(
+    pending_approval: bool,
+    tool_output: object,
+    is_error: bool,
+    suppressed: bool,
+) -> None:
     handler = _make_handler()
-    handler._pending_approval_tool_call_ids.add("tool-1")
+    if pending_approval:
+        handler._pending_approval_tool_call_ids.add("tool-1")
 
     event = UnifiedStreamEvent(
         type=StreamEventType.TOOL_RESULT,
         tool_call_id="tool-1",
         tool_name="core.cases.create_case",
-        tool_output={"id": "case-123"},
+        tool_output=tool_output,
+        is_error=is_error,
     )
 
-    assert handler._should_suppress_stream_event(event) is True
-
-
-def test_should_suppress_synthetic_interrupt_output() -> None:
-    handler = _make_handler()
-
-    event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_RESULT,
-        tool_call_id="tool-2",
-        tool_name="core.cases.create_case",
-        tool_output="The user doesn't want to take this action right now.",
-        is_error=True,
-    )
-
-    assert handler._should_suppress_stream_event(event) is True
-
-
-def test_should_suppress_nested_interrupt_output() -> None:
-    handler = _make_handler()
-
-    event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_RESULT,
-        tool_call_id="tool-3",
-        tool_name="core.cases.create_case",
-        tool_output=[
-            {
-                "type": "text",
-                "text": (
-                    "STOP what you are doing and wait for the user to tell you"
-                    " how to proceed."
-                ),
-            }
-        ],
-        is_error=True,
-    )
-
-    assert handler._should_suppress_stream_event(event) is True
-
-
-def test_should_not_suppress_normal_tool_result_error() -> None:
-    handler = _make_handler()
-
-    event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_RESULT,
-        tool_call_id="tool-4",
-        tool_name="core.cases.create_case",
-        tool_output="Tool execution failed: timeout",
-        is_error=True,
-    )
-
-    assert handler._should_suppress_stream_event(event) is False
+    assert handler._should_suppress_stream_event(event) is suppressed
 
 
 @pytest.mark.anyio
@@ -573,21 +562,10 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
 
 
 @pytest.mark.anyio
-async def test_close_external_stream_leaves_redis_open() -> None:
-    handler = _make_handler()
-    stream = _FakeStream()
-    handler._stream_sink = stream
-
-    await handler._close_external_stream()
-
-    stream.done.assert_not_awaited()
-
-
-@pytest.mark.anyio
 async def test_terminal_success_closes_only_external_sink() -> None:
     handler = _make_handler()
     redis_stream = _FakeStream()
-    external_stream = _FakeExternalSink()
+    external_stream = _FakeStream()
     handler._stream_sink = FanoutStreamSink(
         sinks=(
             AgentStreamSink(stream=cast(AgentStream, redis_stream)),
@@ -609,7 +587,7 @@ async def test_terminal_success_closes_only_external_sink() -> None:
 async def test_terminal_error_streams_error_and_closes_only_external_sink() -> None:
     handler = _make_handler()
     redis_stream = _FakeStream()
-    external_stream = _FakeExternalSink()
+    external_stream = _FakeStream()
     handler._stream_sink = FanoutStreamSink(
         sinks=(
             AgentStreamSink(stream=cast(AgentStream, redis_stream)),
@@ -628,7 +606,7 @@ async def test_terminal_error_streams_error_and_closes_only_external_sink() -> N
     assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert (
         handler._result.classification.kind
-        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     )
     assert (
         handler._result.classification.retry_disposition is RetryDisposition.RETRYABLE
@@ -636,29 +614,84 @@ async def test_terminal_error_streams_error_and_closes_only_external_sink() -> N
 
 
 @pytest.mark.anyio
-async def test_terminal_error_leaves_redis_open_for_workflow() -> None:
+@pytest.mark.parametrize("delivery_times_out", [False, True])
+async def test_runtime_cleanup_does_not_close_slack_before_executor_error(
+    monkeypatch: pytest.MonkeyPatch,
+    delivery_times_out: bool,
+) -> None:
     handler = _make_handler()
-    stream = _FakeStream()
-    event_order: list[str] = []
+    redis_stream = _FakeStream()
+    redis_entered = asyncio.Event()
+    release_redis = asyncio.Event()
 
-    async def record_error(error: str) -> None:
-        assert error == "runtime failed"
-        event_order.append("error")
+    async def stalled_error(_error: str) -> None:
+        redis_entered.set()
+        await release_redis.wait()
 
-    stream.error.side_effect = record_error
-    handler._stream_sink = stream
+    redis_stream.error.side_effect = stalled_error
+    slack_sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id=str(handler.input.session_id),
+        workspace_id=str(handler.input.workspace_id),
+    )
+    append_stream_text = AsyncMock()
+    terminal_reaction = AsyncMock()
+    monkeypatch.setattr(slack_sink, "_append_stream_text", append_stream_text)
+    monkeypatch.setattr(slack_sink, "_set_terminal_reaction", terminal_reaction)
+    handler._stream_sink = FanoutStreamSink(
+        sinks=(
+            AgentStreamSink(stream=cast(AgentStream, redis_stream)),
+            slack_sink,
+        )
+    )
+    if delivery_times_out:
+        monkeypatch.setattr(
+            loopback_module, "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS", 0.01
+        )
+    error = "provider request failed"
+    classification = user_agent_execution_failed()
 
-    await handler.send_error("runtime failed")
+    async with asyncio.timeout(5):
+        async with asyncio.TaskGroup() as tasks:
+            terminal_task = tasks.create_task(
+                handler.emit_terminal_error(error, classification=classification)
+            )
+            await redis_entered.wait()
+            # The SDK can finish cleanup while the executor is still sending
+            # its error to Redis, before the fanout reaches Slack.
+            await handler.send_error("secondary runtime failure")
+            await handler.send_done()
+            terminal_reaction.assert_not_awaited()
+            assert slack_sink._is_closed is False
+            if not delivery_times_out:
+                release_redis.set()
 
-    assert event_order == ["error"]
-    stream.done.assert_not_awaited()
+    # A later cleanup callback must not turn a timed-out delivery into success.
+    await handler.send_done()
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == error
+    assert result.classification == classification
+    assert terminal_task.result() is (not delivery_times_out)
+    assert result.terminal_stream_error_emitted is (not delivery_times_out)
+    redis_stream.error.assert_awaited_once_with(error)
+    redis_stream.done.assert_not_awaited()
+    if delivery_times_out:
+        append_stream_text.assert_not_awaited()
+        terminal_reaction.assert_not_awaited()
+    else:
+        append_stream_text.assert_awaited_once_with(f"\n\nError: {error}")
+        terminal_reaction.assert_awaited_once_with(is_error=True)
+        assert slack_sink._is_closed is True
 
 
 @pytest.mark.anyio
 async def test_close_external_stream_is_deduplicated_on_approval_pause() -> None:
     handler = _make_handler()
     redis_stream = _FakeStream()
-    external_stream = _FakeExternalSink()
+    external_stream = _FakeStream()
     handler._stream_sink = FanoutStreamSink(
         sinks=(
             AgentStreamSink(stream=cast(AgentStream, redis_stream)),
@@ -712,7 +745,7 @@ async def test_process_runtime_events_emits_failed_compaction_on_runtime_error()
     assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert (
         handler._result.classification.kind
-        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     )
     assert (
         handler._result.classification.retry_disposition is RetryDisposition.RETRYABLE
@@ -809,20 +842,30 @@ async def test_process_runtime_events_fails_zero_work_completion() -> None:
 
 
 @pytest.mark.anyio
-async def test_process_runtime_events_classifies_disconnect_and_marks_streamed() -> (
-    None
-):
+async def test_process_runtime_events_classifies_disconnect_and_marks_streamed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     handler = _make_handler()
     stream = _FakeStream()
     handler._stream_sink = stream
 
+    receipt = PlatformErrorCapture.for_error("a" * 32, agent_executor_unclassified())
+    capture = MagicMock(return_value=receipt)
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+
     await handler._process_runtime_events(_reader_for_envelopes())
 
+    capture.assert_called_once()
+    error, classification = capture.call_args.args
+    assert isinstance(error, asyncio.IncompleteReadError)
+    assert error.__traceback__ is not None
+    assert classification == handler._result.classification
+    assert handler._result.sentry_capture == receipt
     assert handler._result.classification is not None
     assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert (
         handler._result.classification.kind
-        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     )
     assert handler._result.terminal_stream_error_emitted is True
     stream.error.assert_awaited_once_with("Runtime disconnected during execution")
@@ -1229,6 +1272,156 @@ async def test_send_done_preserves_existing_error_state() -> None:
 
 
 @pytest.mark.anyio
+async def test_emit_terminal_error_preserves_state_when_runtime_sends_done(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A runtime cleanup ``send_done`` must preserve an earlier terminal error."""
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    capture = MagicMock()
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+    error = "provider request failed"
+    classification = agent_executor_unclassified()
+
+    emitted = await handler.emit_terminal_error(
+        error,
+        classification=classification,
+    )
+    await handler.send_done()
+
+    result = handler.build_result()
+    assert emitted is True
+    assert result.success is False
+    assert result.error == error
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is True
+    stream.error.assert_awaited_once_with(error)
+    stream.done.assert_not_awaited()
+    capture.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("runtime_already_preparing", [False, True])
+async def test_executor_error_survives_concurrent_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_already_preparing: bool,
+) -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    capture = MagicMock()
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+    stream_entered = asyncio.Event()
+    release_stream = asyncio.Event()
+    prepare_entered = asyncio.Event()
+    release_prepare = asyncio.Event()
+    error = "provider request failed"
+    classification = user_agent_execution_failed()
+
+    async def stalled_error(message: str) -> None:
+        if message == error:
+            stream_entered.set()
+            await release_stream.wait()
+
+    async def stalled_prepare() -> _FakeStream:
+        prepare_entered.set()
+        await release_prepare.wait()
+        return stream
+
+    stream.error.side_effect = stalled_error
+    runtime_task: asyncio.Task[None] | None = None
+    async with asyncio.timeout(5):
+        async with asyncio.TaskGroup() as tasks:
+            if runtime_already_preparing:
+                monkeypatch.setattr(handler, "prepare", stalled_prepare)
+                runtime_task = tasks.create_task(
+                    handler.send_error(
+                        "secondary runtime failure",
+                        cause=RuntimeError("secondary runtime failure"),
+                    )
+                )
+                await prepare_entered.wait()
+            terminal_task = tasks.create_task(
+                handler.emit_terminal_error(error, classification=classification)
+            )
+            await stream_entered.wait()
+            release_prepare.set()
+            if runtime_task is None:
+                runtime_task = tasks.create_task(
+                    handler.send_error(
+                        "secondary runtime failure",
+                        cause=RuntimeError("secondary runtime failure"),
+                    )
+                )
+            if runtime_already_preparing:
+                # The runtime callback must block behind the in-flight
+                # executor emission rather than racing past it.
+                await asyncio.sleep(0)
+                assert not runtime_task.done()
+            release_stream.set()
+            await runtime_task
+
+    await handler.send_done()
+    result = handler.build_result()
+    assert terminal_task.result() is True
+    assert result.success is False
+    assert result.error == error
+    assert result.classification == classification
+    stream.error.assert_awaited_once_with(error)
+    capture.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_executor_error_overrides_in_flight_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Executor failure arriving mid runtime stream delivery wins without duplicates."""
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    capture = MagicMock()
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+    stream_entered = asyncio.Event()
+    release_stream = asyncio.Event()
+    runtime_error = "secondary runtime failure"
+    error = "provider request failed"
+    classification = user_agent_execution_failed()
+
+    async def stalled_error(message: str) -> None:
+        if message == runtime_error:
+            stream_entered.set()
+            await release_stream.wait()
+
+    stream.error.side_effect = stalled_error
+    async with asyncio.timeout(5):
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(
+                handler.send_error(
+                    runtime_error,
+                    cause=RuntimeError(runtime_error),
+                )
+            )
+            await stream_entered.wait()
+            terminal_task = tasks.create_task(
+                handler.emit_terminal_error(error, classification=classification)
+            )
+            await asyncio.sleep(0)
+            assert not terminal_task.done()
+            release_stream.set()
+
+    await handler.send_done()
+    result = handler.build_result()
+    assert terminal_task.result() is True
+    assert result.success is False
+    assert result.error == error
+    assert result.classification == classification
+    assert result.terminal_stream_error_emitted is True
+    stream.error.assert_awaited_once_with(runtime_error)
+    capture.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_parallel_approval_requests_accumulate_across_events() -> None:
     """N parallel gated tool calls arrive as N approval events; keep them all."""
     handler = _make_handler()
@@ -1289,3 +1482,60 @@ async def test_duplicate_approval_request_events_are_deduped() -> None:
 
     result = handler.build_result()
     assert [item.id for item in result.approval_items] == ["call-1"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "first_output",
+    [
+        UnifiedStreamEvent(type=StreamEventType.THINKING_DELTA, thinking="hm"),
+        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hi"),
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            tool_call_id="call-1",
+            tool_name="core.http_request",
+        ),
+    ],
+    ids=["thinking", "text", "tool_call"],
+)
+async def test_first_token_at_marks_first_model_output_only(
+    first_output: UnifiedStreamEvent,
+) -> None:
+    handler = _make_handler()
+    handler._stream_sink = _FakeStream()
+
+    await handler._handle_stream_event(
+        UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
+    )
+    assert handler.build_result().first_token_at is None
+
+    await handler._handle_stream_event(first_output)
+    first_token_at = handler.build_result().first_token_at
+    assert first_token_at is not None
+
+    await handler._handle_stream_event(
+        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hi")
+    )
+    assert handler.build_result().first_token_at == first_token_at
+
+
+@pytest.mark.anyio
+async def test_host_runtime_capture_uses_original_exception_before_stream_failure(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    original = RuntimeError("synthetic source failure")
+    capture = MagicMock(return_value=None)
+    monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
+    monkeypatch.setattr(handler, "prepare", AsyncMock())
+    monkeypatch.setattr(
+        handler, "_emit_terminal_stream_error", AsyncMock(side_effect=OSError())
+    )
+    with pytest.raises(OSError):
+        await handler.send_error("runtime failed", cause=original)
+    result = handler.build_result()
+    assert result.classification is not None
+    capture.assert_called_once_with(
+        original, result.classification, existing_capture=None
+    )
+    assert result.error == "runtime failed"

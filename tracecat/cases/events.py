@@ -21,7 +21,10 @@ from tracecat.cases.enums import (
     CaseAgentSessionInteractionOperation,
     CaseEventType,
 )
-from tracecat.cases.schemas import CaseEventVariant, CaseViewedEvent
+from tracecat.cases.event_schemas import (
+    CaseEventVariant,
+    CaseViewedEvent,
+)
 from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.db.models import Case, CaseEvent
 from tracecat.db.session_events import AfterCommitQueue
@@ -59,7 +62,10 @@ class CaseEventsService(BaseWorkspaceService):
         """List all events for a case."""
         statement = (
             select(CaseEvent)
-            .where(CaseEvent.case_id == case.id)
+            .where(
+                CaseEvent.workspace_id == self.workspace_id,
+                CaseEvent.case_id == case.id,
+            )
             .order_by(CaseEvent.created_at.desc(), CaseEvent.surrogate_id.desc())
         )
         result = await self.session.execute(statement)

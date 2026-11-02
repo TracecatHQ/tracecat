@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: Create investigation
+  description: "Create investigation. Calls POST /idr/v2/investigations directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightidr/en-us/api/v2/docs.html#operation/createInvestigation
+  namespace: tools.rapid7
+  name: create_investigation
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    title:
+      type: str
+      description: "The name of the investigation."
+    status:
+      type: str | None
+      description: "The status of the investigation. Defaults to OPEN."
+      default: null
+    priority:
+      type: str | None
+      description: "The priority for the investigation. Defaults to UNSPECIFIED."
+      default: null
+    disposition:
+      type: str | None
+      description: "The disposition for the investigation. Defaults to UNDECIDED."
+      default: null
+    assignee:
+      type: dict[str, Any] | None
+      description: "The user assigned to this investigation."
+      default: null
+    multi_customer:
+      type: bool | None
+      description: "Indicates whether the requester has multi-customer access. If set to true, a user API key must be provided."
+      default: null
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/v2/investigations
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          "multi-customer": ${{ inputs.multi_customer }}
+        payload:
+          title: ${{ inputs.title }}
+          status: ${{ inputs.status }}
+          priority: ${{ inputs.priority }}
+          disposition: ${{ inputs.disposition }}
+          assignee: ${{ inputs.assignee }}
+  returns: ${{ steps.request.result }}

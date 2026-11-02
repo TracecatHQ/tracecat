@@ -8,7 +8,6 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks"
-import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function NoAccessibleSections() {
@@ -48,7 +47,6 @@ export default function WorkspacePage() {
   const canReadWorkspace = useScopeCheck("workspace:read")
 
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
 
@@ -81,7 +79,7 @@ export default function WorkspacePage() {
       workspaceChatEnabled
 
     if (canUseWorkspaceChat) {
-      return getWorkspaceLandingPath(workspaceId)
+      return `${basePath}/chat`
     }
     if (canViewWorkflows === true) {
       return `${basePath}/workflows`
@@ -89,7 +87,7 @@ export default function WorkspacePage() {
     if (canViewCases === true) {
       return `${basePath}/cases`
     }
-    if (agentAddonsEnabled && canViewAgents === true) {
+    if (canViewAgents === true) {
       return `${basePath}/agents`
     }
     if (canViewTables === true) {
@@ -119,7 +117,6 @@ export default function WorkspacePage() {
     }
     return null
   }, [
-    agentAddonsEnabled,
     canExecuteAgents,
     workspaceChatEnabled,
     canViewAgents,

@@ -474,7 +474,7 @@ export function OrgRegistryVersions() {
               onClick={handleConfirmDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete version
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

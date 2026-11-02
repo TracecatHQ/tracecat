@@ -6,6 +6,7 @@ class AuditEventActor(StrEnum):
 
     USER = "USER"
     SERVICE_ACCOUNT = "SERVICE_ACCOUNT"
+    SCIM = "SCIM"
 
 
 class AuditEventStatus(StrEnum):

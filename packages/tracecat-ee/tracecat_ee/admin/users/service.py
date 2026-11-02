@@ -11,7 +11,15 @@ from sqlalchemy.orm import Mapped
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
-from tracecat.db.models import AccessToken, Approval, Membership, User
+from tracecat.db.errors import is_unique_violation
+from tracecat.db.locks import lock_mcp_refresh_token_users
+from tracecat.db.models import (
+    AccessToken,
+    Approval,
+    LegacyMembership,
+    User,
+    UserRoleAssignment,
+)
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.organization.management import (
     ensure_single_tenant_user_defaults_for_session,
@@ -57,6 +65,8 @@ class AdminUserService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
+            if not is_unique_violation(e, "ix_user_email"):
+                raise
             raise ValueError(f"User with email {params.email} already exists") from e
 
         await self.session.refresh(user)
@@ -165,13 +175,22 @@ class AdminUserService(BasePlatformService):
             if superuser_count <= 1:
                 raise ValueError("Cannot delete the last superuser")
 
+        # The user delete cascades to refresh tokens and memberships. Take the
+        # MCP token lock before any write so it precedes every row lock, as
+        # member removal and token rotation do.
+        await lock_mcp_refresh_token_users(self.session, [user_id])
         await self.session.execute(
             delete(AccessToken).where(
                 cast(Mapped[uuid.UUID], AccessToken.user_id) == user_id
             )
         )
+        # Membership is derived, so removing the assignments delists the user.
+        # The legacy table is still cleared for app versions that read it.
         await self.session.execute(
-            delete(Membership).where(Membership.user_id == user_id)
+            delete(LegacyMembership).where(LegacyMembership.user_id == user_id)
+        )
+        await self.session.execute(
+            delete(UserRoleAssignment).where(UserRoleAssignment.user_id == user_id)
         )
         await self.session.execute(
             update(Approval)

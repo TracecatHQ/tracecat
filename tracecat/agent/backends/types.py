@@ -1,0 +1,172 @@
+"""Contracts shared by built-in and separately installed agent backends."""
+
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Literal, Protocol, runtime_checkable
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio import workflow
+
+from tracecat.agent.backends.schemas import (
+    WorkflowApprovalSubmission,
+    WorkflowCancelRequest,
+)
+from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.types import AgentConfig
+from tracecat.auth.types import Role
+from tracecat.db.models import AgentSession, AgentSessionHistory
+
+
+class SessionDispatchUncertain(RuntimeError):
+    """Dispatch may have succeeded; the caller must retain turn ownership.
+
+    Raise after ownership is committed when a lost acknowledgement leaves the
+    dispatch outcome unknown. Definitive pre-dispatch failures use normal errors.
+    """
+
+
+class AgentControlRejected(RuntimeError):
+    """A control operation failed definitively; its local attempt may be rolled back."""
+
+
+class AgentControlUncertain(RuntimeError):
+    """A control operation may have applied; preserve its identity for retries."""
+
+
+type PendingMessageType = Literal["steer", "message"]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingMessage:
+    """A user message the model has not read yet.
+
+    ``steer`` messages wait to join the running turn; ``message`` ones wait to
+    start a later turn.
+    """
+
+    id: UUID
+    type: PendingMessageType
+    text: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WithdrawResult:
+    """Which pending user messages a withdraw took back.
+
+    ``withdrawn`` lists messages the model had not read, in send order.
+    ``too_late`` lists messages it had already read; they stay in the transcript.
+    """
+
+    withdrawn: tuple[UUID, ...] = ()
+    too_late: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TurnResult:
+    """A finished turn as seen by a caller that ran its workflow as a child.
+
+    ``error`` is set when the turn ended without a usable output, for example
+    when it failed or was cancelled; ``output`` is then ignored. A result with
+    neither an output nor an error is invalid.
+    """
+
+    output: Any
+    error: str | None = None
+
+
+# Runs once a session's delete has committed; see `AgentBackend.prepare_delete`.
+type SessionCleanup = Callable[[], Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionDeleteContext:
+    """Authorized session about to be deleted, for backend-specific cleanup."""
+
+    db: AsyncSession
+    session: AgentSession
+    role: Role
+
+
+@dataclass(frozen=True, slots=True)
+class SessionForkContext:
+    """Authorized parent and new session for backend-specific fork preparation."""
+
+    db: AsyncSession
+    parent: AgentSession
+    fork: AgentSession
+    role: Role
+
+
+@dataclass(frozen=True, slots=True)
+class SessionWorkflowContext:
+    """Data-only snapshot for side-effect-free workflow argument construction.
+
+    No database connection or live ORM objects cross this boundary. Backend
+    history and state writes belong in idempotent workflow activities after
+    execution starts, so a rejected start cannot leave a prepared turn behind.
+    """
+
+    session_id: UUID
+    backend_id: str
+    harness_type: str | None
+    title: str
+    entity_type: AgentSessionEntity
+    entity_id: UUID
+    tools: tuple[str, ...] | None
+    agent_preset_id: UUID | None
+    agent_preset_version_id: UUID | None
+    role: Role
+    config: AgentConfig
+    prompt: str
+    run_id: UUID
+    stream_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class SessionTurnContext:
+    """Resolved, authorized inputs for dispatching one session turn."""
+
+    db: AsyncSession
+    session: AgentSession
+    role: Role
+    config: AgentConfig
+    prompt: str
+    run_id: UUID
+    stream_id: UUID
+
+
+@runtime_checkable
+class SessionHistoryAdapter(Protocol):
+    """Project native history into the existing Claude-compatible chat format.
+
+    Preserve native records and IDs. Display output must never replace the
+    harness's native model history.
+    """
+
+    async def load(
+        self,
+        db: AsyncSession,
+        session: AgentSession,
+        *,
+        approval_tool_call_ids: set[str],
+        include_active: bool,
+    ) -> Sequence[AgentSessionHistory]: ...
+
+    # Native history and the existing display parser accept arbitrary provider
+    # JSON. Keep that boundary opaque rather than pretending it is a shared schema.
+    def project(self, entry: AgentSessionHistory) -> dict[str, Any] | None: ...
+
+
+class AgentWorkflow[InputT, OutputT](Protocol):
+    """Common execution and control contract for agent workflows."""
+
+    async def run(self, args: InputT, /) -> OutputT: ...
+
+    @workflow.update
+    def set_approvals(self, submission: WorkflowApprovalSubmission) -> bool: ...
+
+    @workflow.update
+    def request_cancel(self, request: WorkflowCancelRequest) -> None: ...

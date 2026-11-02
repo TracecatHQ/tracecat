@@ -50,7 +50,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
     from tracecat.contexts import (
-        ctx_interaction,
         ctx_logical_time,
         ctx_role,
         ctx_run,
@@ -96,6 +95,7 @@ with workflow.unsafe.imports_passed_through():
         ROOT_STREAM,
         ActionStatement,
         DSLConfig,
+        DSLDependencyPlan,
         DSLEnvironment,
         ExecutionContext,
         RunActionInput,
@@ -109,10 +109,8 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
-    from tracecat.ee.interactions.decorators import maybe_interactive
-    from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
-    from tracecat.ee.interactions.service import InteractionManager
     from tracecat.exceptions import (
+        TracecatDSLError,
         TracecatException,
         TracecatExpressionError,
         TracecatNotFoundError,
@@ -268,6 +266,7 @@ class DSLWorkflow:
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
     workspace_id: identifiers.WorkspaceID
+    dependency_plan: DSLDependencyPlan | None = None
 
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
@@ -284,7 +283,6 @@ class DSLWorkflow:
         """The activity execution timeout."""
         self.execution_type = args.execution_type
         """Execution type (draft or published). Draft executions use draft aliases for child workflows."""
-        self.interactions = InteractionManager(self)
 
     def _initialize_run(self, args: DSLRunArgs) -> None:
         """Initialize fallible workflow runtime state inside the interceptor."""
@@ -326,16 +324,6 @@ class DSLWorkflow:
             )
         except Exception as e:
             self.logger.error("Failed to show workflow info", error=e)
-
-    @workflow.update
-    async def interaction_handler(self, input: InteractionInput) -> InteractionResult:
-        """Handle interactions from the workflow and return a result."""
-        return self.interactions.handle_interaction(input)
-
-    @interaction_handler.validator
-    def validate_interaction_handler(self, input: InteractionInput) -> None:
-        """Validate the interaction handler."""
-        return self.interactions.validate_interaction(input)
 
     def get_context(self, stream_id: StreamID | None = None) -> ExecutionContext:
         """Get the current execution context."""
@@ -639,10 +627,12 @@ class DSLWorkflow:
             wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
             logical_time=self.time_anchor,
+            tunnel=self.runtime_config.tunnel,
         )
         ctx_run.set(self.run_context)
 
         self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
+        await self._compile_dependencies()
 
         self.logger.info(
             "Running DSL task workflow",
@@ -651,15 +641,30 @@ class DSLWorkflow:
             execution_timeout=wf_info.execution_timeout,
         )
 
-        self.scheduler = DSLScheduler(
-            executor=self.execute_task,
-            dsl=self.dsl,
-            max_pending_tasks=config.TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS,
-            context=self.context,
-            role=self.role,
-            run_context=self.run_context,
-            logger=self.logger.bind(unit="dsl-scheduler"),
-        )
+        try:
+            self.scheduler = DSLScheduler(
+                executor=self.execute_task,
+                dsl=self.dsl,
+                dependency_plan=self.dependency_plan,
+                max_pending_tasks=config.TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS,
+                context=self.context,
+                role=self.role,
+                run_context=self.run_context,
+                logger=self.logger.bind(unit="dsl-scheduler"),
+                fixed_action_results={
+                    ref: fixed.result
+                    for ref, fixed in args.fixed_action_results.items()
+                },
+            )
+        except TracecatDSLError as e:
+            raise_application_error_from_classification(
+                RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.WORKFLOW_DEFINITION_INVALID,
+                    message=f"The workflow definition is invalid: {e}",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=e,
+                )
+            )
         try:
             task_exceptions = await self.scheduler.start()
         except Exception as e:
@@ -685,6 +690,10 @@ class DSLWorkflow:
             self.logger.info("DSL workflow completed")
             return await self._handle_return()
         except Exception as e:
+            if is_cancelled_exception(e) and workflow.patched(
+                WorkflowPatch.PRESERVE_RETURN_CANCELLATION
+            ):
+                raise
             if classifications := extract_error_classifications(
                 e,
                 include_implicit_context=False,
@@ -887,7 +896,6 @@ class DSLWorkflow:
                 return False
             current = nested
 
-    @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
 
@@ -1156,12 +1164,17 @@ class DSLWorkflow:
                     # These will be ignored by DurableAgentWorkflow when preset_slug is present
                     # but are required by AgentConfig schema.
                     override_config = None
-                    if preset_action_args.actions or preset_action_args.instructions:
+                    if (
+                        preset_action_args.actions
+                        or preset_action_args.instructions
+                        or preset_action_args.output_type is not None
+                    ):
                         override_config = AgentConfig(
                             model_name="preset-override",
                             model_provider="preset-override",
                             actions=preset_action_args.actions,
                             instructions=preset_action_args.instructions,
+                            output_type=preset_action_args.output_type,
                         )
 
                     wf_info = workflow.info()
@@ -1645,6 +1658,22 @@ class DSLWorkflow:
             return_exceptions=True,
         )
 
+    async def _compile_dependencies(self) -> None:
+        """Record dependencies once; old histories retain their original commands."""
+        if not workflow.patched(WorkflowPatch.COMPILE_DSL_DEPENDENCIES):
+            return
+        try:
+            self.dependency_plan = await workflow.execute_activity(
+                DSLActivities.compile_dsl_dependencies_activity,
+                arg=self.dsl,
+                start_to_close_timeout=self.start_to_close_timeout,
+                retry_policy=RETRY_POLICIES["activity:fail_slow"],
+            )
+        except ActivityError as error:
+            if isinstance(error.cause, ApplicationError):
+                raise error.cause from error
+            raise
+
     async def _handle_return(self) -> StoredObject:
         self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
@@ -1660,10 +1689,18 @@ class DSLWorkflow:
         self.logger.trace("Returning value from expression")
         self._set_logical_time_context()
         key = return_key(str(self.workspace_id), self.wf_exec_id)
+        operand = self.context
+        if self.dependency_plan is not None:
+            operand = self.context.copy()
+            operand["ACTIONS"] = {
+                ref: self.context["ACTIONS"][ref]
+                for ref in self.dependency_plan.returns
+                if ref in self.context["ACTIONS"]
+            }
         return await workflow.execute_activity(
             DSLActivities.resolve_return_expression_activity,
             arg=EvaluateTemplatedObjectActivityInput(
-                obj=self.dsl.returns, operand=self.context, key=key
+                obj=self.dsl.returns, operand=operand, key=key
             ),
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1759,7 +1796,6 @@ class DSLWorkflow:
             task=task,
             run_context=self.run_context,
             exec_context=new_context,
-            interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             registry_lock=self.registry_lock,
         )
@@ -1793,7 +1829,6 @@ class DSLWorkflow:
             task=task,
             run_context=self.run_context,
             exec_context=new_context,
-            interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             registry_lock=self.registry_lock,
         )
@@ -1844,6 +1879,7 @@ class DSLWorkflow:
                     base_url=action_args.base_url,
                     actions=action_args.actions,
                     tool_approvals=action_args.tool_approvals,
+                    tool_tunnels=action_args.tool_tunnels,
                     agents=action_args.agents,
                     mcp_servers=action_args.mcp_servers,
                 ),
@@ -1937,7 +1973,6 @@ class DSLWorkflow:
             task=task,
             run_context=run_context,
             exec_context=new_context,
-            interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             session_id=session_id,
             registry_lock=self.registry_lock,
@@ -1979,8 +2014,11 @@ class DSLWorkflow:
             "execute_action_activity",
             args=(arg, self.role),
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            # The executor enforces the action timeout around the function call.
+            # This ceiling also allows for platform work in the activity.
             start_to_close_timeout=timedelta(
-                seconds=task.start_delay + task.retry_policy.timeout
+                seconds=task.retry_policy.timeout
+                + config.TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT
             ),
             heartbeat_timeout=timedelta(
                 seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT

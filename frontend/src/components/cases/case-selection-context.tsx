@@ -21,8 +21,13 @@ type CaseSelectionState = {
       successDescription?: string
     }
   ) => Promise<void>
+  /** Group the selection under `parent`, or return it to the top level with `null`. */
+  setParentForSelectedCases?: (
+    parent: { id: string; short_id: string } | null
+  ) => Promise<void>
   isDeleting?: boolean
   isUpdating?: boolean
+  isChangingParent?: boolean
 }
 
 type CaseSelectionContextValue = CaseSelectionState & {

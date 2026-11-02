@@ -6,13 +6,37 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, TypeGuard
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import ArgsKwargs
 
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
 
 if TYPE_CHECKING:
     from tracecat.agent.types import AgentConfig
+
+
+def read_reasoning_effort_as_enable_thinking(data: Any) -> Any:
+    """Replace a ``reasoning_effort`` key from newer app versions with ``enable_thinking``.
+
+    For ``mode="before"`` validators on configs that cross Temporal boundaries,
+    so this version can run payloads that a newer worker wrote. ``"off"`` maps to
+    ``False``; any other level, or null, maps to ``True``. An explicit
+    ``enable_thinking`` key takes precedence. Pydantic dataclass constructors
+    pass ``ArgsKwargs``, whose keyword arguments are mapped the same way.
+    """
+    if isinstance(data, ArgsKwargs):
+        if data.kwargs is None:
+            return data
+        return ArgsKwargs(
+            data.args, read_reasoning_effort_as_enable_thinking(data.kwargs)
+        )
+    if not isinstance(data, dict) or "reasoning_effort" not in data:
+        return data
+    data = dict(data)
+    reasoning_effort = data.pop("reasoning_effort")
+    data.setdefault("enable_thinking", reasoning_effort != "off")
+    return data
 
 
 class MCPHttpServerConfig(TypedDict):
@@ -58,6 +82,19 @@ class MCPHttpServerConfig(TypedDict):
     """Optional: UUID of the source ``mcp_integrations`` row this config was
     resolved from. Set when produced by ``AgentPresetService`` resolvers so
     callers can re-resolve secrets per use without re-listing integrations."""
+
+    tools: NotRequired[list[MCPServerToolSummary]]
+    """Optional explicit tool subset. Absence preserves the existing
+    whole-integration behavior."""
+
+    tunnel_id: NotRequired[str]
+    """Optional: UUID of the workspace tunnel every request goes through."""
+
+    tunnel_proxy: NotRequired[str]
+    """Optional: Tunnel gateway proxy URL carrying a short-lived token.
+
+    Only populated at the trusted edge for immediate use, like ``headers``.
+    Discovery drops any value a caller sends and mints its own."""
 
 
 class MCPServerToolSummary(TypedDict):
@@ -206,6 +243,14 @@ class SandboxAgentConfig(BaseModel):
     """Whether to enable extended thinking for the Claude Code CLI."""
     enable_internet_access: bool = False
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
+    library_skills: list[str] | None = None
+    """Library skill slugs; the executor stages them before sandbox start."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_reasoning_effort(cls, data: Any) -> Any:
+        """Accept activity inputs that a newer worker scheduled."""
+        return read_reasoning_effort_as_enable_thinking(data)
 
     @classmethod
     def from_agent_config(cls, config: AgentConfig) -> SandboxAgentConfig:
@@ -229,6 +274,7 @@ class SandboxAgentConfig(BaseModel):
             output_type=config.output_type,
             enable_thinking=config.enable_thinking,
             enable_internet_access=config.enable_internet_access,
+            library_skills=config.library_skills,
         )
 
 

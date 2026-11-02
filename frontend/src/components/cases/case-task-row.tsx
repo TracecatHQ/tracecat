@@ -5,6 +5,7 @@ import {
   CircleDot,
   CircleSlash,
   CircleUserRound,
+  History,
   Pencil,
   Play,
   SignalHigh,
@@ -34,7 +35,6 @@ import {
   hasPrioritySignal,
   isCasePriority,
   isCaseTaskStatus,
-  NO_WORKFLOW,
   PRIORITY_MENU_ITEMS,
   STATUS_MENU_ITEMS,
   sortMembersByEmail,
@@ -49,6 +49,8 @@ import {
   CaseTaskStatusIcon,
   priorityIconTone,
 } from "@/components/cases/case-task-status"
+import { CaseTaskWorkflowCommand } from "@/components/cases/case-task-workflow-picker"
+import { CaseTaskWorkflowRunsDrawer } from "@/components/cases/case-task-workflow-runs-drawer"
 import { WorkflowTriggerDialog } from "@/components/cases/workflow-trigger-dialog"
 import {
   ContextMenu,
@@ -184,6 +186,7 @@ function CaseTaskReadRow({
 }: CaseTaskReadRowProps) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [runDialogOpen, setRunDialogOpen] = useState(false)
+  const [runsDrawerOpen, setRunsDrawerOpen] = useState(false)
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
 
   const { updateTask } = useUpdateCaseTask({
@@ -303,6 +306,15 @@ function CaseTaskReadRow({
     }
   }
 
+  // Radix ContextMenu has no controlled `open`, and the palette's items are
+  // cmdk items rather than menu items, so a pick closes the menu the way
+  // Escape does.
+  function closeContextMenu() {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    )
+  }
+
   function patchWorkflow(value: string | null) {
     if (value !== workflowId) {
       patchTask({ workflow_id: value })
@@ -311,7 +323,9 @@ function CaseTaskReadRow({
 
   return (
     <>
-      <ContextMenu onOpenChange={setContextMenuOpen}>
+      {/* Non-modal: a modal menu that closes as the runs drawer opens can
+          leave the page without pointer events. */}
+      <ContextMenu modal={false} onOpenChange={setContextMenuOpen}>
         <ContextMenuTrigger asChild>
           <div
             className={cn(
@@ -496,6 +510,13 @@ function CaseTaskReadRow({
             <Pencil className="mr-2 size-3.5" />
             Edit task
           </ContextMenuItem>
+          <ContextMenuItem
+            className="text-xs"
+            onClick={() => setRunsDrawerOpen(true)}
+          >
+            <History className="mr-2 size-3.5" />
+            View workflow runs
+          </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuSub>
             <ContextMenuSubTrigger className="text-xs">
@@ -596,34 +617,15 @@ function CaseTaskReadRow({
               <Workflow className="mr-2 size-3.5" />
               Set workflow
             </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-56">
-              <ContextMenuRadioGroup value={workflowId ?? NO_WORKFLOW}>
-                <ContextMenuRadioItem
-                  value={NO_WORKFLOW}
-                  className="text-xs"
-                  onClick={() => patchWorkflow(null)}
-                >
-                  <CircleSlash className="mr-2 size-3 text-muted-foreground/50" />
-                  No workflow
-                </ContextMenuRadioItem>
-                {workflows.map((item) => (
-                  <ContextMenuRadioItem
-                    key={item.id}
-                    value={item.id}
-                    className="text-xs"
-                    onClick={() => patchWorkflow(item.id)}
-                  >
-                    <span className="truncate">
-                      {item.title}
-                      {item.alias && (
-                        <span className="ml-1 italic text-muted-foreground">
-                          ({item.alias})
-                        </span>
-                      )}
-                    </span>
-                  </ContextMenuRadioItem>
-                ))}
-              </ContextMenuRadioGroup>
+            <ContextMenuSubContent className="w-72 p-0">
+              <CaseTaskWorkflowCommand
+                workflows={workflows}
+                value={workflowId}
+                onSelect={(value) => {
+                  patchWorkflow(value)
+                  closeContextMenu()
+                }}
+              />
             </ContextMenuSubContent>
           </ContextMenuSub>
           <ContextMenuSeparator />
@@ -636,6 +638,12 @@ function CaseTaskReadRow({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+      <CaseTaskWorkflowRunsDrawer
+        task={task}
+        workspaceId={workspaceId}
+        open={runsDrawerOpen}
+        onOpenChange={setRunsDrawerOpen}
+      />
       {resolvedWorkflow && (
         <WorkflowTriggerDialog
           caseData={caseData}

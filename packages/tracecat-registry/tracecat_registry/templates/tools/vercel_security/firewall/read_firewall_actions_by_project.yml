@@ -1,0 +1,56 @@
+type: action
+definition:
+  title: Read firewall actions by project
+  description: >-
+    Retrieve firewall actions for a project. Calls GET /v1/security/firewall/events directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/read-firewall-actions-by-project
+  namespace: tools.vercel_security
+  name: read_firewall_actions_by_project
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    projectId:
+      type: str
+      description: Project ID.
+    startTimestamp:
+      type: float | None
+      description: Start timestamp of the time range to retrieve firewall actions for.
+      default: null
+    endTimestamp:
+      type: float | None
+      description: End timestamp of the time range to retrieve firewall actions for.
+      default: null
+    hosts:
+      type: str | None
+      description: Hosts to filter firewall actions by.
+      default: null
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/firewall/events
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+        params:
+          projectId: ${{ inputs.projectId }}
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+          startTimestamp: ${{ inputs.startTimestamp }}
+          endTimestamp: ${{ inputs.endTimestamp }}
+          hosts: ${{ inputs.hosts }}
+  returns: ${{ steps.request.result }}

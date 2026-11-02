@@ -53,7 +53,6 @@ from tracecat.registry.sync.schemas import (
     SyncResultSuccess,
 )
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
-from tracecat.sandbox.utils import is_nsjail_available
 from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
 
@@ -136,14 +135,7 @@ class _UnsandboxedBackend:
     """Explicit no-NsJail compatibility backend."""
 
 
-@dataclass(frozen=True, slots=True)
-class _UnavailableBackend:
-    """Required NsJail backend that is unavailable on this worker."""
-
-
-type _RegistrySyncBackend = (
-    _SandboxedBackend | _UnsandboxedBackend | _UnavailableBackend
-)
+type _RegistrySyncBackend = _SandboxedBackend | _UnsandboxedBackend
 
 
 class RegistrySyncRunner:
@@ -178,12 +170,12 @@ class RegistrySyncRunner:
         self.clone_timeout = (
             clone_timeout or config.TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT
         )
-        if config.TRACECAT__DISABLE_NSJAIL:
-            self._backend: _RegistrySyncBackend = _UnsandboxedBackend()
-        elif is_nsjail_available():
-            self._backend = _SandboxedBackend()
-        else:
-            self._backend = _UnavailableBackend()
+        # Worker startup already rejects nsjail without its binary and rootfs.
+        self._backend: _RegistrySyncBackend = (
+            _SandboxedBackend()
+            if config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail
+            else _UnsandboxedBackend()
+        )
 
     async def run(self, request: RegistrySyncRequest) -> RegistrySyncResult:
         """Execute the full registry sync flow.
@@ -205,12 +197,6 @@ class RegistrySyncRunner:
                 "Local repository is not enabled on this instance. "
                 "Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true."
             )
-        if isinstance(self._backend, _UnavailableBackend):
-            raise RegistrySyncRunnerError(
-                "Registry sync requires nsjail, but nsjail is unavailable on this "
-                "ExecutorWorker"
-            )
-
         logger.info(
             "Starting registry sync",
             origin=request.origin,
@@ -228,10 +214,6 @@ class RegistrySyncRunner:
                     return await self._run_sandboxed(request, work_dir, sandbox)
                 case _UnsandboxedBackend():
                     return await self._run_unsandboxed(request, work_dir)
-                case _UnavailableBackend():
-                    raise AssertionError(
-                        "Unavailable backend passed the fail-closed guard"
-                    )
 
     async def _run_sandboxed(
         self,

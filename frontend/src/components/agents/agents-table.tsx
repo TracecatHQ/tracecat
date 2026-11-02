@@ -170,6 +170,7 @@ function toDuplicateSourcePreset(
     namespaces: preset.namespaces ?? null,
     tool_approvals: preset.tool_approvals ?? null,
     mcp_integrations: preset.mcp_integrations ?? null,
+    library_skills: preset.library_skills ?? null,
     agents: preset.agents,
     retries: preset.retries,
     enable_thinking: preset.enable_thinking,
@@ -248,7 +249,7 @@ function AgentActionsMenu({
           onClick={() => onDelete(preset)}
         >
           <Trash2 className="mr-2 size-3.5" />
-          Delete agent
+          Delete
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -693,6 +694,7 @@ export function AgentsTable() {
           }
         }}
         presetName={selectedPreset?.name ?? "the agent"}
+        presetSlug={selectedPreset?.slug ?? ""}
         isDeleting={deleteAgentPresetIsPending}
         onConfirm={handleDeleteConfirm}
       />

@@ -17,19 +17,20 @@ from __future__ import annotations
 import asyncio
 import copy
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from time import perf_counter
-from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 import orjson
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
 
-from tracecat.agent.channels.schemas import ChannelType
-from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
-from tracecat.agent.channels.sinks import ExternalChannelSink
-from tracecat.agent.channels.sinks.slack import SlackStreamSink
+from tracecat.agent.channels.sinks.session import (
+    FanoutStreamSink,
+    SessionEventSink,
+    open_session_event_sink,
+)
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, read_message
 from tracecat.agent.common.stream_types import (
@@ -39,31 +40,27 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
-    agent_executor_unavailable,
+    agent_executor_unclassified,
 )
+from tracecat.agent.metrics import FIRST_TOKEN_EVENT_TYPES
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
-from tracecat.agent.stream.connector import AgentStream
 from tracecat.artifacts.bindings import (
     ArtifactSideEffect,
     artifact_side_effects_for_tool_result,
 )
 from tracecat.artifacts.resolution import resolve_artifact_side_effects
 from tracecat.auth.types import Role
-from tracecat.db.engine import (
-    get_async_session_bypass_rls_context_manager,
-    get_async_session_context_manager,
-)
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
-    AgentChannelToken,
     AgentSession,
     AgentSessionHistory,
     Workspace,
 )
-from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import RuntimeErrorClassification
 
 type JsonScalar = str | int | float | bool | None
@@ -97,8 +94,6 @@ class ClaudeSessionLine(TypedDict):
     message: NotRequired[ClaudeSessionMessage | JsonObject]
 
 
-type SinkOperation = Callable[[LoopbackEventSink], Awaitable[None]]
-
 TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS = 5.0
 
 
@@ -119,6 +114,7 @@ class LoopbackResult:
     success: bool
     error: str | None = None
     classification: RuntimeErrorClassification | None = None
+    sentry_capture: PlatformErrorCapture | None = None
     terminal_stream_error_emitted: bool = False
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
@@ -131,128 +127,8 @@ class LoopbackResult:
     # after cancellation was requested or never produced a result. Empty for
     # non-cancelled turns.
     interrupted_tool_call_ids: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class ResolvedSlackContext:
-    """Parsed and validated Slack channel context for sink construction."""
-
-    channel_id: str
-    thread_ts: str
-    recipient_user_id: str | None = None
-    recipient_team_id: str | None = None
-    reaction_ts: str | None = None
-
-    @classmethod
-    def from_channel_context(
-        cls,
-        ctx: Mapping[str, object],
-    ) -> ResolvedSlackContext | None:
-        """Parse a channel_context dict into a validated context, or None on failure."""
-        channel_id = ctx.get("channel_id")
-        thread_ts = ctx.get("thread_ts")
-        if not isinstance(channel_id, str) or not isinstance(thread_ts, str):
-            return None
-
-        recipient_user_id = ctx.get("user_id")
-        recipient_team_id = ctx.get("team_id")
-        reaction_ts = ctx.get("message_ts")
-        if not isinstance(reaction_ts, str):
-            reaction_ts = ctx.get("event_ts")
-
-        return cls(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            recipient_user_id=recipient_user_id
-            if isinstance(recipient_user_id, str)
-            else None,
-            recipient_team_id=recipient_team_id
-            if isinstance(recipient_team_id, str)
-            else None,
-            reaction_ts=reaction_ts if isinstance(reaction_ts, str) else None,
-        )
-
-
-class LoopbackEventSink(Protocol):
-    """Sink interface used by loopback for runtime event streaming."""
-
-    async def append(self, event: UnifiedStreamEvent) -> None:
-        """Append a runtime stream event."""
-
-    async def error(self, error: str) -> None:
-        """Emit a terminal error."""
-
-    async def done(self) -> None:
-        """Emit a terminal completion signal."""
-
-
-@dataclass(kw_only=True, slots=True)
-class AgentStreamSink:
-    """Redis-backed stream sink used by UI sessions."""
-
-    stream: AgentStream
-
-    async def append(self, event: UnifiedStreamEvent) -> None:
-        await self.stream.append(event)
-
-    async def error(self, error: str) -> None:
-        await self.stream.error(error)
-
-    async def done(self) -> None:
-        await self.stream.done()
-
-
-@dataclass(kw_only=True, slots=True)
-class FanoutStreamSink:
-    """Broadcasts stream events to multiple sinks.
-
-    Used for external-channel sessions where we need Slack thread updates and
-    Redis stream updates (for inbox/UI) in parallel.
-    """
-
-    sinks: tuple[LoopbackEventSink, ...]
-
-    async def _broadcast(
-        self,
-        operation_name: str,
-        operation: SinkOperation,
-        sinks: tuple[LoopbackEventSink, ...] | None = None,
-    ) -> None:
-        targets = self.sinks if sinks is None else sinks
-        failures = 0
-        for sink in targets:
-            try:
-                await operation(sink)
-            except Exception as exc:
-                failures += 1
-                logger.warning(
-                    "Fanout stream sink target failed",
-                    method=operation_name,
-                    sink_type=type(sink).__name__,
-                    error=str(exc),
-                )
-        if targets and failures == len(targets):
-            raise RuntimeError(f"All fanout sinks failed for method '{operation_name}'")
-
-    async def append(self, event: UnifiedStreamEvent) -> None:
-        await self._broadcast("append", lambda sink: sink.append(event))
-
-    async def error(self, error: str) -> None:
-        await self._broadcast("error", lambda sink: sink.error(error))
-
-    async def done(self) -> None:
-        await self._broadcast("done", lambda sink: sink.done())
-
-    async def done_external(self) -> None:
-        """Complete external-channel sinks while leaving Redis open."""
-        external_sinks = tuple(
-            sink for sink in self.sinks if not isinstance(sink, AgentStreamSink)
-        )
-        await self._broadcast(
-            "done_external",
-            lambda sink: sink.done(),
-            external_sinks,
-        )
+    # When the first model output was forwarded to the stream, for metrics.
+    first_token_at: datetime | None = None
 
 
 def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
@@ -292,8 +168,13 @@ class LoopbackHandler:
 
     def __init__(self, input: LoopbackInput) -> None:
         self.input = input
-        self._stream_sink: LoopbackEventSink | None = None
+        self._stream_sink: SessionEventSink | None = None
         self._result = LoopbackResult(success=False)
+        self._executor_error_recorded = False
+        # Serializes terminal error handling between executor crash/timeout
+        # paths and runtime cleanup callbacks so the recorded state and the
+        # single terminal stream error stay consistent.
+        self._terminal_error_lock = asyncio.Lock()
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
         self._external_stream_done_emitted: bool = False
         self._interrupt_notice_emitted: bool = False  # Dedupe for cancelled event
@@ -374,7 +255,7 @@ class LoopbackHandler:
             case _:
                 return None
 
-    async def prepare(self) -> LoopbackEventSink:
+    async def prepare(self) -> SessionEventSink:
         """Initialize and cache the stream sink before runtime connection."""
         if self._stream_sink is None:
             self._stream_sink = await self._initialize_stream_sink()
@@ -398,7 +279,7 @@ class LoopbackHandler:
 
     async def _emit_terminal_stream_error(
         self,
-        stream_sink: LoopbackEventSink,
+        stream_sink: SessionEventSink,
         error: str,
     ) -> None:
         await self._emit_failed_compaction_if_pending()
@@ -408,7 +289,7 @@ class LoopbackHandler:
 
     async def _emit_terminal_stream_error_best_effort(
         self,
-        stream_sink: LoopbackEventSink,
+        stream_sink: SessionEventSink,
         error: str,
     ) -> None:
         """Bound terminal stream delivery on failure paths."""
@@ -458,7 +339,7 @@ class LoopbackHandler:
         return self._result.interrupted_tool_call_ids
 
     async def _emit_interrupt_notice_if_cancelled(
-        self, stream_sink: LoopbackEventSink
+        self, stream_sink: SessionEventSink
     ) -> None:
         if not self._result.cancelled or self._interrupt_notice_emitted:
             return
@@ -477,7 +358,12 @@ class LoopbackHandler:
                 error=str(e),
             )
 
-    async def emit_terminal_error(self, error: str) -> bool:
+    async def emit_terminal_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification,
+    ) -> bool:
         """Emit a terminal error through the resolved stream sink.
 
         This is used by executor-level crash/timeout paths that happen outside
@@ -485,12 +371,23 @@ class LoopbackHandler:
         including sink initialization, so a stalled stream cannot replace the
         executor's authoritative failure with an activity timeout.
         """
+        # Record authoritative state before any await so it survives even when
+        # lock acquisition or stream delivery below times out.
+        self._executor_error_recorded = True
+        self._result.success = False
+        self._result.error = error
+        self._result.classification = classification
         try:
             async with asyncio.timeout(TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS):
-                if self._stream_sink is None:
-                    self._stream_sink = await self._initialize_stream_sink()
-                await self._emit_terminal_stream_error(self._stream_sink, error)
-                return self._result.terminal_stream_error_emitted
+                async with self._terminal_error_lock:
+                    if self._result.terminal_stream_error_emitted:
+                        # A runtime callback already delivered a terminal
+                        # stream error while we waited; don't emit a second.
+                        return True
+                    if self._stream_sink is None:
+                        self._stream_sink = await self._initialize_stream_sink()
+                    await self._emit_terminal_stream_error(self._stream_sink, error)
+                    return self._result.terminal_stream_error_emitted
         except TimeoutError:
             logger.warning(
                 "Timeout emitting terminal stream error",
@@ -566,10 +463,15 @@ class LoopbackHandler:
             if self._result.error is None:
                 self._result.success = True
 
-        except asyncio.IncompleteReadError:
+        except asyncio.IncompleteReadError as error:
             logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
-            self._result.classification = agent_executor_unavailable()
+            self._result.classification = agent_executor_unclassified(
+                detail=self._result.error
+            )
+            self._result.sentry_capture = capture_activity_failure(
+                error, self._result.classification
+            )
             if self._stream_sink:
                 await self._emit_terminal_stream_error(
                     self._stream_sink,
@@ -579,6 +481,9 @@ class LoopbackHandler:
             logger.warning("Runtime sent an invalid event envelope")
             self._result.error = "Runtime sent an invalid event envelope"
             self._result.classification = agent_executor_protocol_failed(e)
+            self._result.sentry_capture = capture_activity_failure(
+                e, self._result.classification
+            )
             if self._stream_sink:
                 await self._emit_terminal_stream_error_best_effort(
                     self._stream_sink,
@@ -587,7 +492,10 @@ class LoopbackHandler:
         except Exception as e:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
-            self._result.classification = agent_executor_unavailable(e)
+            self._result.classification = agent_executor_unclassified(e)
+            self._result.sentry_capture = capture_activity_failure(
+                e, self._result.classification
+            )
             if self._stream_sink:
                 await self._emit_terminal_stream_error_best_effort(
                     self._stream_sink,
@@ -609,12 +517,17 @@ class LoopbackHandler:
                 _msg_type, payload_bytes = await read_message(
                     reader, expected_type=MessageType.EVENT
                 )
-            except asyncio.IncompleteReadError:
+            except asyncio.IncompleteReadError as error:
                 logger.warning(
                     "Runtime connection closed unexpectedly during execution"
                 )
                 self._result.error = "Runtime disconnected during execution"
-                self._result.classification = agent_executor_unavailable()
+                self._result.classification = agent_executor_unclassified(
+                    detail=self._result.error
+                )
+                self._result.sentry_capture = capture_activity_failure(
+                    error, self._result.classification
+                )
                 if self._stream_sink is not None:
                     await self._emit_terminal_stream_error(
                         self._stream_sink,
@@ -760,6 +673,11 @@ class LoopbackHandler:
         ):
             self._received_assistant_content = True
             self._log_benchmark_phase("loopback_first_assistant_delta")
+        if (
+            self._result.first_token_at is None
+            and event.type in FIRST_TOKEN_EVENT_TYPES
+        ):
+            self._result.first_token_at = datetime.now(UTC)
         await stream_sink.append(event)
         await self._append_artifact_side_effects(event, stream_sink)
 
@@ -778,7 +696,7 @@ class LoopbackHandler:
         # route/status failures are classified by the host-side LLM proxy before
         # they reach this fallback, so do not blame the caller for an untyped
         # runtime or provider failure.
-        self._result.classification = agent_executor_unavailable()
+        self._result.classification = agent_executor_unclassified(detail=error_msg)
         return True
 
     def _track_tool_event(self, event: UnifiedStreamEvent) -> None:
@@ -800,7 +718,7 @@ class LoopbackHandler:
     async def _append_artifact_side_effects(
         self,
         event: UnifiedStreamEvent,
-        stream_sink: LoopbackEventSink,
+        stream_sink: SessionEventSink,
     ) -> None:
         if event.type is not StreamEventType.TOOL_RESULT:
             return
@@ -916,16 +834,38 @@ class LoopbackHandler:
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
     ) -> bool:
         """Handle a terminal runtime error."""
+        if self._executor_error_recorded:
+            return True
         stream_sink = await self.prepare()
-        logger.error("Runtime error", error=error)
-        await self._emit_terminal_stream_error(stream_sink, error)
-        self._result.error = error
-        # A classification is trusted only when the host-side runtime hands it
-        # over in-process. Error envelopes arriving over the sandbox socket
-        # carry no ownership metadata by design, so those stay platform-owned.
-        self._result.classification = classification or agent_executor_unavailable()
+        async with self._terminal_error_lock:
+            # Executor failure can arrive while stream initialization or lock
+            # acquisition is suspended. Its state and stream delivery take
+            # precedence over SDK cleanup errors.
+            if self._executor_error_recorded:
+                return True
+            logger.error("Runtime error", error=error)
+            self._result.error = error
+            # A classification is trusted only when the host-side runtime hands
+            # it over in-process. Error envelopes arriving over the sandbox
+            # socket carry no ownership metadata by design, so those stay
+            # platform-owned.
+            self._result.classification = classification or agent_executor_unclassified(
+                detail=error
+            )
+            try:
+                await self._emit_terminal_stream_error(stream_sink, error)
+            finally:
+                # Capture after delivery so an executor failure that overtook
+                # this callback mid-flight suppresses the secondary capture.
+                if cause is not None and not self._executor_error_recorded:
+                    self._result.sentry_capture = capture_activity_failure(
+                        cause,
+                        self._result.classification,
+                        existing_capture=self._result.sentry_capture,
+                    )
         return True
 
     async def send_error(
@@ -933,9 +873,10 @@ class LoopbackHandler:
         error: str,
         *,
         classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
     ) -> None:
         """Handle a terminal runtime error."""
-        await self._handle_error(error, classification=classification)
+        await self._handle_error(error, classification=classification, cause=cause)
 
     async def _handle_done(self) -> bool:
         """Handle runtime completion."""
@@ -946,13 +887,25 @@ class LoopbackHandler:
             success=self._result.error is None,
         )
         await self._emit_failed_compaction_if_pending()
+        if self._executor_error_recorded:
+            # Executor error delivery owns external stream closure. Cleanup can
+            # arrive while its Redis write is pending, before Slack sees the
+            # error; closing here would mark the turn successful and drop it.
+            # Leave closure to that path even if its bounded delivery fails.
+            return True
         if self._result.error is not None:
             await self._close_external_stream()
             return True
-        if validation_error := self._validate_runtime_completion():
+        try:
+            self._validate_runtime_completion()
+        except RuntimeEnvelopeProtocolError as error:
+            validation_error = str(error)
+            self._result.classification = agent_executor_protocol_failed(error)
+            self._result.sentry_capture = capture_activity_failure(
+                error, self._result.classification
+            )
             await self._emit_terminal_stream_error(stream_sink, validation_error)
             self._result.error = validation_error
-            self._result.classification = agent_executor_protocol_failed()
             return True
         self._result.success = True
         await self._emit_interrupt_notice_if_cancelled(stream_sink)
@@ -973,150 +926,13 @@ class LoopbackHandler:
             **extra,
         )
 
-    async def _initialize_stream_sink(self) -> LoopbackEventSink:
+    async def _initialize_stream_sink(self) -> SessionEventSink:
         """Build stream sink for this session."""
-
-        try:
-            external_sink = await self._build_external_channel_sink()
-        except SQLAlchemyError as e:
-            logger.warning(
-                "Failed to resolve external channel sink; falling back to Redis",
-                session_id=self.input.session_id,
-                workspace_id=self.input.workspace_id,
-                error=str(e),
-            )
-            external_sink = None
-
-        redis_sink = await self._build_redis_stream_sink()
-        if external_sink is not None:
-            return FanoutStreamSink(sinks=(redis_sink, external_sink))
-
-        return redis_sink
-
-    async def _build_redis_stream_sink(self) -> AgentStreamSink:
-        """Build Redis-backed stream sink."""
-
-        redis_stream = await AgentStream.new(
+        return await open_session_event_sink(
             session_id=self.input.session_id,
             workspace_id=self.input.workspace_id,
             stream_id=self.input.active_stream_id,
         )
-        return AgentStreamSink(stream=redis_stream)
-
-    async def _build_external_channel_sink(self) -> ExternalChannelSink | None:
-        """Resolve an external channel sink when session is external."""
-
-        async with get_async_session_context_manager() as session:
-            stmt = select(AgentSession).where(
-                AgentSession.id == self.input.session_id,
-                AgentSession.workspace_id == self.input.workspace_id,
-            )
-            result = await session.execute(stmt)
-            agent_session = result.scalar_one_or_none()
-
-            if agent_session is None:
-                logger.warning(
-                    "Agent session not found for stream sink resolution",
-                    session_id=self.input.session_id,
-                )
-                return None
-
-            if agent_session.entity_type != AgentSessionEntity.EXTERNAL_CHANNEL.value:
-                return None
-
-            if not isinstance(agent_session.channel_context, dict):
-                logger.warning(
-                    "External channel session missing channel_context; falling back to Redis",
-                    session_id=self.input.session_id,
-                )
-                return None
-
-            channel_context = agent_session.channel_context
-            channel_type = channel_context.get("channel_type")
-            if not isinstance(channel_type, str):
-                # Backward-compatible inference for existing Slack channel context.
-                if isinstance(channel_context.get("channel_id"), str) and isinstance(
-                    channel_context.get("thread_ts"), str
-                ):
-                    channel_type = ChannelType.SLACK.value
-
-            if channel_type != ChannelType.SLACK.value:
-                logger.warning(
-                    "Unsupported external channel type; falling back to Redis",
-                    session_id=self.input.session_id,
-                    channel_type=channel_type,
-                )
-                return None
-
-            slack_ctx = ResolvedSlackContext.from_channel_context(channel_context)
-            if slack_ctx is None:
-                logger.warning(
-                    "Slack channel context missing channel_id/thread_ts; falling back to Redis",
-                    session_id=self.input.session_id,
-                    channel_context=channel_context,
-                )
-                return None
-
-            preset_id = agent_session.agent_preset_id or agent_session.entity_id
-            token_stmt = (
-                select(AgentChannelToken)
-                .where(
-                    AgentChannelToken.workspace_id == self.input.workspace_id,
-                    AgentChannelToken.agent_preset_id == preset_id,
-                    AgentChannelToken.channel_type == ChannelType.SLACK.value,
-                    AgentChannelToken.is_active.is_(True),
-                )
-                .order_by(AgentChannelToken.updated_at.desc())
-                .limit(1)
-            )
-            token_result = await session.execute(token_stmt)
-            channel_token = token_result.scalar_one_or_none()
-            if channel_token is None:
-                logger.warning(
-                    "Active Slack channel token not found; falling back to Redis",
-                    session_id=self.input.session_id,
-                    preset_id=preset_id,
-                )
-                return None
-
-            try:
-                config = AgentChannelService.parse_stored_channel_config(
-                    channel_type=ChannelType.SLACK,
-                    config_payload=channel_token.config,
-                )
-            except TracecatValidationError:
-                logger.exception(
-                    "Slack token config is invalid; falling back to Redis",
-                    session_id=self.input.session_id,
-                    token_id=channel_token.id,
-                )
-                return None
-
-            logger.info(
-                "Using Slack stream sink for external channel session",
-                session_id=self.input.session_id,
-                workspace_id=self.input.workspace_id,
-                channel_type=ChannelType.SLACK.value,
-                slack_channel_id=slack_ctx.channel_id,
-                reaction_ts=slack_ctx.reaction_ts,
-            )
-            if config.slack_bot_token == PENDING_SLACK_BOT_TOKEN:
-                logger.warning(
-                    "Slack bot token is pending OAuth install; falling back to Redis",
-                    session_id=self.input.session_id,
-                    token_id=channel_token.id,
-                )
-                return None
-            return SlackStreamSink(
-                slack_bot_token=config.slack_bot_token,
-                channel_id=slack_ctx.channel_id,
-                thread_ts=slack_ctx.thread_ts,
-                recipient_user_id=slack_ctx.recipient_user_id,
-                recipient_team_id=slack_ctx.recipient_team_id,
-                reaction_ts=slack_ctx.reaction_ts,
-                session_id=str(self.input.session_id),
-                workspace_id=str(self.input.workspace_id),
-            )
 
     async def _persist_session_line(
         self, sdk_session_id: str, session_line: str, *, internal: bool = False
@@ -1207,25 +1023,26 @@ class LoopbackHandler:
         if isinstance(line_uuid, str):
             self._persisted_line_uuids.add(line_uuid)
 
-    def _validate_runtime_completion(self) -> str | None:
-        """Return a terminal error when runtime completion is missing a usable result."""
+    def _validate_runtime_completion(self) -> None:
+        """Reject runtime completion without a usable result."""
         if (
             self._result.approval_requested
             or self._result.error is not None
             or self._result.cancelled
         ):
-            return None
+            return
         if not self._received_result:
-            return "Runtime completed without final result"
+            raise RuntimeEnvelopeProtocolError("Runtime completed without final result")
         if (
             self._is_effectively_empty_output(self._result.output)
             and self._is_zero_usage(self._result.result_usage)
             and not self._received_assistant_content
         ):
             if self._received_compaction_event:
-                return None
-            return "Runtime completed without assistant output or model usage"
-        return None
+                return
+            raise RuntimeEnvelopeProtocolError(
+                "Runtime completed without assistant output or model usage"
+            )
 
     @staticmethod
     def _is_effectively_empty_output(value: object | None) -> bool:

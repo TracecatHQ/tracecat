@@ -41,6 +41,8 @@ export function TableSidePanelContent() {
   switch (panelContent.mode) {
     case "view-json":
       return <ViewJsonPanel value={panelContent.value} />
+    case "view-text":
+      return <ViewTextPanel value={String(panelContent.value ?? "")} />
     case "edit-text":
       return (
         <EditTextPanel
@@ -102,6 +104,17 @@ function ViewJsonPanel({ value }: { value: unknown }) {
           }}
           className="h-full overflow-auto rounded-md border font-mono text-xs"
         />
+      </div>
+    </div>
+  )
+}
+
+/** The text editor without its toolbar or Save: for viewers who cannot edit. */
+function ViewTextPanel({ value }: { value: string }) {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex-1 overflow-y-auto p-4">
+        <SimpleEditor value={value} editable={false} showToolbar={false} />
       </div>
     </div>
   )

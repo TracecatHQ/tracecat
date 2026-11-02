@@ -1,0 +1,47 @@
+type: action
+definition:
+  name: get_cdb_list_file
+  namespace: tools.wazuh
+  title: Get CDB list file
+  description: "Get the content of a CDB list file."
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.cdb_list_controller.get_file
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
+  expects:
+    filename:
+      type: str
+      description: "CDB list file name (e.g. `malicious-ioc`)."
+    raw:
+      type: bool
+      description: "If true, return the file as plain `key:value` text instead of JSON."
+      default: false
+    base_url:
+      type: str | None
+      description: "Wazuh server API URL (e.g. https://wazuh-manager:55000). Defaults to the `wazuh.base_url` variable."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "If false, disables SSL verification for internal networks."
+      default: true
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/lists/files/${{ FN.url_encode(inputs.filename) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
+        params:
+          raw: ${{ inputs.raw }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

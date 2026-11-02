@@ -1,56 +1,208 @@
 import json
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock, Mock
 
+import httpx
+import litellm
 import pytest
 import yaml
 from litellm.caching.dual_cache import DualCache
+from litellm.exceptions import (
+    AuthenticationError,
+    BudgetExceededError,
+    PermissionDeniedError,
+    RateLimitError,
+)
+from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+from litellm.proxy.utils import ProxyLogging
 from litellm.router import Router
+from openai import AsyncOpenAI
 from starlette.requests import Request
 
+from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES
 from tracecat.agent.gateway import (
     TracecatCallbackHandler,
     _filter_allowed_model_settings,
     _inject_provider_credentials,
     _resolve_bedrock_runtime_credentials,
+    get_provider_credentials,
     user_api_key_auth,
 )
+from tracecat.agent.gateway_providers import GATEWAY_PROVIDER_SPECS
+from tracecat.agent.sandbox.llm_proxy import _http_error_classification
 from tracecat.agent.tokens import verify_llm_token
+from tracecat.exceptions import AgentModelNotEnabledError, TracecatAuthorizationError
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+
+_HAIKU_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
+_AZURE_AI_CREDS = {
+    "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
+    "AZURE_API_KEY": "test-azure-ai-key",
+    "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
+}
+_BEDROCK_KEYS = {"AWS_ACCESS_KEY_ID": "AKIA123", "AWS_SECRET_ACCESS_KEY": "secret"}
 
 
-def test_gemini_injects_api_key_and_prefixes_model() -> None:
-    data = {"model": "gemini-2.5-flash"}
-    creds = {"GEMINI_API_KEY": "test-gemini-key"}
+@pytest.mark.parametrize(
+    ("model", "provider", "creds", "expected", "absent"),
+    [
+        pytest.param(
+            "gemini-2.5-flash",
+            "gemini",
+            {"GEMINI_API_KEY": "test-gemini-key"},
+            {"api_key": "test-gemini-key", "model": "gemini/gemini-2.5-flash"},
+            (),
+            id="gemini",
+        ),
+        pytest.param(
+            "mistral-large-latest",
+            "mistral",
+            {"MISTRAL_API_KEY": "test-mistral-key"},
+            {"api_key": "test-mistral-key", "model": "mistral/mistral-large-latest"},
+            (),
+            id="mistral",
+        ),
+        pytest.param(
+            "mistral-large-latest",
+            "mistral",
+            {
+                "MISTRAL_API_KEY": "test-mistral-key",
+                "MISTRAL_BASE_URL": "https://api.mistral.example/v1",
+            },
+            {
+                "api_key": "test-mistral-key",
+                "api_base": "https://api.mistral.example/v1",
+            },
+            (),
+            id="mistral-base-url",
+        ),
+        pytest.param(
+            "gpt-5",
+            "openai",
+            {
+                "OPENAI_API_KEY": "test-openai-key",
+                "OPENAI_BASE_URL": "https://api.openai.example/v1",
+            },
+            {
+                "api_key": "test-openai-key",
+                "api_base": "https://api.openai.example/v1",
+            },
+            (),
+            id="openai-base-url",
+        ),
+        pytest.param(
+            "azure_ai",
+            "azure_ai",
+            _AZURE_AI_CREDS,
+            {
+                "api_key": "test-azure-ai-key",
+                "api_base": "https://example.services.ai.azure.com/anthropic",
+                "model": "azure_ai/claude-sonnet-4-5",
+            },
+            ("api_version",),
+            id="azure-ai-without-api-version",
+        ),
+        pytest.param(
+            "azure_ai",
+            "azure_ai",
+            {**_AZURE_AI_CREDS, "AZURE_API_VERSION": "2024-05-01-preview"},
+            {
+                "api_version": "2024-05-01-preview",
+                "model": "azure_ai/claude-sonnet-4-5",
+            },
+            (),
+            id="azure-ai-with-api-version",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {
+                **_BEDROCK_KEYS,
+                "AWS_SESSION_TOKEN": "session-token",
+                "AWS_REGION": "us-west-2",
+                "AWS_MODEL_ID": _HAIKU_MODEL_ID,
+            },
+            {
+                "aws_access_key_id": "AKIA123",
+                "aws_secret_access_key": "secret",
+                "aws_session_token": "session-token",
+                "aws_region_name": "us-west-2",
+                "model": f"bedrock/{_HAIKU_MODEL_ID}",
+            },
+            (),
+            id="bedrock-static-keys",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {**_BEDROCK_KEYS, "AWS_MODEL_ID": _HAIKU_MODEL_ID},
+            {"model": f"bedrock/{_HAIKU_MODEL_ID}"},
+            (),
+            id="bedrock-invoke-when-converse-absent",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {
+                **_BEDROCK_KEYS,
+                "AWS_MODEL_ID": _HAIKU_MODEL_ID,
+                "AWS_BEDROCK_USE_CONVERSE": "true",
+            },
+            {"model": f"bedrock/converse/{_HAIKU_MODEL_ID}"},
+            (),
+            id="bedrock-converse-model-id",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {
+                **_BEDROCK_KEYS,
+                "AWS_INFERENCE_PROFILE_ID": f"us.{_HAIKU_MODEL_ID}",
+                "AWS_BEDROCK_USE_CONVERSE": "true",
+            },
+            {"model": f"bedrock/converse/us.{_HAIKU_MODEL_ID}"},
+            (),
+            id="bedrock-converse-inference-profile",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {
+                **_BEDROCK_KEYS,
+                "AWS_MODEL_ID": _HAIKU_MODEL_ID,
+                "AWS_BEDROCK_USE_CONVERSE": "false",
+            },
+            {"model": f"bedrock/{_HAIKU_MODEL_ID}"},
+            (),
+            id="bedrock-converse-false",
+        ),
+    ],
+)
+def test_inject_provider_credentials(
+    model: str,
+    provider: str,
+    creds: dict[str, str],
+    expected: dict[str, str],
+    absent: tuple[str, ...],
+) -> None:
+    data: dict[str, Any] = {"model": model}
 
-    _inject_provider_credentials(data, "gemini", creds)
+    _inject_provider_credentials(data, provider, creds)
 
-    assert data["api_key"] == "test-gemini-key"
-    assert data["model"] == "gemini/gemini-2.5-flash"
-
-
-def test_mistral_injects_api_key_and_prefixes_model() -> None:
-    data = {"model": "mistral-large-latest"}
-    creds = {"MISTRAL_API_KEY": "test-mistral-key"}
-
-    _inject_provider_credentials(data, "mistral", creds)
-
-    assert data["api_key"] == "test-mistral-key"
-    assert data["model"] == "mistral/mistral-large-latest"
-
-
-def test_mistral_injects_optional_base_url() -> None:
-    data = {"model": "mistral-large-latest"}
-    creds = {
-        "MISTRAL_API_KEY": "test-mistral-key",
-        "MISTRAL_BASE_URL": "https://api.mistral.example/v1",
-    }
-
-    _inject_provider_credentials(data, "mistral", creds)
-
-    assert data["api_key"] == "test-mistral-key"
-    assert data["api_base"] == "https://api.mistral.example/v1"
+    assert {key: data.get(key) for key in expected} == expected
+    for key in absent:
+        assert key not in data
 
 
 def test_mistral_missing_api_key_raises() -> None:
@@ -71,69 +223,6 @@ def test_filter_allowed_model_settings_still_drops_thinking_for_openai() -> None
 
     assert filtered["temperature"] == 0.2
     assert "thinking" not in filtered
-
-
-def test_openai_injects_optional_base_url() -> None:
-    data = {"model": "gpt-5"}
-    creds = {
-        "OPENAI_API_KEY": "test-openai-key",
-        "OPENAI_BASE_URL": "https://api.openai.example/v1",
-    }
-
-    _inject_provider_credentials(data, "openai", creds)
-
-    assert data["api_key"] == "test-openai-key"
-    assert data["api_base"] == "https://api.openai.example/v1"
-
-
-def test_azure_ai_does_not_require_api_version() -> None:
-    data = {"model": "azure_ai"}
-    creds = {
-        "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
-        "AZURE_API_KEY": "test-azure-ai-key",
-        "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
-    }
-
-    _inject_provider_credentials(data, "azure_ai", creds)
-
-    assert data["api_key"] == "test-azure-ai-key"
-    assert data["api_base"] == "https://example.services.ai.azure.com/anthropic"
-    assert "api_version" not in data
-    assert data["model"] == "azure_ai/claude-sonnet-4-5"
-
-
-def test_azure_ai_injects_api_version_when_present() -> None:
-    data = {"model": "azure_ai"}
-    creds = {
-        "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
-        "AZURE_API_KEY": "test-azure-ai-key",
-        "AZURE_API_VERSION": "2024-05-01-preview",
-        "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
-    }
-
-    _inject_provider_credentials(data, "azure_ai", creds)
-
-    assert data["api_version"] == "2024-05-01-preview"
-    assert data["model"] == "azure_ai/claude-sonnet-4-5"
-
-
-def test_bedrock_uses_static_keys_when_configured() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_SESSION_TOKEN": "session-token",
-        "AWS_REGION": "us-west-2",
-        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
-    }
-
-    _inject_provider_credentials(data, "bedrock", creds)
-
-    assert data["aws_access_key_id"] == "AKIA123"
-    assert data["aws_secret_access_key"] == "secret"
-    assert data["aws_session_token"] == "session-token"
-    assert data["aws_region_name"] == "us-west-2"
-    assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
 
 
 @pytest.mark.anyio
@@ -213,53 +302,6 @@ def test_bedrock_rejects_ambient_credential_fallback() -> None:
     assert "resolved before request dispatch" in exc_info.value.message
 
 
-def test_bedrock_uses_invoke_prefix_when_use_converse_absent() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
-    }
-    _inject_provider_credentials(data, "bedrock", creds)
-    assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
-
-
-def test_bedrock_uses_converse_prefix_for_model_id_when_flag_true() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
-        "AWS_BEDROCK_USE_CONVERSE": "true",
-    }
-    _inject_provider_credentials(data, "bedrock", creds)
-    assert data["model"] == "bedrock/converse/anthropic.claude-3-haiku-20240307-v1:0"
-
-
-def test_bedrock_uses_converse_prefix_for_inference_profile_when_flag_true() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-3-haiku-20240307-v1:0",
-        "AWS_BEDROCK_USE_CONVERSE": "true",
-    }
-    _inject_provider_credentials(data, "bedrock", creds)
-    assert data["model"] == "bedrock/converse/us.anthropic.claude-3-haiku-20240307-v1:0"
-
-
-def test_bedrock_false_flag_does_not_use_converse_prefix() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
-        "AWS_BEDROCK_USE_CONVERSE": "false",
-    }
-    _inject_provider_credentials(data, "bedrock", creds)
-    assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
-
-
 def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     config_path = (
         Path(__file__).resolve().parents[2]
@@ -285,8 +327,14 @@ def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     assert resolved_model("azure/*") == "azure/*"
     assert resolved_model("azure_ai/*") == "azure_ai/*"
     assert resolved_model("mistral/*") == "mistral/*"
-    # Unqualified names fall through to the hosted_vllm catch-all so custom
-    # providers bridge to Chat Completions instead of the Responses API.
+    # Every managed gateway provider needs its own route, or its prefixed
+    # model ID falls through to the catch-all and is forwarded upstream as-is.
+    for spec in GATEWAY_PROVIDER_SPECS.values():
+        if spec.litellm_prefix is not None:
+            prefix = spec.litellm_prefix
+            assert resolved_model(f"{prefix}/*") == f"{prefix}/*"
+    # Unqualified names fall through to the hosted_vllm catch-all so they
+    # bridge to Chat Completions instead of the Responses API.
     assert resolved_model("custom") == "hosted_vllm/custom"
 
 
@@ -351,69 +399,100 @@ async def test_user_api_key_auth_rejects_invalid_token(
             api_key="bad-token",
         )
     assert exc_info.value.message == "Invalid or expired token"
+    assert exc_info.value.to_dict()["type"] == "tracecat_llm_token_invalid"
     assert exc_info.value.code == "401"
 
 
+@pytest.mark.parametrize(
+    "provider",
+    [
+        "openai",
+        "anthropic",
+        "gemini",
+        "mistral",
+        "bedrock",
+        "vllm",
+        "litellm",
+        "openrouter",
+    ],
+)
+def test_missing_provider_credentials_have_distinct_wire_code(provider: str) -> None:
+    with pytest.raises(ProxyException) as exc_info:
+        _inject_provider_credentials({"model": "synthetic-model"}, provider, {})
+
+    assert exc_info.value.code == "401"
+    assert exc_info.value.to_dict()["type"] == "tracecat_llm_provider_auth_failed"
+    classification = _http_error_classification(
+        int(exc_info.value.code),
+        route_is_direct=False,
+        body=json.dumps({"error": exc_info.value.to_dict()}).encode(),
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
+    assert classification.owner is RuntimeErrorOwner.USER
+
+
+def _patch_catalog_credentials_error(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    class _FailingCatalogService:
+        async def get_catalog_credentials(self, catalog_id: uuid.UUID) -> None:
+            del catalog_id
+            raise error
+
+    @asynccontextmanager
+    async def _with_session(**_: object) -> AsyncIterator[_FailingCatalogService]:
+        yield _FailingCatalogService()
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.AgentManagementService.with_session",
+        _with_session,
+    )
+
+
 @pytest.mark.anyio
-async def test_user_api_key_auth_strips_anthropic_beta_metadata_for_non_anthropic_provider(
+async def test_disabled_catalog_model_has_distinct_wire_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "tracecat.agent.gateway.verify_llm_token",
-        lambda _: SimpleNamespace(
-            workspace_id="00000000-0000-0000-0000-000000000001",
-            organization_id="00000000-0000-0000-0000-000000000002",
-            session_id="00000000-0000-0000-0000-000000000003",
-            catalog_id=None,
-            use_workspace_credentials=False,
-            model="bedrock",
-            provider="bedrock",
-            base_url=None,
-            model_settings={},
-            routes={},
-        ),
-    )
-    request = _make_request(
-        "/v1/messages",
-        headers=[(b"anthropic-beta", b"clear_thinking_20251015")],
-        query_string=b"beta=true",
+    _patch_catalog_credentials_error(
+        monkeypatch,
+        AgentModelNotEnabledError("Catalog row is not enabled for this workspace"),
     )
 
-    await user_api_key_auth(request, api_key="valid-token")
-
-    assert request.headers.get("anthropic-beta") is None
-    assert "beta" not in request.query_params
-
-
-@pytest.mark.anyio
-async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "tracecat.agent.gateway.verify_llm_token",
-        lambda _: SimpleNamespace(
-            workspace_id="00000000-0000-0000-0000-000000000001",
-            organization_id="00000000-0000-0000-0000-000000000002",
-            session_id="00000000-0000-0000-0000-000000000003",
-            catalog_id=None,
-            use_workspace_credentials=False,
-            model="claude-sonnet-4",
+    with pytest.raises(ProxyException) as exc_info:
+        await get_provider_credentials(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
             provider="anthropic",
-            base_url=None,
-            model_settings={},
-            routes={},
-        ),
+            catalog_id=uuid.uuid4(),
+        )
+
+    assert exc_info.value.code == "403"
+    assert exc_info.value.to_dict()["type"] == "tracecat_llm_model_not_enabled"
+    classification = _http_error_classification(
+        int(exc_info.value.code),
+        route_is_direct=False,
+        body=json.dumps({"error": exc_info.value.to_dict()}).encode(),
     )
-    request = _make_request(
-        "/v1/messages",
-        headers=[(b"anthropic-beta", b"clear_thinking_20251015")],
-        query_string=b"beta=true",
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_other_catalog_authorization_errors_are_not_model_not_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_catalog_credentials_error(
+        monkeypatch, TracecatAuthorizationError("Synthetic authorization failure")
     )
 
-    await user_api_key_auth(request, api_key="valid-token")
-
-    assert request.headers["anthropic-beta"] == "clear_thinking_20251015"
-    assert request.query_params["beta"] == "true"
+    with pytest.raises(TracecatAuthorizationError):
+        await get_provider_credentials(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            provider="anthropic",
+            catalog_id=uuid.uuid4(),
+        )
 
 
 @pytest.mark.parametrize(
@@ -426,6 +505,16 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
         "preserves_metadata",
     ),
     [
+        pytest.param(
+            "claude-sonnet-4",
+            "anthropic",
+            None,
+            None,
+            None,
+            True,
+            id="anthropic-root",
+        ),
+        pytest.param("bedrock", "bedrock", None, None, None, False, id="bedrock-root"),
         pytest.param(
             "gpt-5",
             "openai",
@@ -451,11 +540,25 @@ async def test_user_api_key_auth_applies_anthropic_beta_metadata_by_route(
     monkeypatch: pytest.MonkeyPatch,
     root_model: str,
     root_provider: str,
-    route_key: str,
-    route_model: str,
-    route_provider: str,
+    route_key: str | None,
+    route_model: str | None,
+    route_provider: str | None,
     preserves_metadata: bool,
 ) -> None:
+    routes = (
+        {
+            route_key: SimpleNamespace(
+                model=route_model,
+                provider=route_provider,
+                catalog_id=None,
+                base_url=None,
+                model_settings={},
+                use_workspace_credentials=False,
+            )
+        }
+        if route_key
+        else {}
+    )
     monkeypatch.setattr(
         "tracecat.agent.gateway.verify_llm_token",
         lambda _: SimpleNamespace(
@@ -468,23 +571,14 @@ async def test_user_api_key_auth_applies_anthropic_beta_metadata_by_route(
             provider=root_provider,
             base_url=None,
             model_settings={},
-            routes={
-                route_key: SimpleNamespace(
-                    model=route_model,
-                    provider=route_provider,
-                    catalog_id=None,
-                    base_url=None,
-                    model_settings={},
-                    use_workspace_credentials=False,
-                )
-            },
+            routes=routes,
         ),
     )
     request = _make_request(
         "/v1/messages",
         headers=[(b"anthropic-beta", b"clear_thinking_20251015")],
         query_string=b"beta=true",
-        json_body={"model": route_key},
+        json_body={"model": route_key} if route_key else None,
     )
 
     await user_api_key_auth(request, api_key="valid-token")
@@ -572,6 +666,61 @@ async def test_pre_call_hook_filters_model_settings(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (
+            {"proxy_server_request": {"headers": {"x-request-id": "trace-123"}}},
+            "trace-123",
+        ),
+        (
+            {"proxy_server_request": {"headers": {"x-request-id": "t" * 129}}},
+            "t" * 128,
+        ),
+        ({"proxy_server_request": {"headers": {}}}, None),
+        ({}, None),
+    ],
+)
+async def test_pre_call_hook_logs_proxy_trace_request_id(
+    monkeypatch: pytest.MonkeyPatch,
+    data: dict[str, Any],
+    expected: str | None,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.gateway.logger", log)
+
+    await TracecatCallbackHandler().async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(
+            api_key="llm-token",
+            metadata={
+                "workspace_id": "00000000-0000-0000-0000-000000000001",
+                "organization_id": "00000000-0000-0000-0000-000000000002",
+                "model": "gpt-5",
+                "provider": "openai",
+                "use_workspace_credentials": True,
+            },
+        ),
+        cache=cast(DualCache, object()),
+        data=data,
+        call_type="completion",
+    )
+
+    injected = next(
+        call
+        for call in log.info.call_args_list
+        if call.args == ("Injected credentials for LiteLLM call",)
+    )
+    assert injected.kwargs["trace_request_id"] == expected
+
+
+@pytest.mark.anyio
 async def test_pre_call_hook_uses_request_model_route_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -619,6 +768,48 @@ async def test_pre_call_hook_uses_request_model_route_claim(
     assert result["temperature"] == 0.2
     assert result["api_key"] == "test-openai-key"
     assert credential_requests[0]["use_workspace_credentials"] is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "model",
+    ["synthetic-model", "openai/synthetic-model", "litellm_proxy/synthetic-model"],
+)
+async def test_pre_call_hook_routes_custom_provider_models_through_hosted_vllm(
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "synthetic-key",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://provider.example.invalid/v1",
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    result = await TracecatCallbackHandler().async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(
+            api_key="llm-token",
+            metadata={
+                "workspace_id": "00000000-0000-0000-0000-000000000001",
+                "organization_id": "00000000-0000-0000-0000-000000000002",
+                "model": model,
+                "provider": "custom-model-provider",
+                "use_workspace_credentials": True,
+            },
+        ),
+        cache=cast(DualCache, object()),
+        data={"model": model},
+        call_type="anthropic_messages",
+    )
+
+    # Vendor-prefixed custom IDs must not match that vendor's route; the
+    # hosted_vllm adapter strips only its own prefix and forwards the rest.
+    assert result["model"] == f"hosted_vllm/{model}"
+    assert result["custom_llm_provider"] == "hosted_vllm"
 
 
 @pytest.mark.anyio
@@ -697,3 +888,252 @@ async def test_pre_call_hook_strips_anthropic_beta_payload_fields_for_non_anthro
     assert "context_management" not in result
     assert "output_config" not in result
     assert "output_format" not in result
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [401, 403])
+async def test_provider_auth_signal_survives_litellm_serialization(
+    status_code: int,
+) -> None:
+    response = httpx.Response(
+        status_code,
+        request=httpx.Request("POST", "https://provider.example.invalid/v1/messages"),
+    )
+    error_class = AuthenticationError if status_code == 401 else PermissionDeniedError
+    original = error_class(
+        message="synthetic-sensitive-detail",
+        llm_provider="synthetic-provider",
+        model="synthetic-model",
+        response=response,
+    )
+    callback = TracecatCallbackHandler()
+    proxy_logging = AsyncMock(spec=ProxyLogging)
+    proxy_logging.post_call_failure_hook.side_effect = (
+        callback.async_post_call_failure_hook
+    )
+    proxy_logging.post_call_response_headers_hook.return_value = {}
+    processor = ProxyBaseLLMRequestProcessing(data={})
+
+    with pytest.raises(ProxyException) as exc_info:
+        await processor._handle_llm_api_exception(
+            original, UserAPIKeyAuth(), proxy_logging
+        )
+
+    assert exc_info.value.code == str(status_code)
+    wire_error = exc_info.value.to_dict()
+    assert wire_error["type"] == "tracecat_llm_provider_auth_failed"
+    assert "synthetic-sensitive-detail" not in json.dumps(wire_error)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("llm_provider", "message", "expected_type"),
+    [
+        (
+            "bedrock",
+            "BedrockException - not authorized to perform the required AWS "
+            "Marketplace actions (aws-marketplace:ViewSubscriptions, "
+            "aws-marketplace:Subscribe) synthetic-sensitive-detail",
+            "tracecat_llm_provider_subscription_required",
+        ),
+        (
+            "bedrock",
+            "BedrockException - AccessDenied synthetic-sensitive-detail",
+            "tracecat_llm_provider_auth_failed",
+        ),
+        (
+            "openai",
+            "aws-marketplace:Subscribe synthetic-sensitive-detail",
+            "tracecat_llm_provider_auth_failed",
+        ),
+    ],
+)
+async def test_bedrock_marketplace_denial_survives_litellm_serialization(
+    llm_provider: str,
+    message: str,
+    expected_type: str,
+) -> None:
+    response = httpx.Response(
+        403,
+        request=httpx.Request("POST", "https://provider.example.invalid/v1/messages"),
+    )
+    original = PermissionDeniedError(
+        message=message,
+        llm_provider=llm_provider,
+        model="synthetic-model",
+        response=response,
+    )
+    callback = TracecatCallbackHandler()
+    proxy_logging = AsyncMock(spec=ProxyLogging)
+    proxy_logging.post_call_failure_hook.side_effect = (
+        callback.async_post_call_failure_hook
+    )
+    proxy_logging.post_call_response_headers_hook.return_value = {}
+    processor = ProxyBaseLLMRequestProcessing(data={})
+
+    with pytest.raises(ProxyException) as exc_info:
+        await processor._handle_llm_api_exception(
+            original, UserAPIKeyAuth(), proxy_logging
+        )
+
+    assert exc_info.value.code == "403"
+    wire_error = exc_info.value.to_dict()
+    assert wire_error["type"] == expected_type
+    assert "synthetic-sensitive-detail" not in json.dumps(wire_error)
+
+
+@pytest.mark.anyio
+async def test_failure_hook_preserves_budget_exception_for_litellm_auth_handler() -> (
+    None
+):
+    result = await TracecatCallbackHandler().async_post_call_failure_hook(
+        request_data={},
+        original_exception=BudgetExceededError(current_cost=2, max_budget=1),
+        user_api_key_dict=UserAPIKeyAuth(),
+    )
+    assert result is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "model", ["openai/synthetic-model", "hosted_vllm/synthetic-model"]
+)
+@pytest.mark.parametrize(
+    ("code", "error_type", "quota_exceeded"),
+    [
+        ("insufficient_quota", "requests", True),
+        (None, "insufficient_quota", True),
+        ("rate_limit_exceeded", "requests", False),
+    ],
+)
+async def test_provider_quota_survives_litellm_request_and_serialization(
+    model: str,
+    code: str | None,
+    error_type: str,
+    quota_exceeded: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            request=request,
+            json={
+                "error": {
+                    # Text alone must never select quota classification.
+                    "message": "synthetic-sensitive-detail insufficient_quota",
+                    "type": error_type,
+                    "code": code,
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+        monkeypatch.setattr(
+            AsyncHTTPHandler, "create_client", Mock(return_value=http_client)
+        )
+        client = (
+            AsyncOpenAI(api_key="synthetic-key", http_client=http_client, max_retries=0)
+            if model.startswith("openai/")
+            else AsyncHTTPHandler()
+        )
+        with pytest.raises(RateLimitError) as provider_failure:
+            await litellm.acompletion(
+                model=model,
+                messages=[{"role": "user", "content": "synthetic prompt"}],
+                client=client,
+                api_key="synthetic-key",
+                api_base="https://provider.example.invalid/v1",
+                num_retries=0,
+            )
+
+    # The SDK code is gone from the outer error by the time the callback runs.
+    assert provider_failure.value.type == "throttling_error"
+    assert provider_failure.value.code == "429"
+    callback = TracecatCallbackHandler()
+    proxy_logging = AsyncMock(spec=ProxyLogging)
+    proxy_logging.post_call_failure_hook.side_effect = (
+        callback.async_post_call_failure_hook
+    )
+    proxy_logging.post_call_response_headers_hook.return_value = {}
+    processor = ProxyBaseLLMRequestProcessing(data={})
+    with pytest.raises(ProxyException) as wire_failure:
+        await processor._handle_llm_api_exception(
+            provider_failure.value, UserAPIKeyAuth(), proxy_logging
+        )
+
+    wire_body = json.dumps({"error": wire_failure.value.to_dict()}).encode()
+    classification = _http_error_classification(
+        429, route_is_direct=False, body=wire_body
+    )
+    if quota_exceeded:
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert b"synthetic-sensitive-detail" not in wire_body
+    else:
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.retry_disposition is RetryDisposition.RETRYABLE
+        assert b"synthetic-sensitive-detail" not in wire_body
+        assert b"LLM provider rate limit exceeded; retry later" in wire_body
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"not-json",
+        b'{"error":{"message":"insufficient_quota"}}',
+        b'{"error":{"code":"insufficient_quota"}}'.ljust(
+            MAX_LLM_ERROR_BODY_BYTES + 1, b" "
+        ),
+    ],
+)
+async def test_throttling_callback_uses_safe_message_without_provider_response(
+    body: bytes,
+) -> None:
+    response = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://provider.example.invalid/v1/messages"),
+        content=body,
+    )
+    error = RateLimitError(
+        message="synthetic-sensitive-detail",
+        llm_provider="hosted_vllm",
+        model="synthetic",
+    )
+    error.__cause__ = httpx.HTTPStatusError(
+        "synthetic-sensitive-detail", request=response.request, response=response
+    )
+    result = await TracecatCallbackHandler().async_post_call_failure_hook(
+        request_data={},
+        original_exception=error,
+        user_api_key_dict=UserAPIKeyAuth(),
+    )
+    assert result is not None
+    assert result.status_code == 429
+    assert result.detail == "LLM provider rate limit exceeded; retry later"
+    assert error.type == "throttling_error"
+    assert json.loads(error.message) == {
+        "type": "error",
+        "error": {
+            "type": "throttling_error",
+            "message": "LLM provider rate limit exceeded; retry later",
+        },
+    }
+    wire_body = json.dumps(
+        {
+            "error": {
+                "type": error.type,
+                "code": str(result.status_code),
+                "message": error.message,
+            }
+        }
+    ).encode()
+    classification = _http_error_classification(
+        result.status_code, route_is_direct=False, body=wire_body
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert b"synthetic-sensitive-detail" not in wire_body

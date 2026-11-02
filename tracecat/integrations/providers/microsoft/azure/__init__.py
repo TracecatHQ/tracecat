@@ -1,5 +1,9 @@
 """Azure OAuth providers."""
 
+from tracecat.integrations.providers.microsoft.azure.devops import (
+    AzureDevOpsACProvider,
+    AzureDevOpsCCProvider,
+)
 from tracecat.integrations.providers.microsoft.azure.loganalytics import (
     AzureLogAnalyticsACProvider,
     AzureLogAnalyticsCCProvider,
@@ -20,4 +24,6 @@ __all__ = [
     "MicrosoftSentinelCCProvider",
     "AzureLogAnalyticsACProvider",
     "AzureLogAnalyticsCCProvider",
+    "AzureDevOpsACProvider",
+    "AzureDevOpsCCProvider",
 ]

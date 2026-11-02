@@ -4,6 +4,7 @@ import type { TableRowRead, TablesListRowsData } from "@/client"
 import { tablesListRows } from "@/client"
 import {
   type CursorPaginationResponse,
+  keepPreviousPageFor,
   useCursorPagination,
 } from "./use-cursor-pagination"
 
@@ -13,6 +14,10 @@ export interface UseTablesPaginationParams {
   workspaceId: string
   limit?: number
   enabled?: boolean
+  /** Text to search for; sent only together with `searchColumn`. */
+  searchTerm?: string | null
+  /** Name of the column `searchTerm` is matched against. */
+  searchColumn?: string | null
 }
 
 export function useTablesPagination({
@@ -20,6 +25,8 @@ export function useTablesPagination({
   workspaceId,
   limit = 50,
   enabled = true,
+  searchTerm = null,
+  searchColumn = null,
 }: UseTablesPaginationParams) {
   // Wrapper function to adapt the API response to our generic interface
   const adaptedTablesListRows = async (
@@ -36,12 +43,17 @@ export function useTablesPagination({
     }
   }
 
+  const tableKey = ["rows", "paginated", tableId, workspaceId]
+
   return useCursorPagination<TableRowRead, TablesListRowsData>({
     workspaceId,
     limit,
-    queryKey: ["rows", "paginated", tableId, workspaceId],
+    // The search is part of the key, so changing it also resets the cursors.
+    queryKey: [...tableKey, searchColumn, searchTerm],
     queryFn: adaptedTablesListRows,
-    additionalParams: { tableId },
+    additionalParams: { tableId, searchTerm, searchColumn },
     enabled,
+    // Rows stay up through a new search, sort or page, never a new table.
+    placeholderData: keepPreviousPageFor(tableKey),
   })
 }

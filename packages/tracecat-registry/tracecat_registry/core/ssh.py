@@ -46,7 +46,6 @@ def _load_private_key(private_key: str) -> paramiko.PKey:
         paramiko.Ed25519Key,
         paramiko.RSAKey,
         paramiko.ECDSAKey,
-        paramiko.DSSKey,  # pyright: ignore[reportAttributeAccessIssue] - DSSKey exists but is missing from type stubs
     )
 
     last_error: Exception | None = None
@@ -57,7 +56,9 @@ def _load_private_key(private_key: str) -> paramiko.PKey:
         except paramiko.SSHException as exc:
             last_error = exc
 
-    raise ValueError("Unsupported or invalid private key format.") from last_error
+    raise ValueError(
+        "Unsupported or invalid private key format. Use an Ed25519, RSA, or ECDSA key."
+    ) from last_error
 
 
 def _host_key_name(host: str, port: int) -> str:

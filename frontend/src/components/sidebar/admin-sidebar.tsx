@@ -7,6 +7,8 @@ import {
   LogOutIcon,
   LogsIcon,
   MousePointerClickIcon,
+  PackageIcon,
+  ShieldCheckIcon,
   UsersIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -65,10 +67,22 @@ export function AdminSidebar({
       isActive: pathname?.includes("/admin/agent"),
     },
     {
+      title: "Managed package",
+      url: "/admin/managed-package",
+      icon: PackageIcon,
+      isActive: pathname?.includes("/admin/managed-package"),
+    },
+    {
       title: "Audit Logs",
       url: "/admin/audit",
       icon: LogsIcon,
       isActive: pathname?.includes("/admin/audit"),
+    },
+    {
+      title: "Security",
+      url: "/admin/security",
+      icon: ShieldCheckIcon,
+      isActive: pathname?.includes("/admin/security"),
     },
     {
       title: "Maintenance",

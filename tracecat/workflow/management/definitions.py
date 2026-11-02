@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 from sqlalchemy import case, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 from temporalio import activity
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, expects_key_order
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
     TracecatValidationError,
 )
@@ -44,7 +45,17 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
         *,
         version: int | None = None,
         load_relationships: bool = True,
+        load_workflow: bool = False,
     ) -> WorkflowDefinition | None:
+        """Get a workflow's current definition, or a specific version.
+
+        Args:
+            workflow_id: Workflow to look up.
+            version: Definition version; defaults to the workflow's current one.
+            load_relationships: Load the workflow with its actions and case trigger.
+            load_workflow: Load only the workflow row, in the same query. Its own
+                relationships raise on access.
+        """
         statement = select(WorkflowDefinition).where(
             WorkflowDefinition.workspace_id == self.workspace_id,
             WorkflowDefinition.workflow_id == workflow_id,
@@ -55,6 +66,10 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
                     selectinload(Workflow.case_trigger),
                     selectinload(Workflow.actions),
                 )
+            )
+        elif load_workflow:
+            statement = statement.options(
+                joinedload(WorkflowDefinition.workflow).raiseload("*")
             )
         if version is not None:
             statement = statement.where(WorkflowDefinition.version == version)
@@ -110,10 +125,14 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
             raise TracecatValidationError("Initial workflow definition already exists")
 
         version = latest_defn.version + 1 if latest_defn else 1
+        content = dsl.model_dump(exclude_unset=True)
+        # JSONB does not keep key order; DSLEntrypoint reapplies it on load.
+        if expects_order := expects_key_order(dsl.entrypoint.expects):
+            content["entrypoint"]["expects_order"] = expects_order
         defn = WorkflowDefinition(
             workspace_id=self.workspace_id,
             workflow_id=workflow_id,
-            content=dsl.model_dump(exclude_unset=True),
+            content=content,
             version=version,
             alias=alias,
             registry_lock=registry_lock.model_dump() if registry_lock else None,
@@ -184,7 +203,7 @@ async def get_workflow_definition_activity(
     with activity_error_boundary(_workflow_definition_lookup_error_classification):
         async with WorkflowDefinitionsService.with_session(role=input.role) as service:
             defn = await service.get_definition_by_workflow_id(
-                input.workflow_id, version=input.version
+                input.workflow_id, version=input.version, load_relationships=False
             )
     if not defn:
         logger.error(
@@ -250,6 +269,14 @@ async def resolve_registry_lock_activity(
             kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
             message="Tracecat is still preparing the workflow registry",
             retry_disposition=RetryDisposition.RETRYABLE,
+            cause=e,
+        )
+        raise_application_error_from_classification(classification, e.detail)
+    except RegistryLockAmbiguousActionError as e:
+        classification = RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.REGISTRY_LOCK_ACTION_AMBIGUOUS,
+            message=str(e),
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
             cause=e,
         )
         raise_application_error_from_classification(classification, e.detail)

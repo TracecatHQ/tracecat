@@ -5,11 +5,11 @@ import { createContext, useCallback, useContext, useState } from "react"
 export type SettingsSection =
   | "profile"
   | "appearance"
+  | "security"
   | "workspace-general"
   | "workspace-runtime"
   | "workspace-models"
   | "workspace-files"
-  | "workspace-sync"
 
 interface SettingsModalContextValue {
   open: boolean

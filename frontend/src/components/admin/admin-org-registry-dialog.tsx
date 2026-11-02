@@ -15,13 +15,13 @@ import {
 } from "@/components/ui/breadcrumb"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { useAdminOrganization } from "@/hooks/use-admin"
 
 interface AdminOrgRegistryDialogProps {
@@ -67,8 +67,8 @@ export function AdminOrgRegistryDialog({
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="max-w-5xl max-h-[80vh] p-0 overflow-hidden flex flex-col gap-0">
-        <DialogHeader className="p-6 pb-4">
+      <DialogContent size="lg" className="max-w-5xl">
+        <DialogHeader>
           {selectedRepository ? (
             <div className="space-y-2">
               <Breadcrumb>
@@ -109,19 +109,21 @@ export function AdminOrgRegistryDialog({
             </>
           )}
         </DialogHeader>
-        <ScrollArea className="flex-1 px-6 pb-6">
-          {selectedRepository ? (
-            <OrgRegistryVersionsPanel
-              orgId={orgId}
-              repository={selectedRepository}
-            />
-          ) : (
-            <AdminOrgRegistryTable
-              orgId={orgId}
-              onShowVersions={handleShowVersions}
-            />
-          )}
-        </ScrollArea>
+        <DialogBody>
+          <div>
+            {selectedRepository ? (
+              <OrgRegistryVersionsPanel
+                orgId={orgId}
+                repository={selectedRepository}
+              />
+            ) : (
+              <AdminOrgRegistryTable
+                orgId={orgId}
+                onShowVersions={handleShowVersions}
+              />
+            )}
+          </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

@@ -47,6 +47,17 @@ from tracecat.workflow.executions.enums import (
 )
 
 
+def _user_role() -> Role:
+    return Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+
+
 def _build_workflow_args(role: Role) -> AgentWorkflowArgs:
     agent_config_ctor = cast(Any, AgentConfig)
     return AgentWorkflowArgs(
@@ -70,14 +81,7 @@ def _update_map(updates: list[Any]) -> dict[str, str]:
 
 
 def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     payload = _build_workflow_args(role).model_dump(mode="python")
     payload["use_workspace_credentials"] = True
     payload["agent_args"]["use_workspace_credentials"] = True
@@ -132,14 +136,7 @@ def test_apply_configured_timeout_preserves_inheritance_or_pins_explicit_value(
 
 
 def test_workflow_rotates_stream_from_new_approval_update() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
     previous_stream_id = uuid.uuid4()
     new_stream_id = uuid.uuid4()
@@ -158,14 +155,7 @@ def test_workflow_rotates_stream_from_new_approval_update() -> None:
 
 
 def test_approval_update_does_not_rotate_stream_when_decision_set_fails() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
     previous_stream_id = uuid.uuid4()
     workflow_instance.active_stream_id = previous_stream_id
@@ -191,14 +181,7 @@ def test_approval_update_does_not_rotate_stream_when_decision_set_fails() -> Non
 
 @pytest.mark.anyio
 async def test_upsert_tracecat_search_attributes_fills_missing_keys() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
     existing_attrs = TypedSearchAttributes(search_attributes=[])
@@ -267,14 +250,7 @@ async def test_upsert_tracecat_search_attributes_preserves_existing_values() -> 
 
 @pytest.mark.anyio
 async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
     cfg = cast(Any, workflow_args.agent_args.config)
@@ -331,14 +307,7 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
 
 @pytest.mark.anyio
 async def test_run_preserves_v1_finalize_then_done_history_shape() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
     cfg = cast(Any, workflow_args.agent_args.config)
@@ -399,14 +368,7 @@ async def test_run_preserves_v1_finalize_then_done_history_shape() -> None:
 @pytest.mark.anyio
 async def test_run_does_not_emit_done_after_combined_finalize_failure() -> None:
     """A failed DB/Redis finalization must not claim the stream is complete."""
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
     cfg = cast(Any, workflow_args.agent_args.config)
@@ -487,14 +449,7 @@ async def test_finalize_turn_falls_back_only_for_legacy_worker_result(
     *,
     expects_fallback: bool,
 ) -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
     active_stream_id = uuid.uuid4()
@@ -537,14 +492,7 @@ async def test_finalize_turn_falls_back_only_for_legacy_worker_result(
 @pytest.mark.anyio
 async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     """Legacy replays must not schedule the new session-error activity."""
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
     cfg = cast(Any, workflow_args.agent_args.config)
@@ -604,14 +552,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
 
 @pytest.mark.anyio
 async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
     cfg = cast(Any, workflow_args.agent_args.config)
@@ -670,14 +611,7 @@ async def test_load_terminal_message_history_skips_activity_without_patch_marker
     None
 ):
     """Legacy replays must not schedule the new terminal-history activity."""
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
 
@@ -708,14 +642,7 @@ async def test_load_terminal_message_history_skips_activity_without_patch_marker
 @pytest.mark.anyio
 async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
     """A Redis close failure must not strand already-persisted approvals."""
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
     workflow_instance._initialize_run()
     activity_error = ActivityError(
@@ -740,14 +667,7 @@ async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
 
 @pytest.mark.anyio
 async def test_build_config_prefers_pinned_preset_version_id() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     pinned_version_id = uuid.uuid4()
     workflow_args = AgentWorkflowArgs(
         role=role,
@@ -797,6 +717,118 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
     assert cfg.instructions == "base instructions\nappend this"
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("preset_output_type", "override_output_type", "expected"),
+    [
+        (None, None, None),
+        ("str", None, "str"),
+        (None, "int", "int"),
+        (
+            "str",
+            {"type": "object", "properties": {"verdict": {"type": "string"}}},
+            {"type": "object", "properties": {"verdict": {"type": "string"}}},
+        ),
+    ],
+    ids=["unset", "preset-only", "override-only", "override-replaces-preset"],
+)
+async def test_build_config_applies_preset_output_type_override(
+    preset_output_type: str | dict[str, Any] | None,
+    override_output_type: str | dict[str, Any] | None,
+    expected: str | dict[str, Any] | None,
+) -> None:
+    role = _user_role()
+    workflow_args = AgentWorkflowArgs(
+        role=role,
+        agent_args=RunAgentArgs(
+            session_id=uuid.uuid4(),
+            user_prompt="hello",
+            preset_slug="triage-agent",
+            config=cast(
+                Any,
+                AgentConfig(
+                    model_name="preset-override",
+                    model_provider="preset-override",
+                    output_type=override_output_type,
+                ),
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    preset_config = AgentConfig(
+        model_name="claude-3-5-sonnet-20241022",
+        model_provider="anthropic",
+        instructions="base instructions",
+        actions=["core.http_request"],
+        output_type=preset_output_type,
+    )
+
+    with patch(
+        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+        AsyncMock(return_value=agent_config_to_payload(preset_config)),
+    ):
+        cfg = await workflow_instance._build_config(workflow_args)
+
+    assert cfg.output_type == expected
+    assert cfg.model_name == preset_config.model_name
+    assert cfg.instructions == "base instructions"
+    assert cfg.actions == ["core.http_request"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("override_actions", "expected"),
+    [
+        (None, {"core.http_request": "dmz"}),
+        (["tools.test.dropped"], {"tools.test.dropped": "onprem"}),
+    ],
+    ids=["preset-actions", "override-re-adds-tool"],
+)
+async def test_build_config_prunes_tool_tunnels_after_action_override(
+    override_actions: list[str] | None,
+    expected: dict[str, str],
+) -> None:
+    """Tool tunnels are pruned against the final actions: a tool an override
+    re-adds keeps its tunnel instead of running direct, and a stale one is
+    dropped instead of failing the tool build."""
+    role = _user_role()
+    workflow_args = AgentWorkflowArgs(
+        role=role,
+        agent_args=RunAgentArgs(
+            session_id=uuid.uuid4(),
+            user_prompt="hello",
+            preset_slug="triage-agent",
+            config=cast(
+                Any,
+                AgentConfig(
+                    model_name="preset-override",
+                    model_provider="preset-override",
+                    actions=override_actions,
+                ),
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    preset_config = AgentConfig(
+        model_name="claude-3-5-sonnet-20241022",
+        model_provider="anthropic",
+        actions=["core.http_request"],
+        tool_tunnels={"core.http_request": "dmz", "tools.test.dropped": "onprem"},
+    )
+
+    with patch(
+        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+        AsyncMock(return_value=agent_config_to_payload(preset_config)),
+    ):
+        cfg = await workflow_instance._build_config(workflow_args)
+
+    assert cfg.tool_tunnels == expected
+
+
 def test_approved_user_mcp_tool_name_from_normalized_approval() -> None:
     assert _approved_user_mcp_tool_name("mcp.Jira.getIssue") == ("mcp__Jira__getIssue")
     assert (
@@ -808,14 +840,7 @@ def test_approved_user_mcp_tool_name_from_normalized_approval() -> None:
 
 @pytest.mark.anyio
 async def test_sequential_approved_remote_tools_receive_fresh_mcp_tokens() -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute", "secret:read"}),
-    )
+    role = _user_role()
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
     workflow_instance._initialize_run()
     build_result = BuildToolDefsResult(

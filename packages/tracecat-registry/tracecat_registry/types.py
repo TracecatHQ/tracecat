@@ -7,7 +7,7 @@ and datetimes become ISO format strings.
 
 from uuid import UUID
 from datetime import datetime
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 # ============================================================================
@@ -135,14 +135,44 @@ class CaseRead(TypedDict):
     updated_at: datetime
 
 
+class CaseParentRead(TypedDict):
+    """Summary of a case's parent."""
+
+    id: UUID
+    short_id: str
+    summary: str
+
+
+class CaseDurationRead(TypedDict):
+    """Optional materialized case duration."""
+
+    id: UUID
+    case_id: UUID
+    definition_id: UUID
+    start_event_id: UUID | None
+    end_event_id: UUID | None
+    started_at: datetime | None
+    ended_at: datetime | None
+    duration: str | None
+
+
+class CaseSearchMatchRead(TypedDict):
+    """Plain-text lexical match metadata beside the case's source fields."""
+
+    score: float | None
+    matched_columns: list[Literal["summary", "description", "id", "short_id"]]
+    excerpts: list[str]
+
+
 class CaseReadMinimal(TypedDict):
     """Minimal case information returned by search operations.
 
-    Contains core case fields without description, payload, or custom fields.
+    Contains core case fields plus independently requested detail projections.
     """
 
     id: UUID
     short_id: str
+    search_match: NotRequired[CaseSearchMatchRead | None]
     summary: str
     priority: str
     severity: str
@@ -155,6 +185,11 @@ class CaseReadMinimal(TypedDict):
     updated_at: datetime
     num_tasks_completed: int
     num_tasks_total: int
+    parent: NotRequired[CaseParentRead | None]
+    num_sub_cases: NotRequired[int]
+    durations: NotRequired[list[CaseDurationRead] | None]
+    field_values: NotRequired[dict[str, Any] | None]
+    payload: NotRequired[dict[str, Any] | None]
 
 
 class CaseListResponse(TypedDict):
@@ -233,6 +268,15 @@ class CaseTaskRead(TypedDict):
     assignee: UserRead | None
     workflow_id: str | None
     default_trigger_values: dict[str, Any] | None
+
+
+class CaseTaskRunRead(TypedDict):
+    """A started workflow run for a case task."""
+
+    task_id: UUID
+    workflow_id: str
+    workflow_execution_id: str
+    message: str
 
 
 class CaseDurationMetric(TypedDict):
@@ -661,6 +705,15 @@ class TableRead(TypedDict):
     columns: list[TableColumnRead]
 
 
+class AggregateResponse(TypedDict):
+    """Flat aggregation groups and whether additional groups were omitted."""
+
+    # Group keys are caller-defined aliases, so fixed TypedDict fields cannot
+    # describe them. Dates, timestamps, and exact decimal keys arrive as strings.
+    groups: list[dict[str, str | bool | int | float | None]]
+    truncated: bool
+
+
 class TableSearchResponse(TypedDict):
     """Cursor-paginated table row search response."""
 
@@ -791,3 +844,45 @@ class WorkflowExecutionStatusRead(TypedDict):
     execution_type: str | None
     history_length: int | None
     events: list[WorkflowExecutionEventRead] | None
+
+
+class SemanticSearchMatch(TypedDict):
+    """Bounded original text; start/end are half-open Unicode character offsets."""
+
+    column_id: str
+    column_name: str
+    text: str
+    start: int
+    end: int
+    shortened: bool
+
+
+class SemanticSearchResult(TypedDict):
+    """One distinct row; score is cosine similarity, not confidence."""
+
+    row_id: str
+    score: float
+    match: SemanticSearchMatch
+    indexed_revision: int
+
+
+class SemanticSearchIndex(TypedDict):
+    """Current coverage; partial results never contain partly embedded rows."""
+
+    state: str
+    pending: int
+    failed: int
+    empty: int
+    ready: int
+    backfill_complete: bool
+    partial: bool
+
+
+class SemanticSearchPage(TypedDict):
+    """A page from a five-minute window of at most 100 distinct rows."""
+
+    items: list[SemanticSearchResult]
+    next_cursor: str | None
+    has_more: bool
+    capped: bool
+    index: SemanticSearchIndex

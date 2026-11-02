@@ -154,6 +154,26 @@ async def patch_skill_draft(
         ) from exc
 
 
+@router.post("/{skill_id}/publish", response_model=SkillVersionRead)
+@require_scope("agent:update")
+async def publish_skill_draft(
+    *,
+    skill_id: str,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+) -> SkillVersionRead:
+    service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
+    try:
+        return await service.publish_skill(resolved_skill_id)
+    except TracecatValidationError as exc:
+        _raise_skill_validation_error(exc)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+
 @router.post(
     "/{skill_id}/versions",
     response_model=SkillVersionRead,

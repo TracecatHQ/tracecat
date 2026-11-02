@@ -1,6 +1,9 @@
+import uuid
+
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.agent.schemas import (
+    BedrockSubscriptionRead,
     DefaultModelSelection,
     DefaultModelSelectionUpdate,
     ModelConfig,
@@ -13,6 +16,7 @@ from tracecat.auth.dependencies import OrgUserRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 workspace_router = APIRouter(prefix="/agent", tags=["agent"])
@@ -99,9 +103,10 @@ async def create_provider_credentials(
         await service.create_provider_credentials(params)
         return {"message": f"Credentials for {params.provider} created successfully"}
     except Exception as e:
+        logger.exception("Failed to create provider credentials")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create credentials: {str(e)}",
+            detail="Failed to create credentials",
         ) from e
 
 
@@ -125,10 +130,64 @@ async def update_provider_credentials(
             detail=f"Credentials for provider {provider} not found",
         ) from e
     except Exception as e:
+        logger.exception("Failed to update provider credentials")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to update credentials: {str(e)}",
+            detail="Failed to update credentials",
         ) from e
+
+
+@router.post("/providers/{provider}/refresh")
+@require_scope("agent:update")
+async def refresh_provider_models(
+    *,
+    provider: str,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> dict[str, int]:
+    """Re-discover models for Bedrock or a built-in gateway provider."""
+    service = AgentManagementService(session, role=role)
+    try:
+        if provider == "bedrock":
+            count = await service.refresh_bedrock_catalog()
+        else:
+            count = await service.refresh_gateway_provider_catalog(provider)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to discover models: {e}",
+        ) from e
+    return {"models_discovered": count}
+
+
+@router.post("/providers/bedrock/models/{catalog_id}/subscribe")
+@require_scope("agent:update")
+async def subscribe_bedrock_model(
+    *,
+    catalog_id: uuid.UUID,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> BedrockSubscriptionRead:
+    """Accept the AWS Marketplace offer for a Bedrock catalog model."""
+    service = AgentManagementService(session, role=role)
+    try:
+        subscription = await service.subscribe_bedrock_model(catalog_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    return BedrockSubscriptionRead(**subscription)
 
 
 @router.delete("/credentials/{provider}")

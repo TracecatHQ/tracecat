@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Start NGSIEM search
+  description: >-
+    Start an asynchronous Falcon Next-Gen SIEM (LogScale) query job. Returns a job
+    ID to poll with `tools.crowdstrike.get_ngsiem_search_status`. Requires the
+    NGSIEM: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/ngsiem/#startsearchv1
+  namespace: tools.crowdstrike
+  name: start_ngsiem_search
+  expects:
+    repository:
+      type: str
+      description: Repository to search, for example `search-all` or `investigate_view`.
+    query_string:
+      type: str
+      description: CrowdStrike Query Language (CQL) query.
+    start:
+      type: str
+      description: Search start, as a relative time such as `1d` or epoch milliseconds. The search ends now.
+      default: 1d
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: start_ngsiem_search
+      action: tools.falconpy.call_command
+      args:
+        operation_id: StartSearchV1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          repository: ${{ inputs.repository }}
+          body:
+            queryString: ${{ inputs.query_string }}
+            start: ${{ inputs.start }}
+            isLive: false
+  returns: ${{ steps.start_ngsiem_search.result }}

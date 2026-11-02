@@ -10,7 +10,6 @@ from pydantic import (
     model_validator,
 )
 
-from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.core.schemas import Schema
 from tracecat.dsl.enums import JoinStrategy, PlatformAction
 from tracecat.dsl.schemas import ActionRetryPolicy
@@ -18,7 +17,6 @@ from tracecat.dsl.view import Position
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
-from tracecat.interactions.schemas import ActionInteraction
 
 
 class ActionEdge(TypedDict):
@@ -65,11 +63,24 @@ class ActionControlFlow(Schema):
         default=None,
         description="Override environment for this action's execution",
     )
+    tunnel: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        description="Workspace tunnel to route this action's HTTP(S) traffic through",
+    )
     mask_output: bool = Field(
         default=False,
         description=(
             "If true, redact this action's result in workflow execution API "
             "responses while preserving internal workflow data flow between actions."
+        ),
+    )
+    unsafe_disable_secret_error_withholding: bool = Field(
+        default=False,
+        description=(
+            "Legacy field, ignored. Error diagnostics always mask known secrets "
+            "and observed secret-derived values."
         ),
     )
 
@@ -86,6 +97,14 @@ class ActionControlFlow(Schema):
         return v
 
 
+class ActionLockStatus(Schema):
+    ref: str
+    locked_execution_id: str
+    available: bool = Field(
+        description="False when the locked run no longer exists, e.g. after history retention."
+    )
+
+
 class ActionRead(Schema):
     id: ActionID
     type: str
@@ -94,18 +113,17 @@ class ActionRead(Schema):
     status: str
     inputs: str
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
-    is_interactive: bool
-    interaction: ActionInteraction | None = None
     position_x: float = 0.0
     position_y: float = 0.0
     upstream_edges: list[ActionEdge] = Field(default_factory=list)
+    locked_execution_id: str | None = None
 
     @model_validator(mode="after")
     def normalize_agent_timeout(self) -> Self:
         """Expose the same deployment-bounded timeout that executes."""
         if PlatformAction.is_agent(self.type):
             retry_policy = self.control_flow.retry_policy
-            retry_policy.timeout = clamp_agent_timeout_seconds(retry_policy.timeout)
+            retry_policy.timeout = retry_policy.resolved_agent_timeout()
         return self
 
     @computed_field
@@ -120,7 +138,6 @@ class ActionReadMinimal(Schema):
     title: str
     description: str
     status: str
-    is_interactive: bool
 
 
 class ActionCreate(Schema):
@@ -132,8 +149,6 @@ class ActionCreate(Schema):
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
     )
-    is_interactive: bool = Field(default=False)
-    interaction: ActionInteraction | None = None
     position_x: float = Field(default=0.0)
     position_y: float = Field(default=0.0)
     upstream_edges: list[ActionEdge] = Field(default_factory=list)
@@ -155,11 +170,17 @@ class ActionUpdate(Schema):
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
     )
-    is_interactive: bool | None = None
-    interaction: ActionInteraction | None = None
     position_x: float | None = None
     position_y: float | None = None
     upstream_edges: list[ActionEdge] | None = None
+    locked_execution_id: str | None = Field(
+        default=None,
+        max_length=255,
+        description=(
+            "Lock the action to this past execution: draft runs reuse its "
+            "result. Set null to unlock."
+        ),
+    )
 
     @field_validator("inputs", mode="after")
     def validate_inputs(cls, v: str) -> str:

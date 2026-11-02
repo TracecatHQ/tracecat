@@ -16,32 +16,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl import action as dsl_action
 from tracecat.dsl.action import BuildAgentArgsActivityInput, DSLActivities
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.enums import PlatformAction
 from tracecat.registry.lock.types import RegistryLock
-
-
-@pytest.mark.parametrize(
-    "action",
-    [
-        "tools.github.mcp",
-        "tools.jira.mcp",
-        "tools.linear.mcp",
-        "tools.notion.mcp",
-        "tools.runreveal.mcp",
-        "tools.sentry.mcp",
-        "tools.wiz.mcp",
-    ],
-)
-def test_removed_mcp_actions_are_not_platform_interfaces(action: str) -> None:
-    assert not PlatformAction.is_agent(action)
-    assert not PlatformAction.is_interface(action)
-    assert not PlatformAction.is_streamable(action)
-
-
-def test_slackbot_is_platform_interface() -> None:
-    assert PlatformAction.is_agent("ai.slackbot")
-    assert PlatformAction.is_interface("ai.slackbot")
-    assert PlatformAction.is_streamable("ai.slackbot")
 
 
 @pytest.mark.anyio

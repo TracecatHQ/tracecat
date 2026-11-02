@@ -36,6 +36,8 @@ Webhook API keys are optional. If configured, the sender must include `x-traceca
 
 Requests can be restricted to specific IPs or CIDR ranges. The allowlist is IPv4-only.
 
+The sender address is resolved from `X-Forwarded-For` the same way as the [organization IP allowlist](/manage-platform/ip-allowlist), skipping hops in `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS`. Behind a Kubernetes ingress or load balancer, the load balancer must preserve the sender's source IP (for example `externalTrafficPolicy: Local` or PROXY protocol); otherwise Tracecat only sees a node or proxy address.
+
 ## Response
 
 Default response:

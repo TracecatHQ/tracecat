@@ -27,8 +27,6 @@ def approval_read_data(decision: object) -> dict[str, object]:
     "decision",
     [
         True,
-        False,
-        {"kind": "tool-approved"},
         {
             "kind": "tool-approved",
             "override_args": {"limit": 10},

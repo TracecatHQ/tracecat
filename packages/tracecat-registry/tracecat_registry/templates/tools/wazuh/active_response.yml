@@ -18,6 +18,14 @@ definition:
       type: bool
       description: If False, disables SSL verification for internal networks.
       default: true
+    arguments:
+      type: list[str]
+      description: Extra arguments passed to the Active Response script.
+      default: []
+    alert:
+      type: dict[str, Any]
+      description: 'Alert context passed to the script, e.g. `{"data": {"srcip": "1.2.3.4"}}` for `!firewall-drop` or `{"data": {"dstuser": "alice"}}` for `!disable-account`.'
+      default: {}
     agents_list:
       type: str | None
       description: List of agent IDs (separated by comma), all agents selected by default if not specified.
@@ -53,5 +61,7 @@ definition:
           Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
         payload:
           command: ${{ inputs.command }}
+          arguments: ${{ inputs.arguments }}
+          alert: ${{ inputs.alert }}
         verify_ssl: ${{ inputs.verify_ssl }}
   returns: ${{ steps.run_active_response.result.data }}

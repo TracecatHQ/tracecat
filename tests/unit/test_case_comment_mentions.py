@@ -131,6 +131,13 @@ def test_parse_skips_overlong_label() -> None:
     assert parse_mentions(f"[@{label}](mention://agent/{target_id})") == []
 
 
+def test_parse_skips_long_malformed_mention() -> None:
+    content = "[@" + ("\\" * 100_000)
+
+    assert parse_mentions(content) == []
+    assert render_mentions_as_text(content) == content
+
+
 def test_render_mentions_as_text_replaces_valid_mentions() -> None:
     content = (
         f"Ask [@First](mention://agent/{FIRST_DISTINCT_TARGET_ID}) and "

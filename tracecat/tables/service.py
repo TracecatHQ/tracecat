@@ -1,6 +1,8 @@
 import csv
+import functools
+import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -9,9 +11,15 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from asyncpg.exceptions import (
+    CardinalityViolationError,
+    DataError,
+    DatatypeMismatchError,
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
+    NotNullViolationError,
+    UndefinedColumnError,
     UndefinedTableError,
+    UniqueViolationError,
 )
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -29,6 +37,7 @@ from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import find_db_error
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import (
     TracecatImportError,
@@ -37,6 +46,7 @@ from tracecat.exceptions import (
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -45,12 +55,16 @@ from tracecat.pagination import (
     PaginationError,
     paginate,
 )
+from tracecat.query.compiler import compile_aggregation, compile_filter
+from tracecat.query.execution import query_execution_context
+from tracecat.search.types import SearchScope
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
     INTERNAL_COLUMN_PREFIX as INTERNAL_COLUMN_PREFIX,
 )
 from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
+    coerce_boolean_value,
     coerce_integer_value,
     coerce_multi_select_value,
     coerce_numeric_value,
@@ -77,18 +91,24 @@ from tracecat.tables.common import (
     validate_identifier as validate_identifier,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.importer import (
     CSVSchemaInferer,
     InferredCSVColumn,
     generate_table_name,
 )
+from tracecat.tables.query import TableFieldResolver
 from tracecat.tables.schemas import (
+    AggregateResponse,
+    TableAggregateRequest,
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
     TableRowInsert,
     TableUpdate,
 )
+from tracecat.tables.search.service import TableSearchService
+from tracecat.workspace_sync.enums import SyncResourceType
 
 _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
@@ -96,6 +116,13 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 _TABLE_ROW_READ_BATCH_SIZE = 5_000
 _TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
+_UPDATED_AT_COLUMN = "updated_at"
+
+
+def _updated_at_now() -> sa.FunctionElement[Any]:
+    """Timestamp for row writes; later than ``created_at`` within a transaction."""
+    return sa.func.statement_timestamp()
+
 
 DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
@@ -128,6 +155,79 @@ def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]
     ]
 
 
+async def _execute_row_write[T](
+    operation: Awaitable[T], column_names: Collection[str]
+) -> T:
+    """Translate known row input errors without exposing SQL or submitted values.
+
+    Unknown NOT NULL columns and constraint types remain server errors.
+    """
+    error: TableRowError | None = None
+    try:
+        return await operation
+    except DBAPIError as exc:
+        cause: BaseException | None = exc.orig
+        while cause is not None:
+            if isinstance(cause, NotNullViolationError):
+                column_name = cause.as_dict().get("column_name")
+                if column_name in column_names:
+                    error = TableRowError(
+                        "null_not_allowed",
+                        f"Column '{column_name}' cannot be null.",
+                        column=column_name,
+                    )
+                break
+            if isinstance(cause, UniqueViolationError):
+                error = TableRowError(
+                    "duplicate_value", "A value already exists in a unique column."
+                )
+                break
+            if isinstance(cause, CardinalityViolationError):
+                error = TableRowError(
+                    "duplicate_value",
+                    "Rows in an upsert batch must have distinct unique column values.",
+                )
+                break
+            if isinstance(cause, DataError):
+                error = TableRowError(
+                    "invalid_value",
+                    "A row contains a value that is invalid for its column type.",
+                )
+                break
+            cause = cause.__cause__
+        if error is None:
+            raise
+    # Raise outside the handler so raw database values are not retained in the
+    # exception context consumed by workflow and observability code.
+    assert error is not None
+    raise error
+
+
+def _column_ddl_errors[**P, T](
+    method: Callable[P, Awaitable[T]],
+) -> Callable[P, Awaitable[T]]:
+    """Report column changes that existing rows reject as client errors."""
+
+    @functools.wraps(method)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return await method(*args, **kwargs)
+        except DBAPIError as exc:
+            if find_db_error(exc, UndefinedColumnError):
+                raise TracecatNotFoundError("Column not found") from exc
+            if find_db_error(exc, NotNullViolationError):
+                raise ValueError(
+                    "Column cannot be required while existing rows contain null values"
+                ) from exc
+            if find_db_error(exc, DatatypeMismatchError):
+                raise ValueError(
+                    "Column type is incompatible with the requested change"
+                ) from exc
+            raise
+
+    return wrapper
+
+
 class BaseTablesService(BaseWorkspaceService):
     """Service for managing user-defined tables."""
 
@@ -136,6 +236,9 @@ class BaseTablesService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
         self.ws_uuid = WorkspaceUUID.new(self.workspace_id)
+        self.search = TableSearchService(
+            session, SearchScope(self.organization_id, self.workspace_id)
+        )
 
     def _sanitize_identifier(self, identifier: str) -> str:
         """Normalize a stored identifier to its physical SQL name."""
@@ -154,6 +257,53 @@ class BaseTablesService(BaseWorkspaceService):
         raise ValueError(
             f"Column '{column_name}' does not exist in table '{table.name}'"
         )
+
+    def _lookup_conditions(
+        self,
+        table: Table,
+        columns: Sequence[str],
+        values: Sequence[Any],
+    ) -> list[sa.ColumnElement[bool]]:
+        """Build typed equality predicates for column/value lookups.
+
+        Values arrive as JSON, so strings must be bound with the target column's
+        SQL type (e.g. ``uuid`` for ``id``) or PostgreSQL rejects the comparison.
+        """
+        column_types = {column.name: column.type for column in table.columns}
+        conditions: list[sa.ColumnElement[bool]] = []
+        for index, (column_name, value) in enumerate(zip(columns, values, strict=True)):
+            resolved_name = self._resolve_external_column_name(table, column_name)
+            col = sa.column(self._sanitize_identifier(resolved_name))
+            if value is None:
+                conditions.append(col.is_(None))
+                continue
+            bind_key = f"lookup_{index}"
+            match resolved_name:
+                case "id":
+                    try:
+                        coerced_id = (
+                            value if isinstance(value, UUID) else UUID(str(value))
+                        )
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"Column 'id' expects a UUID, got {value!r}"
+                        ) from exc
+                    param = sa.bindparam(bind_key, coerced_id, type_=sa.Uuid())
+                case "created_at" | "updated_at":
+                    param = sa.bindparam(
+                        bind_key,
+                        coerce_to_utc_datetime(value),
+                        type_=sa.TIMESTAMP(timezone=True),
+                    )
+                case _:
+                    try:
+                        param = to_sql_clause(
+                            value, bind_key, SqlType(column_types[resolved_name])
+                        )
+                    except TypeError as exc:
+                        raise ValueError(str(exc)) from exc
+            conditions.append(col == param)
+        return conditions
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
@@ -255,43 +405,71 @@ class BaseTablesService(BaseWorkspaceService):
         return value
 
     def _normalize_row_inputs(
-        self, table: Table, data: dict[str, Any]
+        self, table: Table, data: dict[str, Any], *, inserting: bool = False
     ) -> dict[str, Any]:
-        """Coerce row inputs to the expected SQL types."""
-        if not data:
-            return {}
+        """Validate row fields and coerce values without exposing rejected data."""
+        if inserting:
+            for column in table.columns:
+                if (
+                    not column.nullable
+                    and column.default is None
+                    and column.name not in data
+                ):
+                    raise TableRowError(
+                        "missing_required_column",
+                        f"Required column '{column.name}' is missing.",
+                        column=column.name,
+                    )
 
         column_index = {column.name: column for column in table.columns}
         normalised: dict[str, Any] = {}
         for column_name, value in data.items():
             column = column_index.get(column_name)
             if column is None:
-                raise ValueError(
-                    f"Column '{column_name}' does not exist in table '{table.name}'"
+                raise TableRowError(
+                    "unknown_column",
+                    f"Column '{column_name}' does not exist.",
+                    column=column_name,
                 )
-
-            sql_type = SqlType(column.type)
             if value is None:
+                if not column.nullable:
+                    raise TableRowError(
+                        "null_not_allowed",
+                        f"Column '{column_name}' cannot be null.",
+                        column=column_name,
+                    )
                 normalised[column_name] = None
                 continue
 
-            if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
-                normalised[column_name] = self._coerce_value_for_column(
-                    sql_type, value, column.options
+            sql_type = SqlType(column.type)
+            invalid = False
+            try:
+                if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                    value = self._coerce_value_for_column(
+                        sql_type, value, column.options
+                    )
+                elif sql_type is SqlType.TIMESTAMPTZ:
+                    value = coerce_to_utc_datetime(value)
+                elif sql_type is SqlType.INTEGER:
+                    value = coerce_integer_value(value)
+                elif sql_type is SqlType.NUMERIC:
+                    value = coerce_numeric_value(value)
+                elif sql_type is SqlType.DATE:
+                    value = coerce_to_date(value)
+                elif sql_type is SqlType.BOOLEAN:
+                    value = coerce_boolean_value(value)
+                elif sql_type is SqlType.JSONB:
+                    # PostgreSQL rejects non-finite numbers in JSONB values.
+                    json.dumps(value, allow_nan=False)
+            except (ValueError, TypeError, OverflowError):
+                invalid = True
+            if invalid:
+                raise TableRowError(
+                    "invalid_value",
+                    f"Column '{column_name}' requires a valid {sql_type.value} value.",
+                    column=column_name,
                 )
-                continue
-
-            if sql_type is SqlType.TIMESTAMPTZ:
-                normalised[column_name] = coerce_to_utc_datetime(value)
-            elif sql_type is SqlType.INTEGER:
-                normalised[column_name] = coerce_integer_value(value)
-            elif sql_type is SqlType.NUMERIC:
-                normalised[column_name] = coerce_numeric_value(value)
-            elif sql_type is SqlType.DATE and value is not None:
-                normalised[column_name] = coerce_to_date(value)
-            else:
-                normalised[column_name] = value
-
+            normalised[column_name] = value
         return normalised
 
     def _sa_type_for_column(self, sql_type: SqlType) -> sa.types.TypeEngine[Any]:
@@ -339,26 +517,69 @@ class BaseTablesService(BaseWorkspaceService):
         return table
 
     async def get_index(self, table: Table) -> list[str]:
-        """Get columns that have unique constraints."""
-        schema_name = self._get_schema_name()
+        """Get columns with supported, immediate unique lookup indexes."""
+        indexes = await self._get_unique_indexes(table)
+        return [column for _, column, immediate in indexes if immediate]
+
+    async def _get_unique_indexes(
+        self, table: Table
+    ) -> Sequence[tuple[str, str, bool]]:
+        """Find plain single-key unique indexes and their enforcement mode.
+
+        Deferrable constraints are retained only to detect conflicting upsert
+        arbiters. PostgreSQL column inference can select them alongside an
+        immediate index, even though ON CONFLICT cannot use them.
+        """
         conn = await self.session.connection()
+        result = await conn.execute(
+            sa.text(
+                """
+                SELECT index_relation.relname, attribute.attname, index.indimmediate
+                FROM pg_catalog.pg_index AS index
+                JOIN pg_catalog.pg_class AS table_relation
+                    ON table_relation.oid = index.indrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = table_relation.relnamespace
+                JOIN pg_catalog.pg_class AS index_relation
+                    ON index_relation.oid = index.indexrelid
+                JOIN pg_catalog.pg_attribute AS attribute
+                    ON attribute.attrelid = index.indrelid
+                    AND attribute.attnum = index.indkey[0]
+                WHERE namespace.nspname = :schema_name
+                    AND table_relation.relname = :table_name
+                    AND index.indisunique
+                    AND (NOT index.indisprimary OR NOT index.indimmediate)
+                    AND NOT index.indisexclusion
+                    AND index.indisvalid
+                    AND index.indisready
+                    AND index.indislive
+                    AND index.indnkeyatts = 1
+                    AND (index.indnatts = 1 OR NOT index.indimmediate)
+                    AND index.indexprs IS NULL
+                    AND index.indpred IS NULL
+                ORDER BY index_relation.relname
+                """
+            ),
+            {"schema_name": self._get_schema_name(), "table_name": table.name},
+        )
+        return result.tuples().all()
 
-        def inspect_indexes(
-            sync_conn: sa.Connection,
-        ) -> Sequence[sa.engine.interfaces.ReflectedIndex]:
-            inspector = sa.inspect(sync_conn)
-            indexes = inspector.get_indexes(table.name, schema=schema_name)
-            return indexes
-
-        indexes = await conn.run_sync(inspect_indexes)
-        # Assume only single column indexes
-        index_names = [
-            index["column_names"][0]
-            for index in indexes
-            if len(index["column_names"]) == 1
-            and isinstance(index["column_names"][0], str)
-        ]
-        self.logger.info("Found unique index column", columns=index_names)
+    async def _get_upsert_index(self, table: Table) -> list[str]:
+        """Resolve the supported unique column used by both upsert paths."""
+        indexes = await self._get_unique_indexes(table)
+        index_names = [column for _, column, immediate in indexes if immediate]
+        if not index_names:
+            raise ValueError("Table must have at least one unique index for upsert")
+        if len(index_names) > 1:
+            raise ValueError(
+                "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+            )
+        if any(
+            not immediate and column in index_names for _, column, immediate in indexes
+        ):
+            raise ValueError(
+                "Cannot upsert on a column with a deferrable unique constraint"
+            )
         return index_names
 
     async def get_table_by_name(self, table_name: str) -> Table:
@@ -397,6 +618,27 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Table '{table_name}' not found")
         return table
 
+    async def count_rows(self, table: Table) -> int:
+        """Return the number of rows in a table."""
+        conn = await self.session.connection()
+        result = await conn.execute(
+            sa.text(f"SELECT count(*) FROM {self._full_table_name(table.name)}")
+        )
+        return int(result.scalar_one())
+
+    async def _ensure_schema_unmanaged(self, table_id: UUID) -> None:
+        """Refuse a schema change to a managed table; rows stay writable.
+
+        Raises:
+            ManagedResourceLockedError: The table is managed.
+        """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.TABLE,
+            local_id=table_id,
+        )
+
     @audit_log(resource_type="table", action="create")
     async def create_table(self, params: TableCreate) -> Table:
         """Create a new lookup table.
@@ -413,6 +655,7 @@ class BaseTablesService(BaseWorkspaceService):
         """
         schema_name = self._get_schema_name(self.ws_uuid)
         table_name = validate_identifier(params.name)
+        await hold_for_customer_write(self.session, self.workspace_id)
 
         # Create schema if it doesn't exist
         conn = await self.session.connection()
@@ -464,16 +707,51 @@ class BaseTablesService(BaseWorkspaceService):
         self.session.add(table)
         await self.session.flush()
 
-        # Create columns if specified
-        # Call base class method directly to avoid per-column commits
-        for col_params in params.columns:
-            await BaseTablesService.create_column(self, table, col_params)
+        if params.columns:
+            await self._add_initial_columns(conn, table, params.columns)
 
         return table
+
+    async def _add_initial_columns(
+        self,
+        conn: AsyncConnection,
+        table: Table,
+        columns: Sequence[TableColumnCreate],
+    ) -> None:
+        """Add a new table's columns with one ALTER TABLE and one flush.
+
+        The table's own create audit event covers these columns, so they are
+        not audited one by one.
+        """
+        await self.search.for_table(table.id)
+        prepared = [self._prepare_column(table, params) for params in columns]
+        self.session.add_all(column for column, _ in prepared)
+        add_clauses = ", ".join(
+            f"ADD COLUMN {column_def}" for _, column_def in prepared
+        )
+        await conn.execute(
+            sa.DDL(
+                "ALTER TABLE %s %s", (self._full_table_name(table.name), add_clauses)
+            )
+        )
+        await self.session.flush()
+
+        index_columns = [
+            column.name
+            for (column, _), params in zip(prepared, columns, strict=True)
+            if params.is_index
+        ]
+        if index_columns:
+            await self.session.refresh(table, ["columns"])
+        for column_name in index_columns:
+            await self.create_unique_index(table, column_name)
 
     @audit_log(resource_type="table", action="update")
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         """Update a lookup table."""
+        await self._ensure_schema_unmanaged(table.id)
+        await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         # We need to update the table name in the physical table
         set_fields = params.model_dump(exclude_unset=True)
         if new_name := set_fields.get("name"):
@@ -506,6 +784,11 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table", action="delete")
     async def delete_table(self, table: Table) -> None:
         """Delete a lookup table."""
+        await self._ensure_schema_unmanaged(table.id)
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
+        if collection is not None:
+            await self.search.tombstone_collection(collection.id)
         # Delete the metadata first
         await self.session.delete(table)
 
@@ -539,6 +822,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError("Column not found")
         return column
 
+    @_column_ddl_errors
     @audit_log(resource_type="table_column", action="create")
     async def create_column(
         self, table: Table, params: TableColumnCreate
@@ -555,11 +839,40 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
+        await self._ensure_schema_unmanaged(table.id)
+        column, column_def_str = self._prepare_column(table, params)
+        await self.search.for_table(table.id)
+        self.session.add(column)
+
+        # Add the column to the physical table
+        conn = await self.session.connection()
+        await conn.execute(
+            sa.DDL(
+                "ALTER TABLE %s ADD COLUMN %s",
+                (self._full_table_name(table.name), column_def_str),
+            )
+        )
+
+        await self.session.flush()
+        if params.is_index:
+            await self.session.refresh(table, ["columns"])
+            await self.create_unique_index(table, column.name)
+        return column
+
+    def _prepare_column(
+        self, table: Table, params: TableColumnCreate
+    ) -> tuple[TableColumn, str]:
+        """Validate a new column and build its metadata row and DDL definition.
+
+        Returns:
+            The unsaved column metadata row and its ``ADD COLUMN`` definition.
+
+        Raises:
+            ValueError: If the column name or type is invalid
+        """
         self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
-        full_table_name = self._full_table_name(table.name)
 
-        # Validate SQL type first
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
         sql_type = SqlType(params.type)
@@ -572,7 +885,6 @@ class BaseTablesService(BaseWorkspaceService):
             default_value, rendered_default = prepare_default_value(
                 sql_type, default_value
             )
-        # Create the column metadata first
         column = TableColumn(
             table_id=table.id,
             name=column_name,
@@ -581,9 +893,7 @@ class BaseTablesService(BaseWorkspaceService):
             default=default_value,
             options=normalized_options,
         )
-        self.session.add(column)
 
-        # Build the column definition string
         # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
         if sql_type is SqlType.SELECT:
             column_type_sql = SqlType.TEXT.value
@@ -599,21 +909,9 @@ class BaseTablesService(BaseWorkspaceService):
             column_def.append("NOT NULL")
         if rendered_default is not None:
             column_def.append(f"DEFAULT {rendered_default}")
+        return column, " ".join(column_def)
 
-        column_def_str = " ".join(column_def)
-
-        # Add the column to the physical table
-        conn = await self.session.connection()
-        await conn.execute(
-            sa.DDL(
-                "ALTER TABLE %s ADD COLUMN %s",
-                (full_table_name, column_def_str),
-            )
-        )
-
-        await self.session.flush()
-        return column
-
+    @_column_ddl_errors
     @audit_log(resource_type="table_column", action="update")
     async def update_column(
         self,
@@ -633,6 +931,10 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If the column type is invalid
             ProgrammingError: If the database operation fails
         """
+        await self._ensure_schema_unmanaged(column.table_id)
+        collection = await self.search.for_table(column.table_id)
+        table = await self.search.table(column.table_id)
+        await self.session.refresh(column)
         set_fields = params.model_dump(exclude_unset=True)
         self._assert_user_column_name_allowed(column.name)
         if "name" in set_fields:
@@ -640,15 +942,15 @@ class BaseTablesService(BaseWorkspaceService):
                 set_fields.pop("name")
             else:
                 self._assert_user_column_name_allowed(requested_name)
-        full_table_name = self._full_table_name(column.table.name)
+        full_table_name = self._full_table_name(table.name)
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", None)
         requested_options = set_fields.pop("options", None)
 
         if is_index is True:
-            await self.create_unique_index(column.table, column.name)
+            await self.create_unique_index(table, column.name)
         elif is_index is False:
-            await self.drop_unique_index(column.table, column.name)
+            await self.drop_unique_index(table, column.name)
 
         # Handle options for SELECT/MULTI_SELECT columns
         target_type = (
@@ -672,6 +974,7 @@ class BaseTablesService(BaseWorkspaceService):
             elif target_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
                 set_fields["options"] = None
 
+        old_type = column.type
         old_name = self._sanitize_identifier(column.name)
         new_name = self._sanitize_identifier(
             set_fields["name"] if "name" in set_fields else column.name
@@ -750,18 +1053,22 @@ class BaseTablesService(BaseWorkspaceService):
         for key, value in set_fields.items():
             setattr(column, key, value)
 
+        if old_name != column.name or old_type != column.type:
+            await self.search.column_changed(collection, column)
         await self.session.flush()
         return column
 
     async def create_unique_index(self, table: Table, column_name: str) -> None:
         """Create a unique index on specified columns."""
 
+        await self._ensure_schema_unmanaged(table.id)
         # Check if another index already exists
         index = await self.get_index(table)
         if len(index) > 0:
             raise ValueError("Table cannot have multiple unique indexes")
 
         # Get the fully qualified table name with schema
+        await self.search.for_table(table.id)
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
@@ -800,41 +1107,44 @@ class BaseTablesService(BaseWorkspaceService):
     async def drop_unique_index(self, table: Table, column_name: str) -> None:
         """Drop the unique index on the specified column."""
 
+        await self._ensure_schema_unmanaged(table.id)
+        await self.search.for_table(table.id)
         schema_name = self._get_schema_name()
 
         resolved_column_name = self._resolve_external_column_name(table, column_name)
         sanitized_column = self._sanitize_identifier(resolved_column_name)
 
-        conn = await self.session.connection()
-
-        def find_index_name(sync_conn: sa.Connection) -> str | None:
-            inspector = sa.inspect(sync_conn)
-            for idx in inspector.get_indexes(table.name, schema=schema_name):
-                cols = idx["column_names"]
-                if (
-                    idx.get("unique") is True
-                    and len(cols) == 1
-                    and isinstance(cols[0], str)
-                    and cols[0] == sanitized_column
-                ):
-                    return idx.get("name")
-            return None
-
-        index_name = await conn.run_sync(find_index_name)
+        indexes = await self._get_unique_indexes(table)
+        index_name = next(
+            (
+                name
+                for name, column, immediate in indexes
+                if immediate and column == sanitized_column
+            ),
+            None,
+        )
         if index_name is None:
             raise ValueError(f"No unique index exists on column '{column_name}'")
 
-        qualified_index = f'"{schema_name}"."{index_name}"'
+        qualified_index = (
+            f"{quote_identifier(schema_name)}.{quote_identifier(index_name)}"
+        )
 
+        conn = await self.session.connection()
         await conn.execute(sa.DDL("DROP INDEX %s", (qualified_index,)))
 
         await self.session.flush()
 
+    @_column_ddl_errors
     @audit_log(resource_type="table_column", action="delete")
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
+        await self._ensure_schema_unmanaged(column.table_id)
+        collection = await self.search.for_table(column.table_id)
+        table = await self.search.table(column.table_id)
+        await self.search.column_changed(collection, column, removed=True)
         self._assert_user_column_name_allowed(column.name)
-        full_table_name = self._full_table_name(column.table.name)
+        full_table_name = self._full_table_name(table.name)
         sanitized_column = self._sanitize_identifier(column.name)
 
         # Delete the column metadata first
@@ -918,17 +1228,19 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If conflict keys are specified but not present in the data
             DBAPIError: If there's no unique index on the specified conflict keys
         """
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        row_data = self._normalize_row_inputs(table, params.data)
+        row_data = self._normalize_row_inputs(table, params.data, inserting=True)
         col_map = {c.name: c for c in table.columns}
         upsert = params.upsert
+        needs_indexing = True
 
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
 
-        table_name_for_logging = table.name
         sanitized_table_name = self._sanitize_identifier(table.name)
 
         for col, value in row_data.items():
@@ -945,88 +1257,51 @@ class BaseTablesService(BaseWorkspaceService):
             )
         else:
             # For upsert operations
-            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
+            table_obj = sa.table(
+                sanitized_table_name,
+                *cols,
+                sa.column(_UPDATED_AT_COLUMN),
+                schema=schema_name,
+            )
             pg_stmt = insert(table_obj)
             pg_stmt = pg_stmt.values(**value_clauses)
 
             # Get columns with unique constraints for conflict resolution
-            index = await self.get_index(table)
-
-            # Check if we have any unique columns to use for conflict resolution
-            if not index:
-                raise ValueError("Table must have at least one unique index for upsert")
-
-            if len(index) > 1:
-                raise ValueError(
-                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
-                )
+            index = await self._get_upsert_index(table)
 
             # Ensure all conflict keys are actually in the data
             if not all(key in value_clauses for key in index):
                 raise ValueError("Data to upsert must contain the unique index column")
 
             # Define what gets updated on conflict
-            update_dict = {
+            update_dict: dict[str, sa.ColumnElement[Any]] = {
                 col: pg_stmt.excluded[col]
                 for col in value_clauses.keys()
                 if col not in index  # Don't update the unique columns
             }
 
-            try:
-                # Complete the statement with on_conflict_do_update
-                stmt = pg_stmt.on_conflict_do_update(
-                    index_elements=index, set_=update_dict
-                ).returning(*self._visible_columns(table))
+            existed = await self.session.scalar(
+                select(sa.column("id"))
+                .select_from(table_obj)
+                .where(*[sa.column(key) == value_clauses[key] for key in index])
+            )
+            needs_indexing = existed is None or bool(
+                self.search.selected_names(collection, table).intersection(update_dict)
+            )
+            if update_dict:
+                update_dict[_UPDATED_AT_COLUMN] = _updated_at_now()
+            stmt = pg_stmt.on_conflict_do_update(
+                index_elements=index, set_=update_dict
+            ).returning(*self._visible_columns(table))
 
-                result = await conn.execute(stmt)
-                await self.session.flush()
-                row = result.mappings().one()
-                return dict(row)
-            except ProgrammingError as e:
-                # Drill down to the root cause
-                original_error = e
-                while (cause := e.__cause__) is not None:
-                    e = cause
-                if "violates unique constraint" in str(e):
-                    self.logger.warning(
-                        "Trying to insert duplicate values",
-                        index=index,
-                        table_name=table_name_for_logging,
-                    )
-                    raise ValueError(
-                        "Please check for duplicate values in the unique index columns"
-                    ) from original_error
-                elif (
-                    "no unique or exclusion constraint matching the ON CONFLICT"
-                    in str(e)
-                ):
-                    raise ValueError(
-                        "Please check that the unique index columns are present in the data"
-                    ) from original_error
-                raise
-
-        # For non-upsert or if the exception handling for upsert didn't return
-        try:
-            result = await conn.execute(stmt)
-            await self.session.flush()
-            row = result.mappings().one()
-            return dict(row)
-        except IntegrityError as e:
-            # Drill down to the root cause
-            original_error = e
-            while (cause := e.__cause__) is not None:
-                e = cause
-
-            # Check for unique constraint violations (which are the most common IntegrityErrors)
-            if "violates unique constraint" in str(e):
-                self.logger.warning(
-                    "Trying to insert duplicate values",
-                    table_name=table_name_for_logging,
-                )
-                raise ValueError(
-                    "Please check for duplicate values"
-                ) from original_error
-            raise
+        result = await _execute_row_write(
+            conn.execute(stmt), [column.name for column in table.columns]
+        )
+        await self.session.flush()
+        row = result.mappings().one()
+        if needs_indexing:
+            await self.search.record_rows(collection, [row["id"]])
+        return dict(row)
 
     async def update_row(
         self,
@@ -1046,7 +1321,14 @@ class BaseTablesService(BaseWorkspaceService):
 
         Raises:
             TracecatNotFoundError: If the row does not exist
+            TableRowError: If no columns are provided
         """
+        if not data:
+            raise TableRowError(
+                "empty_update", "Row update must include at least one column."
+            )
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
@@ -1063,13 +1345,22 @@ class BaseTablesService(BaseWorkspaceService):
             )
 
         stmt = (
-            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
+            sa.update(
+                sa.table(
+                    sanitized_table_name,
+                    *cols,
+                    sa.column(_UPDATED_AT_COLUMN),
+                    schema=schema_name,
+                )
+            )
             .where(sa.column("id") == row_id)
-            .values(**value_clauses)
+            .values(**value_clauses, **{_UPDATED_AT_COLUMN: _updated_at_now()})
             .returning(*self._visible_columns(table))
         )
 
-        result = await conn.execute(stmt)
+        result = await _execute_row_write(
+            conn.execute(stmt), [column.name for column in table.columns]
+        )
         await self.session.flush()
 
         try:
@@ -1079,16 +1370,23 @@ class BaseTablesService(BaseWorkspaceService):
                 f"Row {row_id} not found in table {table.name}"
             ) from None
 
+        if self.search.selected_names(collection, table).intersection(normalised_data):
+            await self.search.record_rows(collection, [row_id])
         return dict(row)
 
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
-        await conn.execute(stmt)
+        deleted_ids = (
+            (await conn.execute(stmt.returning(sa.column("id")))).scalars().all()
+        )
+        await self.search.record_rows(collection, deleted_ids, deleted=True)
         await self.session.flush()
 
     async def batch_delete_rows(self, table: Table, row_ids: list[UUID]) -> int:
@@ -1101,14 +1399,19 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows deleted
         """
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id").in_(row_ids))
-        result = await conn.execute(stmt)
+        deleted_ids = (
+            (await conn.execute(stmt.returning(sa.column("id")))).scalars().all()
+        )
+        await self.search.record_rows(collection, deleted_ids, deleted=True)
         await self.session.flush()
-        return result.rowcount
+        return len(deleted_ids)
 
     async def batch_update_rows(
         self, table: Table, row_ids: list[UUID], data: dict[str, Any]
@@ -1123,6 +1426,8 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows updated
         """
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
@@ -1138,14 +1443,97 @@ class BaseTablesService(BaseWorkspaceService):
             )
 
         stmt = (
-            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
+            sa.update(
+                sa.table(
+                    sanitized_table_name,
+                    *cols,
+                    sa.column(_UPDATED_AT_COLUMN),
+                    schema=schema_name,
+                )
+            )
             .where(sa.column("id").in_(row_ids))
-            .values(**value_clauses)
+            .values(**value_clauses, **{_UPDATED_AT_COLUMN: _updated_at_now()})
         )
 
-        result = await conn.execute(stmt)
+        changed_ids = (
+            (await conn.execute(stmt.returning(sa.column("id")))).scalars().all()
+        )
+        if self.search.selected_names(collection, table).intersection(normalised_data):
+            await self.search.record_rows(collection, changed_ids)
         await self.session.flush()
-        return result.rowcount
+        return len(changed_ids)
+
+    async def aggregate_rows(
+        self,
+        table_name: str,
+        request: TableAggregateRequest,
+    ) -> AggregateResponse:
+        """Filter and aggregate rows in a workspace-scoped table."""
+        table = await self.get_table_by_name(table_name)
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        physical_table = sa.table(sanitized_table_name, schema=schema_name)
+        resolver = TableFieldResolver(table.columns)
+
+        statement = sa.select(sa.literal(1)).select_from(physical_table)
+        if request.filters is not None:
+            statement = statement.where(compile_filter(request.filters, resolver))
+
+        requested_fields = {group.field for group in request.group_by}
+        requested_fields.update(
+            agg.field for agg in request.aggs if agg.field is not None
+        )
+        resolved_fields = {
+            field: resolved
+            for field in requested_fields
+            if (resolved := resolver.resolve_aggregation(field)) is not None
+        }
+        statement = compile_aggregation(
+            statement,
+            request,
+            resolved_fields,
+            limit=request.limit,
+            base_has_multi_valued_join=False,
+        )
+
+        txn_cm = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with txn_cm as txn:
+            conn = await txn.session.connection()
+            try:
+                async with query_execution_context(txn.session):
+                    result = await conn.execute(
+                        statement,
+                        execution_options={"isolation_level": "READ COMMITTED"},
+                    )
+                rows = [dict(row) for row in result.mappings().all()]
+            except _RETRYABLE_DB_EXCEPTIONS as exc:
+                self.logger.warning(
+                    "Retryable DB exception occurred during table aggregation",
+                    kind=type(exc).__name__,
+                    error=str(exc),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                raise
+            except ProgrammingError as exc:
+                root: BaseException = exc
+                while root.__cause__ is not None:
+                    root = root.__cause__
+                if isinstance(root, UndefinedTableError):
+                    raise TracecatNotFoundError(
+                        f"Table '{table_name}' does not exist"
+                    ) from exc
+                raise
+
+        truncated = len(rows) > request.limit
+        return AggregateResponse(
+            groups=rows[: request.limit],
+            truncated=truncated,
+        )
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
@@ -1165,27 +1553,15 @@ class BaseTablesService(BaseWorkspaceService):
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
 
-        table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
         table = await self.get_table_by_name(table_name)
         sanitized_table_name = self._sanitize_identifier(table.name)
 
-        resolved_columns = [
-            self._resolve_external_column_name(table, column_name)
-            for column_name in columns
-        ]
-        cols = [
-            sa.column(self._sanitize_identifier(column_name))
-            for column_name in resolved_columns
-        ]
+        conditions = self._lookup_conditions(table, columns, values)
         stmt = (
             sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
-            .where(
-                sa.and_(
-                    *[col == value for col, value in zip(cols, values, strict=True)]
-                )
-            )
+            .where(sa.and_(*conditions))
         )
         if limit is not None:
             stmt = stmt.limit(limit)
@@ -1222,7 +1598,7 @@ class BaseTablesService(BaseWorkspaceService):
                     raise TracecatNotFoundError(
                         f"Table '{table_name}' does not exist"
                     ) from e
-                raise ValueError(str(e)) from e
+                raise
             except Exception as e:
                 self.logger.error(
                     "Unexpected DB exception occurred",
@@ -1258,17 +1634,7 @@ class BaseTablesService(BaseWorkspaceService):
         sanitized_table_name = self._sanitize_identifier(table.name)
 
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
-        resolved_columns = [
-            self._resolve_external_column_name(table, column_name)
-            for column_name in columns
-        ]
-        cols = [
-            sa.column(self._sanitize_identifier(column_name))
-            for column_name in resolved_columns
-        ]
-        condition = sa.and_(
-            *[col == value for col, value in zip(cols, values, strict=True)]
-        )
+        condition = sa.and_(*self._lookup_conditions(table, columns, values))
 
         exists_stmt = sa.exists(sa.select(1).select_from(table_clause).where(condition))
         stmt = sa.select(exists_stmt)
@@ -1306,7 +1672,7 @@ class BaseTablesService(BaseWorkspaceService):
                     raise TracecatNotFoundError(
                         f"Table '{table_name}' does not exist"
                     ) from e
-                raise ValueError(str(e)) from e
+                raise
             except Exception as e:
                 self.logger.error(
                     "Unexpected DB exception occurred during exists_rows",
@@ -1331,6 +1697,7 @@ class BaseTablesService(BaseWorkspaceService):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        search_column: str | None = None,
     ) -> CursorPaginatedResponse[dict[str, Any]]:
         """Search rows in a table using cursor-based pagination."""
         page_limit = (
@@ -1351,6 +1718,7 @@ class BaseTablesService(BaseWorkspaceService):
             updated_after=updated_after,
             order_by=order_by,
             sort=sort,
+            search_column=search_column,
         )
 
     async def list_rows(
@@ -1364,6 +1732,8 @@ class BaseTablesService(BaseWorkspaceService):
         updated_after: datetime | None = None,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        search_column: str | None = None,
+        row_ids: sa.Select[tuple[UUID]] | None = None,
     ) -> CursorPaginatedResponse[dict[str, Any]]:
         """List rows in a table with cursor-based pagination.
 
@@ -1377,13 +1747,17 @@ class BaseTablesService(BaseWorkspaceService):
             updated_after: Filter records updated after this time
             order_by: Column name to order by (defaults to created_at)
             sort: Sort direction, "asc" or "desc" (defaults to desc)
+            search_column: Restrict search_term to this one column. It must be
+                a text-searchable column. Ignored without a search_term.
+            row_ids: Restrict results to rows whose ID is selected by this query
 
         Returns:
             Cursor paginated response with matching rows
 
         Raises:
             TracecatNotFoundError: If the table does not exist
-            ValueError: If search parameters are invalid or order_by column doesn't exist
+            ValueError: If search parameters are invalid, or the order_by or
+                search_column column doesn't exist
         """
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1418,6 +1792,19 @@ class BaseTablesService(BaseWorkspaceService):
                 )
             ]
 
+            if search_column is not None:
+                try:
+                    search_column = self._resolve_external_column_name(
+                        table, search_column
+                    )
+                except ValueError as e:
+                    raise ValueError(f"Invalid search_column: {search_column}") from e
+                if search_column not in searchable_columns:
+                    raise ValueError(
+                        f"Column {search_column} does not support text search"
+                    )
+                searchable_columns = [search_column]
+
             if searchable_columns:
                 # Use SQLAlchemy's concat function for proper parameter binding
                 search_pattern = sa.func.concat("%", search_term, "%")
@@ -1449,6 +1836,9 @@ class BaseTablesService(BaseWorkspaceService):
                     search_term=search_term,
                 )
 
+        if row_ids is not None:
+            where_conditions.append(sa.column("id", sa.Uuid()).in_(row_ids))
+
         # Add date filters
         if start_time is not None:
             where_conditions.append(sa.column("created_at") >= start_time)
@@ -1470,11 +1860,12 @@ class BaseTablesService(BaseWorkspaceService):
         sort_column = order_by or "created_at"
         sort_direction = sort or "desc"
 
-        # Validate the sort column exists in the table
-        valid_columns = {col.name for col in table.columns}
-        valid_columns.update(["id", "created_at", "updated_at"])  # Always available
-        if sort_column not in valid_columns:
-            raise ValueError(f"Invalid order_by column: {sort_column}")
+        # Resolve the sort column like search_column: exact, then normalized.
+        # System columns are always available.
+        try:
+            sort_column = self._resolve_external_column_name(table, sort_column)
+        except ValueError as e:
+            raise ValueError(f"Invalid order_by column: {sort_column}") from e
 
         if sort_column == "id":
             sort_type: sa.types.TypeEngine = sa.Uuid()
@@ -1524,7 +1915,7 @@ class BaseTablesService(BaseWorkspaceService):
                 raise TracecatNotFoundError(
                     f"Table '{table.name}' does not exist"
                 ) from e
-            raise ValueError(str(e)) from e
+            raise
         except Exception as e:
             self.logger.error(
                 "Unexpected DB exception occurred during paginated search",
@@ -1575,6 +1966,8 @@ class BaseTablesService(BaseWorkspaceService):
         if len(rows) > chunk_size:
             raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
 
+        collection = await self.search.for_table(table.id)
+        table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
 
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1582,7 +1975,7 @@ class BaseTablesService(BaseWorkspaceService):
         # Group rows by their column sets to avoid inserting NULL into missing columns.
         rows_by_columns: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
         for row in rows:
-            normalised_row = self._normalize_row_inputs(table, row)
+            normalised_row = self._normalize_row_inputs(table, row, inserting=True)
             rows_by_columns[frozenset(normalised_row.keys())].append(normalised_row)
 
         column_type_map = {
@@ -1597,14 +1990,7 @@ class BaseTablesService(BaseWorkspaceService):
         # If we need upsert behaviour, fetch the unique index once.
         index: list[str] | None = None
         if upsert:
-            index = await self.get_index(table)
-
-            if not index:
-                raise ValueError("Table must have at least one unique index for upsert")
-            if len(index) > 1:
-                raise ValueError(
-                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
-                )
+            index = await self._get_upsert_index(table)
 
         # Iterate over groups and execute separate INSERT/UPSERT statements.
         for col_set, group_rows in rows_by_columns.items():
@@ -1616,6 +2002,8 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 for col in col_set
             ]
+            if upsert:
+                cols.append(sa.column(_UPDATED_AT_COLUMN))
             table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
 
             if not upsert:
@@ -1655,6 +2043,7 @@ class BaseTablesService(BaseWorkspaceService):
                     )
 
                 if update_dict:
+                    update_dict[table_obj.c[_UPDATED_AT_COLUMN]] = _updated_at_now()
                     stmt = pg_stmt.on_conflict_do_update(
                         index_elements=index,
                         set_=update_dict,
@@ -1663,12 +2052,41 @@ class BaseTablesService(BaseWorkspaceService):
                     # Nothing to update (e.g., the only columns present are the unique index)
                     stmt = pg_stmt.on_conflict_do_nothing(index_elements=index)
 
-            try:
-                result = await conn.execute(stmt)
-                total_affected += result.rowcount
-            except Exception as e:
-                # Re-raise as DBAPIError for consistency
-                raise DBAPIError("Failed to insert batch", str(e), e) from e
+            if upsert and collection is not None and collection.enabled:
+                assert index is not None
+                key = index[0]
+                selected = self.search.selected_names(collection, table) - set(index)
+                # Compare unique values in PostgreSQL: JSON/array keys need not
+                # be hashable Python objects. Project only row IDs and a flag.
+                changed_values = [
+                    row[key]
+                    for row in group_rows
+                    if any(row.get(name) is not None for name in selected)
+                ]
+                existing_rows = (
+                    await conn.execute(
+                        select(sa.column("id"), table_obj.c[key].in_(changed_values))
+                        .select_from(table_obj)
+                        .where(table_obj.c[key].in_([row[key] for row in group_rows]))
+                    )
+                ).all()
+                existing_ids = {row_id for row_id, _ in existing_rows}
+                changed_ids = {row_id for row_id, changed in existing_rows if changed}
+            else:
+                existing_ids = set()
+                changed_ids = set()
+            result = await _execute_row_write(
+                conn.execute(stmt.returning(sa.column("id"))),
+                [column.name for column in table.columns],
+            )
+            written = result.scalars().all()
+            total_affected += len(written)
+            ids = [
+                row_id
+                for row_id in written
+                if row_id not in existing_ids or row_id in changed_ids
+            ]
+            await self.search.record_rows(collection, ids)
 
         # Flush once at the end to ensure changes are persisted within the transaction.
         await self.session.flush()
@@ -1927,6 +2345,23 @@ class TableEditorService(BaseWorkspaceService):
         self.schema_name = schema_name
         self._visible_columns_cache: list[sa.ColumnClause] | None = None
 
+    async def _managed_table(self) -> tuple[BaseTablesService, Table] | None:
+        """Delegate managed table writes; custom-field schemas stay independent."""
+        service = BaseTablesService(self.session, self.role)
+        if self.schema_name != service._get_schema_name():
+            return None
+        # Use the same lock even if metadata is absent or being created/renamed.
+        await service.search.lock_scope()
+        table = await self.session.scalar(
+            select(Table)
+            .where(
+                Table.workspace_id == self.workspace_id, Table.name == self.table_name
+            )
+            .options(selectinload(Table.columns))
+            .execution_options(populate_existing=True)
+        )
+        return (service, table) if table is not None else None
+
     def _full_table_name(self) -> str:
         """Get the full table name for the current role."""
         return f'"{self.schema_name}"."{self.table_name}"'
@@ -1975,6 +2410,7 @@ class TableEditorService(BaseWorkspaceService):
             if not is_internal_column_name(column.get("name"))
         ]
 
+    @_column_ddl_errors
     async def create_column(self, params: TableColumnCreate) -> None:
         """Add a new column to an existing table.
 
@@ -1987,6 +2423,11 @@ class TableEditorService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
+        if managed := await self._managed_table():
+            service, table = managed
+            await service.create_column(table, params)
+            self._invalidate_visible_columns_cache()
+            return
 
         self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
@@ -2031,6 +2472,7 @@ class TableEditorService(BaseWorkspaceService):
         await self.session.flush()
         self._invalidate_visible_columns_cache()
 
+    @_column_ddl_errors
     async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
         """Update a column in an existing table.
 
@@ -2044,6 +2486,16 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
             ProgrammingError: If the database operation fails
         """
+        self._assert_user_column_name_allowed(column_name)
+        if managed := await self._managed_table():
+            service, table = managed
+            column = next((c for c in table.columns if c.name == column_name), None)
+            if column is None:
+                raise TracecatNotFoundError("Column not found")
+            await service.update_column(column, params)
+            self._invalidate_visible_columns_cache()
+            return
+
         self._assert_user_column_name_allowed(column_name)
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
@@ -2106,8 +2558,21 @@ class TableEditorService(BaseWorkspaceService):
                     )
                 )
             else:
+                if "type" in set_fields:
+                    default_type = SqlType(set_fields["type"])
+                else:
+                    physical_column = next(
+                        (c for c in await self.get_columns() if c["name"] == new_name),
+                        None,
+                    )
+                    default_type = (
+                        SqlType.JSONB
+                        if physical_column is not None
+                        and isinstance(physical_column["type"], sa.JSON)
+                        else SqlType.TEXT
+                    )
                 normalized_default, formatted_default = prepare_default_value(
-                    SqlType(set_fields.get("type", "TEXT")), updated_default
+                    default_type, updated_default
                 )
                 set_fields["default"] = normalized_default
                 await conn.execute(
@@ -2121,8 +2586,19 @@ class TableEditorService(BaseWorkspaceService):
         await self.session.flush()
         self._invalidate_visible_columns_cache()
 
+    @_column_ddl_errors
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
+        self._assert_user_column_name_allowed(column_name)
+        if managed := await self._managed_table():
+            service, table = managed
+            column = next((c for c in table.columns if c.name == column_name), None)
+            if column is None:
+                raise TracecatNotFoundError("Column not found")
+            await service.delete_column(column)
+            self._invalidate_visible_columns_cache()
+            return
+
         self._assert_user_column_name_allowed(column_name)
         sanitized_column = validate_identifier(column_name)
 
@@ -2219,6 +2695,12 @@ class TableEditorService(BaseWorkspaceService):
         Returns:
             A mapping containing the inserted row data
         """
+        for column_name in params.data:
+            self._assert_user_column_name_allowed(column_name)
+        if managed := await self._managed_table():
+            service, table = managed
+            return await service.insert_row(table, params)
+
         conn = await self.session.connection()
 
         row_data = params.data
@@ -2253,7 +2735,9 @@ class TableEditorService(BaseWorkspaceService):
             .values(**value_clauses)
             .returning(*visible_columns)
         )
-        result = await conn.execute(stmt)
+        result = await _execute_row_write(
+            conn.execute(stmt), visible_column_names(list(col_map))
+        )
         await self.session.flush()
         row = result.mappings().one()
         return dict(row)
@@ -2271,6 +2755,12 @@ class TableEditorService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the row does not exist
         """
+        for column_name in data:
+            self._assert_user_column_name_allowed(column_name)
+        if managed := await self._managed_table():
+            service, table = managed
+            return await service.update_row(table, row_id, data)
+
         conn = await self.session.connection()
         for column_name in data:
             self._assert_user_column_name_allowed(column_name)
@@ -2301,14 +2791,20 @@ class TableEditorService(BaseWorkspaceService):
                 column_name, coerced_value, type_=column_type
             )
 
+        update_values: dict[str, Any] = dict(value_clauses)
+        if _UPDATED_AT_COLUMN in col_map and _UPDATED_AT_COLUMN not in update_values:
+            cols.append(sa.column(_UPDATED_AT_COLUMN))
+            update_values[_UPDATED_AT_COLUMN] = _updated_at_now()
         stmt = (
             sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
             .where(sa.column("id") == row_id)
-            .values(**value_clauses)
+            .values(**update_values)
             .returning(*visible_columns)
         )
 
-        result = await conn.execute(stmt)
+        result = await _execute_row_write(
+            conn.execute(stmt), visible_column_names(list(col_map))
+        )
         await self.session.flush()
 
         try:
@@ -2322,6 +2818,11 @@ class TableEditorService(BaseWorkspaceService):
 
     async def delete_row(self, row_id: UUID) -> None:
         """Delete a row from the table."""
+        if managed := await self._managed_table():
+            service, table = managed
+            await service.delete_row(table, row_id)
+            return
+
         conn = await self.session.connection()
         table_clause = sa.table(self.table_name, schema=self.schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)

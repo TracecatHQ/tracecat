@@ -14,6 +14,11 @@ import type { TableColumnRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Spinner } from "@/components/loading/spinner"
 import {
+  TableSearchColumnDialog,
+  TableSearchColumnMenuItem,
+} from "@/components/tables/table-search-column-control"
+import { useTableSearchContext } from "@/components/tables/table-search-context"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -32,6 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -41,6 +47,8 @@ type TableViewColumnMenuType =
   | "edit"
   | "set-natural-key"
   | "drop-natural-key"
+  | "enable-vector-search"
+  | "disable-vector-search"
   | null
 
 export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
@@ -48,6 +56,9 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
   const canDeleteColumn = useScopeCheck("table:delete")
   const params = useParams<{ tableId?: string }>()
   const tableId = params?.tableId
+  // A managed table's schema is locked; its rows stay editable.
+  const { isManaged } = useManagedResources()
+  const schemaLocked = isManaged("table", tableId)
   const [activeType, setActiveType] = useState<TableViewColumnMenuType>(null)
   const onOpenChange = () => setActiveType(null)
 
@@ -82,6 +93,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
             Copy name
           </DropdownMenuItem>
           {canUpdateTable &&
+            !schemaLocked &&
             (column.is_index ? (
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
@@ -91,7 +103,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 }}
               >
                 <UnlinkIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                Remove unique index
+                Delete unique index
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
@@ -105,7 +117,17 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 Create unique index
               </DropdownMenuItem>
             ))}
-          {canDeleteColumn && (
+          {!schemaLocked && (
+            <TableSearchColumnMenuItem
+              column={column}
+              onSelectAction={(enabled) =>
+                setActiveType(
+                  enabled ? "enable-vector-search" : "disable-vector-search"
+                )
+              }
+            />
+          )}
+          {canDeleteColumn && !schemaLocked && (
             <DropdownMenuItem
               className="py-1 text-xs text-destructive"
               onClick={(e) => {
@@ -114,7 +136,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
               }}
             >
               <Trash2Icon className="mr-2 size-3 group-hover/item:text-destructive" />
-              Delete column
+              Delete
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>
@@ -137,6 +159,18 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
         open={activeType === "drop-natural-key"}
         onOpenChange={onOpenChange}
       />
+      <TableSearchColumnDialog
+        column={column}
+        enabled
+        open={activeType === "enable-vector-search"}
+        onOpenChange={onOpenChange}
+      />
+      <TableSearchColumnDialog
+        column={column}
+        enabled={false}
+        open={activeType === "disable-vector-search"}
+        onOpenChange={onOpenChange}
+      />
     </>
   )
 }
@@ -154,6 +188,10 @@ function TableColumnDeleteDialog({
 }) {
   const workspaceId = useWorkspaceId()
   const { deleteColumn } = useDeleteColumn()
+  const search = useTableSearchContext()
+  const selected = search?.configuration.data?.selected_column_ids?.includes(
+    column.id
+  )
   const [confirmName, setConfirmName] = useState("")
 
   if (!tableId || !workspaceId) {
@@ -189,6 +227,12 @@ function TableColumnDeleteDialog({
           <AlertDialogDescription>
             To confirm deletion, type the column name <b>{column.name}</b>{" "}
             below. This action cannot be undone.
+            {selected && (
+              <span className="mt-2 block">
+                This column is included in semantic search. Deleting it removes
+                it from search and rebuilds any remaining selected columns.
+              </span>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="my-4">
@@ -205,7 +249,7 @@ function TableColumnDeleteDialog({
             variant="destructive"
             disabled={confirmName !== column.name}
           >
-            Delete column
+            Delete
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -386,7 +430,7 @@ function TableColumnDropIndexDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove unique index</AlertDialogTitle>
+          <AlertDialogTitle>Delete unique index</AlertDialogTitle>
           <AlertDialogDescription>
             Are you sure you want to remove the unique index from column{" "}
             <b>{column.name}</b>?
@@ -413,7 +457,7 @@ function TableColumnDropIndexDialog({
             ) : (
               <>
                 <UnlinkIcon className="mr-2 size-4" />
-                Remove unique index
+                Delete unique index
               </>
             )}
           </AlertDialogAction>

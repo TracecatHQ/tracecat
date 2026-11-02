@@ -1,21 +1,22 @@
 # Optional local sandbox privileges for nsjail and SquashFS registry mounts.
 # Usage:
-#   TRACECAT__DISABLE_NSJAIL=false docker compose \
+#   TRACECAT__EXECUTOR_BACKEND=nsjail docker compose \
 #     -f docker-compose.dev.yml -f docker-compose.sandbox.yml up
 #   just cluster --sandbox up -d
 
 services:
   executor:
+    user: "0:0"
+    cgroup: private
+    entrypoint: ["python", "-m", "tracecat.sandbox.bootstrap"]
     environment:
-      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
-    # Hard cap on total processes (incl. all jails and their children):
-    # in-jail RLIMIT_NPROC is bypassable via nested user namespaces (fresh
-    # per-userns fork counter), so the container cgroup pids limit is the
-    # reliable fork-bomb bound. 4096 leaves headroom above the default
-    # executor concurrency ceiling (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES=16
-    # x 64 in-jail processes = 1024) plus executor threads and nsjail
-    # launchers. Re-verify headroom when raising concurrency or the in-jail
-    # process cap.
+      TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-nsjail}
+    # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
+    # via nested user namespaces (fresh per-userns fork counter).
+    # All activities, loop iterations, and executor overhead share this cap.
+    # Defaults allow 32 activities x 4 for_each iterations x 64 in-jail
+    # processes = 8192, exceeding this intentional aggregate safety limit.
+    # Process-heavy workloads can hit the cap and fail to fork.
     pids_limit: 4096
     # Required for nsjail sandbox execution.
     cap_add:
@@ -30,6 +31,11 @@ services:
     privileged: true
 
   agent-executor:
+    user: "0:0"
+    cgroup: private
+    entrypoint: ["python", "-m", "tracecat.agent.sandbox.cgroup"]
+    environment:
+      TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-nsjail}
     # Same fork-bomb bound as executor (nested userns bypasses in-jail caps).
     pids_limit: 4096
     # Required for nsjail sandbox execution.

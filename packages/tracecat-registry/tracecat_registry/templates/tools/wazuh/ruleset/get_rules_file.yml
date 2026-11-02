@@ -1,0 +1,52 @@
+type: action
+definition:
+  name: get_rules_file
+  namespace: tools.wazuh
+  title: Get rules file
+  description: "Get the content of a rules file (e.g. `local_rules.xml`)."
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.rule_controller.get_file
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
+  expects:
+    filename:
+      type: str
+      description: "Rules file name (e.g. `local_rules.xml`)."
+    relative_dirname:
+      type: str | None
+      description: "Relative directory of the file (e.g. `etc/rules`)."
+      default: null
+    raw:
+      type: bool
+      description: "If true, return the file as plain XML text instead of JSON."
+      default: false
+    base_url:
+      type: str | None
+      description: "Wazuh server API URL (e.g. https://wazuh-manager:55000). Defaults to the `wazuh.base_url` variable."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "If false, disables SSL verification for internal networks."
+      default: true
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/rules/files/${{ FN.url_encode(inputs.filename) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
+        params:
+          relative_dirname: ${{ inputs.relative_dirname }}
+          raw: ${{ inputs.raw }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

@@ -37,6 +37,11 @@ from tracecat.auth.api_keys import (
     verify_api_key,
 )
 from tracecat.auth.executor_tokens import verify_executor_token
+from tracecat.auth.ip_allowlist_enforcement import (
+    enforce_org_ip_allowlist,
+    enforce_platform_admin_ip_allowlist,
+)
+from tracecat.auth.mfa.dependencies import VerifiedMfaSession, enforce_step_up
 from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
@@ -45,7 +50,7 @@ from tracecat.auth.users import (
 )
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.authz.service import MembershipService, MembershipWithOrg
+from tracecat.authz.service import workspace_membership_exists
 from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
@@ -75,9 +80,6 @@ service_account_api_key_bearer_scheme = HTTPBearer(
     description="Tracecat service account API key.",
     auto_error=False,
 )
-
-# Maximum number of memberships to cache per user to prevent memory exhaustion
-MAX_CACHED_MEMBERSHIPS = 1000
 
 
 @alru_cache(maxsize=10000)
@@ -153,7 +155,7 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
     if role.is_platform_superuser:
         return frozenset({"*"})
 
-    if role.type == "service_account":
+    if role.type in ("service_account", "scim"):
         return role.scopes or frozenset()
 
     if role.type == "service":
@@ -332,7 +334,11 @@ async def _authenticate_service(
         else None
     )
     role_type: Literal["service", "service_account"] = "service"
-    if request.headers.get("x-tracecat-role-type") == "service_account":
+    header_role_type = request.headers.get("x-tracecat-role-type")
+    if header_role_type == "scim":
+        # A connection's authority is fixed at its bearer token; never forward it.
+        raise HTTP_EXC("SCIM roles cannot be forwarded between services")
+    if header_role_type == "service_account":
         if service_account_id is None:
             raise HTTP_EXC("Missing x-tracecat-role-service-account-id header")
         if organization_id is None:
@@ -479,109 +485,33 @@ OptionalTracecatApiKeyDep = Annotated[
 # --- Helper Functions for Auth ---
 
 
-async def _get_membership_with_cache(
+async def _require_workspace_membership(
     *,
-    request: Request,
     session: AsyncSession,
     workspace_id: uuid.UUID,
     user: User,
-) -> MembershipWithOrg:
-    """Resolve workspace membership using cache when available.
+) -> None:
+    """Enforce that the user holds a role path into the workspace.
 
-    Uses request-scoped cache from middleware if present, otherwise falls back
-    to direct database query.
+    Args:
+        session: Session used for the existence check.
+        workspace_id: Workspace being accessed.
+        user: Authenticated user.
 
     Raises:
-        HTTPException(403): If user is not a member of the workspace.
+        HTTPException: 403 if the user holds no role path into the workspace.
     """
-    membership_with_org: MembershipWithOrg | None = None
-    auth_cache = getattr(request.state, "auth_cache", None)
+    if await workspace_membership_exists(
+        session, user_id=user.id, workspace_id=workspace_id
+    ):
+        return
 
-    if auth_cache is not None:
-        cached_membership = auth_cache["memberships"].get(str(workspace_id))
-        # Validate cached membership belongs to requesting user
-        if cached_membership is not None and cached_membership.user_id == user.id:
-            # Convert cached Membership to MembershipWithOrg by fetching org_id
-            svc = MembershipService(session)
-            membership_with_org = await svc.get_membership(
-                workspace_id=workspace_id, user_id=user.id
-            )
-            logger.debug(
-                "Using cached membership",
-                user_id=user.id,
-                workspace_id=workspace_id,
-                cached=True,
-            )
-        elif not auth_cache["membership_checked"]:
-            # Load all memberships once if not already done
-            svc = MembershipService(session)
-            all_memberships = await svc.list_user_memberships(user_id=user.id)
-
-            # Check cache size limit to prevent memory exhaustion
-            if len(all_memberships) > MAX_CACHED_MEMBERSHIPS:
-                logger.warning(
-                    "User has excessive memberships, caching disabled for security",
-                    user_id=user.id,
-                    membership_count=len(all_memberships),
-                    max_allowed=MAX_CACHED_MEMBERSHIPS,
-                )
-                # Find membership without caching - fetch with org_id
-                membership_with_org = await svc.get_membership(
-                    workspace_id=workspace_id, user_id=user.id
-                )
-            else:
-                # Cache all memberships with user context
-                auth_cache["user_id"] = user.id
-                auth_cache["memberships"] = {
-                    str(m.workspace_id): m for m in all_memberships
-                }
-                auth_cache["membership_checked"] = True
-                auth_cache["all_memberships"] = all_memberships
-
-                # Get the specific membership with org_id
-                membership_with_org = await svc.get_membership(
-                    workspace_id=workspace_id, user_id=user.id
-                )
-
-                logger.debug(
-                    "Loaded and cached all user memberships",
-                    user_id=user.id,
-                    workspace_count=len(all_memberships),
-                    workspace_id=workspace_id,
-                    found=membership_with_org is not None,
-                )
-        elif auth_cache.get("user_id") != user.id:
-            # Cache belongs to different user - security fallback
-            logger.warning(
-                "Cache user mismatch, falling back to direct query",
-                cache_user_id=auth_cache.get("user_id"),
-                request_user_id=user.id,
-            )
-            svc = MembershipService(session)
-            membership_with_org = await svc.get_membership(
-                workspace_id=workspace_id, user_id=user.id
-            )
-    else:
-        # No cache available (e.g., in tests), fall back to direct query
-        svc = MembershipService(session)
-        membership_with_org = await svc.get_membership(
-            workspace_id=workspace_id, user_id=user.id
-        )
-        logger.debug(
-            "No cache available, using direct query",
-            user_id=user.id,
-            workspace_id=workspace_id,
-        )
-
-    if membership_with_org is None:
-        logger.debug(
-            "User is not a member of this workspace",
-            user=user,
-            workspace_id=workspace_id,
-        )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    return membership_with_org
+    logger.debug(
+        "User is not a member of this workspace",
+        user=user,
+        workspace_id=workspace_id,
+    )
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
 
 ACTIVE_ORG_COOKIE = "tracecat:active-org-id"
@@ -602,7 +532,10 @@ async def _resolve_org_for_regular_user(
     Raises:
         HTTPException(400): If user has no org memberships.
     """
-    if cookie_value := request.cookies.get(ACTIVE_ORG_COOKIE):
+    if cookie_value := (
+        request.cookies.get("tracecat%3Aactive-org-id")
+        or request.cookies.get(ACTIVE_ORG_COOKIE)
+    ):
         try:
             cookie_org_id = uuid.UUID(cookie_value)
         except ValueError:
@@ -748,8 +681,7 @@ async def _authenticate_user(
             )
         else:
             # Workspace member - validate direct workspace membership.
-            await _get_membership_with_cache(
-                request=request,
+            await _require_workspace_membership(
                 session=session,
                 workspace_id=workspace_id,
                 user=user,
@@ -931,6 +863,15 @@ async def _role_dependency(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
+        )
+    # Org IP allowlist applies to end-user and service-account traffic here, and
+    # to SCIM in its own token dependency. Internal services and executors are
+    # not org clients; platform superusers bypass so an org cannot lock out its
+    # operators.
+    if role.type in ("user", "service_account") and role.organization_id is not None:
+        await enforce_org_ip_allowlist(
+            role.organization_id,
+            bypass=user is not None and user.is_superuser,
         )
     # Validate structural requirements and compute scopes
     role = await _validate_role(
@@ -1504,12 +1445,16 @@ async def _require_superuser(
 
     Returns a PlatformRole (not Role) to enforce type separation between
     platform and org-scoped operations.
+
+    The platform admin IP allowlist is checked after the superuser check so
+    non-superusers never learn whether one is configured.
     """
     if not user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden",
         )
+    await enforce_platform_admin_ip_allowlist()
     return PlatformRole(
         type="user",
         user_id=user.id,
@@ -1517,12 +1462,33 @@ async def _require_superuser(
     )
 
 
+require_superuser = _require_superuser
+
 SuperuserRole = Annotated[PlatformRole, Depends(_require_superuser)]
 """Dependency for platform admin (superuser) operations.
 
 Returns a PlatformRole which is distinct from Role - platform operations
 are not scoped to any organization or workspace.
 """
+
+
+async def _require_superuser_step_up(
+    role: SuperuserRole,
+    mfa_session: VerifiedMfaSession,
+) -> PlatformRole:
+    """Require a recent security key verification for a privileged admin action.
+
+    Applies to platform admin actions that change or could compromise customer
+    organizations. ``TRACECAT__PLATFORM_ADMIN_MFA_BYPASS`` skips it.
+    """
+    await enforce_step_up(mfa_session, allow_platform_admin_bypass=True)
+    return role
+
+
+require_superuser_step_up = _require_superuser_step_up
+
+SuperuserStepUpRole = Annotated[PlatformRole, Depends(_require_superuser_step_up)]
+"""``SuperuserRole`` plus a security key verification within the step-up window."""
 
 
 # --- Authenticated User Only (No Organization Context) ---

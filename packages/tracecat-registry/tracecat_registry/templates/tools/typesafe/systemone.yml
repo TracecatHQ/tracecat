@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: System One
+  description: Evaluate a state against named typed questions with TypeSafe System One.
+  display_group: Typesafe AI (Jev)
+  doc_url: https://docs.typesafe.ai/api#evaluation-endpoint
+  namespace: tools.typesafe
+  name: systemone
+  secrets:
+    - name: typesafe
+      keys: ["TYPESAFE_API_KEY"]
+  expects:
+    state:
+      # Generic: TypeSafe accepts text or a free-form JSON object or array.
+      type: str | dict[str, Any] | list[Any]
+      description: Content to evaluate; text or structured data such as chat logs or records.
+    questions:
+      # Generic: each named question is a Noul, Choice, or Score discriminated union.
+      type: dict[str, Any]
+      description: >-
+        Named questions with type and instructions; Choice criteria has up to
+        255 options, and Score criteria has 2 to 10 ordered levels.
+    model:
+      type: str | None
+      description: Model that handles the request; TypeSafe recommends jev-latest.
+      default: null
+    base_url:
+      type: str | None
+      description: TypeSafe API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.typesafe.base_url || "https://api.typesafe.ai" }}/v1/systemone
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.typesafe.TYPESAFE_API_KEY }}
+          Content-Type: application/json
+          Accept: application/json
+        payload:
+          state: ${{ inputs.state }}
+          model: ${{ inputs.model || "jev-latest" }}
+          questions: ${{ inputs.questions }}
+  returns: ${{ steps.request.result }}

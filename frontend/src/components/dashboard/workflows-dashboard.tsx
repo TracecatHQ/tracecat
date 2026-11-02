@@ -1,12 +1,9 @@
 "use client"
 
-import { format } from "date-fns"
 import {
   AtSignIcon,
   CalendarClockIcon,
-  CircleCheck,
   CircleDot,
-  Clock3,
   FlagTriangleRight,
   FolderIcon,
   HistoryIcon,
@@ -50,6 +47,8 @@ import {
   type WorkflowWebhookFilterValue,
 } from "@/components/dashboard/workflows-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
+import { RowTimestamps } from "@/components/timestamps"
 import { Badge } from "@/components/ui/badge"
 import {
   ContextMenu,
@@ -103,34 +102,6 @@ function normalizeFolderPath(rawPath: string | null): string {
     : withLeadingSlash
 }
 
-function getRelativeDateLabel(dateValue: string): string {
-  const timestamp = new Date(dateValue).getTime()
-  if (Number.isNaN(timestamp)) {
-    return "0m"
-  }
-
-  const diffMs = Math.max(0, Date.now() - timestamp)
-  const minuteMs = 60_000
-  const hourMs = 60 * minuteMs
-  const dayMs = 24 * hourMs
-  const monthMs = 30 * dayMs
-  const yearMs = 365 * dayMs
-
-  if (diffMs < hourMs) {
-    return `${Math.max(1, Math.floor(diffMs / minuteMs))}m`
-  }
-  if (diffMs < dayMs) {
-    return `${Math.max(1, Math.floor(diffMs / hourMs))}hr`
-  }
-  if (diffMs < monthMs) {
-    return `${Math.max(1, Math.floor(diffMs / dayMs))}d`
-  }
-  if (diffMs < yearMs) {
-    return `${Math.max(1, Math.floor(diffMs / monthMs))}mo`
-  }
-  return `${Math.max(1, Math.floor(diffMs / yearMs))}y`
-}
-
 function WorkflowTagPills({ tags }: { tags?: TagRead[] | null }) {
   if (!tags || tags.length === 0) {
     return null
@@ -167,11 +138,15 @@ function WorkflowTagPills({ tags }: { tags?: TagRead[] | null }) {
 }
 
 function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
-  const lastPublished = item.latest_definition?.created_at ?? null
   const version = item.latest_definition?.version ?? null
 
   return (
     <div className="flex shrink-0 items-center gap-1">
+      <ManagedResourceStatus
+        resourceType="workflow"
+        id={item.id}
+        name={item.alias ?? item.title}
+      />
       {item.alias && (
         <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
           <AtSignIcon className="mr-1 size-3" />
@@ -179,37 +154,7 @@ function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
         </Badge>
       )}
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge
-            variant="secondary"
-            className="h-5 cursor-default px-2 text-[10px] font-normal"
-          >
-            <Clock3 className="mr-1 size-3" />
-            {getRelativeDateLabel(item.updated_at)}
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent>
-          {format(new Date(item.updated_at), "PPpp")}
-        </TooltipContent>
-      </Tooltip>
-
-      {lastPublished ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge
-              variant="secondary"
-              className="h-5 cursor-default px-2 text-[10px] font-normal"
-            >
-              <CircleCheck className="mr-1 size-3" />
-              {getRelativeDateLabel(lastPublished)}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent>
-            {format(new Date(lastPublished), "PPpp")}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
+      {!item.latest_definition && (
         <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
           <CircleDot className="mr-1 size-3" />
           Unpublished
@@ -678,24 +623,9 @@ function WorkflowTriggerBadges({ item }: { item: WorkflowDirectoryItem }) {
 function FolderMetadataBadges({ item }: { item: FolderDirectoryItem }) {
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge
-            variant="secondary"
-            className="h-5 cursor-default px-2 text-[10px] font-normal"
-          >
-            <Clock3 className="mr-1 size-3" />
-            {getRelativeDateLabel(item.updated_at)}
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent>
-          {format(new Date(item.updated_at), "PPpp")}
-        </TooltipContent>
-      </Tooltip>
-
       <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
         <WorkflowIcon className="mr-1 size-3" />
-        {item.num_items} workflows
+        {item.num_items} {item.num_items === 1 ? "item" : "items"}
       </Badge>
     </div>
   )
@@ -828,6 +758,11 @@ function WorkflowsListRow({
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
                 <FolderMetadataBadges item={item} />
+                <RowTimestamps
+                  className="ml-auto"
+                  createdAt={item.created_at}
+                  updatedAt={item.updated_at}
+                />
               </div>
             </button>
           </div>
@@ -872,6 +807,11 @@ function WorkflowsListRow({
                 <WorkflowTagPills tags={item.tags} />
               </div>
               <WorkflowTriggerBadges item={item} />
+              <RowTimestamps
+                createdAt={item.created_at}
+                updatedAt={item.updated_at}
+                publishedAt={item.latest_definition?.created_at}
+              />
             </div>
           </button>
         </div>
@@ -1239,9 +1179,19 @@ export function WorkflowsDashboard() {
     [canUseServerPaginatedList, sortedListItems, listStartIndex, limit]
   )
 
+  const directoryWorkflowCount = useMemo(
+    () =>
+      sortedDirectoryItems.reduce(
+        (total, item) =>
+          total + (item.type === "folder" ? item.num_workflows : 1),
+        0
+      ),
+    [sortedDirectoryItems]
+  )
+
   const headerTotalCount =
     view === "folders"
-      ? sortedDirectoryItems.length
+      ? directoryWorkflowCount
       : canUseServerPaginatedList
         ? workflowPagination.totalEstimate || sortedListItems.length
         : sortedListItems.length

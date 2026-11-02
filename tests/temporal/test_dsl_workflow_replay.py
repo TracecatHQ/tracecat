@@ -214,6 +214,7 @@ async def _record_handler_failure(
             task_queue=task_queue,
             activities=[
                 _disable_workflow_concurrency_limits,
+                DSLActivities.compile_dsl_dependencies_activity,
                 _legacy_missing_error_handler,
             ],
             workflows=[workflow_class],
@@ -336,6 +337,7 @@ async def test_dsl_workflow_replays_legacy_subflow_failure_history(
             task_queue=task_queue,
             activities=[
                 _disable_workflow_concurrency_limits,
+                DSLActivities.compile_dsl_dependencies_activity,
                 _legacy_prepare_subflow_activity,
                 WorkflowsManagementService.get_error_handler_workflow_id,
             ],

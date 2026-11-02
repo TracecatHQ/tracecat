@@ -8,7 +8,7 @@ from tracecat.expressions.common import ExprType
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretSearch
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.validation.schemas import ExprValidationResult
 
 
@@ -111,13 +111,20 @@ async def secret_validator(
         defined_secret = await service.search_secrets(
             SecretSearch(names={name}, environment=environment)
         )
-        logger.info("Secret search results", defined_secret=defined_secret)
-        if (n_found := len(defined_secret)) != 1:
+        n_found = len(defined_secret)
+        # `environment` is reserved for the app environment by the logger
+        logger.info(
+            "Secret search results",
+            secret_name=name,
+            secret_environment=environment,
+            n_found=n_found,
+        )
+        if n_found != 1:
             logger.debug(
                 "Secret not found in SECRET context usage",
                 n_found=n_found,
                 secret_name=name,
-                environment=environment,
+                secret_environment=environment,
             )
             return ExprValidationResult(
                 status="error",
@@ -126,8 +133,7 @@ async def secret_validator(
             )
 
         # There should only be 1 secret
-        decrypted_keys = service.decrypt_keys(defined_secret[0].encrypted_keys)
-        defined_keys = {kv.key for kv in decrypted_keys}
+        defined_keys = set(secret_key_names(service, defined_secret[0]))
 
     # (2) Check if the secret has the correct keys
     if key not in defined_keys:

@@ -3,7 +3,7 @@
  */
 
 import { fireEvent, render, screen } from "@testing-library/react"
-import { CaseColumnBadge } from "@/components/cases/case-badge"
+import { CaseColumnBadge, tintColor } from "@/components/cases/case-badge"
 
 describe("CaseColumnBadge", () => {
   it("forwards DOM attributes and hover handlers", () => {
@@ -33,5 +33,16 @@ describe("CaseColumnBadge", () => {
 
     expect(label).toHaveClass("min-w-0", "flex-1", "truncate")
     expect(badge).toHaveClass("min-w-0", "max-w-[120px]")
+  })
+})
+
+describe("tintColor", () => {
+  it("tints hex and named colors alike", () => {
+    expect(tintColor("#3b82f6")).toBe(
+      "color-mix(in srgb, #3b82f6 12.5%, transparent)"
+    )
+    expect(tintColor("blue")).toBe(
+      "color-mix(in srgb, blue 12.5%, transparent)"
+    )
   })
 })

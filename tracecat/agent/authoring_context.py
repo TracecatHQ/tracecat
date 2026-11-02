@@ -25,7 +25,7 @@ from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.variables.service import VariablesService
 
 
@@ -192,7 +192,7 @@ async def load_secret_inventory(role: Role) -> dict[str, set[str]]:
         for secret in workspace_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            keys = {kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)}
+            keys = set(secret_key_names(svc, secret))
             workspace_inventory[secret.name] = keys
         return workspace_inventory
 

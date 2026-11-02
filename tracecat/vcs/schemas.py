@@ -6,6 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr
 
+from tracecat.vcs.bitbucket.schemas import BitbucketTokenCredentials
+from tracecat.vcs.bitbucket_data_center.schemas import (
+    BitbucketDataCenterTokenCredentials,
+)
 from tracecat.vcs.github.manifest import GitHubAppManifest
 
 
@@ -64,7 +68,10 @@ class GitLabTokenCredentialsRequest(BaseModel):
     )
     token: SecretStr = Field(
         ...,
-        description="GitLab personal/project/group access token with api scope.",
+        description=(
+            "GitLab access token with api scope. Project and group tokens also "
+            "require write_repository for Git sync pushes."
+        ),
     )
 
 
@@ -80,6 +87,40 @@ class GitLabTokenCredentialsStatus(BaseModel):
 class GitLabTokenCredentialsSaveResponse(BaseModel):
     """Response after creating or updating GitLab token credentials."""
 
+    message: str
+    action: Literal["created", "updated"]
+    base_url: str
+
+
+class BitbucketTokenCredentialsRequest(BitbucketTokenCredentials):
+    """Register or rotate the organization Bitbucket Cloud API token."""
+
+
+class BitbucketTokenCredentialsStatus(BaseModel):
+    exists: bool
+    is_corrupted: bool = False
+    email: str | None = None
+    created_at: str | None = None
+
+
+class BitbucketTokenCredentialsSaveResponse(BaseModel):
+    message: str
+    action: Literal["created", "updated"]
+    email: str
+
+
+class BitbucketDataCenterTokenCredentialsRequest(BitbucketDataCenterTokenCredentials):
+    """Register or rotate the organization Bitbucket Data Center API token."""
+
+
+class BitbucketDataCenterTokenCredentialsStatus(BaseModel):
+    exists: bool
+    is_corrupted: bool = False
+    base_url: str | None = None
+    created_at: str | None = None
+
+
+class BitbucketDataCenterTokenCredentialsSaveResponse(BaseModel):
     message: str
     action: Literal["created", "updated"]
     base_url: str

@@ -16,6 +16,11 @@ definition:
     command_uuid:
       type: str
       description: UUID of the MDM command returned when it was enqueued.
+    host_identifier:
+      type: str | None
+      description: The host's `hostname`, `uuid`, or `hardware_serial`. Returns only results for the
+        specified host.
+      default: null
   steps:
     - ref: command_results
       action: core.http_request
@@ -26,4 +31,5 @@ definition:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
         params:
           command_uuid: ${{ inputs.command_uuid }}
+          host_identifier: ${{ inputs.host_identifier }}
   returns: ${{ steps.command_results.result.data }}

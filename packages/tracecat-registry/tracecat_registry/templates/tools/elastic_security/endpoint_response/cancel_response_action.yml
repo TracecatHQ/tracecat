@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Cancel response action
-  description: Cancel an Elastic Endpoint response action.
+  description: Cancel an Elastic Endpoint response action. Requires Kibana 9.2+.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-cancelaction
   namespace: tools.elastic_security

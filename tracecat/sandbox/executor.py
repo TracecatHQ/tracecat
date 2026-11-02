@@ -1,5 +1,6 @@
 """nsjail executor for sandboxed Python execution."""
 
+import itertools
 import os
 import re
 import signal
@@ -8,29 +9,39 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from opentelemetry.trace import Span
+
 from tracecat.config import (
     TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+    TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
     TRACECAT__SANDBOX_CACHE_DIR,
+    TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
     TRACECAT__SANDBOX_NSJAIL_PATH,
     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS,
     TRACECAT__SANDBOX_PYPI_INDEX_URL,
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span, record_platform_span
 from tracecat.sandbox.exceptions import (
     SandboxValidationError,
 )
 from tracecat.sandbox.networking import resolve_sandbox_network_plan
-from tracecat.sandbox.nsjail_protocol import invoke_nsjail
-from tracecat.sandbox.result_envelope import decode_result_envelope
+from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess, invoke_nsjail
+from tracecat.sandbox.result_envelope import (
+    ResultEnvelopeOutcome,
+    decode_result_envelope,
+)
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
+    RunnerPhaseMarks,
     SandboxConfig,
     SandboxErrorCode,
     SandboxNetworkPurpose,
     SandboxNetworkRequest,
     SandboxResult,
+    nsjail_rlimit_as,
 )
 
 RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
@@ -112,18 +123,27 @@ _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 
-def _nsjail_failure_hint(stderr: str) -> str | None:
-    stderr = stderr.strip()
-    if not stderr:
+def _nsjail_log_tail(completed: NsjailCompletedProcess) -> str:
+    """NsJail's own log tail; the workload cannot write to it."""
+    return completed.nsjail_log[-2000:].decode("utf-8", errors="replace")
+
+
+def _nsjail_failure_hint(completed: NsjailCompletedProcess) -> str | None:
+    # A drain kill is not a host misconfiguration; NSTUN lines would match "tun".
+    if completed.nsjail_signaled:
         return None
+    diagnostics = (completed.nsjail_log + completed.stderr).decode(
+        "utf-8", errors="replace"
+    )
     for pattern, hint in _NSJAIL_HINT_PATTERNS:
-        if pattern.search(stderr):
+        if pattern.search(diagnostics):
             return hint
     return None
 
 
 _NSJAIL_LAUNCH_FAILURE_EXIT_CODE = 0xFF
 _NSJAIL_POLICY_VIOLATION_EXIT_CODES = {128 + signal.SIGSYS}
+_NSJAIL_SIGKILL_EXIT_CODE = 128 + signal.SIGKILL
 # SIGABRT (134) is deliberately absent. A Python workload reports allocation
 # failure in-band as MemoryError, which the wrapper and minimal runner turn
 # into a structured ``resource_limit_exceeded`` envelope code. A SIGABRT from
@@ -131,12 +151,34 @@ _NSJAIL_POLICY_VIOLATION_EXIT_CODES = {128 + signal.SIGSYS}
 # glibc heap-corruption checks), and the exit code alone cannot separate them
 # without inspecting stderr text, which this codebase forbids.
 _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
-    128 + signal.SIGKILL,
+    _NSJAIL_SIGKILL_EXIT_CODE,
     128 + signal.SIGXCPU,
     128 + signal.SIGXFSZ,
 }
 _WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
 _WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
+_FAILURE_STDERR_TAIL_CHARS = 8192
+_NSJAIL_LOG_LINE_PATTERN = re.compile(r"^\[[A-Z]\]\[")
+
+
+def python_path_mount(index: int) -> str:
+    """Return the jail path where ``SandboxConfig.python_path_dirs[index]`` is mounted."""
+    return f"/pythonpath/{index}"
+
+
+def workload_stderr_tail(stderr: str, *, limit: int) -> str:
+    """Return the trailing workload-authored stderr with nsjail log lines removed.
+
+    NsJail writes host-path log lines to stderr only before ``log_fd`` takes
+    effect; the workload's own output is what a caller debugging a crash needs.
+    """
+    lines = [
+        line for line in stderr.splitlines() if not _NSJAIL_LOG_LINE_PATTERN.match(line)
+    ]
+    text = "\n".join(lines).strip()
+    return text[-limit:]
+
+
 _WORKLOAD_LAUNCHER_SCRIPT = f"""\
 import os
 import resource
@@ -164,11 +206,84 @@ os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 """
 
 
+# Phases between consecutive bounds of spawn, the runner's marks and exit.
+# "finish" runs from the action returning until the host has collected the
+# exited jail: result serialization and write, interpreter shutdown, jail
+# teardown, and the host's exit detection (see NsjailCompletedProcess).
+_RUNNER_PHASE_SPAN_NAMES = (
+    "tracecat.action.runner.startup",
+    "tracecat.action.runner.load_input",
+    "tracecat.action.runner.import",
+    "tracecat.action.runner.call",
+    "tracecat.action.runner.finish",
+)
+
+
+def _record_runner_phase_spans(
+    parent: Span | None,
+    marks: RunnerPhaseMarks | None,
+    completed: NsjailCompletedProcess,
+) -> None:
+    """Break the jailed process span into the phases its runner reported.
+
+    The marks come from jailed code, so a set that runs backwards or leaves
+    the host-measured process window is dropped whole. A phase is recorded
+    only when the runner reached both of its bounds, and every span says its
+    timing came from the runner rather than from the host.
+    """
+    if (
+        parent is None
+        or marks is None
+        or completed.spawned_ns is None
+        or completed.exited_ns is None
+    ):
+        return
+    bounds = (
+        completed.spawned_ns,
+        marks.main,
+        marks.input_loaded,
+        marks.imported,
+        marks.called,
+        completed.exited_ns,
+    )
+    reached = [bound for bound in bounds if bound is not None]
+    if any(later < earlier for earlier, later in itertools.pairwise(reached)):
+        return
+    for name, (start, end) in zip(
+        _RUNNER_PHASE_SPAN_NAMES, itertools.pairwise(bounds), strict=True
+    ):
+        if start is not None and end is not None:
+            record_platform_span(
+                name,
+                parent=parent,
+                start_time_ns=start,
+                end_time_ns=end,
+                attributes={"tracecat.timing.source": "runner"},
+            )
+
+
+def _usable_result(
+    outcome: ResultEnvelopeOutcome | None,
+    completed: NsjailCompletedProcess,
+) -> SandboxResult | None:
+    """Return the decoded result, discarding any invalid envelope under a drain kill."""
+    if outcome is None:
+        return None
+    if (
+        not outcome.valid_envelope
+        and completed.returncode == _NSJAIL_SIGKILL_EXIT_CODE
+        and completed.nsjail_signaled
+    ):
+        return None
+    return outcome.result
+
+
 def _classify_missing_nsjail_result(
     returncode: int | None,
     *,
     result_file_exists: bool,
     workload_started: bool,
+    nsjail_signaled: bool,
 ) -> SandboxErrorCode:
     """Classify an NsJail exit that did not produce a usable result.
 
@@ -181,6 +296,8 @@ def _classify_missing_nsjail_result(
     - ``None`` or a negative parent return code: infrastructure failure.
     - ``255`` without a start marker or result file: infrastructure failure.
     - ``255`` with a start marker or result file: workload failure.
+    - ``137`` after NsJail itself caught a fatal signal, as when a node
+      shutdown stops the pod: infrastructure failure.
     - Child policy/resource signals: policy or resource failure, respectively.
     - Every other missing-result exit: workload failure.
     """
@@ -194,6 +311,8 @@ def _classify_missing_nsjail_result(
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
     if returncode in _NSJAIL_POLICY_VIOLATION_EXIT_CODES:
         return SandboxErrorCode.POLICY_VIOLATION
+    if returncode == _NSJAIL_SIGKILL_EXIT_CODE and nsjail_signaled:
+        return SandboxErrorCode.INFRASTRUCTURE_FAILURE
     if returncode in _NSJAIL_RESOURCE_LIMIT_EXIT_CODES:
         return SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED
     return SandboxErrorCode.WORKLOAD_FAILURE
@@ -201,14 +320,15 @@ def _classify_missing_nsjail_result(
 
 def _missing_nsjail_result_message(
     error_code: SandboxErrorCode,
-    *,
-    stderr: str,
+    completed: NsjailCompletedProcess,
 ) -> str:
     """Return a safe message for an NsJail run without a usable result."""
     match error_code:
         case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+            if completed.nsjail_signaled:
+                return "Sandbox host stopped before the workload finished"
             message = "Sandbox infrastructure failed before producing a result"
-            if hint := _nsjail_failure_hint(stderr):
+            if hint := _nsjail_failure_hint(completed):
                 return f"{message}. {hint}"
             return message
         case SandboxErrorCode.POLICY_VIOLATION:
@@ -285,10 +405,12 @@ class NsjailExecutor:
         nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
         rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
         cache_dir: str = TRACECAT__SANDBOX_CACHE_DIR,
+        cgroup_mount: Path | None = None,
     ):
         self.nsjail_path = Path(nsjail_path)
         self.rootfs = Path(rootfs_path)
         self.cache_dir = Path(cache_dir)
+        self.cgroup_mount = cgroup_mount
         self.package_cache = self.cache_dir / "packages"
 
     def _build_config(
@@ -317,6 +439,8 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
+        if self.cgroup_mount is not None:
+            _validate_path(self.cgroup_mount, "cgroup_mount")
         for i, python_path_dir in enumerate(config.python_path_dirs):
             _validate_path(python_path_dir, f"python_path_dir_{i}")
         for i, bind_mount in enumerate(config.bind_mounts):
@@ -444,7 +568,7 @@ class NsjailExecutor:
                 if not python_path_dir.exists():
                     continue
                 lines.append(
-                    f'mount {{ src: "{python_path_dir}" dst: "/pythonpath/{i}" is_bind: true rw: false }}'
+                    f'mount {{ src: "{python_path_dir}" dst: "{python_path_mount(i)}" is_bind: true rw: false }}'
                 )
             lines.append(
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}'
@@ -472,7 +596,11 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb}",
+                nsjail_rlimit_as(
+                    config.resources.address_space_limit_mb(
+                        cgroup_memory_limit=self.cgroup_mount is not None
+                    )
+                ),
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
                 f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
@@ -480,6 +608,15 @@ class NsjailExecutor:
                 f"time_limit: {config.resources.timeout_seconds}",
             ]
         )
+        if self.cgroup_mount is not None:
+            lines.extend(
+                [
+                    "use_cgroupv2: true",
+                    f'cgroupv2_mount: "{self.cgroup_mount}"',
+                    f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
+                    "cgroup_mem_swap_max: 0",
+                ]
+            )
 
         # Launch through an executor-owned shim that proves workload start on the
         # invocation's captured stderr pipe before execing the requested script.
@@ -532,7 +669,7 @@ class NsjailExecutor:
                     pythonpath_parts.append("/packages")
             for i, python_path_dir in enumerate(config.python_path_dirs):
                 if python_path_dir.exists():
-                    pythonpath_parts.append(f"/pythonpath/{i}")
+                    pythonpath_parts.append(python_path_mount(i))
             if user_pythonpath:
                 pythonpath_parts.append(user_pythonpath)
             if pythonpath_parts:
@@ -556,6 +693,8 @@ class NsjailExecutor:
         config: SandboxConfig,
         cache_key: str | None = None,
         script_name: str = "wrapper.py",
+        *,
+        log_raw_crash_stderr: bool = False,
     ) -> SandboxResult:
         """Execute a Python script inside the nsjail sandbox.
 
@@ -564,6 +703,8 @@ class NsjailExecutor:
             config: Sandbox configuration.
             cache_key: Cache key for package lookup.
             script_name: Name of the script to execute (default: wrapper.py).
+            log_raw_crash_stderr: Enable only for registry discovery, which does
+                not receive user secrets or executor credentials.
 
         Returns:
             SandboxResult with execution outcome.
@@ -620,8 +761,8 @@ class NsjailExecutor:
             stream_source="envelope",
             include_error_code=True,
         )
-        if outcome is not None:
-            return outcome.result
+        if (result := _usable_result(outcome, completed)) is not None:
+            return result
 
         # Script workloads have no result-file contract: a clean zero exit is a
         # success even without result.json. NsJail reports its own launch
@@ -641,20 +782,38 @@ class NsjailExecutor:
             returncode,
             result_file_exists=result_file_exists,
             workload_started=workload_started,
+            nsjail_signaled=completed.nsjail_signaled,
         )
-        error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
+        error_msg = _missing_nsjail_result_message(error_code, completed)
+        # nsjail startup output can fill the prefix before Python emits a fatal
+        # error. Keep a bounded tail as well so crash diagnostics survive.
+        stderr_tail = stderr[-_FAILURE_STDERR_TAIL_CHARS:]
+        # Scripts can print injected credentials or user secrets. Only registry
+        # discovery opts into raw crash diagnostics.
+        raw_stderr_fields: dict[str, str] = {}
+        if log_raw_crash_stderr:
+            raw_stderr_fields = {"stderr": stderr[:500], "stderr_tail": stderr_tail}
         logger.error(
             "Sandbox execution did not produce a usable result",
             error_code=error_code,
             returncode=returncode,
-            stderr=stderr[:500],
+            **raw_stderr_fields,
+            stderr_chars=len(stderr),
+            stderr_tail_truncated=len(stderr) > _FAILURE_STDERR_TAIL_CHARS,
+            workload_started=workload_started,
+            result_file_exists=result_file_exists,
+            nsjail_signaled=completed.nsjail_signaled,
+            nsjail_log=_nsjail_log_tail(completed),
+            execution_time_ms=execution_time_ms,
+            memory_mb=config.resources.memory_mb,
+            max_processes=config.resources.max_processes,
         )
         return SandboxResult(
             success=False,
             error=error_msg,
             error_code=error_code,
             stdout=stdout,
-            stderr=stderr[:500],
+            stderr=stderr_tail,
             exit_code=returncode,
             execution_time_ms=execution_time_ms,
         )
@@ -680,7 +839,8 @@ class NsjailExecutor:
             network=SandboxNetworkRequest(SandboxNetworkPurpose.INSTALL),
             resources=ResourceLimits(
                 timeout_seconds=timeout_seconds,
-                memory_mb=2048,  # Same as execution
+                memory_mb=TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                address_space_mb=TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
             ),
         )
 
@@ -714,7 +874,10 @@ class NsjailExecutor:
 
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = completed.stdout.decode("utf-8", errors="replace")
-        stderr = completed.stderr.decode("utf-8", errors="replace")
+        # Install errors surface stderr, so keep NsJail's private log with it.
+        stderr = (completed.nsjail_log + completed.stderr).decode(
+            "utf-8", errors="replace"
+        )
 
         success = returncode == 0
         error_code: SandboxErrorCode | None = None
@@ -724,8 +887,9 @@ class NsjailExecutor:
                 returncode,
                 result_file_exists=False,
                 workload_started=completed.workload_started,
+                nsjail_signaled=completed.nsjail_signaled,
             )
-            hint = _nsjail_failure_hint(stderr)
+            hint = _nsjail_failure_hint(completed)
             if hint:
                 stderr = f"{stderr.rstrip()}\n\nnsjail hint: {hint}\n"
             logger.error(
@@ -764,6 +928,8 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
+        if self.cgroup_mount is not None:
+            _validate_path(self.cgroup_mount, "cgroup_mount")
         for i, registry_path in enumerate(config.registry_paths):
             _validate_path(registry_path, f"registry_path_{i}")
         _validate_path(config.tracecat_app_dir, "tracecat_app_dir")
@@ -872,7 +1038,11 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb}",
+                nsjail_rlimit_as(
+                    config.resources.address_space_limit_mb(
+                        cgroup_memory_limit=self.cgroup_mount is not None
+                    )
+                ),
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
                 f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
@@ -880,6 +1050,16 @@ class NsjailExecutor:
                 f"time_limit: {int(config.timeout_seconds)}",
             ]
         )
+
+        if self.cgroup_mount is not None:
+            lines.extend(
+                [
+                    "use_cgroupv2: true",
+                    f'cgroupv2_mount: "{self.cgroup_mount}"',
+                    f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
+                    "cgroup_mem_swap_max: 0",
+                ]
+            )
 
         # Launch through the same executor-owned proof shim used by script and
         # install phases. minimal_runner.py remains the actual workload.
@@ -955,19 +1135,20 @@ class NsjailExecutor:
             registry_paths=config.registry_paths,
             tracecat_app=str(config.tracecat_app_dir),
         )
-        completed = await invoke_nsjail(
-            nsjail_path=self.nsjail_path,
-            job_dir=job_dir,
-            config_text=nsjail_config,
-            env=env_map,
-            timeout_seconds=config.timeout_seconds + 10,
-            timeout_message=(
-                f"Action execution timed out after {config.timeout_seconds}s"
-            ),
-            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
-            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
-            workload_started_marker=_WORKLOAD_STARTED_MARKER,
-        )
+        with platform_span("tracecat.action.sandbox.process") as process_span:
+            completed = await invoke_nsjail(
+                nsjail_path=self.nsjail_path,
+                job_dir=job_dir,
+                config_text=nsjail_config,
+                env=env_map,
+                timeout_seconds=config.timeout_seconds + 10,
+                timeout_message=(
+                    f"Action execution timed out after {config.timeout_seconds}s"
+                ),
+                workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+                workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+                workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            )
         returncode = completed.returncode
 
         execution_time_ms = (time.time() - start_time) * 1000
@@ -980,52 +1161,53 @@ class NsjailExecutor:
         result_path = job_dir / "result.json"
         result_file_exists = result_path.exists()
         workload_started = completed.workload_started
-        outcome = decode_result_envelope(
-            job_dir,
-            output_key="result",
-            stdout=stdout,
-            stderr=stderr,
-            stderr_limit=2000,
-            invalid_result_error="Action sandbox produced an invalid result file",
-            log_label="action",
-            exit_code=returncode,
-            execution_time_ms=execution_time_ms,
-            max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
-            stream_source="process",
-            include_error_code=True,
-        )
+        with platform_span("tracecat.action.sandbox.read_result"):
+            outcome = decode_result_envelope(
+                job_dir,
+                output_key="result",
+                stdout=stdout,
+                stderr=stderr,
+                stderr_limit=2000,
+                invalid_result_error="Action sandbox produced an invalid result file",
+                log_label="action",
+                exit_code=returncode,
+                execution_time_ms=execution_time_ms,
+                max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+                stream_source="process",
+                include_error_code=True,
+            )
         if outcome is not None:
-            # Log subprocess stderr for debugging (contains timing info)
-            # Filter out nsjail verbose output, look for Python logs
-            if outcome.valid_envelope and stderr.strip():
-                # Extract lines that look like Python logs (not nsjail [I] lines)
-                python_logs = "\n".join(
-                    line
-                    for line in stderr.split("\n")
-                    if not line.startswith("[I]") and not line.startswith("[W]")
-                )
-                if python_logs.strip():
-                    logger.info("Subprocess output", output=python_logs[:2000])
-            return outcome.result
+            _record_runner_phase_spans(
+                process_span, outcome.result.phase_marks, completed
+            )
+        if (result := _usable_result(outcome, completed)) is not None:
+            # NsJail logs to its private fd once its config parses, so this is
+            # workload output only.
+            if outcome is not None and outcome.valid_envelope and stderr.strip():
+                logger.info("Subprocess output", output=stderr[:2000])
+            return result
 
         error_code = _classify_missing_nsjail_result(
             returncode,
             result_file_exists=result_file_exists,
             workload_started=workload_started,
+            nsjail_signaled=completed.nsjail_signaled,
         )
-        error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
+        error_msg = _missing_nsjail_result_message(error_code, completed)
         logger.error(
             "Action sandbox execution did not produce a usable result",
             error_code=error_code,
             returncode=returncode,
+            nsjail_signaled=completed.nsjail_signaled,
             stderr=stderr[-2000:],
+            nsjail_log=_nsjail_log_tail(completed),
         )
         return SandboxResult(
             success=False,
             error=error_msg,
             error_code=error_code,
             stdout=stdout,
-            stderr=stderr[:2000],
+            stderr=workload_stderr_tail(stderr, limit=_FAILURE_STDERR_TAIL_CHARS),
             exit_code=returncode,
             execution_time_ms=execution_time_ms,
         )

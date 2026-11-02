@@ -21,15 +21,6 @@ definition:
       description: Scope host counts to a fleet (team) ID.
       default: null
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          params:
-            fleet_id: ${{ inputs.fleet_id }}
-        script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
     - ref: software_title
       action: core.http_request
       args:
@@ -37,5 +28,6 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          fleet_id: ${{ inputs.fleet_id }}
   returns: ${{ steps.software_title.result.data }}

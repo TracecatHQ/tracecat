@@ -47,26 +47,61 @@ definition:
       default: 0
     per_page:
       type: int
-      description: Software titles per page (Fleet caps at 200).
+      description: Software titles per page.
       default: 50
+    order_key:
+      type: str | None
+      description: What to order results by. Allowed fields are `name` and `hosts_count`. Default is
+        `hosts_count` (descending).
+      default: null
+    order_direction:
+      type: str | None
+      description: '**Requires `order_key`**. The direction of the order given the order key. Options
+        include `"asc"` and `"desc"`. Default is `"asc"`.'
+      default: null
+    available_for_install:
+      type: bool | None
+      description: If `true` or `1`, only list software that is available for install (added by the user).
+        Default is `false`.
+      default: null
+    self_service:
+      type: bool | None
+      description: If `true` or `1`, only lists self-service software. Default is `false`.
+      default: null
+    packages_only:
+      type: bool | None
+      description: _Available in Fleet Premium_. If `true` or `1`, only lists packages available for
+        install (without app store apps).
+      default: null
+    hash_sha256:
+      type: str | None
+      description: Filters to only include custom software packages (uploaded installers) with the specified
+        SHA-256 hash. `fleet_id` must be specified to filter by hash. This allows checking if a specific
+        package already exists before uploading.
+      default: null
+    package_name:
+      type: str | None
+      description: Filters to only include custom software packages (uploaded installers) with the specified
+        package filename. `fleet_id` must be specified to filter by package name. This allows checking
+        if a specific package already exists before uploading.
+      default: null
+    source:
+      type: str | None
+      description: Filter by the osquery software source (for example, apps, npm_packages, chrome_extensions,
+        ai_clis, mcp_servers, or ai_skills). Requires server support for software type filters; unavailable
+        in Fleet 4.93.0. Older servers can ignore this filter.
+      default: null
+    extension_for:
+      type: str | None
+      description: Filter extensions by their browser or IDE. Requires source and server support for
+        software type filters; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
+      default: null
+    ai_tool:
+      type: bool | None
+      description: If true, only include AI tools. Requires Fleet Premium and server support for AI tools
+        inventory; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
+      default: null
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          params:
-            query: ${{ inputs.query }}
-            vulnerable: ${{ inputs.vulnerable }}
-            exploit: ${{ inputs.exploit }}
-            min_cvss_score: ${{ inputs.min_cvss_score }}
-            max_cvss_score: ${{ inputs.max_cvss_score }}
-            fleet_id: ${{ inputs.fleet_id }}
-            platform: ${{ inputs.platform }}
-            page: ${{ inputs.page }}
-            per_page: ${{ inputs.per_page }}
-        script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
     - ref: software_titles
       action: core.http_request
       args:
@@ -74,5 +109,24 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          query: ${{ inputs.query }}
+          vulnerable: ${{ inputs.vulnerable }}
+          exploit: ${{ inputs.exploit }}
+          min_cvss_score: ${{ inputs.min_cvss_score }}
+          max_cvss_score: ${{ inputs.max_cvss_score }}
+          fleet_id: ${{ inputs.fleet_id }}
+          platform: ${{ inputs.platform }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
+          available_for_install: ${{ inputs.available_for_install }}
+          self_service: ${{ inputs.self_service }}
+          packages_only: ${{ inputs.packages_only }}
+          hash_sha256: ${{ inputs.hash_sha256 }}
+          package_name: ${{ inputs.package_name }}
+          source: ${{ inputs.source }}
+          extension_for: ${{ inputs.extension_for }}
+          ai_tool: ${{ inputs.ai_tool }}
   returns: ${{ steps.software_titles.result.data }}

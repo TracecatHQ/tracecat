@@ -1,15 +1,19 @@
 import asyncio
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
+from tests.support.executor_backend import TestBackend
 from tracecat import config
 from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.types import Role
@@ -17,8 +21,8 @@ from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.executor import secret_preprocessors
 from tracecat.executor import service as executor_service
-from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.schemas import ActionImplementation, ExecutorActionErrorInfo
 from tracecat.executor.service import (
     dispatch_action,
@@ -42,8 +46,11 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
 from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
+from tracecat.secrets.constants import MASK_VALUE
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+from tracecat.variables.schemas import VariableCreate
+from tracecat.variables.service import VariablesService
 
 TEST_VERSION = "test-version"
 
@@ -391,119 +398,6 @@ async def test_executor_can_run_udf_with_secrets(
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_executor_can_run_template_action_with_secret(
-    mock_package, test_role, db_session_with_repo, mock_run_context
-):
-    """Test that checks that Template Action steps correctly pull in their dependent secrets."""
-
-    session, db_repo_id = db_session_with_repo
-    # Arrange
-    # 1. Register test udfs
-    repo = Repository()
-    repo._register_udfs_from_package(mock_package)
-
-    # Sanity check: We've registered the UDFs correctly
-    assert "testing.add_100" in repo
-    assert repo.get("testing.add_100").fn(100) == 200  # type: ignore
-
-    # Sanity check: Raises SecretNotFoundError because we haven't set secrets
-    with pytest.raises(SecretNotFoundError):
-        repo.get("testing.fetch_secret").fn("TEST_TEMPLATE_SECRET_KEY")
-
-    # 2. Add secrets
-    sec_service = SecretsService(session, role=test_role)
-    try:
-        await sec_service.create_secret(
-            SecretCreate(
-                name="test",
-                environment="default",
-                keys=[
-                    SecretKeyValue(
-                        key="TEST_TEMPLATE_SECRET_KEY",
-                        value=SecretStr("__SECRET_VALUE__"),
-                    )
-                ],
-            )
-        )
-
-        # Here, 'testing.template_action' wraps 'testing.fetch_secret'.
-        # It then returns the fetched secret
-        action = TemplateAction(
-            type="action",
-            definition=TemplateActionDefinition(
-                title="Test Action",
-                description="This is just a test",
-                name="template_action",
-                namespace="testing",
-                display_group="Testing",
-                expects={
-                    "secret_key_name": ExpectedField(
-                        type="str",
-                        description="Secret name to fetch",
-                    )
-                },
-                secrets=[],  # NOTE: We have no secrets at the template level
-                steps=[
-                    ActionStep(
-                        ref="base",
-                        action="testing.fetch_secret",
-                        args={
-                            "secret_key_name": "${{ inputs.secret_key_name }}",
-                        },
-                    )
-                ],
-                returns="${{ steps.base.result }}",
-            ),
-        )
-
-        repo.register_template_action(action)
-        logger.info("REPO", store=repo.store.keys())
-
-        ra_service = RegistryActionsService(session, role=test_role)
-        await ra_service.create_action(
-            RegistryActionCreate.from_bound(
-                repo.get("testing.template_action"), db_repo_id
-            )
-        )
-        await ra_service.create_action(
-            RegistryActionCreate.from_bound(
-                repo.get("testing.fetch_secret"), db_repo_id
-            )
-        )
-
-        # Create manifest for the test actions (both template and UDF)
-        registry_lock = await create_manifest_for_actions(
-            session,
-            db_repo_id,
-            [repo.get("testing.template_action"), repo.get("testing.fetch_secret")],
-            test_role.organization_id,
-        )
-
-        input = RunActionInput(
-            task=ActionStatement(
-                ref="test",
-                action="testing.template_action",
-                run_if=None,
-                for_each=None,
-                args={"secret_key_name": "TEST_TEMPLATE_SECRET_KEY"},
-            ),
-            exec_context=create_default_execution_context(),
-            run_context=mock_run_context,
-            registry_lock=registry_lock,
-        )
-
-        # Act
-        result = await run_action_test(input, test_role)
-
-        # Assert
-        assert result == "__SECRET_VALUE__"
-    finally:
-        secret = await sec_service.get_secret_by_name("test")
-        await sec_service.delete_secret(secret)
-
-
-@pytest.mark.integration
-@pytest.mark.anyio
 async def test_executor_can_run_template_action_with_oauth(
     test_role, db_session_with_repo, mock_run_context
 ):
@@ -700,42 +594,7 @@ async def test_executor_can_run_udf_with_oauth(
         f"OAuth token from UDF mismatch. Expected {oauth_token_value}, got {result}"
     )
 
-
-@pytest.mark.integration
-@pytest.mark.anyio
-async def test_executor_can_run_udf_with_oauth_in_secret_expression(
-    test_role, db_session_with_repo, mock_run_context, monkeysession
-):
-    """Test that the executor can run a UDF with OAuth secrets in a secret expression."""
-
-    session, db_repo_id = db_session_with_repo
-
-    from tracecat import config
-
-    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
-
-    # Test OAuth token value
-    oauth_token_value = "__TEST_UDF_OAUTH_TOKEN_VALUE__"
-
-    # 1. Create OAuth integration
-    svc = IntegrationService(session, role=test_role)
-    await svc.store_integration(
-        provider_key=ProviderKey(
-            id="microsoft_teams",
-            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
-        ),
-        access_token=SecretStr(oauth_token_value),
-        refresh_token=None,
-        expires_in=3600,
-    )
-
-    # Create manifest for core actions
-    registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [], test_role.organization_id
-    )
-
-    # 4. Create and run the action
-    input = RunActionInput(
+    expression_input = RunActionInput(
         task=ActionStatement(
             ref="test",
             action="core.transform.reshape",
@@ -747,120 +606,10 @@ async def test_executor_can_run_udf_with_oauth_in_secret_expression(
         run_context=mock_run_context,
         registry_lock=registry_lock,
     )
-
-    # Act
-    result = await run_action_test(input, test_role)
-
-    # Assert - the UDF returns the OAuth token value
+    result = await run_action_test(expression_input, test_role)
     assert result == oauth_token_value, (
-        f"OAuth token from UDF mismatch. Expected {oauth_token_value}, got {result}"
+        f"OAuth token from secret expression mismatch. Expected {oauth_token_value}, got {result}"
     )
-
-
-async def mock_action(input: Any, role: Any = None):
-    """Mock action that simulates some async work"""
-    del role  # unused
-    await asyncio.sleep(0.1)
-    return input
-
-
-@pytest.mark.integration
-@pytest.mark.anyio
-async def test_direct_backend_execute(
-    test_role: Role, mock_run_context: RunContext, monkeypatch: pytest.MonkeyPatch
-):
-    """Test that the test backend properly handles async operations."""
-    from tracecat.executor.backends.test import TestBackend
-    from tracecat.executor.schemas import ExecutorResultSuccess, ResolvedContext
-
-    # Mock _execute_with_context to return a simple result
-    async def mock_execute_with_context(self, input, role, resolved_context):
-        return {"input": input.task.args}
-
-    monkeypatch.setattr(TestBackend, "_execute_with_context", mock_execute_with_context)
-
-    backend = TestBackend()
-    resolved_context = ResolvedContext(
-        secrets={},
-        variables={},
-        action_impl=ActionImplementation(type="udf", module="test", name="mock"),
-        evaluated_args={},
-        workspace_id="test-workspace",
-        workflow_id="test-workflow",
-        run_id="test-run",
-        executor_token="",
-    )
-
-    # Run the backend execute
-    for i in range(10):
-        input = RunActionInput(
-            task=ActionStatement(
-                ref="test",
-                action="test.mock_action",
-                args={"value": i},
-                run_if=None,
-                for_each=None,
-            ),
-            exec_context=create_default_execution_context(),
-            run_context=mock_run_context,
-            registry_lock=make_registry_lock("test.mock_action"),
-        )
-        result = await backend.execute(input, test_role, resolved_context)
-        assert isinstance(result, ExecutorResultSuccess)
-        assert result.result == {"input": {"value": i}}
-
-
-async def mock_error(*args, **kwargs):
-    """Mock _execute_with_context to raise an error"""
-    raise ValueError("__EXPECTED_MESSAGE__")
-
-
-@pytest.mark.integration
-@pytest.mark.anyio
-async def test_direct_backend_returns_wrapped_error(
-    test_role: Role, mock_run_context: RunContext, monkeypatch: pytest.MonkeyPatch
-):
-    """Test that the test backend properly handles wrapped errors."""
-    from tracecat.executor.backends.test import TestBackend
-    from tracecat.executor.schemas import ExecutorResultFailure, ResolvedContext
-
-    # Create a test input with an action that will raise an error
-    monkeypatch.setattr(TestBackend, "_execute_with_context", mock_error)
-
-    backend = TestBackend()
-    resolved_context = ResolvedContext(
-        secrets={},
-        variables={},
-        action_impl=ActionImplementation(type="udf", module="test", name="error"),
-        evaluated_args={},
-        workspace_id="test-workspace",
-        workflow_id="test-workflow",
-        run_id="test-run",
-        executor_token="",
-    )
-
-    input = RunActionInput(
-        task=ActionStatement(
-            ref="test",
-            action="test.error_action",
-            args={},
-            run_if=None,
-            for_each=None,
-        ),
-        exec_context=create_default_execution_context(),
-        run_context=mock_run_context,
-        registry_lock=make_registry_lock("test.error_action"),
-    )
-
-    # Run the backend execute and verify it returns a failure result
-    result = await backend.execute(input, test_role, resolved_context)
-    assert isinstance(result, ExecutorResultFailure)
-    error_info = result.error
-    assert error_info.type == "ValueError"
-    assert error_info.message == "__EXPECTED_MESSAGE__"
-    assert error_info.action_name == "test.error_action"
-    assert error_info.filename == __file__
-    assert error_info.function == "mock_error"
 
 
 @pytest.mark.anyio
@@ -875,8 +624,8 @@ async def test_dispatcher(
     We will execute everything in the current thread.
     1. Add mock package with a function that will raise an error
     """
+    from tests.support.executor_backend import TestBackend
     from tracecat.contexts import ctx_role
-    from tracecat.executor.backends.test import TestBackend
 
     # Set up the role context for dispatch_action
     token = ctx_role.set(test_role)
@@ -947,7 +696,7 @@ async def test_dispatcher(
             await dispatch_action(backend, input)
         assert len(e.value.loop_errors) == 1
         assert e.value.loop_errors[0].info.loop_iteration == 2
-        assert e.value.loop_errors[0].info.loop_vars == {"x": None}
+        assert e.value.loop_errors[0].info.loop_vars is None
 
         # Try another dispatch with a different error
 
@@ -968,7 +717,7 @@ async def test_dispatcher(
             await dispatch_action(backend, input)
         assert len(e.value.loop_errors) == 1
         assert e.value.loop_errors[0].info.loop_iteration == 1
-        assert e.value.loop_errors[0].info.loop_vars == {"x": None}
+        assert e.value.loop_errors[0].info.loop_vars is None
     finally:
         ctx_role.reset(token)
 
@@ -989,6 +738,7 @@ async def test_dispatch_action_for_each_uses_configured_worker_limit(
         input: RunActionInput,
         ctx: Any,
         iteration: int | None = None,
+        loop_context: Any = None,
     ) -> int:
         nonlocal active_iterations, max_active_iterations
 
@@ -1039,6 +789,7 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
         input: RunActionInput,
         ctx: Any,
         iteration: int | None = None,
+        loop_context: Any = None,
     ) -> int:
         assert iteration is not None
         local_vars = input.exec_context.get("var")
@@ -1054,7 +805,6 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
                     filename=__file__,
                     function="fake_invoke_once",
                     loop_iteration=iteration,
-                    loop_vars=local_vars,
                 )
             )
         return value
@@ -1080,7 +830,127 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
     assert seen == [1, 2, 3]
     assert len(e.value.loop_errors) == 1
     assert e.value.loop_errors[0].info.loop_iteration == 1
-    assert e.value.loop_errors[0].info.loop_vars == {"x": 2}
+    assert e.value.loop_errors[0].info.loop_vars is None
+
+
+@pytest.mark.anyio
+async def test_for_each_resolves_credentials_once_per_loop(
+    monkeypatch,
+    test_role,
+    mock_run_context,
+    db_session_with_repo,
+):
+    """A loop's database reads and STS calls do not grow with its item count.
+
+    Secrets, OAuth tokens, workspace variables and the STS session are resolved
+    once for the loop, and every item's result is still masked.
+    """
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", False)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 4)
+    session, db_repo_id = db_session_with_repo
+
+    await SecretsService(session, role=test_role).create_secret(
+        SecretCreate(
+            name="test",
+            environment="default",
+            keys=[SecretKeyValue(key="KEY", value=SecretStr("__LOOP_SECRET__"))],
+        )
+    )
+    await SecretsService(session, role=test_role).create_secret(
+        SecretCreate(
+            name="amazon_s3",
+            environment="default",
+            keys=[
+                SecretKeyValue(
+                    key="AWS_ROLE_ARN",
+                    value=SecretStr("arn:aws:iam::123456789012:role/loop-role"),
+                ),
+                SecretKeyValue(key="AWS_REGION", value=SecretStr("__LOOP_REGION__")),
+            ],
+        )
+    )
+    await IntegrationService(session, role=test_role).store_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        ),
+        access_token=SecretStr("__LOOP_OAUTH_TOKEN__"),
+        refresh_token=None,
+        expires_in=3600,
+    )
+    await VariablesService(session, role=test_role).create_variable(
+        VariableCreate(name="cfg", values={"label": "loop-label"})
+    )
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [], test_role.organization_id
+    )
+
+    assume_role = AsyncMock(
+        return_value={
+            "AccessKeyId": "ASIA_LOOP_KEY",
+            "SecretAccessKey": "loop-secret-access-key",
+            "SessionToken": "loop-session-token",
+            "Expiration": datetime.now(UTC) + timedelta(hours=1),
+        }
+    )
+    monkeypatch.setattr(secret_preprocessors, "_assume_role_via_irsa", assume_role)
+
+    statements = 0
+
+    def count_statement(*_: Any) -> None:
+        nonlocal statements
+        statements += 1
+
+    async def run_loop(n: int) -> tuple[list[Any], int, int]:
+        nonlocal statements
+        statements = 0
+        assume_role.reset_mock()
+        input = RunActionInput(
+            task=ActionStatement(
+                ref="loop",
+                action="core.transform.reshape",
+                args={
+                    "value": {
+                        "item": "${{ var.x }}",
+                        "label": "${{ VARS.cfg.label }}",
+                        "secret": "${{ SECRETS.test.KEY }}",
+                        "region": "${{ SECRETS.amazon_s3.AWS_REGION }}",
+                        "oauth": (
+                            "${{ SECRETS.microsoft_teams_oauth"
+                            ".MICROSOFT_TEAMS_USER_TOKEN }}"
+                        ),
+                    }
+                },
+                for_each=f"${{{{ for var.x in FN.range(0, {n}) }}}}",
+            ),
+            exec_context=create_default_execution_context(),
+            run_context=mock_run_context,
+            registry_lock=registry_lock,
+        )
+        event.listen(Engine, "before_cursor_execute", count_statement)
+        try:
+            result = await run_action_test(input, test_role)
+        finally:
+            event.remove(Engine, "before_cursor_execute", count_statement)
+        return result, statements, assume_role.await_count
+
+    # Warm the registry caches so both measured loops start from the same state.
+    await run_loop(1)
+    _, single_statements, single_sts_calls = await run_loop(1)
+    results, loop_statements, loop_sts_calls = await run_loop(100)
+
+    assert single_statements > 0
+    assert loop_statements == single_statements
+    assert single_sts_calls == loop_sts_calls == 1
+    assert results == [
+        {
+            "item": i,
+            "label": "loop-label",
+            "secret": MASK_VALUE,
+            "region": MASK_VALUE,
+            "oauth": MASK_VALUE,
+        }
+        for i in range(100)
+    ]
 
 
 @pytest.fixture

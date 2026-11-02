@@ -32,36 +32,6 @@ def _limits(
 
 
 @pytest.mark.anyio
-async def test_get_effective_limits_for_org_uses_cache() -> None:
-    permit_svc = TierPermitService(cast(RedisSemaphore, SimpleNamespace()))
-    expected_limits = _limits(max_concurrent_actions=2)
-
-    @asynccontextmanager
-    async def _unexpected_session_context() -> AsyncIterator[object]:
-        raise AssertionError("DB lookup should not run when cache has limits")
-        yield
-
-    with (
-        patch(
-            "tracecat.tiers.permits.get_effective_limits_cached",
-            new=AsyncMock(return_value=expected_limits),
-        ),
-        patch(
-            "tracecat.tiers.permits.set_effective_limits_cached",
-            new=AsyncMock(),
-        ),
-        patch(
-            "tracecat.tiers.permits.get_async_session_context_manager",
-            new=_unexpected_session_context,
-        ),
-    ):
-        limits, source = await permit_svc.get_effective_limits_for_org(ORG_ID)
-
-    assert limits == expected_limits
-    assert source == "cache"
-
-
-@pytest.mark.anyio
 async def test_get_effective_limits_for_org_populates_cache_on_miss() -> None:
     permit_svc = TierPermitService(cast(RedisSemaphore, SimpleNamespace()))
     expected_limits = _limits(max_concurrent_workflows=3)

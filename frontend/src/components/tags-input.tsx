@@ -90,7 +90,16 @@ export interface MultiTagCommandInputProps {
   suggestions?: Suggestion[]
   placeholder?: string
   className?: string
+  /** Layout classes applied only to the container holding tags and the input. */
+  inputClassName?: string
   disabled?: boolean
+  /** ID applied to the underlying text input for accessible labels. */
+  inputId?: string
+  /** ARIA state for the underlying text input, such as `aria-invalid`. */
+  inputAria?: Pick<
+    React.InputHTMLAttributes<HTMLInputElement>,
+    "aria-invalid" | "aria-describedby" | "aria-required"
+  >
   maxTags?: number
   searchKeys: (keyof Suggestion)[]
   /**
@@ -109,13 +118,21 @@ export function MultiTagCommandInput({
   suggestions = [],
   placeholder = "Add tags...",
   className,
+  inputClassName,
   disabled = false,
+  inputId,
+  inputAria,
   maxTags,
   searchKeys,
   allowCustomTags = false,
   disableSuggestions = false,
 }: MultiTagCommandInputProps) {
-  const [open, setOpen] = useState(false)
+  const [requestedOpen, setOpen] = useState(false)
+  const open = requestedOpen && !disabled && !disableSuggestions
+  // Disabling dismisses the request; re-enabling requires a new user action.
+  if (requestedOpen && (disabled || disableSuggestions)) {
+    setOpen(false)
+  }
   const [inputValue, setInputValue] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -179,6 +196,7 @@ export function MultiTagCommandInput({
   const rowCount = filteredSuggestions.length + (showCustomRow ? 1 : 0)
 
   const handleSelect = (suggestion: Suggestion) => {
+    if (disabled || disableSuggestions) return
     if (suggestion.locked) {
       suggestion.onSelect?.()
       return
@@ -284,7 +302,8 @@ export function MultiTagCommandInput({
               "flex min-h-10 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background",
               "focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring",
               disabled && "cursor-not-allowed opacity-50",
-              className
+              className,
+              inputClassName
             )}
             onClick={() => inputRef.current?.focus()}
           >
@@ -317,6 +336,7 @@ export function MultiTagCommandInput({
                   {!disabled && (
                     <button
                       type="button"
+                      aria-label={`Remove ${tag.group ? `${tag.group} · ` : ""}${tag.text}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         handleRemoveTag(tag.value)
@@ -366,6 +386,8 @@ export function MultiTagCommandInput({
             {/* Input */}
             <input
               ref={inputRef}
+              id={inputId}
+              {...inputAria}
               type="text"
               value={inputValue}
               onChange={(e) => handleInputChange(e.target.value)}

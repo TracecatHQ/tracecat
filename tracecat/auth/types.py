@@ -24,7 +24,7 @@ class Role(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    type: Literal["user", "service", "service_account"] = Field(frozen=True)
+    type: Literal["user", "service", "service_account", "scim"] = Field(frozen=True)
     """The type of role."""
     workspace_id: WorkspaceID | None = Field(default=None, frozen=True)
     """The effective workspace context for this request after auth resolution."""
@@ -36,6 +36,8 @@ class Role(BaseModel):
     """The user's ID, or the service's user_id. Can be None for internal services."""
     service_account_id: uuid.UUID | None = Field(default=None, frozen=True)
     """The service account's ID, if this is a service_account role."""
+    scim_connection_id: uuid.UUID | None = Field(default=None, frozen=True)
+    """The SCIM connection's ID, if this is a scim role."""
     service_id: InternalServiceID = Field(frozen=True)
     """The service's role name, or None if the role is a user."""
     is_platform_superuser: bool = Field(default=False, frozen=True)
@@ -53,6 +55,12 @@ class Role(BaseModel):
                 raise ValueError("service_account roles require service_account_id")
             case Role(type="service_account", user_id=user_id) if user_id is not None:
                 raise ValueError("service_account roles must not set user_id")
+            case Role(type="scim", organization_id=None):
+                raise ValueError("scim roles require organization_id")
+            case Role(type="scim", scim_connection_id=None):
+                raise ValueError("scim roles require scim_connection_id")
+            case Role(type="scim", user_id=user_id) if user_id is not None:
+                raise ValueError("scim roles must not set user_id")
             case Role(
                 bound_workspace_id=bound_workspace_id,
                 workspace_id=workspace_id,
@@ -85,6 +93,8 @@ class Role(BaseModel):
         """Return the auditable actor identifier for this role, if present."""
         if self.type == "service_account" and self.service_account_id is not None:
             return self.service_account_id
+        if self.type == "scim" and self.scim_connection_id is not None:
+            return self.scim_connection_id
         return self.user_id
 
     def to_headers(self) -> dict[str, str]:
@@ -104,6 +114,8 @@ class Role(BaseModel):
             headers["x-tracecat-role-scopes"] = ",".join(sorted(self.scopes))
         if self.service_account_id is not None:
             headers["x-tracecat-role-service-account-id"] = str(self.service_account_id)
+        if self.scim_connection_id is not None:
+            headers["x-tracecat-role-scim-connection-id"] = str(self.scim_connection_id)
         return headers
 
 

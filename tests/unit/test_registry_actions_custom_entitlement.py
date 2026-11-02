@@ -5,7 +5,8 @@ from collections.abc import Sequence
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import delete, select
+from cachetools import LRUCache
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
+from tracecat.agent.preset.tool_policy import PresetToolPolicyService
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     PlatformRegistryIndex,
@@ -26,6 +28,7 @@ from tracecat.db.models import (
 from tracecat.registry.actions.service import (
     RegistryActionsService,
     _ActionMetadataRow,
+    _CachedOrgManifest,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.versions.schemas import RegistryVersionManifest
@@ -59,6 +62,7 @@ async def _seed_platform_registry(
     origin: str,
     version: str,
     action_names: list[str],
+    options: dict | None = None,
 ) -> PlatformRegistryRepository:
     repo = await session.scalar(
         select(PlatformRegistryRepository).where(
@@ -91,7 +95,7 @@ async def _seed_platform_registry(
                 name=name,
                 action_type="udf",
                 description=f"Platform action {action_name}",
-                options={"include_in_schema": True},
+                options=options or {"include_in_schema": True},
             )
         )
     await session.commit()
@@ -267,6 +271,218 @@ async def test_get_actions_from_index_reuses_manifest_for_same_version(
 
 
 @pytest.mark.anyio
+async def test_get_actions_from_index_reuses_manifest_across_services(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.cached.action"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-cached-manifest",
+        action_names=[action_name],
+    )
+
+    first = await RegistryActionsService(session, role=svc_role).get_actions_from_index(
+        [action_name]
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(
+        RegistryVersionManifest,
+        "model_validate",
+        side_effect=AssertionError("manifest parsed again"),
+    ):
+        second = await service.get_actions_from_index([action_name])
+
+    assert second[action_name].manifest is first[action_name].manifest
+
+
+@pytest.mark.anyio
+async def test_get_action_from_index_reuses_cached_manifest(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.cached.single"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-cached-single",
+        action_names=[action_name],
+    )
+
+    batch = await RegistryActionsService(session, role=svc_role).get_actions_from_index(
+        [action_name]
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(
+        RegistryVersionManifest,
+        "model_validate",
+        side_effect=AssertionError("manifest parsed again"),
+    ):
+        single = await service.get_action_from_index(action_name)
+
+    assert single is not None
+    assert single.manifest is batch[action_name].manifest
+
+
+@pytest.mark.anyio
+async def test_org_manifest_larger_than_cache_bound_is_served_uncached(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_names = ["acme.large.first", "acme.large.second"]
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/large-registry.git",
+        version="large-1.0",
+        action_names=action_names,
+    )
+    org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], _CachedOrgManifest] = LRUCache(
+        maxsize=64, getsizeof=lambda entry: entry.json_size
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch(
+            "tracecat.registry.actions.service.ORG_MANIFEST_CACHE_MAX_JSON_BYTES", 64
+        ),
+        patch("tracecat.registry.actions.service._org_manifests", org_manifests),
+        patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+    ):
+        found = await service.get_actions_from_index(action_names)
+
+    assert set(found) == set(action_names)
+    assert len(org_manifests) == 0
+
+
+@pytest.mark.anyio
+async def test_org_manifest_with_big_integer_is_served_and_cached(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.bigint.action"
+    origin = "git+ssh://git@github.com/acme/bigint-registry.git"
+    repo = await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin=origin,
+        version="bigint-1.0",
+        action_names=[action_name],
+    )
+    # JSONB keeps integers beyond 64 bits.
+    manifest = _make_manifest([action_name], origin=origin)
+    manifest["actions"][action_name]["interface"]["expects"] = {
+        "type": "object",
+        "properties": {"limit": {"type": "integer", "default": 2**128 - 1}},
+    }
+    await session.execute(
+        update(RegistryVersion)
+        .where(RegistryVersion.id == repo.current_version_id)
+        .values(manifest=manifest)
+    )
+    await session.commit()
+    org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], _CachedOrgManifest] = LRUCache(
+        maxsize=4096, getsizeof=lambda entry: entry.json_size
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch("tracecat.registry.actions.service._org_manifests", org_manifests),
+        patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+    ):
+        found = await service.get_actions_from_index([action_name])
+
+    interface = found[action_name].manifest.actions[action_name].interface
+    assert interface["expects"]["properties"]["limit"]["default"] == 2**128 - 1
+    assert len(org_manifests) == 1
+
+
+@pytest.mark.anyio
+async def test_org_manifest_nested_beyond_pydantic_json_depth_is_served(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.deep.action"
+    origin = "git+ssh://git@github.com/acme/deep-registry.git"
+    repo = await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin=origin,
+        version="deep-1.0",
+        action_names=[action_name],
+    )
+    # Pydantic's JSON parser rejects this depth; JSONB and json.loads accept it.
+    default: object = 2**128 - 1
+    for _ in range(250):
+        default = {"a": default}
+    manifest = _make_manifest([action_name], origin=origin)
+    manifest["actions"][action_name]["interface"]["expects"] = {
+        "type": "object",
+        "properties": {"nested": {"type": "object", "default": default}},
+    }
+    await session.execute(
+        update(RegistryVersion)
+        .where(RegistryVersion.id == repo.current_version_id)
+        .values(manifest=manifest)
+    )
+    await session.commit()
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+        found = await service.get_actions_from_index([action_name])
+
+    interface = found[action_name].manifest.actions[action_name].interface
+    assert interface["expects"]["properties"]["nested"]["default"] == default
+
+
+@pytest.mark.anyio
+async def test_cached_org_manifest_is_never_served_to_another_org(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.private.action"
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/private-registry.git",
+        version="private-1.0",
+        action_names=[action_name],
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+        found = await service.get_actions_from_index([action_name])
+    assert action_name in found
+    version_id = await session.scalar(
+        select(RegistryVersion.id).where(
+            RegistryVersion.organization_id == svc_role.organization_id,
+            RegistryVersion.version == "private-1.0",
+        )
+    )
+    assert version_id is not None
+    # The other org names the cached version, as a forged index row would.
+    row = _ActionMetadataRow(
+        id=uuid.uuid4(),
+        namespace="acme.private",
+        name="action",
+        action_type="udf",
+        description="Private action",
+        default_title=None,
+        display_group=None,
+        options={},
+        doc_url=None,
+        author=None,
+        deprecated=None,
+        registry_version_id=version_id,
+        origin="git+ssh://git@github.com/acme/private-registry.git",
+        repo_id=uuid.uuid4(),
+        source="org",
+    )
+
+    other = RegistryActionsService(
+        session, role=svc_role.model_copy(update={"organization_id": uuid.uuid4()})
+    )
+    assert await other._load_action_manifests([row]) == {}
+
+
+@pytest.mark.anyio
 async def test_get_actions_from_index_retries_version_replaced_between_queries(
     svc_role: Role,
 ) -> None:
@@ -439,3 +655,354 @@ async def test_search_actions_from_index_hides_custom_actions_without_entitlemen
     }
     assert actions_to_origin[shared_action] == DEFAULT_REGISTRY_ORIGIN
     assert custom_only_action not in actions_to_origin
+
+
+@pytest.mark.anyio
+async def test_search_actions_from_index_treats_like_wildcards_as_literal_text(
+    session: AsyncSession,
+) -> None:
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="literal-search-1.0",
+        action_names=[
+            "tools.literal.search_events",
+            "tools.literal.searchXevents",
+            "tools.literal.percent",
+            "tools.literal.number",
+        ],
+    )
+    await session.execute(
+        update(PlatformRegistryIndex)
+        .where(PlatformRegistryIndex.name == "percent")
+        .values(description="completion 100% done")
+    )
+    await session.execute(
+        update(PlatformRegistryIndex)
+        .where(PlatformRegistryIndex.name == "number")
+        .values(description="completion 1000 done")
+    )
+    await session.commit()
+
+    role = Role(
+        type="service",
+        organization_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    service = RegistryActionsService(session, role=role)
+    underscore_matches = await service.search_actions_from_index("search_events")
+    percent_matches = await service.search_actions_from_index("100% done")
+
+    assert {f"{entry.namespace}.{entry.name}" for entry, _ in underscore_matches} == {
+        "tools.literal.search_events"
+    }
+    assert {f"{entry.namespace}.{entry.name}" for entry, _ in percent_matches} == {
+        "tools.literal.percent"
+    }
+
+
+@pytest.mark.anyio
+async def test_search_actions_ranks_exact_namespace_before_large_related_catalog(
+    session: AsyncSession,
+) -> None:
+    related_actions = [
+        f"tools.example_security.event_{index:03d}" for index in range(60)
+    ]
+    exact_action = "tools.example.search_events"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="ranked-search-1.0",
+        action_names=[*related_actions, exact_action],
+    )
+    service = RegistryActionsService(
+        session,
+        role=Role(
+            type="service",
+            organization_id=uuid.uuid4(),
+            service_id="tracecat-api",
+        ),
+    )
+
+    first_page = await service.search_actions_from_index("example", limit=20)
+    all_matches = await service.search_actions_from_index("example")
+
+    assert f"{first_page[0][0].namespace}.{first_page[0][0].name}" == exact_action
+    assert len(first_page) == 20
+    assert len(all_matches) == 61
+    assert [f"{entry.namespace}.{entry.name}" for entry, _ in all_matches] == [
+        exact_action,
+        *related_actions,
+    ]
+
+
+@pytest.mark.anyio
+async def test_classify_missing_actions_separates_entitlement_gaps(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=["acme.platform.retired", "acme.platform.gated"],
+    )
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-2.0",
+        action_names=["acme.platform.gated"],
+        options={"required_entitlements": ["agent_addons"]},
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(
+        service, "_get_enabled_entitlements", new=AsyncMock(return_value=set())
+    ):
+        missing = await service.classify_missing_actions(
+            [
+                "acme.platform.retired",
+                "acme.platform.gated",
+                "acme.custom.only",
+                "malformed",
+            ]
+        )
+
+    assert missing.platform == frozenset({"acme.platform.retired"})
+    assert missing.entitlement_denied == frozenset({"acme.platform.gated"})
+
+
+@pytest.mark.anyio
+async def test_classify_missing_actions_denies_custom_registry_without_entitlement(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/custom-registry.git",
+        version="org-1.0",
+        action_names=["acme.custom.only"],
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
+        missing = await service.classify_missing_actions(["acme.custom.only"])
+
+    assert missing.platform == frozenset()
+    assert missing.entitlement_denied == frozenset({"acme.custom.only"})
+
+
+@pytest.mark.anyio
+async def test_classify_missing_actions_requires_every_current_row_gated(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=["acme.platform.shared"],
+        options={"required_entitlements": ["agent_addons"]},
+    )
+    await _seed_platform_registry(
+        session,
+        origin="git+ssh://git@github.com/acme/platform-extra.git",
+        version="extra-1.0",
+        action_names=["acme.platform.shared"],
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+        patch.object(
+            service, "_get_enabled_entitlements", new=AsyncMock(return_value=set())
+        ),
+    ):
+        missing = await service.classify_missing_actions(["acme.platform.shared"])
+
+    assert missing.platform == frozenset({"acme.platform.shared"})
+    assert missing.entitlement_denied == frozenset()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("custom_enabled", "org_gated", "platform_gated"),
+    [
+        # A gated org override shadows the ungated platform action.
+        (True, True, False),
+        # The custom registry is off, so the gated platform row is selected.
+        (False, False, True),
+    ],
+)
+async def test_classify_missing_actions_follows_lookup_precedence(
+    svc_role: Role,
+    session: AsyncSession,
+    custom_enabled: bool,
+    org_gated: bool,
+    platform_gated: bool,
+) -> None:
+    action = "acme.shared.action"
+    gate = {"required_entitlements": ["agent_addons"]}
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=[action],
+        options=gate if platform_gated else None,
+    )
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/custom-registry.git",
+        version="org-1.0",
+        action_names=[action],
+    )
+    if org_gated:
+        await session.execute(update(RegistryIndex).values(options=gate))
+        await session.commit()
+
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch.object(
+            service, "has_entitlement", new=AsyncMock(return_value=custom_enabled)
+        ),
+        patch.object(
+            service, "_get_enabled_entitlements", new=AsyncMock(return_value=set())
+        ),
+    ):
+        found = await service.get_actions_from_index([action])
+        missing = await service.classify_missing_actions([action])
+
+    assert found == {}
+    assert missing.platform == frozenset()
+    assert missing.entitlement_denied == frozenset({action})
+
+
+async def _approval_defaults_both_ways(
+    session: AsyncSession,
+    role: Role,
+    names: list[str],
+    *,
+    custom_enabled: bool,
+) -> tuple[set[str], set[str]]:
+    """Registry defaults as compilation sees them, then as preset policy does."""
+    with (
+        patch.object(
+            RegistryActionsService,
+            "has_entitlement",
+            new=AsyncMock(return_value=custom_enabled),
+        ),
+        patch.object(
+            RegistryActionsService,
+            "_get_enabled_entitlements",
+            new=AsyncMock(return_value=set()),
+        ),
+    ):
+        compiled = {
+            name
+            for name, result in (
+                await RegistryActionsService(session, role=role).get_actions_from_index(
+                    names
+                )
+            ).items()
+            if result.index_entry.options.get("requires_approval") is True
+        }
+        # Approval options need no manifests.
+        with patch.object(
+            RegistryActionsService,
+            "_load_action_manifests",
+            new=AsyncMock(side_effect=AssertionError("manifest loaded")),
+        ):
+            policy = await PresetToolPolicyService(
+                session, role=role
+            ).registry_approval_defaults(names)
+    return compiled, policy
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("custom_enabled", "org_options", "platform_options", "expected"),
+    [
+        # The org row takes precedence over the platform row.
+        (True, {"requires_approval": True}, {}, {"acme.shared.action"}),
+        (True, {}, {"requires_approval": True}, set()),
+        # Without the custom registry, the platform row is selected.
+        (False, {"requires_approval": True}, {}, set()),
+        (False, {}, {"requires_approval": True}, {"acme.shared.action"}),
+        # A selected row with a missing entitlement is dropped, with no fallback.
+        (
+            True,
+            {"requires_approval": True, "required_entitlements": ["agent_addons"]},
+            {"requires_approval": True},
+            set(),
+        ),
+    ],
+)
+async def test_policy_approval_defaults_follow_compile_lookup_precedence(
+    svc_role: Role,
+    session: AsyncSession,
+    custom_enabled: bool,
+    org_options: dict[str, object],
+    platform_options: dict[str, object],
+    expected: set[str],
+) -> None:
+    action = "acme.shared.action"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=[action],
+        options={"include_in_schema": True, **platform_options},
+    )
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/custom-registry.git",
+        version="org-1.0",
+        action_names=[action],
+    )
+    await session.execute(
+        update(RegistryIndex).values(options={"include_in_schema": True, **org_options})
+    )
+    await session.commit()
+
+    compiled, policy = await _approval_defaults_both_ways(
+        session,
+        svc_role,
+        [action, "acme.shared.missing"],
+        custom_enabled=custom_enabled,
+    )
+
+    assert compiled == policy == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("current_requires_approval", [False, True])
+async def test_policy_approval_defaults_follow_compile_version_selection(
+    svc_role: Role,
+    session: AsyncSession,
+    current_requires_approval: bool,
+) -> None:
+    action = "acme.versioned.action"
+    for version, requires_approval in (
+        ("platform-1.0", not current_requires_approval),
+        ("platform-2.0", current_requires_approval),
+    ):
+        # Reusing the origin promotes each seeded version to current.
+        await _seed_platform_registry(
+            session,
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            version=version,
+            action_names=[action],
+            options={
+                "include_in_schema": False,
+                "requires_approval": requires_approval,
+            },
+        )
+
+    compiled, policy = await _approval_defaults_both_ways(
+        session, svc_role, [action], custom_enabled=True
+    )
+
+    assert compiled == policy == ({action} if current_requires_approval else set())

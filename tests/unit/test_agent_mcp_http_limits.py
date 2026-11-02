@@ -4,7 +4,6 @@ import httpx
 import pytest
 
 from tracecat.agent.mcp.http_limits import (
-    MCP_MAX_RESPONSE_BYTES,
     BoundedResponseTransport,
     MCPResponseTooLargeError,
     create_bounded_mcp_http_client,
@@ -119,39 +118,12 @@ def test_factory_mirrors_mcp_defaults_and_installs_bounded_transport() -> None:
     assert isinstance(client._transport, BoundedResponseTransport)
 
 
-def test_factory_accepts_follow_redirects_kwarg() -> None:
-    """fastmcp's HTTP transport passes follow_redirects to the factory."""
-    client = create_bounded_mcp_http_client(follow_redirects=True)
-
-    assert client.follow_redirects is True
-    assert isinstance(client._transport, BoundedResponseTransport)
-
-
-def test_factory_forwards_extra_httpx_kwargs() -> None:
-    client = create_bounded_mcp_http_client(
-        base_url="https://mcp.test/base",
-        max_redirects=7,
-        trust_env=False,
-    )
-
-    assert str(client.base_url) == "https://mcp.test/base/"
-    assert client.max_redirects == 7
-    assert client.trust_env is False
-    assert isinstance(client._transport, BoundedResponseTransport)
-
-
-def test_default_cap_is_16_mib() -> None:
-    assert MCP_MAX_RESPONSE_BYTES == 16 * 1024 * 1024
-
-
-def test_factory_wraps_env_proxy_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Env-derived proxy transports must also be bounded, not just _transport."""
+def test_factory_ignores_env_proxy_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proxies must not bypass destination validation or resolve DNS remotely."""
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.test:8080")
 
     client = create_bounded_mcp_http_client()
 
     assert isinstance(client._transport, BoundedResponseTransport)
-    assert client._mounts, "expected an env-derived proxy mount"
-    for mount in client._mounts.values():
-        if mount is not None:
-            assert isinstance(mount, BoundedResponseTransport)
+    assert client.trust_env is False
+    assert not client._mounts

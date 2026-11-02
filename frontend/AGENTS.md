@@ -75,6 +75,49 @@ Use these rules for work in `frontend/`.
 - For shortcut UI, render keys with `Kbd` and prefer
   `parseShortcutKeys` from `frontend/src/lib/tiptap-utils.ts`.
 
+## Dialogs
+
+New dialogs follow the flat panel convention in
+`frontend/src/components/ui/dialog.tsx`. The agent preset "Add tools" dialog
+(`components/tools/tool-picker-dialog.tsx`) is the reference look.
+
+```tsx
+<Dialog open={open} onOpenChange={setOpen}>
+  <DialogContent size="md">
+    <DialogHeader>
+      <DialogTitle>Create thing</DialogTitle>
+      <DialogDescription>One line on what this does.</DialogDescription>
+    </DialogHeader>
+    <DialogBody>{/* fields */}</DialogBody>
+    <DialogFooter>
+      <Button size="sm" type="submit" form={FORM_ID}>
+        Create
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+```
+
+- Always set `size` on `DialogContent` (`sm` 320px, `md` 520px, `lg` 680px,
+  `xl` 840px). Heights are fixed and capped to the viewport, so the dialog does
+  not jump as content changes.
+- Put scrollable content in `DialogBody`, which wraps the shadcn `ScrollArea`.
+  Do not add another `ScrollArea` or `overflow-auto` wrapper inside it unless
+  it is a distinct list or table viewport.
+- Keep `DialogHeader` to the title and description. Put alerts, tabs, and
+  fields in `DialogBody`.
+- Put primary actions in `DialogFooter` with `size="sm"` buttons. If the form
+  lives in the body, give it an `id` and point the footer submit button at it
+  with `form={FORM_ID}`. Otherwise, wrap body and footer in one form with
+  `className="flex min-h-0 flex-1 flex-col"`.
+- Do not duplicate dismiss controls. Regular dialogs already render an X, so do
+  not add Cancel or Close buttons. `AlertDialog` confirmations have no X and
+  keep `AlertDialogCancel`.
+- JSON and code editors in a dialog need a minimum height that fills most of
+  the body on open (for example `[&_.cm-editor]:min-h-[220px]`). Let them grow
+  with content and scroll inside `DialogBody`.
+- Jest mocks of `@/components/ui/dialog` must export `DialogBody`.
+
 ## Standard settings/admin layout
 
 Use this layout for settings and admin pages:

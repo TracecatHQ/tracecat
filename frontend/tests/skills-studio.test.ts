@@ -20,6 +20,7 @@ const mockCreateSkillDraftUpload = jest.fn()
 const mockPublishSkill = jest.fn()
 const mockRestoreSkillVersion = jest.fn()
 const mockDeleteSkill = jest.fn()
+let mockDraftLoading = false
 
 jest.mock("@/lib/skills-studio", () => {
   const actual = jest.requireActual("@/lib/skills-studio")
@@ -125,6 +126,18 @@ const mockDraftFileContentsBySkillId: Record<string, Record<string, string>> = {
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush }),
+  useSearchParams: () => {
+    const { startTransition, useEffect, useState } =
+      jest.requireActual<typeof import("react")>("react")
+    const [search, setSearch] = useState(window.location.search)
+    useEffect(() => {
+      const notify = () =>
+        startTransition(() => setSearch(window.location.search))
+      window.addEventListener("popstate", notify)
+      return () => window.removeEventListener("popstate", notify)
+    }, [])
+    return new URLSearchParams(search)
+  },
 }))
 
 jest.mock("@/hooks/use-skills", () => ({
@@ -139,8 +152,9 @@ jest.mock("@/hooks/use-skills", () => ({
     skillError: null,
   }),
   useSkillDraft: (_workspaceId: string, skillId: string | null) => ({
-    draft: skillId ? mockDraftsBySkillId[skillId] : undefined,
-    draftLoading: false,
+    draft:
+      skillId && !mockDraftLoading ? mockDraftsBySkillId[skillId] : undefined,
+    draftLoading: mockDraftLoading,
     draftError: null,
   }),
   useSkillVersions: () => ({
@@ -303,12 +317,63 @@ Use this skill for triage.`
 
 describe("useSkillsStudio", () => {
   beforeEach(() => {
+    jest.restoreAllMocks()
     jest.clearAllMocks()
+    mockDraftLoading = false
+    mockDraftOne.files?.splice(1)
+    window.history.replaceState(null, "", "/skills/skill-1")
+    const replaceState = window.history.replaceState.bind(window.history)
+    jest.spyOn(window.history, "replaceState").mockImplementation((...args) => {
+      replaceState(...args)
+      // Next's history integration notifies useSearchParams on URL changes.
+      window.dispatchEvent(new PopStateEvent("popstate"))
+    })
     mockFileToUploadEntry.mockImplementation(async (file, relativePath) => ({
       path: relativePath,
       content_base64: "encoded-upload",
       content_type: file.type || undefined,
     }))
+  })
+
+  it("defaults to SKILL.md and preserves an encoded file selection on remount", () => {
+    const path = "references/tool notes.md"
+    const original = mockDraftOne.files?.[0]
+    if (!original) throw new Error("Expected the SKILL.md fixture")
+    mockDraftOne.files?.push({ ...original, path })
+    window.history.replaceState(null, "", "/skills/skill-1?view=editor#details")
+    const first = renderHook(() =>
+      useSkillsStudio({ workspaceId: "workspace-1", skillId: "skill-1" })
+    )
+    expect(first.result.current.selectedPath).toBe("SKILL.md")
+    act(() => first.result.current.onSelectPath(path))
+    expect(first.result.current.selectedPath).toBe(path)
+    expect(window.location.search).toContain("file=references%2Ftool+notes.md")
+    expect(new URLSearchParams(window.location.search).get("view")).toBe(
+      "editor"
+    )
+    expect(window.location.hash).toBe("#details")
+    first.unmount()
+    const refreshed = renderHook(() =>
+      useSkillsStudio({ workspaceId: "workspace-1", skillId: "skill-1" })
+    )
+    expect(refreshed.result.current.selectedPath).toBe(path)
+  })
+
+  it("keeps a deep link while loading and falls back when its file is missing", () => {
+    mockDraftLoading = true
+    window.history.replaceState(null, "", "/skills/skill-1?file=missing.md")
+    const { result, rerender } = renderHook(() =>
+      useSkillsStudio({ workspaceId: "workspace-1", skillId: "skill-1" })
+    )
+    expect(new URLSearchParams(window.location.search).get("file")).toBe(
+      "missing.md"
+    )
+    mockDraftLoading = false
+    rerender()
+    expect(result.current.selectedPath).toBe("SKILL.md")
+    expect(new URLSearchParams(window.location.search).get("file")).toBe(
+      "SKILL.md"
+    )
   })
 
   it("keeps new files staged when their content is cleared back to empty", async () => {
@@ -330,6 +395,7 @@ describe("useSkillsStudio", () => {
     act(() => {
       result.current.onSubmitCreate("notes.txt")
     })
+    expect(result.current.selectedPath).toBe("notes.txt")
 
     act(() => {
       result.current.onEditorChange("draft notes")

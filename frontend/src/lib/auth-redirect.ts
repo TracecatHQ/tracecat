@@ -22,11 +22,14 @@ export function getPostAuthRedirectPath({
 
 /**
  * Resolve the client route that should decide the final post-auth destination.
+ *
+ * Always the sign-in page: it sends a session that still owes a security key
+ * check to /mfa, and a signed-in user on to the return URL or /workspaces.
  */
 export function getPostAuthDecisionPath(returnUrl?: string | null): string {
   const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
   if (!sanitizedReturnUrl) {
-    return "/"
+    return "/sign-in"
   }
 
   const params = new URLSearchParams()

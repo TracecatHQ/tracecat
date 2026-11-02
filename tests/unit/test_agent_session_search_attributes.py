@@ -9,9 +9,13 @@ from unittest.mock import AsyncMock, create_autospec, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.api.workflowservice.v1 import StartWorkflowExecutionRequest
+from temporalio.client import Client
 from temporalio.common import TypedSearchAttributes
+from temporalio.converter import decode_typed_search_attributes
 
 from tracecat.agent.adapter.vercel import UIMessage
+from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.session.service import (
     AGENT_SESSION_EXECUTION_SCOPES,
     AgentSessionService,
@@ -89,18 +93,25 @@ async def _mock_agent_config_context(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("role_fixture", ["role_with_user", "role_without_user"])
 async def test_run_turn_stamps_tracecat_search_attributes(
-    role_with_user: Role,
+    role_fixture: str,
+    request: pytest.FixtureRequest,
+    temporal_start_client: tuple[Client, AsyncMock],
 ) -> None:
-    service = AgentSessionService(_build_db_session(), role_with_user)
+    """Workflow starts carry Tracecat search attributes; triggered-by needs a user."""
+    role: Role = request.getfixturevalue(role_fixture)
+    original_scopes = role.scopes
+    service = AgentSessionService(_build_db_session(), role)
     session_id = uuid.uuid4()
-    agent_session = _build_session(role_with_user, session_id=session_id)
+    agent_session = _build_session(role, session_id=session_id)
 
-    temporal_client = AsyncMock()
+    temporal_client, start_rpc = temporal_start_client
     first_prompt_check = AsyncMock()
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         patch.object(
             service,
@@ -110,7 +121,7 @@ async def test_run_turn_stamps_tracecat_search_attributes(
         patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=temporal_client),
         ),
     ):
@@ -122,16 +133,20 @@ async def test_run_turn_stamps_tracecat_search_attributes(
 
     assert response is not None
     first_prompt_check.assert_not_awaited()
-    temporal_client.start_workflow.assert_awaited_once()
-    workflow_args = temporal_client.start_workflow.await_args.args[1]
+    start_rpc.assert_awaited_once()
+    assert start_rpc.await_args is not None
+    start_request = start_rpc.await_args.args[1]
+    assert isinstance(start_request, StartWorkflowExecutionRequest)
+    (workflow_args,) = await temporal_client.data_converter.decode(
+        list(start_request.input.payloads), [AgentWorkflowArgs]
+    )
     assert workflow_args.role.scopes == (
-        (role_with_user.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
+        (original_scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
     )
-    assert role_with_user.scopes == frozenset({"agent:execute", "secret:read"})
-    kwargs = temporal_client.start_workflow.await_args.kwargs
-    search_attributes = kwargs["search_attributes"]
-    assert isinstance(search_attributes, TypedSearchAttributes)
-    pairs = _search_attr_map(search_attributes)
+    assert role.scopes == original_scopes
+    pairs = _search_attr_map(
+        decode_typed_search_attributes(start_request.search_attributes)
+    )
     assert pairs[TemporalSearchAttr.TRIGGER_TYPE.value] == TriggerType.MANUAL.value
     assert (
         pairs[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value
@@ -139,66 +154,23 @@ async def test_run_turn_stamps_tracecat_search_attributes(
     assert pairs[
         TemporalSearchAttr.CORRELATION_ID.value
     ] == build_agent_session_correlation_id(session_id)
-    assert pairs[TemporalSearchAttr.WORKSPACE_ID.value] == str(
-        role_with_user.workspace_id
-    )
-    assert pairs[TemporalSearchAttr.TRIGGERED_BY_USER_ID.value] == str(
-        role_with_user.user_id
-    )
-
-
-@pytest.mark.anyio
-async def test_run_turn_omits_triggered_by_when_role_has_no_user_id(
-    role_without_user: Role,
-) -> None:
-    service = AgentSessionService(_build_db_session(), role_without_user)
-    session_id = uuid.uuid4()
-    agent_session = _build_session(role_without_user, session_id=session_id)
-
-    temporal_client = AsyncMock()
-
-    with (
-        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
-        patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
-        patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
-        patch.object(service, "_build_agent_config", _mock_agent_config_context),
-        patch(
-            "tracecat.agent.session.service.get_temporal_client",
-            AsyncMock(return_value=temporal_client),
-        ),
-    ):
-        _ = await service.run_turn(
-            session_id=session_id,
-            request=cast(ChatRequest, BasicChatRequest(message="hello world")),
-            is_first_prompt=False,
-        )
-
-    kwargs = temporal_client.start_workflow.await_args.kwargs
-    search_attributes = kwargs["search_attributes"]
-    assert isinstance(search_attributes, TypedSearchAttributes)
-    pairs = _search_attr_map(search_attributes)
-    assert pairs[TemporalSearchAttr.TRIGGER_TYPE.value] == TriggerType.MANUAL.value
-    assert (
-        pairs[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value
-    )
-    assert pairs[
-        TemporalSearchAttr.CORRELATION_ID.value
-    ] == build_agent_session_correlation_id(session_id)
-    assert pairs[TemporalSearchAttr.WORKSPACE_ID.value] == str(
-        role_without_user.workspace_id
-    )
-    assert TemporalSearchAttr.TRIGGERED_BY_USER_ID.value not in pairs
+    assert pairs[TemporalSearchAttr.WORKSPACE_ID.value] == str(role.workspace_id)
+    if role.user_id is None:
+        assert TemporalSearchAttr.TRIGGERED_BY_USER_ID.value not in pairs
+    else:
+        assert pairs[TemporalSearchAttr.TRIGGERED_BY_USER_ID.value] == str(role.user_id)
 
 
 @pytest.mark.anyio
 async def test_run_turn_uses_only_vercel_text_parts(
     role_with_user: Role,
+    temporal_start_client: tuple[Client, AsyncMock],
 ) -> None:
     service = AgentSessionService(_build_db_session(), role_with_user)
     session_id = uuid.uuid4()
     agent_session = _build_session(role_with_user, session_id=session_id)
 
-    temporal_client = AsyncMock()
+    temporal_client, start_rpc = temporal_start_client
     request = VercelChatRequest(
         message=UIMessage(
             id="msg-1",
@@ -219,10 +191,11 @@ async def test_run_turn_uses_only_vercel_text_parts(
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=temporal_client),
         ),
     ):
@@ -233,8 +206,13 @@ async def test_run_turn_uses_only_vercel_text_parts(
         )
 
     assert response is not None
-    temporal_client.start_workflow.assert_awaited_once()
-    workflow_args = temporal_client.start_workflow.await_args.args[1]
+    start_rpc.assert_awaited_once()
+    assert start_rpc.await_args is not None
+    start_request = start_rpc.await_args.args[1]
+    assert isinstance(start_request, StartWorkflowExecutionRequest)
+    (workflow_args,) = await temporal_client.data_converter.decode(
+        list(start_request.input.payloads), [AgentWorkflowArgs]
+    )
     assert workflow_args.agent_args.user_prompt == "Investigate this alert"
 
 
@@ -261,6 +239,7 @@ async def test_run_turn_rejects_vercel_file_only_prompt(
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         pytest.raises(ValueError, match="no supported text parts"),
     ):

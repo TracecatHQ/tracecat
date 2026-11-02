@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: List incident triggering events
+  description: Retrieve the triggering events of an incident, including raw messages and parsed attributes.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/895612/json-api-incident-integration#fetch-trigger-events
+  namespace: tools.fortisiem
+  name: list_incident_triggering_events
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    incidentId:
+      type: int
+      description: FortiSIEM incident ID.
+    size:
+      type: int | None
+      description: Number of triggering events to return. 10 events are returned by default.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/pub/incident/triggeringEvents
+        method: GET
+        params:
+          incidentId: ${{ inputs.incidentId }}
+          size: ${{ inputs.size }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

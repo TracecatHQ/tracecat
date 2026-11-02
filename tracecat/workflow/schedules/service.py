@@ -12,7 +12,7 @@ from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Schedule, Workflow
 from tracecat.db.session_events import AfterCommitQueue
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
@@ -26,6 +26,7 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.workflow.schedules import bridge
+from tracecat.workflow.schedules.reconciliation import ScheduleChanges
 from tracecat.workflow.schedules.schemas import (
     GetScheduleActivityInputs,
     ScheduleCreate,
@@ -87,7 +88,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 "Workflow not found. Please check the workflow ID and try again."
             )
         if workflow.version is None:
-            raise TracecatNotFoundError(
+            raise TracecatConflictError(
                 "Workflow must be saved before creating a schedule."
             )
 
@@ -223,7 +224,10 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_role=role_copy,
                 )
 
-        AfterCommitQueue.of(self.session).add(_create_schedule)
+        if changes := ScheduleChanges.of(self.session):
+            changes.created.append(schedule_id)
+        else:
+            AfterCommitQueue.of(self.session).add(_create_schedule)
 
         # Ensure the SQLAlchemy instance is persistent before refresh.
         # Commit will implicitly flush; when commit=False we must flush explicitly
@@ -402,7 +406,10 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_id=schedule_id,
                 )
 
-        AfterCommitQueue.of(self.session).add(_delete_schedule)
+        if changes := ScheduleChanges.of(self.session):
+            changes.deleted.append(schedule.id)
+        else:
+            AfterCommitQueue.of(self.session).add(_delete_schedule)
 
         if commit:
             await self.session.commit()

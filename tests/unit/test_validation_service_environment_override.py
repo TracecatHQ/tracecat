@@ -6,7 +6,7 @@ introduced in the validation service module.
 Tests cover:
 1. get_effective_environment function behavior
 2. Environment override validation in DSL expressions
-3. Action-environment pair handling in secret validation
+3. Effective environments in secret validation
 """
 
 import uuid
@@ -19,7 +19,6 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.common import ExprType
 from tracecat.validation.service import (
-    ActionEnvPair,
     get_effective_environment,
     validate_dsl_expressions,
 )
@@ -54,57 +53,6 @@ class TestGetEffectiveEnvironment:
 
         result = get_effective_environment(stmt, default_env)
         assert result == expected
-
-    def test_handles_non_string_environment(self):
-        """Test that non-string environment values return default."""
-        # This should not normally happen due to Pydantic validation, but testing edge case
-        stmt = ActionStatement(
-            ref="test_action",
-            action="core.transform.reshape",
-            args={"value": "test"},
-        )
-        # Manually set environment to non-string (bypassing Pydantic)
-        object.__setattr__(stmt, "environment", 123)
-
-        result = get_effective_environment(stmt, "default_env")
-        assert result == "default_env"
-
-
-class TestActionEnvPair:
-    """Test the ActionEnvPair dataclass."""
-
-    def test_action_env_pair_creation(self):
-        """Test that ActionEnvPair can be created and is hashable."""
-        pair = ActionEnvPair(action="core.transform.reshape", environment="production")
-
-        assert pair.action == "core.transform.reshape"
-        assert pair.environment == "production"
-
-    def test_action_env_pair_equality(self):
-        """Test that ActionEnvPair instances with same values are equal."""
-        pair1 = ActionEnvPair(action="core.transform.reshape", environment="production")
-        pair2 = ActionEnvPair(action="core.transform.reshape", environment="production")
-        pair3 = ActionEnvPair(action="core.transform.reshape", environment="staging")
-
-        assert pair1 == pair2
-        assert pair1 != pair3
-
-    def test_action_env_pair_hashable(self):
-        """Test that ActionEnvPair instances can be used in sets."""
-        pair1 = ActionEnvPair(action="core.transform.reshape", environment="production")
-        pair2 = ActionEnvPair(
-            action="core.transform.reshape", environment="production"
-        )  # Duplicate
-        pair3 = ActionEnvPair(action="core.transform.reshape", environment="staging")
-        pair4 = ActionEnvPair(action="core.http_request", environment="production")
-
-        pairs_set = {pair1, pair2, pair3, pair4}
-
-        # Should have 3 unique pairs (pair1 and pair2 are identical)
-        assert len(pairs_set) == 3
-        assert pair1 in pairs_set
-        assert pair3 in pairs_set
-        assert pair4 in pairs_set
 
 
 @pytest.mark.anyio
@@ -289,108 +237,6 @@ class TestEnvironmentOverrideValidation:
 class TestSecretValidationWithEnvironmentOverride:
     """Test secret validation logic with action-environment pairs."""
 
-    async def test_action_env_pairs_generation_with_overrides(self):
-        """Test that ActionEnvPair instances are correctly generated from DSL actions."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from tracecat.validation.service import validate_actions_have_defined_secrets
-
-        mock_role = Role(
-            type="service",
-            service_id="tracecat-api",
-            workspace_id=uuid.uuid4(),
-            user_id=uuid.uuid4(),
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
-        )
-
-        dsl = DSLInput(
-            title="Test Workflow",
-            description="Test workflow with mixed environment overrides",
-            entrypoint=DSLEntrypoint(ref="action1"),
-            config=DSLConfig(environment="default_env"),
-            actions=[
-                ActionStatement(
-                    ref="action1",
-                    action="core.http_request",
-                    args={"url": "https://api.example.com"},
-                    environment="production",  # Override to production
-                ),
-                ActionStatement(
-                    ref="action2",
-                    action="core.transform.reshape",
-                    args={"value": "${{ ACTIONS.action1.result }}"},
-                    # No override - should use default_env
-                ),
-                ActionStatement(
-                    ref="action3",
-                    action="core.http_request",
-                    args={"url": "https://api2.example.com"},
-                    environment="staging",  # Override to staging
-                ),
-                ActionStatement(
-                    ref="action4",
-                    action="core.http_request",
-                    args={"url": "https://api3.example.com"},
-                    environment="production",  # Same as action1 - should dedupe
-                ),
-            ],
-        )
-
-        # Mock the database session and services
-        with (
-            patch(
-                "tracecat.validation.service.get_async_session_context_manager"
-            ) as mock_session_mgr,
-            patch("tracecat.validation.service.SecretsService") as mock_secrets_service,
-            patch(
-                "tracecat.validation.service.RegistryActionsService"
-            ) as mock_registry_service,
-            patch("tracecat.validation.service.GatheringTaskGroup") as mock_task_group,
-        ):
-            # Setup mocks
-            mock_session = AsyncMock()
-            mock_session_mgr.return_value.__aenter__.return_value = mock_session
-            mock_session_mgr.return_value.__aexit__.return_value = None
-
-            mock_secrets = AsyncMock()
-            mock_secrets_service.return_value = mock_secrets
-
-            # Create mock IndexedActionResult for get_actions_from_index
-            mock_manifest = MagicMock()
-            mock_manifest.actions = {
-                "core.http_request": MagicMock(),
-                "core.transform.reshape": MagicMock(),
-            }
-
-            # Mock get_actions_from_index return value using IndexedActionResult-like objects
-            mock_result = MagicMock()
-            mock_result.manifest = mock_manifest
-            mock_actions_data = {
-                "core.http_request": mock_result,
-                "core.transform.reshape": mock_result,
-            }
-
-            mock_registry = AsyncMock()
-            mock_registry_service.return_value = mock_registry
-            mock_registry.get_actions_from_index.return_value = mock_actions_data
-
-            mock_tg = AsyncMock()
-            mock_task_group.return_value.__aenter__.return_value = mock_tg
-            mock_task_group.return_value.__aexit__.return_value = None
-            mock_tg.create_task = MagicMock()
-            mock_tg.results = MagicMock(return_value=[])  # Add missing results method
-
-            # Call the function
-            await validate_actions_have_defined_secrets(dsl, role=mock_role)
-
-            # Verify that registry service was called with correct action names
-            mock_registry.get_actions_from_index.assert_called_once()
-            actual_action_names = mock_registry.get_actions_from_index.call_args[0][0]
-            assert set(actual_action_names) == {
-                "core.http_request",
-                "core.transform.reshape",
-            }
-
     async def test_effective_environment_used_in_secret_validation(self):
         """Test that effective environments are used when validating secrets."""
         from unittest.mock import AsyncMock, MagicMock, patch
@@ -524,72 +370,3 @@ class TestSecretValidationWithEnvironmentOverride:
             # Check that all expected pairs are present (order doesn't matter)
             for expected_env, expected_action in expected_pairs:
                 assert (expected_env, expected_action) in env_action_pairs
-
-
-class TestEnvironmentOverrideIntegration:
-    """Integration tests for environment override validation logic."""
-
-    def test_get_effective_environment_with_real_action_statements(self):
-        """Test get_effective_environment with realistic ActionStatement instances."""
-        # Action without environment override
-        action1 = ActionStatement(
-            ref="fetch_data",
-            action="core.http_request",
-            args={
-                "url": "https://api.example.com/data",
-                "method": "GET",
-            },
-        )
-
-        # Action with literal environment override
-        action2 = ActionStatement(
-            ref="process_data",
-            action="core.transform.reshape",
-            args={"value": "${{ ACTIONS.fetch_data.result }}"},
-            environment="production",
-        )
-
-        # Action with template environment (should use default)
-        action3 = ActionStatement(
-            ref="store_data",
-            action="core.http_request",
-            args={
-                "url": "https://api.example.com/store",
-                "method": "POST",
-                "payload": "${{ ACTIONS.process_data.result }}",
-            },
-            environment="${{ 'prod' if TRIGGER.is_urgent else 'staging' }}",
-        )
-
-        default_env = "workflow_default"
-
-        # Test effective environments
-        assert get_effective_environment(action1, default_env) == "workflow_default"
-        assert get_effective_environment(action2, default_env) == "production"
-        assert get_effective_environment(action3, default_env) == "workflow_default"
-
-    def test_action_env_pairs_deduplication(self):
-        """Test that ActionEnvPair deduplicates properly in sets."""
-        # Simulate multiple actions using same action type and environment
-        pairs = [
-            ActionEnvPair(action="core.http_request", environment="production"),
-            ActionEnvPair(
-                action="core.http_request", environment="production"
-            ),  # Duplicate
-            ActionEnvPair(action="core.http_request", environment="staging"),
-            ActionEnvPair(action="core.transform.reshape", environment="production"),
-            ActionEnvPair(
-                action="core.transform.reshape", environment="production"
-            ),  # Duplicate
-        ]
-
-        unique_pairs = set(pairs)
-
-        # Should have 3 unique pairs
-        assert len(unique_pairs) == 3
-        expected_pairs = {
-            ActionEnvPair(action="core.http_request", environment="production"),
-            ActionEnvPair(action="core.http_request", environment="staging"),
-            ActionEnvPair(action="core.transform.reshape", environment="production"),
-        }
-        assert unique_pairs == expected_pairs

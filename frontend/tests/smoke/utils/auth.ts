@@ -106,22 +106,19 @@ export async function createOrganizationInvitation(
     throw new Error("Expected an organization role for invitation setup")
   }
 
-  const invitationResponse = await request.post(
-    "/api/organization/invitations",
-    {
-      data: {
-        email,
-        role_id: role.id,
-      },
-    }
-  )
+  const invitationResponse = await request.post("/api/invitations", {
+    data: {
+      email,
+      grants: [{ role_id: role.id, workspace_id: null }],
+    },
+  })
   if (!invitationResponse.ok()) {
     throw new Error(await invitationResponse.text())
   }
   const invitation = (await invitationResponse.json()) as InvitationRead
 
   const tokenResponse = await request.get(
-    `/api/organization/invitations/${invitation.id}/token`
+    `/api/invitations/${invitation.id}/token`
   )
   if (!tokenResponse.ok()) {
     throw new Error(await tokenResponse.text())

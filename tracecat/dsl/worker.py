@@ -36,7 +36,6 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorAttributionInterceptor,
     )
     from tracecat.dsl.workflow import DSLWorkflow
-    from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
     from tracecat.observability.otel import (
         initialize_platform_tracing,
@@ -44,6 +43,12 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.observability.sentry import (
         initialize_worker_sentry_from_environment,
+    )
+    from tracecat.search.indexing_schedule import search_schedule_lifespan
+    from tracecat.search.indexing_workflow import (
+        SearchIndexDispatcher,
+        discover_search_collections,
+        index_search_collection,
     )
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.storage.collection import CollectionActivities
@@ -100,6 +105,8 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 def get_activities() -> list[Callable]:
     activities: list[Callable] = [
         case_agent_session_backfill_activity,
+        discover_search_collections,
+        index_search_collection,
         *DSLActivities.load(),
         *CollectionActivities.get_activities(),
         resolve_agent_preset_version_ref_activity,
@@ -110,7 +117,6 @@ def get_activities() -> list[Callable]:
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
         *WorkflowsManagementService.get_activities(),
-        *InteractionService.get_activities(),
         *TierActivities.get_activities(),
     ]
     return activities
@@ -128,6 +134,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     initialize_platform_tracing("tracecat-worker")
 
     client = await get_temporal_client()
+    task_queue = os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
 
     initialize_worker_sentry_from_environment()
     interceptors = [RuntimeErrorAttributionInterceptor()]
@@ -161,22 +168,24 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             workflows: list[type] = [
                 CaseAgentSessionBackfillWorkflow,
                 DSLWorkflow,
+                SearchIndexDispatcher,
             ]
 
-            async with Worker(
-                client,
-                task_queue=os.environ.get(
-                    "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
+            async with (
+                Worker(
+                    client,
+                    task_queue=task_queue,
+                    activities=activities,
+                    workflows=workflows,
+                    workflow_runner=new_sandbox_runner(),
+                    interceptors=interceptors,
+                    disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                    activity_executor=executor,
+                    max_concurrent_activities=max_concurrent_activities,
+                    max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                    graceful_shutdown_timeout=timedelta(seconds=30),
                 ),
-                activities=activities,
-                workflows=workflows,
-                workflow_runner=new_sandbox_runner(),
-                interceptors=interceptors,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                activity_executor=executor,
-                max_concurrent_activities=max_concurrent_activities,
-                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                graceful_shutdown_timeout=timedelta(seconds=30),
+                search_schedule_lifespan(client, task_queue),
             ):
                 logger.info(
                     "Worker started, ctrl+c to exit",

@@ -618,6 +618,50 @@ async def _resolve_unambiguous_org(
     return None
 
 
+async def _resolve_candidate_orgs(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    claimed_org_ids: frozenset[uuid.UUID] | None,
+    claimed_workspace_ids: frozenset[uuid.UUID] | None,
+    target_workspace_id: uuid.UUID | None = None,
+    target_organization_id: uuid.UUID | None = None,
+) -> list[uuid.UUID]:
+    """Resolve every org a Watchtower event applies to.
+
+    Single-org tokens resolve exactly like ``_resolve_unambiguous_org``. A
+    token granted several orgs applies to each of them, so every org admin
+    sees the session and can block it. When the tool call targets a workspace
+    or org, narrow to that org.
+    """
+    is_multi_org_token = (
+        claimed_org_ids is not None
+        and len(claimed_org_ids) > 1
+        and not (claimed_workspace_ids and len(claimed_workspace_ids) == 1)
+    )
+    if not is_multi_org_token:
+        organization_id = await _resolve_unambiguous_org(
+            session,
+            user_id=user_id,
+            claimed_org_ids=claimed_org_ids,
+            claimed_workspace_ids=claimed_workspace_ids,
+        )
+        return [organization_id] if organization_id is not None else []
+
+    assert claimed_org_ids is not None
+    candidates = sorted(claimed_org_ids, key=str)
+    if target_workspace_id is not None:
+        ws_result = await session.execute(
+            select(Workspace.organization_id).where(Workspace.id == target_workspace_id)
+        )
+        workspace_org_id = ws_result.scalar_one_or_none()
+        if workspace_org_id is not None and workspace_org_id in claimed_org_ids:
+            return [workspace_org_id]
+    if target_organization_id is not None and target_organization_id in claimed_org_ids:
+        return [target_organization_id]
+    return candidates
+
+
 async def maybe_create_oauth_provisional_session(
     *,
     email: str,
@@ -753,142 +797,170 @@ async def ingest_watchtower_initialize_event(
         if user is None:
             return None
 
-        organization_id = await _resolve_unambiguous_org(
+        organization_ids = await _resolve_candidate_orgs(
             session,
             user_id=user.id,
             claimed_org_ids=claimed_org_ids,
             claimed_workspace_ids=claimed_workspace_ids,
         )
-        if organization_id is None:
-            return None
-
-        if not await is_org_entitled(session, organization_id, Entitlement.WATCHTOWER):
-            return None
-
-        # Classify the agent from client_info (MCP initialize params) and
-        # user-agent header, then build a stable fingerprint for dedup.
-        now = datetime.now(UTC)
-        agent_type, agent_source, icon_key = normalize_agent_identity(
-            user_agent=user_agent,
-            client_info=client_info,
-        )
-        fingerprint_hash = _build_agent_fingerprint(
-            organization_id=organization_id,
-            auth_client_id=auth_client_id,
-            agent_type=agent_type,
-            user_agent=user_agent,
-            client_info=client_info,
-        )
-
-        # Upsert the agent record keyed on fingerprint_hash.
-        agent_result = await session.execute(
-            select(WatchtowerAgent).where(
-                WatchtowerAgent.organization_id == organization_id,
-                WatchtowerAgent.fingerprint_hash == fingerprint_hash,
-            )
-        )
-        agent = agent_result.scalar_one_or_none()
-        if agent is None:
-            agent = WatchtowerAgent(
-                id=uuid.uuid4(),
-                organization_id=organization_id,
-                fingerprint_hash=fingerprint_hash,
-                agent_type=agent_type,
-                agent_source=agent_source,
-                agent_icon_key=icon_key,
-                raw_user_agent=user_agent,
-                raw_client_info=client_info,
-                auth_client_id=auth_client_id,
-                last_user_id=user.id,
-                last_user_email=user.email,
-                last_user_name=_display_name(user),
-                first_seen_at=now,
-                last_seen_at=now,
-            )
-            session.add(agent)
-        else:
-            # Refresh metadata — the same fingerprint may reconnect with
-            # updated client_info or a different user.
-            agent.agent_type = agent_type
-            agent.agent_source = agent_source
-            agent.agent_icon_key = icon_key
-            agent.raw_user_agent = user_agent
-            agent.raw_client_info = client_info
-            agent.auth_client_id = auth_client_id
-            agent.last_user_id = user.id
-            agent.last_user_email = user.email
-            agent.last_user_name = _display_name(user)
-            agent.last_seen_at = now
-
-        # --- Session matching ---
-        # Try to find a provisional session created by the OAuth callback
-        # (awaiting_initialize), scoped to the same user and client.
-        auth_client_clause = (
-            WatchtowerAgentSession.auth_client_id == auth_client_id
-            if auth_client_id is not None
-            else WatchtowerAgentSession.auth_client_id.is_(None)
-        )
-        recent_cutoff = now - timedelta(minutes=OAUTH_PROVISIONAL_MATCH_WINDOW_MINUTES)
-        provisional_result = await session.execute(
-            select(WatchtowerAgentSession)
-            .where(
-                WatchtowerAgentSession.organization_id == organization_id,
-                WatchtowerAgentSession.session_state == "awaiting_initialize",
-                WatchtowerAgentSession.user_id == user.id,
-                auth_client_clause,
-                WatchtowerAgentSession.last_seen_at >= recent_cutoff,
-            )
-            .order_by(WatchtowerAgentSession.oauth_callback_seen_at.desc().nullslast())
-            .limit(1)
-        )
-        tracked_session = provisional_result.scalar_one_or_none()
-
-        # Fallback: check for an existing session with the same MCP session ID
-        # (e.g. a reconnect after a transient disconnect).
-        if tracked_session is None:
-            existing_result = await session.execute(
-                select(WatchtowerAgentSession).where(
-                    WatchtowerAgentSession.organization_id == organization_id,
-                    WatchtowerAgentSession.agent_session_id == mcp_session_id,
+        contexts: list[WatchtowerAgentCallContext] = []
+        for organization_id in organization_ids:
+            if not await is_org_entitled(
+                session, organization_id, Entitlement.WATCHTOWER
+            ):
+                continue
+            contexts.append(
+                await _ingest_initialize_for_org(
+                    session,
+                    user=user,
+                    organization_id=organization_id,
+                    auth_client_id=auth_client_id,
+                    mcp_session_id=mcp_session_id,
+                    user_agent=user_agent,
+                    client_info=client_info,
                 )
             )
-            tracked_session = existing_result.scalar_one_or_none()
-
-        if tracked_session is None:
-            # No provisional or existing session — create a fresh one.
-            tracked_session = WatchtowerAgentSession(
-                id=uuid.uuid4(),
-                organization_id=organization_id,
-                agent_id=agent.id,
-                session_state="connected",
-                auth_client_id=auth_client_id,
-                agent_session_id=mcp_session_id,
-                initialize_seen_at=now,
-                user_id=user.id,
-                user_email=user.email,
-                user_name=_display_name(user),
-                first_seen_at=now,
-                last_seen_at=now,
-            )
-            session.add(tracked_session)
-        else:
-            # Promote the provisional/existing session to connected and
-            # associate it with the resolved agent.
-            tracked_session.agent_id = agent.id
-            tracked_session.session_state = "connected"
-            tracked_session.agent_session_id = mcp_session_id
-            tracked_session.initialize_seen_at = now
-            tracked_session.user_id = user.id
-            tracked_session.user_email = user.email
-            tracked_session.user_name = _display_name(user)
-            tracked_session.last_seen_at = now
-
+        if not contexts:
+            return None
         await session.commit()
-        return WatchtowerAgentCallContext(
+        return contexts[0]
+
+
+async def _ingest_initialize_for_org(
+    session: AsyncSession,
+    *,
+    user: User,
+    organization_id: uuid.UUID,
+    auth_client_id: str | None,
+    mcp_session_id: str,
+    user_agent: str | None,
+    client_info: dict[str, Any] | None,
+) -> WatchtowerAgentCallContext:
+    """Upsert one org's Watchtower agent and session for an MCP initialize."""
+    # Classify the agent from client_info (MCP initialize params) and
+    # user-agent header, then build a stable fingerprint for dedup.
+    now = datetime.now(UTC)
+    agent_type, agent_source, icon_key = normalize_agent_identity(
+        user_agent=user_agent,
+        client_info=client_info,
+    )
+    fingerprint_hash = _build_agent_fingerprint(
+        organization_id=organization_id,
+        auth_client_id=auth_client_id,
+        agent_type=agent_type,
+        user_agent=user_agent,
+        client_info=client_info,
+    )
+
+    # Upsert the agent record keyed on fingerprint_hash.
+    agent_result = await session.execute(
+        select(WatchtowerAgent).where(
+            WatchtowerAgent.organization_id == organization_id,
+            WatchtowerAgent.fingerprint_hash == fingerprint_hash,
+        )
+    )
+    agent = agent_result.scalar_one_or_none()
+    if agent is None:
+        agent = WatchtowerAgent(
+            id=uuid.uuid4(),
+            organization_id=organization_id,
+            fingerprint_hash=fingerprint_hash,
+            agent_type=agent_type,
+            agent_source=agent_source,
+            agent_icon_key=icon_key,
+            raw_user_agent=user_agent,
+            raw_client_info=client_info,
+            auth_client_id=auth_client_id,
+            last_user_id=user.id,
+            last_user_email=user.email,
+            last_user_name=_display_name(user),
+            first_seen_at=now,
+            last_seen_at=now,
+        )
+        session.add(agent)
+    else:
+        # Refresh metadata — the same fingerprint may reconnect with
+        # updated client_info or a different user.
+        agent.agent_type = agent_type
+        agent.agent_source = agent_source
+        agent.agent_icon_key = icon_key
+        agent.raw_user_agent = user_agent
+        agent.raw_client_info = client_info
+        agent.auth_client_id = auth_client_id
+        agent.last_user_id = user.id
+        agent.last_user_email = user.email
+        agent.last_user_name = _display_name(user)
+        agent.last_seen_at = now
+
+    # --- Session matching ---
+    # Try to find a provisional session created by the OAuth callback
+    # (awaiting_initialize), scoped to the same user and client.
+    auth_client_clause = (
+        WatchtowerAgentSession.auth_client_id == auth_client_id
+        if auth_client_id is not None
+        else WatchtowerAgentSession.auth_client_id.is_(None)
+    )
+    recent_cutoff = now - timedelta(minutes=OAUTH_PROVISIONAL_MATCH_WINDOW_MINUTES)
+    provisional_result = await session.execute(
+        select(WatchtowerAgentSession)
+        .where(
+            WatchtowerAgentSession.organization_id == organization_id,
+            WatchtowerAgentSession.session_state == "awaiting_initialize",
+            WatchtowerAgentSession.user_id == user.id,
+            auth_client_clause,
+            WatchtowerAgentSession.last_seen_at >= recent_cutoff,
+        )
+        .order_by(WatchtowerAgentSession.oauth_callback_seen_at.desc().nullslast())
+        .limit(1)
+    )
+    tracked_session = provisional_result.scalar_one_or_none()
+
+    # Fallback: check for an existing session with the same MCP session ID
+    # (e.g. a reconnect after a transient disconnect).
+    if tracked_session is None:
+        existing_result = await session.execute(
+            select(WatchtowerAgentSession).where(
+                WatchtowerAgentSession.organization_id == organization_id,
+                WatchtowerAgentSession.agent_session_id == mcp_session_id,
+            )
+        )
+        tracked_session = existing_result.scalar_one_or_none()
+
+    if tracked_session is None:
+        # No provisional or existing session — create a fresh one.
+        tracked_session = WatchtowerAgentSession(
+            id=uuid.uuid4(),
             organization_id=organization_id,
             agent_id=agent.id,
-            session_row_id=tracked_session.id,
+            session_state="connected",
+            auth_client_id=auth_client_id,
+            agent_session_id=mcp_session_id,
+            initialize_seen_at=now,
+            user_id=user.id,
+            user_email=user.email,
+            user_name=_display_name(user),
+            first_seen_at=now,
+            last_seen_at=now,
         )
+        session.add(tracked_session)
+    else:
+        # Promote the provisional/existing session to connected and
+        # associate it with the resolved agent.
+        tracked_session.agent_id = agent.id
+        tracked_session.session_state = "connected"
+        tracked_session.agent_session_id = mcp_session_id
+        tracked_session.initialize_seen_at = now
+        tracked_session.user_id = user.id
+        tracked_session.user_email = user.email
+        tracked_session.user_name = _display_name(user)
+        tracked_session.last_seen_at = now
+
+    await session.flush()
+    return WatchtowerAgentCallContext(
+        organization_id=organization_id,
+        agent_id=agent.id,
+        session_row_id=tracked_session.id,
+    )
 
 
 async def get_watchtower_tool_call_context(
@@ -897,6 +969,8 @@ async def get_watchtower_tool_call_context(
     mcp_session_id: str,
     claimed_org_ids: frozenset[uuid.UUID] | None,
     claimed_workspace_ids: frozenset[uuid.UUID] | None,
+    workspace_id: uuid.UUID | None = None,
+    organization_id: uuid.UUID | None = None,
 ) -> tuple[WatchtowerAgentCallContext | None, str | None]:
     """Resolve Watchtower call context and block reason (if blocked/revoked).
 
@@ -905,6 +979,11 @@ async def get_watchtower_tool_call_context(
     ``(context, reason)`` when the agent or session has been blocked/revoked
     by an org admin — the middleware uses the reason string to raise a
     ``ToolError`` and reject the call.
+
+    For tokens granted several orgs, ``workspace_id`` / ``organization_id``
+    (from the tool arguments) narrow the check to the targeted org. Calls
+    that target no org are checked against every granted org and are
+    blocked if any org admin blocked the agent or session.
 
     Returns ``(None, None)`` when Watchtower tracking doesn't apply (e.g.
     single-tenant, unresolvable user/org, missing entitlement, or no
@@ -918,64 +997,84 @@ async def get_watchtower_tool_call_context(
         if user is None:
             return None, None
 
-        organization_id = await _resolve_unambiguous_org(
+        organization_ids = await _resolve_candidate_orgs(
             session,
             user_id=user.id,
             claimed_org_ids=claimed_org_ids,
             claimed_workspace_ids=claimed_workspace_ids,
+            target_workspace_id=workspace_id,
+            target_organization_id=organization_id,
         )
-        if organization_id is None:
-            return None, None
+        first_ctx: WatchtowerAgentCallContext | None = None
+        for candidate_org_id in organization_ids:
+            ctx, block_reason = await _get_tool_call_context_for_org(
+                session,
+                organization_id=candidate_org_id,
+                mcp_session_id=mcp_session_id,
+            )
+            if block_reason is not None:
+                return ctx, block_reason
+            if first_ctx is None:
+                first_ctx = ctx
+        return first_ctx, None
 
-        if not await is_org_entitled(session, organization_id, Entitlement.WATCHTOWER):
-            return None, None
 
-        retention_cutoff = _retention_cutoff()
-        context_result = await session.execute(
-            select(
-                WatchtowerAgentSession.id,
-                WatchtowerAgentSession.session_state,
-                WatchtowerAgentSession.revoked_at,
-                WatchtowerAgent.id,
-                WatchtowerAgent.blocked_at,
-            )
-            .join(
-                WatchtowerAgent,
-                and_(
-                    WatchtowerAgent.id == WatchtowerAgentSession.agent_id,
-                    WatchtowerAgent.organization_id
-                    == WatchtowerAgentSession.organization_id,
-                    WatchtowerAgent.last_seen_at >= retention_cutoff,
-                ),
-            )
-            .where(
-                WatchtowerAgentSession.organization_id == organization_id,
-                WatchtowerAgentSession.agent_session_id == mcp_session_id,
-                WatchtowerAgentSession.last_seen_at >= retention_cutoff,
-            )
+async def _get_tool_call_context_for_org(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    mcp_session_id: str,
+) -> tuple[WatchtowerAgentCallContext | None, str | None]:
+    """Resolve one org's Watchtower call context and block reason."""
+    if not await is_org_entitled(session, organization_id, Entitlement.WATCHTOWER):
+        return None, None
+
+    retention_cutoff = _retention_cutoff()
+    context_result = await session.execute(
+        select(
+            WatchtowerAgentSession.id,
+            WatchtowerAgentSession.session_state,
+            WatchtowerAgentSession.revoked_at,
+            WatchtowerAgent.id,
+            WatchtowerAgent.blocked_at,
         )
-        row = context_result.tuples().one_or_none()
-        if row is None:
-            return None, None
+        .join(
+            WatchtowerAgent,
+            and_(
+                WatchtowerAgent.id == WatchtowerAgentSession.agent_id,
+                WatchtowerAgent.organization_id
+                == WatchtowerAgentSession.organization_id,
+                WatchtowerAgent.last_seen_at >= retention_cutoff,
+            ),
+        )
+        .where(
+            WatchtowerAgentSession.organization_id == organization_id,
+            WatchtowerAgentSession.agent_session_id == mcp_session_id,
+            WatchtowerAgentSession.last_seen_at >= retention_cutoff,
+        )
+    )
+    row = context_result.tuples().one_or_none()
+    if row is None:
+        return None, None
 
-        session_row_id, session_state, revoked_at, agent_id, blocked_at = row
+    session_row_id, session_state, revoked_at, agent_id, blocked_at = row
 
-        ctx = WatchtowerAgentCallContext(
-            organization_id=organization_id,
-            agent_id=agent_id,
-            session_row_id=session_row_id,
+    ctx = WatchtowerAgentCallContext(
+        organization_id=organization_id,
+        agent_id=agent_id,
+        session_row_id=session_row_id,
+    )
+
+    # Check agent-level and session-level access controls.
+    if blocked_at is not None:
+        return ctx, "This local agent has been disabled by your organization admin."
+    if session_state == "revoked" or revoked_at is not None:
+        return (
+            ctx,
+            "This local agent session has been revoked by your organization admin.",
         )
 
-        # Check agent-level and session-level access controls.
-        if blocked_at is not None:
-            return ctx, "This local agent has been disabled by your organization admin."
-        if session_state == "revoked" or revoked_at is not None:
-            return (
-                ctx,
-                "This local agent session has been revoked by your organization admin.",
-            )
-
-        return ctx, None
+    return ctx, None
 
 
 async def record_watchtower_tool_call(

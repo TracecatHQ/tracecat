@@ -34,6 +34,31 @@ REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 
 
+def is_tracecat_registry_server_name(server_name: str) -> bool:
+    """Return whether a server name routes to the built-in registry."""
+    return (
+        server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+        or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
+        or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
+    )
+
+
+def strip_tracecat_registry_server_prefix(tool_name: str) -> str:
+    """Drop a leading built-in registry server segment from a tool name.
+
+    Example: mcp__tracecat-registry__core__http_request -> core__http_request
+    """
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__", 2)
+        if len(parts) == 3 and is_tracecat_registry_server_name(parts[1]):
+            return parts[2]
+    if tool_name.startswith("mcp."):
+        parts = tool_name.split(".", 2)
+        if len(parts) == 3 and is_tracecat_registry_server_name(parts[1]):
+            return parts[2]
+    return tool_name
+
+
 # Lone surrogates cannot cross JSON serialization.
 _SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
 
@@ -79,9 +104,9 @@ def flatten_mcp_content_blocks(
     return text
 
 
-# Anthropic tool names must match this pattern; stdio MCP servers can report
+# Anthropic tool names must match this pattern; MCP servers can report
 # names (e.g. "issue.get") that would put invalid entries in allowed_tools.
-STDIO_MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
+MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:
@@ -180,6 +205,39 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 
     # Other tool names returned as-is
     return mcp_tool_name
+
+
+def canonical_mcp_tool_name(tool_name: str) -> str:
+    """Return the name the trusted MCP server authorizes a tool call under.
+
+    Drops a registry server prefix, keeps user MCP tools as
+    ``mcp__{server}__{tool}``, and turns registry and internal tools into
+    dotted action names. Every accepted spelling of one tool therefore maps
+    to the same name.
+
+    Example: mcp__tracecat-registry__core__http_request -> core.http_request
+
+    Raises:
+        ValueError: If the name uses the dotted user MCP spelling
+            ``mcp.{server}.{tool}``. That spelling replaces ``__`` with
+            ``.``, so ``mcp.example.a.b`` could be tool ``a__b`` or ``a.b``.
+    """
+    routed = strip_tracecat_registry_server_prefix(tool_name)
+    if _is_user_mcp_name(routed.split("__", 2)):
+        return routed
+    if _is_user_mcp_name(routed.split(".", 2)):
+        raise ValueError(
+            f"Ambiguous user MCP tool name {tool_name!r}: use mcp__{{server}}__{{tool}}"
+        )
+    return normalize_mcp_tool_name(mcp_tool_name_to_action_name(routed))
+
+
+def _is_user_mcp_name(parts: list[str]) -> bool:
+    return (
+        len(parts) == 3
+        and parts[0] == "mcp"
+        and not is_tracecat_registry_server_name(parts[1])
+    )
 
 
 async def fetch_tool_definitions(

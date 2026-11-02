@@ -47,18 +47,21 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-import defusedxml.ElementTree as ET
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
+from saml2.saml import Assertion
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.dependencies import ServiceRole, verify_auth_type
+from tracecat.auth.domain_policy import (
+    is_domain_allowed_for_org,
+)
 from tracecat.auth.enums import AuthType
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.users import (
@@ -75,7 +78,6 @@ from tracecat.config import (
     SAML_PUBLIC_ACS_URL,
     SAML_VERIFY_SSL_ENTITY,
     SAML_VERIFY_SSL_METADATA,
-    TRACECAT__AUTH_ALLOWED_DOMAINS,
     TRACECAT__AUTH_SUPERADMIN_EMAIL,
     TRACECAT__EE_MULTI_TENANT,
     TRACECAT__PUBLIC_API_URL,
@@ -83,18 +85,20 @@ from tracecat.config import (
 )
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
+    Invitation,
     OrganizationDomain,
-    OrganizationInvitation,
     OrganizationMembership,
     SAMLRequestData,
     User,
 )
 from tracecat.db.rls import set_rls_context
 from tracecat.identifiers import OrganizationID
-from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import (
+    accept_invitation_for_user,
+    get_pending_invitation_for_email,
+)
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
-from tracecat.organization.service import accept_invitation_for_user
 from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
@@ -116,28 +120,21 @@ class SAMLAttribute:
 
 
 class SAMLParser:
-    """Parser for SAML AttributeStatement responses"""
+    """Read attributes only from the assertion validated by pysaml2."""
 
-    NAMESPACES = {
-        "saml2": "urn:oasis:names:tc:SAML:2.0:assertion",
-        "xs": "http://www.w3.org/2001/XMLSchema",
-        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
-    }
-
-    def __init__(self, xml_string: str):
-        """Initialize parser with SAML XML string"""
-        self.xml_string = xml_string.strip()
+    def __init__(self, assertion: Assertion | None):
+        self.assertion = assertion
         self.attributes = None
-
-    def _register_namespaces(self):
-        """Register namespaces for proper XML handling"""
-        pass
 
     def _extract_attribute(self, attribute_elem) -> SAMLAttribute:
         """Extract a single SAML attribute from an XML element"""
 
-        name = attribute_elem.get("Name")
-        value_elem = attribute_elem.find("saml2:AttributeValue", self.NAMESPACES)
+        name = attribute_elem.name
+        value_elem = (
+            attribute_elem.attribute_value[0]
+            if attribute_elem.attribute_value
+            else None
+        )
 
         if not name:
             logger.error(
@@ -172,19 +169,12 @@ class SAMLParser:
         return self.attributes.get(attribute_name, {}).get("value", "")
 
     def parse_to_dict(self) -> dict[str, Any]:
-        """Parse SAML XML and return attributes as a dictionary"""
-        self._register_namespaces()
-        try:
-            root = ET.fromstring(self.xml_string)
-        except ET.ParseError as e:
-            logger.error(f"SAML response parsing failed: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid authentication response",
-            ) from e
-
-        # Find AttributeStatement
-        attr_statement = root.find(".//saml2:AttributeStatement", self.NAMESPACES)
+        """Return attributes from the validated assertion as a dictionary."""
+        attr_statement = (
+            self.assertion.attribute_statement[0]
+            if self.assertion is not None and self.assertion.attribute_statement
+            else None
+        )
         if attr_statement is None:
             logger.error("SAML response failed: AttributeStatement not found")
             raise HTTPException(
@@ -194,7 +184,7 @@ class SAMLParser:
 
         # Process all attributes
         attributes = {}
-        for attr_elem in attr_statement.findall("saml2:Attribute", self.NAMESPACES):
+        for attr_elem in attr_statement.attribute:
             saml_attr = self._extract_attribute(attr_elem)
             attributes[saml_attr.name] = asdict(saml_attr)
 
@@ -343,38 +333,6 @@ async def _get_active_org_domains(
     return set((await session.execute(domains_stmt)).scalars().all())
 
 
-def _get_env_allowed_domains_for_saml() -> set[str]:
-    """Return normalized env-domain allowlist for SAML checks."""
-    normalized_domains: set[str] = set()
-    for raw_domain in TRACECAT__AUTH_ALLOWED_DOMAINS:
-        domain = raw_domain.strip().lower()
-        if not domain:
-            continue
-        try:
-            normalized_domains.add(normalize_domain(domain).normalized_domain)
-        except ValueError:
-            continue
-    return normalized_domains
-
-
-def _is_normalized_domain_allowed_for_org(
-    *,
-    normalized_domain: str,
-    active_domains: set[str],
-) -> bool:
-    """Apply runtime SAML domain policy for a normalized email domain."""
-    if active_domains:
-        return normalized_domain in active_domains
-
-    if TRACECAT__EE_MULTI_TENANT:
-        return False
-
-    env_allowed_domains = _get_env_allowed_domains_for_saml()
-    if env_allowed_domains:
-        return normalized_domain in env_allowed_domains
-    return True
-
-
 def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
     """Extract candidate emails from known SAML attributes in priority order."""
     candidates = [
@@ -406,28 +364,19 @@ def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
 
 async def get_pending_org_invitation(
     session: AsyncSession, organization_id: OrganizationID, email: str
-) -> OrganizationInvitation | None:
+) -> Invitation | None:
     """Return a pending, unexpired org invitation for the email if one exists."""
     normalized_email = email.strip().lower()
     if not normalized_email:
         return None
-    statement = (
-        select(OrganizationInvitation)
-        .where(
-            OrganizationInvitation.organization_id == organization_id,
-            func.lower(OrganizationInvitation.email) == normalized_email,
-            OrganizationInvitation.status == InvitationStatus.PENDING,
-            OrganizationInvitation.expires_at > datetime.now(UTC),
-        )
-        .order_by(OrganizationInvitation.created_at.desc())
+    return await get_pending_invitation_for_email(
+        session, organization_id=organization_id, email=normalized_email
     )
-    result = await session.execute(statement)
-    return result.scalars().first()
 
 
 async def _select_authorized_email(
     session: AsyncSession, organization_id: OrganizationID, candidates: list[str]
-) -> tuple[str | None, OrganizationInvitation | None]:
+) -> tuple[str | None, Invitation | None]:
     """Pick the best SAML email candidate allowed by org policy.
 
     Selection order:
@@ -451,7 +400,7 @@ async def _select_authorized_email(
             normalized_domain = normalize_domain(raw_domain).normalized_domain
         except ValueError:
             continue
-        if not _is_normalized_domain_allowed_for_org(
+        if not is_domain_allowed_for_org(
             normalized_domain=normalized_domain,
             active_domains=active_domains,
         ):
@@ -500,7 +449,7 @@ async def is_superadmin_saml_bootstrap_allowed_for_org(
 
 def should_allow_saml_user_auto_provisioning(
     *,
-    pending_invitation: OrganizationInvitation | None,
+    pending_invitation: Invitation | None,
     is_first_superadmin_bootstrap: bool,
 ) -> bool:
     """Allow SAML user creation only for invitees and first superadmin bootstrap."""
@@ -510,7 +459,7 @@ def should_allow_saml_user_auto_provisioning(
 def should_allow_saml_org_access(
     *,
     has_existing_membership: bool,
-    pending_invitation: OrganizationInvitation | None,
+    pending_invitation: Invitation | None,
     is_first_superadmin_bootstrap: bool,
     is_platform_superuser: bool,
 ) -> bool:
@@ -868,7 +817,7 @@ async def sso_acs(
 
     logger.info("SAML response validated successfully")
 
-    parser = SAMLParser(str(authn_response))
+    parser = SAMLParser(authn_response.assertion)
     candidate_emails = _extract_candidate_emails(parser)
     if not candidate_emails:
         attributes = parser.attributes or {}
@@ -926,23 +875,22 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
-    # Accept a pending org invitation so the user receives the role the inviter
-    # intended. This is idempotent: if single-tenant defaults already created an
-    # organization-member assignment (e.g. SSO auto-provisioning ran first), the
-    # upsert in accept_invitation_for_user upgrades the role to invitation.role_id.
+    # Accept a pending org invitation so the user receives the grants the inviter
+    # intended. An assignment the user already holds at a scope is left in place.
     if pending_invitation is not None:
         try:
             await accept_invitation_for_user(
                 db_session,
                 user_id=user.id,  # pyright: ignore[reportArgumentType]
                 token=pending_invitation.token,
+                via_sso=True,
             )
             logger.info(
                 "Accepted pending org invitation during SAML login",
                 user_id=str(user.id),
                 email=email,
                 org_id=str(organization_id),
-                role_id=str(pending_invitation.role_id),
+                grant_count=len(pending_invitation.grants),
             )
         except Exception:
             await db_session.rollback()

@@ -1,8 +1,9 @@
 "use client"
 
+import { useVirtualizer } from "@tanstack/react-virtual"
 import fuzzysort from "fuzzysort"
 import { Search, X } from "lucide-react"
-import React, { useCallback, useMemo } from "react"
+import React, { useCallback, useMemo, useRef } from "react"
 import type { ControllerRenderProps, FieldValues } from "react-hook-form"
 import type { RegistryActionReadMinimal } from "@/client"
 import { getIcon } from "@/components/icons"
@@ -22,6 +23,10 @@ interface ActionMultiselectProps<T extends FieldValues> {
   maxHeight?: string
   className?: string
 }
+
+type MultiselectRow =
+  | { kind: "header"; namespace: string }
+  | { kind: "action"; suggestion: Suggestion }
 
 export function ActionMultiselect<T extends FieldValues>({
   field,
@@ -50,9 +55,6 @@ export function ActionMultiselect<T extends FieldValues>({
           value: action.action,
           description: action.description,
           group: action.namespace,
-          icon: getIcon(action.action, {
-            className: "size-6",
-          }),
         }))
         .sort((a, b) => a.value.localeCompare(b.value)) || []
     )
@@ -80,18 +82,42 @@ export function ActionMultiselect<T extends FieldValues>({
     return filterActions(suggestions, searchQuery).map((result) => result.obj)
   }, [suggestions, searchQuery, filterActions])
 
-  // Group suggestions by namespace for better organization
-  const groupedActions = useMemo(() => {
-    const groups: Record<string, Suggestion[]> = {}
-    filteredSuggestions.forEach((suggestion) => {
+  // Flatten namespace headers and actions into one virtualized row list.
+  const rows = useMemo(() => {
+    const groups = new Map<string, Suggestion[]>()
+    for (const suggestion of filteredSuggestions) {
       const group = suggestion.group || "Other"
-      if (!groups[group]) {
-        groups[group] = []
-      }
-      groups[group].push(suggestion)
-    })
-    return groups
+      const existing = groups.get(group)
+      if (existing) existing.push(suggestion)
+      else groups.set(group, [suggestion])
+    }
+    const flat: MultiselectRow[] = []
+    for (const [namespace, actions] of groups) {
+      flat.push({ kind: "header", namespace })
+      for (const suggestion of actions)
+        flat.push({ kind: "action", suggestion })
+    }
+    return flat
   }, [filteredSuggestions])
+
+  const suggestionsByValue = useMemo(
+    () => new Map(suggestions.map((s) => [s.value, s])),
+    [suggestions]
+  )
+  const selectedSet = useMemo(() => new Set(selectedActions), [selectedActions])
+  const listRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: (i) => (rows[i]?.kind === "header" ? 28 : 72),
+    getItemKey: (i) => {
+      const row = rows[i]
+      return row.kind === "header"
+        ? `header:${row.namespace}`
+        : row.suggestion.value
+    },
+    overscan: 6,
+  })
 
   // build map of namespaces to registry actions
   const namespaceMap = useMemo(() => {
@@ -105,6 +131,50 @@ export function ActionMultiselect<T extends FieldValues>({
       ) || {}
     )
   }, [registryActions])
+
+  function renderSuggestion(suggestion: Suggestion) {
+    const isSelected = selectedSet.has(suggestion.value)
+    return (
+      <div
+        className={cn(
+          "flex items-start space-x-3 p-3 rounded-lg transition-all duration-200 cursor-pointer hover:bg-accent",
+          isSelected
+            ? "bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800"
+            : "border-border"
+        )}
+      >
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={(checked) => {
+            const currentSelections = Array.isArray(field.value)
+              ? field.value
+              : []
+            if (checked === true) {
+              field.onChange([...currentSelections, suggestion.value])
+              return
+            }
+            const nextSelections = currentSelections.filter(
+              (value: string) => value !== suggestion.value
+            )
+            field.onChange(nextSelections)
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-1"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center space-x-2 mb-1">
+            <div className="size-6">
+              {getIcon(suggestion.value, { className: "size-6" })}
+            </div>
+            <span className="font-medium text-xs">{suggestion.label}</span>
+          </div>
+          <p className="text-xs text-muted-foreground line-clamp-2">
+            {suggestion.description}
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   if (registryActionsIsLoading) {
     return <CenteredSpinner />
@@ -128,63 +198,35 @@ export function ActionMultiselect<T extends FieldValues>({
             />
           </div>
         </div>
-        <div className="space-y-4 overflow-y-auto" style={{ maxHeight }}>
-          {Object.entries(groupedActions).map(([namespace, actions]) => (
-            <div key={namespace} className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="text-xs font-medium capitalize">
-                  {namespaceMap[namespace].display_group || namespace}
-                </div>
-              </div>
-              {actions.map((suggestion) => {
-                const isSelected = selectedActions.includes(suggestion.value)
+        <div ref={listRef} className="overflow-y-auto" style={{ maxHeight }}>
+          {rows.length > 0 && (
+            <div
+              className="relative w-full"
+              style={{ height: virtualizer.getTotalSize() }}
+            >
+              {virtualizer.getVirtualItems().map((item) => {
+                const row = rows[item.index]
                 return (
                   <div
-                    key={suggestion.value}
-                    className={cn(
-                      "flex items-start space-x-3 p-3 rounded-lg transition-all duration-200 cursor-pointer hover:bg-accent",
-                      isSelected
-                        ? "bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800"
-                        : "border-border"
-                    )}
+                    key={item.key}
+                    data-index={item.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute left-0 top-0 w-full pb-3"
+                    style={{ transform: `translateY(${item.start}px)` }}
                   >
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={(checked) => {
-                        const currentSelections = Array.isArray(field.value)
-                          ? field.value
-                          : []
-                        if (checked === true) {
-                          field.onChange([
-                            ...currentSelections,
-                            suggestion.value,
-                          ])
-                          return
-                        }
-                        const nextSelections = currentSelections.filter(
-                          (value: string) => value !== suggestion.value
-                        )
-                        field.onChange(nextSelections)
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-1"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <div className="size-6">{suggestion.icon}</div>
-                        <span className="font-medium text-xs">
-                          {suggestion.label}
-                        </span>
+                    {row.kind === "header" ? (
+                      <div className="pt-1 text-xs font-medium capitalize">
+                        {namespaceMap[row.namespace]?.display_group ||
+                          row.namespace}
                       </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {suggestion.description}
-                      </p>
-                    </div>
+                    ) : (
+                      renderSuggestion(row.suggestion)
+                    )}
                   </div>
                 )
               })}
             </div>
-          ))}
+          )}
           {filteredSuggestions.length === 0 && searchQuery && (
             <div className="text-center py-8">
               <p className="text-muted-foreground">
@@ -216,15 +258,13 @@ export function ActionMultiselect<T extends FieldValues>({
           ) : (
             <div className="space-y-3">
               {selectedActions.map((actionId: string) => {
-                const suggestion = suggestions?.find(
-                  (s) => s.value === actionId
-                )
+                const suggestion = suggestionsByValue.get(actionId)
                 return suggestion ? (
                   <div
                     key={actionId}
                     className="flex items-center space-x-2 p-2 bg-muted rounded group"
                   >
-                    {suggestion.icon}
+                    {getIcon(suggestion.value, { className: "size-6" })}
                     <span className="text-sm font-medium truncate flex-1">
                       {suggestion.label}
                     </span>

@@ -1,3 +1,5 @@
+import base64
+import binascii
 import logging
 import os
 import uuid
@@ -5,8 +7,13 @@ from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
 
-from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+from tracecat import __version__
+from tracecat.agent.constants import (
+    AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
+)
 from tracecat.auth.enums import AuthType
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
 
 # === Logger === #
@@ -83,6 +90,13 @@ class RLSMode(StrEnum):
     ENFORCE = "enforce"
 
 
+class DBEncryptionAlgorithm(StrEnum):
+    """Cipher used to encrypt new database values."""
+
+    FERNET = "fernet"
+    AES256GCM = "aes256gcm"
+
+
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
     Literal["development", "staging", "production"],
@@ -103,6 +117,19 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+
+# Email (SMTP relay). Invitation email delivery is enabled only when every
+# required value is configured.
+TRACECAT__SMTP_HOST = (os.environ.get("TRACECAT__SMTP_HOST") or "").strip() or None
+TRACECAT__SMTP_PORT = int(os.environ.get("TRACECAT__SMTP_PORT") or 587)
+if not 1 <= TRACECAT__SMTP_PORT <= 65535:
+    raise ValueError(f"TRACECAT__SMTP_PORT is an invalid port: {TRACECAT__SMTP_PORT}")
+TRACECAT__SMTP_USER = (os.environ.get("TRACECAT__SMTP_USER") or "").strip() or None
+# Whitespace is preserved: a stripped password is a different credential.
+_smtp_password = os.environ.get("TRACECAT__SMTP_PASSWORD") or ""
+TRACECAT__SMTP_PASSWORD = _smtp_password if _smtp_password.strip() else None
+TRACECAT__EMAIL_FROM = (os.environ.get("TRACECAT__EMAIL_FROM") or "").strip() or None
+
 TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
     "TRACECAT__PLATFORM_OTEL_ENABLED", default=False
 )
@@ -205,6 +232,30 @@ TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
     "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", default=True
 )
 """Prefer SquashFS registry artifacts when sidecars and mount support are available."""
+
+TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS = bound_env(
+    "TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS",
+    3,
+    lower=1,
+)
+"""Mount attempts per SquashFS artifact before falling back to extraction.
+
+Losers of a node-wide loop-device race retry; raise this before raising
+in-pod mount concurrency."""
+
+TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS = bound_env(
+    "TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS", 2, lower=1
+)
+"""Concurrent cold registry artifact downloads per executor process.
+
+Each download reserves its bytes against the cache cap before writing."""
+
+TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS = bound_env(
+    "TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS", 1, lower=1
+)
+"""Concurrent registry artifact extractions per executor process.
+
+unsquashfs already uses every visible core, so one is the default."""
 
 TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = int(
     os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES") or 64
@@ -334,6 +385,10 @@ TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION = env_bool(
 SESSION_EXPIRE_TIME_SECONDS = int(
     os.environ.get("SESSION_EXPIRE_TIME_SECONDS") or 86400 * 7
 )  # 7 days
+SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS = int(
+    os.environ.get("SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS") or 300
+)
+"""Minimum interval between ``last_seen_at`` writes for an active session."""
 TRACECAT__AUTH_ALLOWED_DOMAINS = set(
     ((domains := os.getenv("TRACECAT__AUTH_ALLOWED_DOMAINS")) and domains.split(","))
     or []
@@ -375,6 +430,40 @@ OAUTH_CLIENT_ID = OIDC_CLIENT_ID
 OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
+_db_encryption_algorithm_raw = (
+    os.environ.get("TRACECAT__DB_ENCRYPTION_ALGORITHM") or DBEncryptionAlgorithm.FERNET
+)
+try:
+    TRACECAT__DB_ENCRYPTION_ALGORITHM = DBEncryptionAlgorithm(
+        _db_encryption_algorithm_raw.strip().lower()
+    )
+except ValueError as e:
+    raise ValueError(
+        "TRACECAT__DB_ENCRYPTION_ALGORITHM must be one of "
+        f"{', '.join(DBEncryptionAlgorithm)} (got {_db_encryption_algorithm_raw!r})"
+    ) from e
+"""Cipher for new database writes (fernet|aes256gcm). Reads accept both."""
+
+
+def _parse_db_encryption_previous_keys() -> tuple[str, ...]:
+    raw = os.environ.get("TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS") or ""
+    keys = tuple(key for part in raw.split(",") if (key := part.strip()))
+    for index, key in enumerate(keys):
+        try:
+            decoded = base64.urlsafe_b64decode(key)
+        except (binascii.Error, ValueError):
+            decoded = b""
+        if len(decoded) != 32:
+            # Never echo the key itself; name its position instead.
+            raise ValueError(
+                f"TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS entry {index} is not "
+                "32 url-safe base64-encoded bytes"
+            )
+    return keys
+
+
+TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS = _parse_db_encryption_previous_keys()
+"""Comma-separated retired DB encryption keys, used for reads only during rotation."""
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
 TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
     "TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID"
@@ -434,6 +523,16 @@ TEMPORAL__CLUSTER_NAMESPACE = os.environ.get(
 TEMPORAL__CLUSTER_QUEUE = os.environ.get(
     "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
 )
+TRACECAT__BACKGROUND_QUEUE = (
+    os.environ.get("TRACECAT__BACKGROUND_QUEUE") or "shared-background-queue"
+)
+TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES = int(
+    os.environ.get("TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES") or 4
+)
+if TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES < 1:
+    raise ValueError(
+        "TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES must be at least 1"
+    )
 TEMPORAL__API_KEY__ARN = os.environ.get("TEMPORAL__API_KEY__ARN")
 TEMPORAL__API_KEY = os.environ.get("TEMPORAL__API_KEY")
 TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT") or "900"
@@ -488,6 +587,14 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
     development and should never be enabled in production.
 """
 
+TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = env_bool(
+    "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", default=False
+)
+"""Legacy setting accepted by existing deployments; no longer changes behavior.
+Action and expression errors always use selective masking of known secrets and
+observed secret-derived values.
+"""
+
 # === M2M config === #
 TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(
@@ -521,6 +628,14 @@ TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
 
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
+
+TRACECAT__BLOB_STORAGE_SSL_VERIFY = env_bool(
+    "TRACECAT__BLOB_STORAGE_SSL_VERIFY", default=True
+)
+"""Verify TLS certificates when connecting to blob storage (S3/MinIO).
+
+Set to false for self-hosted S3-compatible storage that terminates TLS with a
+self-signed or otherwise unverifiable certificate. Defaults to true."""
 
 TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS") or 5
@@ -663,7 +778,26 @@ TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
 TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
     os.environ.get("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB") or 2048
 )
-"""Default memory limit for sandbox execution in megabytes (2 GiB)."""
+"""Aggregate cgroup memory budget for action and Python sandboxes in MiB."""
+if TRACECAT__SANDBOX_DEFAULT_MEMORY_MB <= 0:
+    raise ValueError("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB must be positive")
+
+_sandbox_address_space_mb = os.environ.get(
+    "TRACECAT__SANDBOX_ADDRESS_SPACE_MB", ""
+).strip()
+TRACECAT__SANDBOX_ADDRESS_SPACE_MB = (
+    int(_sandbox_address_space_mb) if _sandbox_address_space_mb else None
+)
+"""Per-process address-space cap in MiB.
+
+Unset means uncapped under the sandbox cgroup memory limit, which bounds RAM;
+without that cgroup it defaults to twice the memory budget.
+"""
+if (
+    TRACECAT__SANDBOX_ADDRESS_SPACE_MB is not None
+    and TRACECAT__SANDBOX_ADDRESS_SPACE_MB <= 0
+):
+    raise ValueError("TRACECAT__SANDBOX_ADDRESS_SPACE_MB must be positive")
 
 TRACECAT__SANDBOX_PYPI_INDEX_URL = os.environ.get(
     "TRACECAT__SANDBOX_PYPI_INDEX_URL", "https://pypi.org/simple"
@@ -729,6 +863,40 @@ def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
             ports.append(port)
     return tuple(ports)
 
+
+TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS = env_networks(
+    "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
+)
+"""Operator-only exceptions for caller-controlled MCP and LLM HTTP destinations.
+
+Empty by default. Configure exact IPs or narrow CIDRs only for intentional private
+integrations. Every workspace using these clients can reach an allowed address.
+Set this in the process/container environment, not workspace or action inputs.
+"""
+
+TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = env_bool(
+    "TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS", default=False
+)
+"""Break-glass override that skips the platform admin IP allowlist.
+
+Lets operators recover platform admin access after a lockout. Organization IP
+allowlists are unaffected.
+"""
+
+TRACECAT__PLATFORM_ADMIN_MFA_BYPASS = env_bool(
+    "TRACECAT__PLATFORM_ADMIN_MFA_BYPASS", default=False
+)
+"""Break-glass override that skips security key (MFA) checks for platform admins.
+
+Skips both the sign-in challenge and step-up verification for platform
+superusers so operators can recover access after losing every security key.
+Organization members are unaffected.
+"""
+
+TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS = bound_env(
+    "TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS", 300, lower=30, upper=3600
+)
+"""How long a security key verification satisfies step-up checks (30 s to 1 h)."""
 
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
@@ -806,48 +974,57 @@ TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
 )
 """Deployment-specific CIDRs blocked in addition to the filtered baseline."""
 
+TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS"
+)
+"""Additional CIDRs reachable from sandboxes on TCP/UDP port 53 only.
+
+CNIs with socket-level load balancing (for example Cilium with socket LB)
+rewrite the resolver ClusterIP to a backend pod IP before the packet reaches
+NSTUN. List the backend CIDR here so DNS to those addresses is allowed."""
+
 TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
     "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS", default=False
 )
 """Allow filtered sandboxes to reach public IPv6 destinations."""
 
-TRACECAT__DISABLE_NSJAIL = env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
-"""Disable nsjail sandbox and use the unsafe PID executor instead.
+# === Execution isolation === #
+TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
+    os.environ.get("TRACECAT__EXECUTOR_BACKEND")
+)
+"""Execution mode for actions, agents, registry sync, and Python scripts.
 
-When True (default), uses UnsafePidExecutor with best-effort PID namespace
-isolation. This mode works without privileged Docker mode but has less isolation.
-
-When False, uses nsjail sandbox for full OS-level isolation. Requires:
-- Linux with kernel >= 4.6
-- Docker privileged mode or CAP_SYS_ADMIN capability
-- nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
-- Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
-"""
-
-# === Action Executor === #
-TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "direct")
-"""Executor backend for running actions.
-
-Supported values:
-- 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation, ~4000ms)
-- 'direct': Direct subprocess execution (no warm workers, no in-process state sharing)
-- 'test': In-process execution for tests only (no isolation, no subprocess overhead)
-- 'auto': Auto-select based on environment (ephemeral if nsjail available, else direct)
-
-Trust mode is derived from the backend type:
-- ephemeral: untrusted (secrets pre-resolved, no DB creds)
-- direct: untrusted subprocess execution (secrets pre-resolved, no DB creds)
-- test: trusted in-process execution (no sandbox)
-
-WARNING: 'test' backend provides NO isolation between actions. Actions share
-the same process memory, env vars can leak, and crashes affect the whole worker.
-Only use 'test' for tests.
+- 'direct' (default): Run subprocesses without nsjail.
+- 'nsjail': Require nsjail isolation. Requires Linux, the nsjail binary,
+  sandbox rootfs, and the required container capabilities.
+- 'ephemeral': Compatibility alias for 'nsjail'.
 """
 
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 300
 )
-"""Default timeout in seconds for executor client operations (default: 300s)."""
+"""Maximum seconds one action function call may run (default: 300s).
+
+The executor caps each UDF subprocess call at this value and uses it as the
+action timeout when the timeout is 0. Template totals and run_python follow the
+action's own timeout. Agent services also use it to bound executor tool calls."""
+
+TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT") or 600
+)
+"""Seconds added to an action's timeout for the executor activity's start-to-close timeout.
+
+The action timeout budgets only the action function call. This allowance covers
+platform work in the same activity (context materialization, secret resolution,
+registry artifacts, sandbox startup, and result storage)."""
+
+TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE = float(
+    os.environ.get("TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE") or 60
+)
+"""Seconds an action subprocess may run beyond the action timeout before it is killed.
+
+Covers sandbox startup, imports, and result serialization around the timed
+function call, which the action runner enforces itself."""
 
 # === Action Gateway === #
 TRACECAT__ACTION_GATEWAY_SOCKET = (
@@ -857,24 +1034,6 @@ TRACECAT__ACTION_GATEWAY_SOCKET = (
 """Unix socket path for the executor-local action gateway."""
 
 # === Action Executor Sandbox === #
-TRACECAT__EXECUTOR_SANDBOX_ENABLED = env_bool(
-    "TRACECAT__EXECUTOR_SANDBOX_ENABLED", default=False
-)
-"""Enable nsjail sandbox for action execution in subprocess mode.
-
-When True, actions run in an nsjail sandbox with:
-- Filesystem isolation (tmpdir VFS)
-- Resource limits (CPU, memory, file size, processes)
-- Network access (for DB, S3, external APIs)
-
-When False (default), actions run in direct subprocesses without sandboxing.
-
-Requires:
-- TRACECAT__EXECUTOR_BACKEND=ephemeral or direct
-- nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
-- Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
-"""
-
 TRACECAT__EXECUTOR_TRACECAT_APP_DIR = os.environ.get(
     "TRACECAT__EXECUTOR_TRACECAT_APP_DIR", ""
 )
@@ -891,11 +1050,12 @@ If not set, will be auto-detected from a known dependency's location.
 
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 3600
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT")
+    or AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT
 )
-"""Ceiling for agent execution timeouts in seconds (default one hour).
+"""Ceiling for agent execution timeouts in seconds.
 
-Per-action agent timeouts clamp to [AGENT_TIMEOUT_SECONDS_DEFAULT, this].
+Per-action agent timeouts clamp to [min(AGENT_TIMEOUT_SECONDS_FLOOR, this), this].
 """
 
 TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
@@ -995,6 +1155,14 @@ TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
 This queue is reserved for `run_agent_activity` so agent runtime capacity can be
 provisioned independently from agent workflow/control-plane work."""
 
+TRACECAT__AGENT_CHAT_BACKEND = os.environ.get("TRACECAT__AGENT_CHAT_BACKEND") or "oss"
+"""Agent backend for new sessions whose caller does not choose one.
+
+Applies to workspace, agent preset, case and external channel (Slack) sessions,
+including case-comment and MCP preset runs, for organizations entitled to
+non-default backends. Workflow runs and the preset builder keep the built-in
+backend."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = env_bool("TRACECAT__RATE_LIMIT_ENABLED", default=True)
 """Whether rate limiting is enabled for the executor service."""
@@ -1021,9 +1189,15 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = env_bool(
 """Whether to rate limit by endpoint."""
 
 TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 1024 * 1024
+    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 5 * 1024**3
 )
-"""The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
+"""The maximum size of a payload in bytes the executor can return.
+
+Defaults to 5 GiB, the largest single-object upload S3 and MinIO accept.
+Results above ``TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES`` are
+externalized to blob storage with a single PUT, so the object store's
+single-upload cap is the effective ceiling on an action's result.
+"""
 
 TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES = int(
     os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES") or 5 * 1024**3
@@ -1121,6 +1295,17 @@ TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
     upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
 )
 """PostgreSQL statement timeout for aggregation queries, in milliseconds."""
+
+TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS = bound_env(
+    "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS",
+    30_000,
+    lower=1,
+    upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
+)
+"""PostgreSQL statement timeout for case text search, in milliseconds.
+
+A slow search holds a pooled database connection for up to this long.
+"""
 
 TRACECAT__LIMIT_DEFAULT = 20
 """Default list/search page size."""
@@ -1360,6 +1545,75 @@ ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 TRACECAT__EE_MULTI_TENANT = env_bool("TRACECAT__EE_MULTI_TENANT", default=False)
 """Whether multi-tenant features are enabled for Enterprise Edition."""
 
+# === Managed tunnels (Pangolin) === #
+TRACECAT__PANGOLIN_ENDPOINT = os.environ.get("TRACECAT__PANGOLIN_ENDPOINT")
+"""Pangolin server URL that sites and machine clients connect to, e.g. Pangolin Cloud."""
+
+TRACECAT__PANGOLIN_API_URL = os.environ.get("TRACECAT__PANGOLIN_API_URL")
+"""Pangolin Integration API base URL (ending in /v1) used to provision managed tunnels."""
+
+TRACECAT__PANGOLIN_ORG_ID = os.environ.get("TRACECAT__PANGOLIN_ORG_ID")
+"""Pangolin organization that holds every managed tunnel's site, client, and resources."""
+
+TRACECAT__PANGOLIN_API_KEY = os.environ.get("TRACECAT__PANGOLIN_API_KEY")
+"""Pangolin organization API key. Managed tunnels are disabled when unset."""
+
+TRACECAT__PANGOLIN_API_KEY__ARN = os.environ.get("TRACECAT__PANGOLIN_API_KEY__ARN")
+"""AWS Secrets Manager ARN holding the Pangolin API key. Takes precedence over
+``TRACECAT__PANGOLIN_API_KEY``. Only the API service reads it."""
+
+# === Tunnel gateways === #
+TRACECAT__TUNNEL_GATEWAY_BACKEND = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_BACKEND", "none").strip().lower()
+)
+"""Who runs tunnel gateways: ``kubernetes`` (the API creates one per tunnel) or
+``none`` (gateways are run by hand, e.g. Docker Compose and most self-hosted installs)."""
+
+TRACECAT__TUNNEL_GATEWAY_NAMESPACE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_NAMESPACE", "tracecat-tunnels"
+)
+"""Kubernetes namespace that holds tunnel gateway objects."""
+
+TRACECAT__TUNNEL_GATEWAY_IMAGE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_IMAGE",
+    f"ghcr.io/tracecathq/tracecat-tunnel-gateway:{__version__}",
+)
+"""Container image for tunnel gateways created by the ``kubernetes`` backend.
+
+Defaults to this release's version tag. Pin a digest for an immutable image.
+"""
+
+TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS = env_networks(
+    "TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS"
+)
+"""Extra CIDRs, such as cluster pod and service ranges, that gateways never dial."""
+
+TRACECAT__TUNNEL_GATEWAY_API_URL = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_API_URL", TRACECAT__API_URL
+)
+"""Tracecat API URL that gateways poll for their policy."""
+
+TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE", "squat.ai/tun"
+)
+"""Extended resource that grants a gateway pod ``/dev/net/tun``. Empty disables the request."""
+
+TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL = float(
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL") or 60
+)
+"""Seconds between reconciles of gateway objects against tunnels."""
+
+TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE")
+    or f"tunnel-{{tunnel_id}}.{TRACECAT__TUNNEL_GATEWAY_NAMESPACE}.svc.cluster.local"
+)
+"""Host executors use to reach a tunnel's gateway. ``{tunnel_id}`` is replaced."""
+
+TRACECAT__TUNNEL_GATEWAY_PORT = int(
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_PORT") or 8080
+)
+"""Port tunnel gateways listen on."""
+
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()
 for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
@@ -1440,7 +1694,7 @@ TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = env_bool(
 
 When True (default), registry sync operations run on the ExecutorWorker.
 NsJail isolation on that worker is controlled separately by
-TRACECAT__DISABLE_NSJAIL.
+TRACECAT__EXECUTOR_BACKEND.
 
 When False, uses the existing subprocess approach from the API service.
 """

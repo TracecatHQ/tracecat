@@ -13,8 +13,8 @@ class GitHubOAuthProvider(AuthorizationCodeOAuthProvider):
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=["repo"])
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="github",
-        name="GitHub (Delegated)",
-        description="GitHub OAuth provider using authorization code flow for user access",
+        name="GitHub OAuth (Delegated)",
+        description="Authenticate on behalf of a user through a GitHub OAuth App.",
         requires_config=True,
         enabled=True,
         api_docs_url="https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps",

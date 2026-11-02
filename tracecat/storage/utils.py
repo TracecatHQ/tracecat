@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from aiohttp import ClientPayloadError
 from botocore.exceptions import HTTPClientError
 from cachetools import TTLCache
 
@@ -32,9 +33,11 @@ def is_retryable_storage_transport_error(exc: BaseException) -> bool:
     """Return true for transient blob-storage transport failures.
 
     Keep this deliberately narrow: retry aiobotocore/botocore HTTP client
-    transport failures, but do not retry S3 service errors, missing objects,
-    integrity failures, validation errors, or user/data errors. Walk the
-    exception chain so a wrapped transport error is still detected.
+    transport failures and aiohttp response-body errors (including truncated
+    or malformed responses), but do not retry S3 service errors, missing
+    objects, integrity failures, validation errors,
+    or user/data errors. Walk the exception chain so a wrapped transport error
+    is still detected.
     """
     seen: set[int] = set()
     stack: list[BaseException | None] = [exc]
@@ -46,7 +49,7 @@ def is_retryable_storage_transport_error(exc: BaseException) -> bool:
         if current_id in seen:
             continue
         seen.add(current_id)
-        if isinstance(current, HTTPClientError):
+        if isinstance(current, HTTPClientError | ClientPayloadError):
             return True
         if isinstance(current, BaseExceptionGroup):
             stack.extend(current.exceptions)

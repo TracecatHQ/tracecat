@@ -44,6 +44,8 @@ import {
   type DataTableToolbarProps,
 } from "@/components/data-table"
 import type { IconPickerProps } from "@/components/form/icon-picker"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 
 const IconPicker = dynamic<IconPickerProps>(
   () => import("@/components/form/icon-picker").then((mod) => mod.IconPicker),
@@ -68,6 +70,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -159,6 +162,8 @@ export function DropdownsTable({
   const [selectedDef, setSelectedDef] =
     useState<CaseDropdownDefinitionRead | null>(null)
   const [action, setAction] = useState<DefinitionAction | null>(null)
+  // Managed dropdowns keep their definition; choosing values on cases works.
+  const { isManaged } = useManagedResources()
 
   const handleCloseEdit = () => {
     setSelectedDef(null)
@@ -206,6 +211,12 @@ export function DropdownsTable({
                     <span className="text-xs text-foreground/80">
                       {def.name}
                     </span>
+                    <ManagedResourceStatus
+                      resourceType="case_dropdown"
+                      id={def.id}
+                      name={def.name}
+                      showDetach
+                    />
                   </div>
                 )
               },
@@ -289,6 +300,7 @@ export function DropdownsTable({
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                const isLocked = isManaged("case_dropdown", row.original.id)
                 return (
                   <div className="flex justify-end">
                     <DropdownMenu>
@@ -308,6 +320,7 @@ export function DropdownsTable({
                           Copy reference
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          disabled={isLocked}
                           onClick={() => {
                             setSelectedDef(row.original)
                             setAction(DefinitionAction.Edit)
@@ -318,13 +331,14 @@ export function DropdownsTable({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-rose-500 focus:text-rose-600"
+                          disabled={isLocked}
                           onClick={() => {
                             setSelectedDef(row.original)
                             setAction(DefinitionAction.Delete)
                           }}
                         >
                           <Trash2Icon className="mr-2 size-3" />
-                          Delete dropdown
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -668,7 +682,7 @@ function EditDefinitionDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent size="md" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit dropdown</DialogTitle>
           <DialogDescription>
@@ -676,8 +690,11 @@ function EditDefinitionDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(handleSave)}>
-            <div className="space-y-4">
+          <form
+            onSubmit={methods.handleSubmit(handleSave)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <div className="flex items-start gap-3">
                 <FormField
                   control={methods.control}
@@ -775,25 +792,18 @@ function EditDefinitionDialog({
                   Add option
                 </Button>
               </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onClose}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  className="flex items-center gap-2"
-                  disabled={saving}
-                >
-                  <PencilIcon className="size-4" />
-                  Save changes
-                </Button>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                size="sm"
+                type="submit"
+                className="flex items-center gap-2"
+                disabled={saving}
+              >
+                <PencilIcon className="size-4" />
+                Save changes
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

@@ -377,8 +377,9 @@ def _compile_row_count(
 ) -> ColumnElement[int]:
     if has_multi_valued_join:
         assert entity_id is not None
-        return sa.func.count(sa.distinct(entity_id))
-    return sa.func.count()
+        return sa.func.count(sa.distinct(entity_id), type_=sa.BigInteger())
+    # Match PostgreSQL's return type so HAVING thresholds bind as BIGINT too.
+    return sa.func.count(type_=sa.BigInteger())
 
 
 def _resolve_ordering(spec: AggregationSpec) -> tuple[str, SortDirection]:
@@ -466,7 +467,16 @@ def _compile_condition(
     normalized = _normalize_value(
         condition, resolved.kind, column_expression.type, value
     )
-    return _compile_expression(condition, column_expression, normalized)
+    if resolved.kind is FieldKind.JSON_SCALAR and normalized is not None:
+        # Bind as JSONB explicitly: SQLAlchemy otherwise infers native SQL
+        # strings/numbers/booleans, which cannot be compared to a JSONB scalar.
+        bound = sa.bindparam(None, normalized, type_=postgresql.JSONB())
+        if condition.op is FilterOp.EQ:
+            return column_expression == bound
+        if condition.op is FilterOp.NE:
+            return column_expression != bound
+        raise _condition_error(condition, "JSON scalars only support equality")
+    return compile_predicate(column_expression, condition.op, normalized)
 
 
 def _validate_value_shape(condition: Condition) -> FilterValue | None:
@@ -509,6 +519,16 @@ def _normalize_scalar(
 ) -> NormalizedFilterScalar:
     try:
         match kind:
+            case FieldKind.JSON_SCALAR:
+                if isinstance(value, str):
+                    if "\x00" in value:
+                        raise ValueError
+                    return value
+                if isinstance(value, bool | int):
+                    return value
+                if isinstance(value, float) and math.isfinite(value):
+                    return value
+                raise TypeError
             case FieldKind.NUMBER:
                 return _normalize_number(value_type, value)
             case FieldKind.TEMPORAL:
@@ -655,12 +675,13 @@ def _parse_iso_datetime(value: str) -> datetime:
     return datetime.fromisoformat(text)
 
 
-def _compile_expression(
-    condition: Condition,
+def compile_predicate(
     expression: ColumnElement[Any],
-    value: object | list[object] | None,
+    op: FilterOp,
+    value: NormalizedFilterValue | None,
 ) -> ColumnElement[bool]:
-    match condition.op:
+    """Compile a normalized filter operation against a SQL expression."""
+    match op:
         case FilterOp.EQ:
             return expression == value
         case FilterOp.NE:

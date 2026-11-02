@@ -104,7 +104,7 @@ class EphemeralBackend(ExecutorBackend):
             resolved_context=resolved_context,
             artifact_uris=artifact_uris,
             timeout=timeout,
-            force_sandbox=True,  # Always use nsjail for ephemeral backend
+            use_sandbox=True,  # Always use nsjail for ephemeral backend
         )
 
         # Convert to standard response format

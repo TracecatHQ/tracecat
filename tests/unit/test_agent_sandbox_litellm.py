@@ -13,7 +13,7 @@ import tempfile
 import uuid
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,6 +22,7 @@ from typing import Any, TypedDict, cast
 import orjson
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk.types import SdkPluginConfig
 
 import tracecat.agent.executor.activity as executor_activity
 import tracecat.agent.runtime.claude_code.broker as broker_module
@@ -63,7 +64,13 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
-from tracecat.agent.sandbox.config import AgentResourceLimits
+from tracecat.agent.sandbox.cgroup import sandbox_cgroup
+from tracecat.agent.sandbox.config import (
+    JAILED_SHIM_ENTRYPOINT_PATH,
+    AgentResourceLimits,
+    AgentSandboxConfig,
+    build_agent_nsjail_config,
+)
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
     LLMRoute,
@@ -74,8 +81,11 @@ from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.executor.enums import ExecutorBackendType
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
+    RuntimeErrorClassification,
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
@@ -129,6 +139,7 @@ class _DuckDBSmokeMessage(TypedDict):
 
 
 _STDIO_MCP_BURST_SERVER_COUNT = 12
+_STDIO_MCP_BURST_READY_TIMEOUT_SECONDS = 30
 _STDIO_MCP_BURST_FLOWS_PER_SERVER = 128
 _STDIO_MCP_BURST_FLOW_COUNT = (
     _STDIO_MCP_BURST_SERVER_COUNT * _STDIO_MCP_BURST_FLOWS_PER_SERVER
@@ -141,12 +152,8 @@ _STDIO_MCP_COMBINED_FLOW_COUNT = (
 # under retained load, which exceeds the default 128-process agent jail cap.
 # The stress test opts into a raised cap; production keeps the default.
 _STDIO_MCP_BURST_AGENT_NPROC_LIMIT = 1024
-# The jailed Claude CLI runs under Bun (JavaScriptCore), which sizes its heap
-# reservations by host RAM. On large CI runners the reservation exceeds the
-# default 4 GiB rlimit_as (enforced in MiB since the rlimit units fix), so
-# JSC aborts with "MemoryExhaustion ... Crash intentionally" (SIGABRT). The
-# burst case opts into 8 GiB address-space headroom; production keeps 4 GiB.
-_STDIO_MCP_BURST_AGENT_MEMORY_MB = 8192
+# Reserve virtual address space for Bun without raising the cgroup budget.
+_STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB = 8192
 _STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
 _STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
 _STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
@@ -260,6 +267,8 @@ class _FakeClaudeOptions:
     mcp_servers: object = None
     agents: object = None
     settings: str | None = None
+    plugins: list[SdkPluginConfig] = field(default_factory=list)
+    system_prompt: object = None
 
 
 def _agent_config(**kwargs: Any) -> AgentConfig:
@@ -334,6 +343,7 @@ def _agent_nsjail_available() -> bool:
     rootfs_path = Path(app_config.TRACECAT__SANDBOX_ROOTFS_PATH)
     return (
         platform.system() == "Linux"
+        and bool(os.environ.get("TRACECAT__AGENT_SANDBOX_CGROUP_PATH"))
         and nsjail_path.is_file()
         and os.access(nsjail_path, os.X_OK)
         and rootfs_path.is_dir()
@@ -344,10 +354,26 @@ def _set_disable_nsjail_mode(
     monkeypatch: pytest.MonkeyPatch,
     disable_nsjail: bool,
 ) -> None:
-    monkeypatch.setattr(executor_activity, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(nsjail_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+    monkeypatch.setattr(
+        executor_activity,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        broker_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        nsjail_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
 
 
 def _docker_nsjail_fallback_enabled() -> bool:
@@ -606,7 +632,13 @@ class _FakeLoopbackHandler:
     def build_result(self) -> LoopbackResult:
         return LoopbackResult(success=True)
 
-    async def emit_terminal_error(self, error_msg: str) -> None:
+    async def emit_terminal_error(
+        self,
+        error_msg: str,
+        *,
+        classification: RuntimeErrorClassification,
+    ) -> None:
+        del classification
         raise AssertionError(f"unexpected terminal error: {error_msg}")
 
 
@@ -654,6 +686,7 @@ class _FakeProxy:
 class _FakeLLMSocketProxy:
     instances: list[_FakeLLMSocketProxy] = []
     scripted_bash_command: str | None = None
+    scripted_bash_ready: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -661,8 +694,9 @@ class _FakeLLMSocketProxy:
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
         on_error: Callable[[llm_proxy_module.LLMProxyError], None] | None = None,
+        backend: str | None = None,
     ) -> None:
-        del on_error
+        del on_error, backend
         self.socket_path = socket_path
         self.routing_plan = routing_plan
         self.direct_routes = routing_plan.direct_routes
@@ -670,6 +704,7 @@ class _FakeLLMSocketProxy:
         self.stopped = False
         self.request_count = 0
         self.message_request_count = 0
+        self.scripted_bash_readiness_error: str | None = None
         self.requests: list[_LiteLLMRequestPayload] = []
         self._server: asyncio.Server | None = None
         type(self).instances.append(self)
@@ -733,11 +768,26 @@ class _FakeLLMSocketProxy:
         if is_nonstream_messages_request:
             self.message_request_count += 1
 
-        if (
+        request_bash = (
             self.scripted_bash_command is not None
             and self.message_request_count == 1
             and is_nonstream_messages_request
-        ):
+        )
+        if request_bash and self.scripted_bash_ready is not None:
+            try:
+                await asyncio.wait_for(
+                    self.scripted_bash_ready.wait(),
+                    timeout=_STDIO_MCP_BURST_READY_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                # End the fake turn so the harness can clean up, then surface
+                # the timeout in the test instead of an unhandled server task.
+                self.scripted_bash_readiness_error = (
+                    "Timed out waiting for all MCP initialization signals before Bash"
+                )
+                request_bash = False
+
+        if request_bash:
             content = [
                 {
                     "type": "tool_use",
@@ -1118,6 +1168,7 @@ async def _run_full_claude_harness_runtime_case(
     executor_input: AgentExecutorInput | None = None,
     job_dir: Path | None = None,
     scripted_bash_command: str | None = None,
+    scripted_bash_ready: asyncio.Event | None = None,
 ) -> None:
     _patch_agent_management_credentials(monkeypatch)
     _FakeLLMSocketProxy.instances.clear()
@@ -1156,6 +1207,7 @@ async def _run_full_claude_harness_runtime_case(
         "scripted_bash_command",
         scripted_bash_command,
     )
+    monkeypatch.setattr(_FakeLLMSocketProxy, "scripted_bash_ready", scripted_bash_ready)
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
     monkeypatch.setattr(
         nsjail_module,
@@ -1205,14 +1257,18 @@ async def _run_full_claude_harness_runtime_case(
         await broker.stop()
         shutil.rmtree(job_dir, ignore_errors=True)
 
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.scripted_bash_readiness_error is None, (
+        proxy.scripted_bash_readiness_error
+    )
+
     assert result.success is True
     assert result.error is None
     assert result.output == "fake claude response"
     assert result.result_num_turns == (2 if scripted_bash_command else 1)
     assert result.messages is None
 
-    assert len(_FakeLLMSocketProxy.instances) == 1
-    proxy = _FakeLLMSocketProxy.instances[0]
     assert proxy.request_count >= 1
     assert proxy.started is True
     assert proxy.stopped is True
@@ -1251,8 +1307,12 @@ async def _run_stdio_mcp_startup_burst_case(
         updates: dict[str, int] = {}
         if config.resources.max_processes < _STDIO_MCP_BURST_AGENT_NPROC_LIMIT:
             updates["max_processes"] = _STDIO_MCP_BURST_AGENT_NPROC_LIMIT
-        if config.resources.memory_mb < _STDIO_MCP_BURST_AGENT_MEMORY_MB:
-            updates["memory_mb"] = _STDIO_MCP_BURST_AGENT_MEMORY_MB
+        if (
+            config.resources.address_space_mb is not None
+            and config.resources.address_space_mb
+            < _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
+        ):
+            updates["address_space_mb"] = _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
         if updates:
             config.resources = dataclasses.replace(config.resources, **updates)
         return config
@@ -1329,6 +1389,10 @@ async def _run_stdio_mcp_startup_burst_case(
 
     received_packets = 0
     initialized_servers: set[str] = set()
+    expected_initialized_servers = {
+        str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
+    }
+    mcp_ready = asyncio.Event()
     loop = asyncio.get_running_loop()
 
     def echo_startup_packet(sink: socket.socket) -> None:
@@ -1341,6 +1405,8 @@ async def _run_stdio_mcp_startup_burst_case(
             received_packets += 1
         elif data.startswith(b"initialized:"):
             initialized_servers.add(data.decode().partition(":")[2])
+            if initialized_servers == expected_initialized_servers:
+                mcp_ready.set()
         sink.sendto(b"ack", source)
 
     for sink in udp_sinks:
@@ -1355,17 +1421,17 @@ async def _run_stdio_mcp_startup_burst_case(
             executor_input=executor_input,
             job_dir=job_dir,
             scripted_bash_command=bash_command,
+            # The CLI can call the model while MCP batches still initialize.
+            # Keep the turn alive until all startup flows are retained, so Bash
+            # exercises the combined flow budget rather than racing cleanup.
+            scripted_bash_ready=mcp_ready,
         )
-        await asyncio.sleep(0.1)
     finally:
         for sink in udp_sinks:
             loop.remove_reader(sink.fileno())
             sink.close()
 
     assert received_packets == _STDIO_MCP_COMBINED_FLOW_COUNT, received_packets
-    expected_initialized_servers = {
-        str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
-    }
     assert initialized_servers == expected_initialized_servers, initialized_servers
 
     [proxy] = _FakeLLMSocketProxy.instances
@@ -1518,7 +1584,9 @@ async def _run_mcp_compression_initialize_case(
         request: dict[str, Any],
         timeout: float = 60.0,
     ) -> dict[str, Any]:
-        if request.get("subtype") == "initialize":
+        # Only accelerate the deliberate timeout. Successful sandbox startup
+        # needs the normal deadline when other smoke tests are running.
+        if request.get("subtype") == "initialize" and not expect_success:
             timeout = 1.0
         return await original_send_control_request(self, request, timeout=timeout)
 
@@ -1683,6 +1751,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     compose_env.setdefault("ADDRESS", "0.0.0.0")
     compose_env.setdefault("LOG_LEVEL", "INFO")
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    sandbox_image = os.environ.get("TRACECAT_TEST_SANDBOX_IMAGE")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     device_lines = (
         [
@@ -1711,8 +1780,16 @@ def _run_nsjail_harness_in_docker_or_skip(
             [
                 "services:",
                 "  api:",
-                "    build:",
-                "      target: test",
+                *(
+                    [
+                        f"    image: {json.dumps(sandbox_image)}",
+                        "    build: !reset null",
+                    ]
+                    if sandbox_image
+                    else ["    build:", "      target: test"]
+                ),
+                '    user: "0:0"',
+                "    cgroup: private",
                 *privileged_lines,
                 "    cap_add:",
                 "      - SYS_ADMIN",
@@ -1725,7 +1802,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 f"      - {json.dumps(tests_mount)}",
                 "    environment:",
                 '      TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD: "1"',
-                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__EXECUTOR_BACKEND: "nsjail"',
                 '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
                 '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
                 '      PYTHONDONTWRITEBYTECODE: "1"',
@@ -1745,11 +1822,14 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "run",
                 "--rm",
                 "--no-deps",
-                "--build",
+                *(["--pull", "never"] if sandbox_image else ["--build"]),
                 "-T",
                 "--entrypoint",
-                "sh",
+                "python",
                 "api",
+                "-m",
+                "tracecat.agent.sandbox.cgroup",
+                "sh",
                 "-lc",
                 f"uv run python -m tests.unit.test_agent_sandbox_litellm {cli_flag}",
             ],
@@ -1767,6 +1847,67 @@ def _run_nsjail_harness_in_docker_or_skip(
         pytest.fail(
             f"{failure_label}\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
         )
+
+
+def test_agent_cgroup_oom_containment_and_recovery() -> None:
+    _run_nsjail_harness_in_docker_or_skip(cli_flag="--run-nsjail-cgroup-smoke")
+
+
+def _run_nsjail_cgroup_smoke_from_cli() -> None:
+    """Verify the real kernel boundary, then reuse the agent/DuckDB smoke."""
+    assert os.getuid() == 1001
+    root = sandbox_cgroup()
+    events_path = root / "memory.events"
+
+    def oom_kills() -> int:
+        return int(
+            dict(line.split() for line in events_path.read_text().splitlines())[
+                "oom_kill"
+            ]
+        )
+
+    before = oom_kills()
+    parent_group = Path("/proc/self/cgroup").read_text()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        job = Path(temp_dir)
+        session_paths_module.job_uv_state_dir(job).mkdir()
+        (job / Path(JAILED_SHIM_ENTRYPOINT_PATH).name).write_text(
+            "import resource\n"
+            "assert resource.getrlimit(resource.RLIMIT_AS) == (512 * 1024 * 1024,) * 2\n"
+            "data = []\nwhile True: data.append(bytearray(16 * 1024 * 1024))\n"
+        )
+        site_packages = next(
+            Path(p) for p in sys.path if "site-packages" in p and Path(p).is_dir()
+        )
+        text = build_agent_nsjail_config(
+            rootfs=Path(app_config.TRACECAT__SANDBOX_ROOTFS_PATH),
+            job_dir=job,
+            socket_dir=job,
+            config=AgentSandboxConfig(
+                resources=AgentResourceLimits(
+                    memory_mb=128,
+                    address_space_mb=512,
+                    timeout_seconds=15,
+                )
+            ),
+            site_packages_dir=site_packages,
+            llm_socket_path=None,
+            mount_control_socket=False,
+            cgroup_mount=root,
+        )
+        config_path = job / "nsjail.cfg"
+        config_path.write_text(text)
+        result = subprocess.run(
+            [app_config.TRACECAT__SANDBOX_NSJAIL_PATH, "--config", str(config_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 137, result.stderr
+        assert oom_kills() > before, result.stderr
+        assert Path("/proc/self/cgroup").read_text() == parent_group
+    _run_nsjail_duckdb_smoke_from_cli()
 
 
 def _run_nsjail_harness_smoke_from_cli() -> None:
@@ -1910,21 +2051,31 @@ async def _run_nproc_cap_case(
     # only thing that can bound the fork loop is the shim's RLIMIT_NPROC.
     expected = AgentResourceLimits().max_processes
     probe_lines = [
-        "import os, resource, json",
+        "import errno, os, resource, json",
         "soft, _hard = resource.getrlimit(resource.RLIMIT_NPROC)",
         "forked = 0",
+        "fork_errno = None",
         "try:",
         "    for _ in range(300):",
         "        pid = os.fork()",
         "        if pid == 0:",
         "            os._exit(0)",
         "        forked += 1",
-        "except OSError:",
-        "    pass",
-        f"capped = soft == {expected} and 0 < forked < 300",
+        "except OSError as exc:",
+        "    fork_errno = exc.errno",
         # Zombie children still count against RLIMIT_NPROC until reaped, so
-        # the un-reaped fork loop is exactly what makes the cap bind.
-        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped}))',
+        # retain them until the cap binds, then reap them before Claude resumes.
+        # Otherwise the shim inherits zombies and the runtime can abort when
+        # it tries to create another thread or subprocess at the exhausted cap.
+        "finally:",
+        "    for _ in range(forked):",
+        "        os.waitpid(-1, 0)",
+        f"capped = soft == {expected} and 0 < forked < 300 and fork_errno == errno.EAGAIN",
+        "pid = os.fork()",
+        "if pid == 0:",
+        "    os._exit(0)",
+        "_, status = os.waitpid(pid, 0)",
+        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped, "recovered": status == 0}))',
     ]
     bash_command = "python3 - <<'PYEOF'\n" + "\n".join(probe_lines) + "\nPYEOF"
 
@@ -1953,6 +2104,7 @@ async def _run_nproc_cap_case(
     probe = json.loads(probe_output)
     assert probe["soft"] == expected, bash_result
     assert probe["capped"] is True, bash_result
+    assert probe["recovered"] is True, bash_result
 
 
 def _run_nsjail_nproc_smoke_from_cli() -> None:
@@ -2921,9 +3073,19 @@ async def test_run_agent_activity_reproduces_mcp_compression_initialize_timeout_
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("make_input", "enable_internet_access"),
+    [
+        pytest.param(_make_executor_input, True, id="internet"),
+        pytest.param(_make_executor_input, False, id="isolated"),
+        pytest.param(_make_passthrough_executor_input, True, id="passthrough-internet"),
+    ],
+)
 async def test_executor_always_starts_llm_socket_proxy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    make_input: Callable[..., AgentExecutorInput],
+    enable_internet_access: bool,
 ) -> None:
     """The executor always creates the LLM socket proxy, even with internet access enabled."""
     (
@@ -2932,7 +3094,7 @@ async def test_executor_always_starts_llm_socket_proxy(
         fake_proxy,
         fake_broker,
     ) = await _run_executor_with_fake_broker(
-        executor_input=_make_executor_input(enable_internet_access=True),
+        executor_input=make_input(enable_internet_access=enable_internet_access),
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )
@@ -2945,34 +3107,7 @@ async def test_executor_always_starts_llm_socket_proxy(
     assert fake_broker.requests[0].llm_socket_path == (
         tmp_path / "sockets" / LLM_SOCKET_NAME
     )
-    assert fake_broker.requests[0].enable_internet_access is True
-
-
-@pytest.mark.anyio
-async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    (
-        result,
-        created_socket_paths,
-        fake_proxy,
-        fake_broker,
-    ) = await _run_executor_with_fake_broker(
-        executor_input=_make_executor_input(enable_internet_access=False),
-        monkeypatch=monkeypatch,
-        tmp_path=tmp_path,
-    )
-
-    assert result.success is True
-    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
-    assert fake_proxy.started is True
-    assert fake_proxy.stopped is True
-    assert len(fake_broker.requests) == 1
-    assert fake_broker.requests[0].llm_socket_path == (
-        tmp_path / "sockets" / LLM_SOCKET_NAME
-    )
-    assert fake_broker.requests[0].enable_internet_access is False
+    assert fake_broker.requests[0].enable_internet_access is enable_internet_access
 
 
 @pytest.mark.anyio
@@ -3020,33 +3155,6 @@ async def test_executor_enables_runtime_network_when_subagent_has_stdio_mcp(
     assert fake_broker.requests[0].enable_internet_access is True
 
 
-@pytest.mark.anyio
-async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_internet_enabled(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    (
-        result,
-        created_socket_paths,
-        fake_proxy,
-        fake_broker,
-    ) = await _run_executor_with_fake_broker(
-        executor_input=_make_passthrough_executor_input(enable_internet_access=True),
-        monkeypatch=monkeypatch,
-        tmp_path=tmp_path,
-    )
-
-    assert result.success is True
-    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
-    assert fake_proxy.started is True
-    assert fake_proxy.stopped is True
-    assert len(fake_broker.requests) == 1
-    assert fake_broker.requests[0].llm_socket_path == (
-        tmp_path / "sockets" / LLM_SOCKET_NAME
-    )
-    assert fake_broker.requests[0].enable_internet_access is True
-
-
 async def _run_executor_through_route_materialization(
     *,
     executor_input: AgentExecutorInput,
@@ -3086,7 +3194,7 @@ async def _run_executor_through_route_materialization(
 
 
 @pytest.mark.anyio
-async def test_executor_classifies_passthrough_without_base_url_as_invalid_config(
+async def test_executor_classifies_passthrough_without_base_url_as_platform(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3103,8 +3211,8 @@ async def test_executor_classifies_passthrough_without_base_url_as_invalid_confi
 
     assert result.success is False
     assert result.classification is not None
-    assert result.classification.owner is RuntimeErrorOwner.USER
-    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
 
@@ -3452,7 +3560,9 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
+    if sys.argv[1:] == ["--run-nsjail-cgroup-smoke"]:
+        _run_nsjail_cgroup_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
         _run_nsjail_harness_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-nstun-smoke"]:
         _run_nsjail_nstun_smoke_from_cli()
@@ -3472,5 +3582,162 @@ if __name__ == "__main__":
             "[--run-nsjail-harness-smoke|--run-nsjail-nstun-smoke|"
             "--run-nsjail-stdio-mcp-burst-smoke|"
             "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
-            "--run-nsjail-duckdb-smoke|--run-nsjail-nproc-smoke]"
+            "--run-nsjail-duckdb-smoke|--run-nsjail-nproc-smoke|--run-nsjail-cgroup-smoke]"
         )
+
+
+@pytest.mark.anyio
+async def test_broker_deadline_captures_source_before_stream_and_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    operations: list[str] = []
+    captures: list[PlatformErrorCapture] = []
+
+    def capture(
+        error: BaseException, classification: RuntimeErrorClassification
+    ) -> PlatformErrorCapture:
+        assert isinstance(error, TimeoutError)
+        assert error.__traceback__ is not None
+        assert error.__traceback__.tb_frame.f_code.co_name == "_run_with_broker"
+        assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+        operations.append("capture")
+        receipt = PlatformErrorCapture.for_error("a" * 32, classification)
+        captures.append(receipt)
+        return receipt
+
+    async def emit_terminal_error(
+        self: _FakeLoopbackHandler,
+        message: str,
+        *,
+        classification: RuntimeErrorClassification,
+    ) -> bool:
+        del self
+        assert message == "Agent execution timed out after 0s"
+        assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
+        operations.append("stream")
+        return True
+
+    async def cancel_turn(self: _FakeBroker, session_id: str) -> None:
+        operations.append("cancel")
+        self.cancelled_session_ids.append(session_id)
+
+    # Reach the explicit deadline deterministically without sleeping.
+    monkeypatch.setattr(executor_activity, "clamp_agent_timeout_seconds", lambda _: 0)
+    monkeypatch.setattr(executor_activity, "capture_activity_failure", capture)
+    monkeypatch.setattr(
+        _FakeLoopbackHandler, "emit_terminal_error", emit_terminal_error
+    )
+    monkeypatch.setattr(_FakeBroker, "cancel_turn", cancel_turn)
+
+    result, _, _, broker = await _run_executor_with_fake_broker(
+        executor_input=_make_executor_input(enable_internet_access=False),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert operations == ["capture", "stream", "cancel"]
+    assert result.success is False
+    assert result.terminal_stream_error_emitted is True
+    assert result.sentry_capture == captures[0]
+    assert len(broker.cancelled_session_ids) == 1
+
+
+def _make_system_prompt_transport(
+    tmp_path: Path, *, system_prompt: str | None, use_jailed_paths: bool
+) -> SandboxedCLITransport:
+    path_mapping = session_paths_module.AgentSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_work_dir=tmp_path / "project",
+        runtime_home_dir=tmp_path / "home",
+        runtime_work_dir=tmp_path / "project",
+    )
+    return SandboxedCLITransport(
+        options=ClaudeAgentOptions(
+            env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"},
+            system_prompt=system_prompt,
+        ),
+        session_id="session-1",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "sockets" / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=path_mapping,
+        enable_internet_access=False,
+        use_jailed_paths=use_jailed_paths,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("use_jailed_paths", [False, True])
+async def test_transport_passes_system_prompt_by_file(
+    tmp_path: Path, use_jailed_paths: bool
+) -> None:
+    system_prompt = "case data " * 20_000
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=system_prompt, use_jailed_paths=use_jailed_paths
+    )
+
+    options = await transport._options_with_system_prompt_file(transport._options)
+
+    host_path = tmp_path / transport_module._SYSTEM_PROMPT_FILE_NAME
+    expected_path = (
+        session_paths_module.JAILED_AGENT_JOB_DIR
+        / transport_module._SYSTEM_PROMPT_FILE_NAME
+        if use_jailed_paths
+        else host_path
+    )
+    assert options.system_prompt == {"type": "file", "path": str(expected_path)}
+    assert host_path.read_text(encoding="utf-8") == system_prompt
+    assert transport._options.system_prompt == system_prompt
+
+
+@pytest.mark.anyio
+async def test_transport_keeps_empty_system_prompt_inline(tmp_path: Path) -> None:
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=None, use_jailed_paths=False
+    )
+
+    options = await transport._options_with_system_prompt_file(transport._options)
+
+    assert options is transport._options
+    assert not (tmp_path / transport_module._SYSTEM_PROMPT_FILE_NAME).exists()
+
+
+@pytest.mark.anyio
+async def test_transport_large_system_prompt_stays_out_of_claude_argv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A prompt above Linux's 128 KiB per-argument limit must not reach argv."""
+    monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
+    system_prompt = "x" * (256 * 1024)
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=system_prompt, use_jailed_paths=False
+    )
+    (tmp_path / "sockets").mkdir()
+    captured: dict[str, Path] = {}
+
+    async def fake_spawn_jailed_runtime(**kwargs: object) -> object:
+        init_payload_path = kwargs["init_payload_path"]
+        assert isinstance(init_payload_path, Path)
+        captured["init_payload_path"] = init_payload_path
+        return nsjail_module.SpawnedRuntime(
+            process=cast(Any, _ConnectedFakeProcess()),
+            job_dir=None,
+        )
+
+    monkeypatch.setattr(
+        transport_module,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+
+    await transport.connect()
+    await transport.close()
+
+    command = orjson.loads(captured["init_payload_path"].read_bytes())["command"]
+    assert "--system-prompt" not in command
+    prompt_path = command[command.index("--system-prompt-file") + 1]
+    assert Path(prompt_path).read_text(encoding="utf-8") == system_prompt
+    assert max(len(arg.encode()) for arg in command) < 128 * 1024
+    assert transport._options.system_prompt == system_prompt

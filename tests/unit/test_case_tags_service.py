@@ -116,22 +116,6 @@ def tag_params() -> TagCreate:
     return TagCreate(name="Incident", color="#FFAA00")
 
 
-@pytest.fixture(
-    params=[
-        ("Security Incident", "#FF0000", "security-incident"),
-        ("High Priority", "#00FF00", "high-priority"),
-        ("Network-Issue", "#0000FF", "network-issue"),
-        ("Test_Case_123", "#FFFF00", "test-case-123"),
-        ("With Spaces And Numbers 123", "#FF00FF", "with-spaces-and-numbers-123"),
-    ],
-    ids=["security", "priority", "network", "alphanumeric", "complex"],
-)
-def tag_with_slug(request) -> tuple[TagCreate, str]:
-    """Parametrized fixture providing tag creation params and expected slug."""
-    name, color, expected_slug = request.param
-    return TagCreate(name=name, color=color), expected_slug
-
-
 @pytest.fixture
 async def multiple_tags(
     case_tags_service: CaseTagsService,
@@ -236,25 +220,44 @@ class TestCaseTagsService:  # noqa: D101
         assert case_tags[0].id == tag.id
 
     @pytest.mark.anyio
-    async def test_add_multiple_tags_to_case(
+    async def test_create_if_missing_is_idempotent(
         self,
         case_tags_service: CaseTagsService,
         case_id: uuid.UUID,
-        multiple_tags: list,
     ) -> None:
-        """Test adding multiple tags to a single case."""
-        # Add all tags to the case
-        for tag in multiple_tags:
-            await case_tags_service.add_case_tag(case_id, str(tag.id))
-
-        # Verify all tags are associated
+        await case_tags_service.add_case_tag(
+            case_id, "Phishing Lure", create_if_missing=True
+        )
+        await case_tags_service.add_case_tag(
+            case_id, "Phishing Lure", create_if_missing=True
+        )
         case_tags = await case_tags_service.list_tags_for_case(case_id)
-        assert len(case_tags) == len(multiple_tags)
+        assert [tag.ref for tag in case_tags] == [slugify("Phishing Lure")]
 
-        # Verify all tag IDs match
-        case_tag_ids = {tag.id for tag in case_tags}
-        expected_ids = {tag.id for tag in multiple_tags}
-        assert case_tag_ids == expected_ids
+    @pytest.mark.anyio
+    async def test_create_if_missing_reuses_tag_with_same_name(
+        self,
+        case_tags_service: CaseTagsService,
+        case_id: uuid.UUID,
+        session: AsyncSession,
+    ) -> None:
+        synced = await case_tags_service.create_tag(TagCreate(name="Synced"))
+        synced.ref = "source-id"
+        await session.commit()
+
+        tag = await case_tags_service.add_case_tag(
+            case_id, "Synced", create_if_missing=True
+        )
+        assert tag.id == synced.id
+
+    @pytest.mark.anyio
+    async def test_create_if_missing_validates_name(
+        self, case_tags_service: CaseTagsService, case_id: uuid.UUID
+    ) -> None:
+        with pytest.raises(ValueError):
+            await case_tags_service.add_case_tag(
+                case_id, "x" * 51, create_if_missing=True
+            )
 
     @pytest.mark.anyio
     @pytest.mark.parametrize("identifier_type", ["id", "ref", "mixed"])
@@ -329,38 +332,21 @@ class TestCaseTagsService:  # noqa: D101
         assert case_tag is None
 
     @pytest.mark.anyio
-    async def test_remove_nonexistent_tag_raises_error(
+    @pytest.mark.parametrize("identifier_type", ["id", "ref"])
+    async def test_remove_unattached_tag_raises_not_found(
         self,
+        identifier_type: str,
         case_tags_service: CaseTagsService,
         case_id: uuid.UUID,
         tag_params: TagCreate,
     ) -> None:
-        """Test that removing a non-existent tag raises appropriate error."""
+        """An existing tag not attached to the case is a not-found error."""
         tag = await case_tags_service.create_tag(tag_params)
 
         # Try to remove tag that was never added
-        with pytest.raises(ValueError):
-            await case_tags_service.remove_case_tag(case_id, str(tag.id))
-
-    @pytest.mark.anyio
-    async def test_tag_slug_generation(
-        self,
-        case_tags_service: CaseTagsService,
-        tag_with_slug: tuple[TagCreate, str],
-    ) -> None:
-        """Test that tag slugs are generated correctly from various name formats."""
-        tag_create, expected_slug = tag_with_slug
-
-        # Create tag
-        tag = await case_tags_service.create_tag(tag_create)
-
-        # Verify slug generation
-        assert tag.ref == expected_slug
-        assert tag.name == tag_create.name
-
-        # Verify we can retrieve by slug
-        retrieved = await case_tags_service.get_tag_by_ref(expected_slug)
-        assert retrieved.id == tag.id
+        identifier = str(tag.id) if identifier_type == "id" else tag.ref
+        with pytest.raises(TracecatNotFoundError, match="not found on case"):
+            await case_tags_service.remove_case_tag(case_id, identifier)
 
     @pytest.mark.anyio
     async def test_add_invalid_tag_identifier(

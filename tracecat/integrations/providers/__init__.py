@@ -5,6 +5,10 @@ from tracecat.integrations.providers.databricks import (
     DatabricksACProvider,
     DatabricksCCProvider,
 )
+from tracecat.integrations.providers.github.app import (
+    GitHubAppInstallationProvider,
+    GitHubAppUserProvider,
+)
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.google import (
@@ -32,6 +36,8 @@ from tracecat.integrations.providers.jamf.oauth import JamfOAuthProvider
 from tracecat.integrations.providers.jira.mcp import JiraMCPProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
 from tracecat.integrations.providers.microsoft import (
+    AzureDevOpsACProvider,
+    AzureDevOpsCCProvider,
     AzureLogAnalyticsACProvider,
     AzureLogAnalyticsCCProvider,
     AzureManagementACProvider,
@@ -54,6 +60,11 @@ from tracecat.integrations.providers.microsoft import (
     MicrosoftTeamsCCProvider,
 )
 from tracecat.integrations.providers.notion.mcp import NotionMCPProvider
+from tracecat.integrations.providers.paloalto.oauth import PaloAltoSCMOAuthProvider
+from tracecat.integrations.providers.perplexity.mcp import PerplexityMCPProvider
+from tracecat.integrations.providers.proofpoint.oauth import (
+    ProofpointThreatProtectionOAuthProvider,
+)
 from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.secureannex.mcp import SecureAnnexMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
@@ -68,6 +79,8 @@ from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GitHubOAuthProvider,
+    GitHubAppInstallationProvider,
+    GitHubAppUserProvider,
     GitHubMCPProvider,
     DatabricksACProvider,
     DatabricksCCProvider,
@@ -91,9 +104,12 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GoogleSlidesACProvider,
     GoogleSlidesCCProvider,
     JamfOAuthProvider,
+    PaloAltoSCMOAuthProvider,
+    ProofpointThreatProtectionOAuthProvider,
     JiraMCPProvider,
     LinearMCPProvider,
     NotionMCPProvider,
+    PerplexityMCPProvider,
     RunRevealMCPProvider,
     SecureAnnexMCPProvider,
     SentryMCPProvider,
@@ -104,6 +120,8 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     MicrosoftSentinelCCProvider,
     AzureLogAnalyticsACProvider,
     AzureLogAnalyticsCCProvider,
+    AzureDevOpsACProvider,
+    AzureDevOpsCCProvider,
     MicrosoftDefenderEndpointACProvider,
     MicrosoftDefenderEndpointCCProvider,
     MicrosoftDefenderXDRACProvider,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -8,67 +9,37 @@ import pytest
 from tracecat.dsl import workflow_logging
 
 
-def test_in_workflow_context_true_in_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        workflow_logging.workflow.unsafe,
-        "in_sandbox",
-        lambda: True,
-    )
-
-    assert workflow_logging._in_workflow_context() is True
+def _raise_runtime_error() -> object:
+    raise RuntimeError("boom")
 
 
-def test_in_workflow_context_true_with_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        workflow_logging.workflow.unsafe,
-        "in_sandbox",
-        lambda: False,
-    )
-    monkeypatch.setattr(
-        workflow_logging.workflow,
-        "_Runtime",
-        SimpleNamespace(maybe_current=lambda: object()),
-    )
-
-    assert workflow_logging._in_workflow_context() is True
-
-
-def test_in_workflow_context_false_without_runtime(
+@pytest.mark.parametrize(
+    ("in_sandbox", "maybe_current", "expected"),
+    [
+        pytest.param(True, lambda: None, True, id="in_sandbox"),
+        pytest.param(False, object, True, id="with_runtime"),
+        pytest.param(False, lambda: None, False, id="without_runtime"),
+        pytest.param(False, _raise_runtime_error, False, id="runtime_error"),
+    ],
+)
+def test_in_workflow_context(
     monkeypatch: pytest.MonkeyPatch,
+    in_sandbox: bool,
+    maybe_current: Callable[[], object],
+    expected: bool,
 ) -> None:
     monkeypatch.setattr(
         workflow_logging.workflow.unsafe,
         "in_sandbox",
-        lambda: False,
+        lambda: in_sandbox,
     )
     monkeypatch.setattr(
         workflow_logging.workflow,
         "_Runtime",
-        SimpleNamespace(maybe_current=lambda: None),
+        SimpleNamespace(maybe_current=maybe_current),
     )
 
-    assert workflow_logging._in_workflow_context() is False
-
-
-def test_in_workflow_context_false_on_runtime_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        workflow_logging.workflow.unsafe,
-        "in_sandbox",
-        lambda: False,
-    )
-
-    def _raise() -> object:
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(
-        workflow_logging.workflow,
-        "_Runtime",
-        SimpleNamespace(maybe_current=_raise),
-    )
-
-    assert workflow_logging._in_workflow_context() is False
+    assert workflow_logging._in_workflow_context() is expected
 
 
 def test_log_uses_process_logger_outside_workflow_context(

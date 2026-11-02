@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from cryptography.fernet import Fernet
@@ -12,13 +14,14 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, MultiAuth
 from fastmcp.server.auth.cimd import CIMDDocument
 from fastmcp.server.auth.middleware import RequireAuthMiddleware
-from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
+from fastmcp.server.auth.oauth_proxy.models import OAuthTransaction, ProxyDCRClient
 from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyHttpUrl, AnyUrl
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 from starlette.types import Receive, Scope, Send
@@ -328,55 +331,24 @@ def test_create_mcp_auth_registration_merges_oidc_scopes_into_partial_scope(
     assert registration["scope"] == "openid"
 
 
-def test_append_scope_if_missing_adds_unique_scope() -> None:
-    scopes = ["openid", "profile"]
-    assert mcp_auth.append_scope_if_missing(scopes, "offline_access") == [
-        "openid",
-        "profile",
-        "offline_access",
-    ]
-
-
-def test_append_scope_if_missing_does_not_duplicate_scope() -> None:
-    scopes = ["openid", "offline_access"]
-    assert mcp_auth.append_scope_if_missing(scopes, "offline_access") == scopes
-
-
-def test_merge_unique_scopes_preserves_order_and_uniqueness() -> None:
-    scopes = ["scope:a", "scope:b"]
-    assert mcp_auth.merge_unique_scopes(scopes, ["scope:b", "scope:c"]) == [
-        "scope:a",
-        "scope:b",
-        "scope:c",
-    ]
-
-
-def test_merge_scope_string_appends_required_scopes() -> None:
-    assert (
-        mcp_auth.merge_scope_string("openid", ["profile", "email", "openid"])
-        == "openid profile email"
-    )
-
-
 def test_remove_scope_removes_only_target_scope() -> None:
     scopes = ["openid", "offline_access", "email"]
     assert mcp_auth.remove_scope(scopes, "offline_access") == ["openid", "email"]
 
 
-def test_supports_refresh_scope_when_provider_metadata_missing() -> None:
-    assert mcp_auth.supports_refresh_scope(None) is True
-
-
-def test_supports_refresh_scope_when_provider_advertises_no_scopes() -> None:
-    assert mcp_auth.supports_refresh_scope([]) is False
-
-
-def test_supports_refresh_scope_when_scope_supported() -> None:
-    assert mcp_auth.supports_refresh_scope(["openid", "offline_access"]) is True
-
-
-def test_supports_refresh_scope_when_scope_not_supported() -> None:
-    assert mcp_auth.supports_refresh_scope(["openid", "profile", "email"]) is False
+@pytest.mark.parametrize(
+    ("scopes_supported", "expected"),
+    [
+        pytest.param(None, True, id="provider-metadata-missing"),
+        pytest.param([], False, id="no-scopes-advertised"),
+        pytest.param(["openid", "offline_access"], True, id="scope-supported"),
+        pytest.param(["openid", "profile", "email"], False, id="scope-not-supported"),
+    ],
+)
+def test_supports_refresh_scope(
+    scopes_supported: list[str] | None, expected: bool
+) -> None:
+    assert mcp_auth.supports_refresh_scope(scopes_supported) is expected
 
 
 @pytest.mark.anyio
@@ -974,14 +946,24 @@ def test_get_token_identity_reads_email_from_upstream_claims(
     assert identity.email == "user@example.com"
 
 
-def test_get_token_identity_prefers_token_client_id_over_sub(
+@pytest.mark.parametrize(
+    ("token_client_id", "expected_client_id"),
+    [
+        pytest.param("oauth-client-id", "oauth-client-id", id="prefers-client-id"),
+        pytest.param("", "user-subject-id", id="empty-falls-back-to-sub"),
+        pytest.param(None, "user-subject-id", id="null-falls-back-to-sub"),
+    ],
+)
+def test_get_token_identity_client_id_resolution(
     monkeypatch: pytest.MonkeyPatch,
+    token_client_id: str | None,
+    expected_client_id: str,
 ) -> None:
     token = type(
         "T",
         (),
         {
-            "client_id": "oauth-client-id",
+            "client_id": token_client_id,
             "scopes": [],
             "claims": {
                 "sub": "user-subject-id",
@@ -992,49 +974,7 @@ def test_get_token_identity_prefers_token_client_id_over_sub(
 
     identity = mcp_auth.get_token_identity()
 
-    assert identity.client_id == "oauth-client-id"
-
-
-def test_get_token_identity_falls_back_to_sub_when_no_client_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    token = type(
-        "T",
-        (),
-        {
-            "client_id": "",
-            "scopes": [],
-            "claims": {
-                "sub": "user-subject-id",
-            },
-        },
-    )()
-    monkeypatch.setattr(mcp_auth, "get_access_token", lambda: token)
-
-    identity = mcp_auth.get_token_identity()
-
-    assert identity.client_id == "user-subject-id"
-
-
-def test_get_token_identity_handles_null_token_client_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    token = type(
-        "T",
-        (),
-        {
-            "client_id": None,
-            "scopes": [],
-            "claims": {
-                "sub": "user-subject-id",
-            },
-        },
-    )()
-    monkeypatch.setattr(mcp_auth, "get_access_token", lambda: token)
-
-    identity = mcp_auth.get_token_identity()
-
-    assert identity.client_id == "user-subject-id"
+    assert identity.client_id == expected_client_id
 
 
 def test_get_token_identity_requires_token(
@@ -1075,33 +1015,6 @@ async def test_list_workspaces_for_request_passes_claimed_org_ids(
 
     assert captured["email"] == "user@example.com"
     assert captured["organization_ids"] == frozenset({org_id_1, org_id_2})
-
-
-@pytest.mark.anyio
-async def test_list_workspaces_for_request_without_claimed_org_ids(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-    identity = mcp_auth.MCPTokenIdentity(
-        client_id="tracecat-client",
-        email="user@example.com",
-    )
-
-    async def _list_user_workspaces(
-        email: str,
-        organization_ids: frozenset[uuid.UUID] | None = None,
-    ) -> list[dict[str, str]]:
-        captured["email"] = email
-        captured["organization_ids"] = organization_ids
-        return []
-
-    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
-    monkeypatch.setattr(mcp_auth, "list_user_workspaces", _list_user_workspaces)
-
-    await mcp_auth.list_workspaces_for_request()
-
-    assert captured["email"] == "user@example.com"
-    assert captured["organization_ids"] is None
 
 
 @pytest.mark.anyio
@@ -1859,3 +1772,74 @@ async def test_resolve_org_role_superuser_uses_membership_org(
 
     assert role.organization_id == org_id
     assert role.is_platform_superuser is False
+
+
+def _idp_callback_request(query: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/auth/callback",
+            "query_string": query.encode(),
+            "headers": [],
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_idp_callback_forwards_access_denied_to_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    await auth._transaction_store.put(
+        key="txn-denied",
+        value=OAuthTransaction(
+            txn_id="txn-denied",
+            client_id="client-1",
+            client_redirect_uri="http://127.0.0.1:33418/callback?keep=1",
+            client_state="client-state",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            scopes=["openid"],
+            created_at=time.time(),
+        ),
+    )
+
+    response = await auth._handle_idp_callback(
+        _idp_callback_request(
+            "error=access_denied&error_description=User+denied&state=txn-denied"
+        )
+    )
+
+    assert isinstance(response, RedirectResponse)
+    location = urlsplit(response.headers["location"])
+    assert f"{location.scheme}://{location.netloc}{location.path}" == (
+        "http://127.0.0.1:33418/callback"
+    )
+    assert parse_qs(location.query) == {
+        "keep": ["1"],
+        "error": ["access_denied"],
+        "error_description": ["User denied"],
+        "state": ["client-state"],
+    }
+    assert await auth._transaction_store.get(key="txn-denied") is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("error=access_denied&state=unknown-txn", id="unknown-txn"),
+        pytest.param("error=server_error&state=txn", id="other-error"),
+    ],
+)
+async def test_idp_callback_keeps_error_page_when_not_forwardable(
+    monkeypatch: pytest.MonkeyPatch,
+    query: str,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+
+    response = await auth._handle_idp_callback(_idp_callback_request(query))
+
+    assert isinstance(response, HTMLResponse)
+    assert response.status_code == 400

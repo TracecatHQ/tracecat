@@ -27,21 +27,19 @@ definition:
       default: 0
     per_page:
       type: int
-      description: Policies per page (Fleet caps at 200).
+      description: Policies per page.
       default: 50
+    after:
+      type: str | None
+      description: The value to get results after. This needs `order_key` defined, as that's the column
+        that would be used.
+      default: null
+    platform:
+      type: str | None
+      description: Filters policies by targeted platform. Accepts `"darwin"`, `"windows"`, `"linux"`,
+        or `"chrome"`. Policies that target all platforms (empty `platform` field) are always included.
+      default: null
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          params:
-            order_key: ${{ inputs.order_key }}
-            order_direction: ${{ inputs.order_direction }}
-            page: ${{ inputs.page }}
-            per_page: ${{ inputs.per_page }}
-        script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
     - ref: list_policies
       action: core.http_request
       args:
@@ -49,5 +47,11 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          after: ${{ inputs.after }}
+          platform: ${{ inputs.platform }}
   returns: ${{ steps.list_policies.result.data }}

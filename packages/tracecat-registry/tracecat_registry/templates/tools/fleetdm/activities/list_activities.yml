@@ -31,22 +31,27 @@ definition:
       default: 0
     per_page:
       type: int
-      description: Activities per page.
+      description: Results per page. Maximum is 10,000 records.
       default: 50
+    after:
+      type: str | None
+      description: The value to get results after. This needs `order_key` defined, as that's the column
+        that would be used.
+      default: null
+    end_created_at:
+      type: str | None
+      description: Filters to include only activities that happened before this date. If not specified,
+        set to now.
+      default: null
+    activity_type:
+      type: str | None
+      description: Indicates the activity type to filter by. See the available types in Fleet's audit logs documentation.
+      default: null
+    start_created_at:
+      type: str | None
+      description: Filters to include only activities that happened after this date. If not specified, set to the earliest possible date.
+      default: null
   steps:
-    - ref: build_params
-      action: core.script.run_python
-      args:
-        inputs:
-          params:
-            query: ${{ inputs.query }}
-            order_key: ${{ inputs.order_key }}
-            order_direction: ${{ inputs.order_direction }}
-            page: ${{ inputs.page }}
-            per_page: ${{ inputs.per_page }}
-        script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
     - ref: list_activities
       action: core.http_request
       args:
@@ -54,5 +59,14 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params: ${{ steps.build_params.result }}
+        params:
+          query: ${{ inputs.query }}
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          after: ${{ inputs.after }}
+          end_created_at: ${{ inputs.end_created_at }}
+          activity_type: ${{ inputs.activity_type }}
+          start_created_at: ${{ inputs.start_created_at }}
   returns: ${{ steps.list_activities.result.data }}

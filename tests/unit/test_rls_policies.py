@@ -180,86 +180,32 @@ class TestRlsPolicyEnforcement:
     """
 
     @pytest.mark.anyio
-    async def test_rls_enabled_on_workspace_table(self, rls_session: AsyncSession):
-        """Verify that RLS is enabled on the workspace table."""
-        result = await rls_session.execute(
-            text("""
-                SELECT relrowsecurity, relforcerowsecurity
-                FROM pg_class
-                WHERE relname = 'workspace'
-            """)
-        )
-        row = result.fetchone()
-
-        # If table doesn't exist in test DB, skip
-        if row is None:
-            pytest.skip("Workspace table not found in test database")
-
+    @pytest.mark.parametrize("table", ["workspace", "workflow"])
+    async def test_rls_enabled_with_policy(
+        self, rls_session: AsyncSession, table: str
+    ) -> None:
+        """RLS is enabled without FORCE and the table's policy is installed."""
+        row = (
+            await rls_session.execute(
+                text(
+                    "SELECT relrowsecurity, relforcerowsecurity "
+                    "FROM pg_class WHERE relname = :table"
+                ),
+                {"table": table},
+            )
+        ).fetchone()
+        assert row is not None
         relrowsecurity, relforcerowsecurity = row
-        assert relrowsecurity is True, "RLS should be enabled on workspace table"
-        assert relforcerowsecurity is False, (
-            "RLS should be enabled without FORCE on workspace table"
-        )
+        assert relrowsecurity is True
+        assert relforcerowsecurity is False
 
-    @pytest.mark.anyio
-    async def test_rls_enabled_on_workflow_table(self, rls_session: AsyncSession):
-        """Verify that RLS is enabled on the workflow table."""
-        result = await rls_session.execute(
-            text("""
-                SELECT relrowsecurity, relforcerowsecurity
-                FROM pg_class
-                WHERE relname = 'workflow'
-            """)
-        )
-        row = result.fetchone()
-
-        if row is None:
-            pytest.skip("Workflow table not found in test database")
-
-        relrowsecurity, relforcerowsecurity = row
-        assert relrowsecurity is True, "RLS should be enabled on workflow table"
-        assert relforcerowsecurity is False, (
-            "RLS should be enabled without FORCE on workflow table"
-        )
-
-    @pytest.mark.anyio
-    async def test_rls_policy_exists_on_workflow(self, rls_session: AsyncSession):
-        """Verify that an RLS policy exists on the workflow table."""
-        result = await rls_session.execute(
-            text("""
-                SELECT policyname, cmd, qual
-                FROM pg_policies
-                WHERE tablename = 'workflow'
-            """)
-        )
-        rows = result.fetchall()
-
-        assert len(rows) > 0, "At least one RLS policy should exist on workflow table"
-
-        # Check that our policy is present
-        policy_names = [row[0] for row in rows]
-        assert "rls_policy_workflow" in policy_names, (
-            f"rls_policy_workflow should exist. Found: {policy_names}"
-        )
-
-    @pytest.mark.anyio
-    async def test_rls_policy_exists_on_workspace(self, rls_session: AsyncSession):
-        """Verify that an RLS policy exists on the workspace table."""
-        result = await rls_session.execute(
-            text("""
-                SELECT policyname, cmd
-                FROM pg_policies
-                WHERE tablename = 'workspace'
-            """)
-        )
-        rows = result.fetchall()
-
-        assert len(rows) > 0, "At least one RLS policy should exist on workspace table"
-
-        policy_names = [row[0] for row in rows]
-        assert "rls_policy_workspace" in policy_names, (
-            f"rls_policy_workspace should exist. Found: {policy_names}"
-        )
+        policy_names = (
+            await rls_session.execute(
+                text("SELECT policyname FROM pg_policies WHERE tablename = :table"),
+                {"table": table},
+            )
+        ).scalars()
+        assert f"rls_policy_{table}" in set(policy_names)
 
 
 class TestRlsIsolation:

@@ -15,7 +15,10 @@
     "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*", "./"]
+      "@/*": ["./src/*", "./"],
+      "@shadcn/helpers/ai-sdk": [
+        "./node_modules/@shadcn/helpers/dist/ai-sdk/index.d.ts"
+      ]
     },
     "plugins": [
       {

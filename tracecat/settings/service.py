@@ -8,6 +8,8 @@ from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
@@ -22,9 +24,11 @@ from tracecat.db.engine import (
     SupportsExecute,
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
-from tracecat.identifiers import OrganizationID
+from tracecat.exceptions import TracecatConflictError
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -38,6 +42,7 @@ from tracecat.settings.schemas import (
     BaseSettingsGroup,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
+    SecuritySettingsUpdate,
     SettingCreate,
     SettingUpdate,
 )
@@ -76,6 +81,7 @@ class SettingsService(BaseOrgService):
         SAMLSettingsUpdate,
         AppSettingsUpdate,
         AuditSettingsUpdate,
+        SecuritySettingsUpdate,
     ]
     """The set of settings groups that are managed by the service."""
 
@@ -92,20 +98,31 @@ class SettingsService(BaseOrgService):
         """The set of keys that are reserved for system settings."""
         return {key for cls in self.groups for key in cls.keys()}
 
-    async def init_default_settings(self):
+    async def init_default_settings(self) -> None:
+        """Insert missing defaults without overwriting settings from concurrent callers."""
         for cls in self.groups:
             for key, value in cls():
-                if not await self.get_org_setting(key):
-                    await self._create_org_setting(
-                        SettingCreate(
-                            key=key,
-                            value=value,
-                            is_sensitive=key in SENSITIVE_SETTINGS_KEYS,
-                        )
+                params = SettingCreate(
+                    key=key,
+                    value=value,
+                    is_sensitive=key in SENSITIVE_SETTINGS_KEYS,
+                )
+                await self.session.execute(
+                    pg_insert(OrganizationSetting)
+                    .values(
+                        organization_id=self.organization_id,
+                        key=params.key,
+                        value_type=params.value_type,
+                        value=self._encode_setting_value(params),
+                        is_encrypted=params.is_sensitive,
                     )
-                    self.logger.debug("Created setting", key=key)
-                else:
-                    self.logger.debug("Setting already exists", key=key)
+                    .on_conflict_do_nothing(
+                        index_elements=[
+                            OrganizationSetting.organization_id,
+                            OrganizationSetting.key,
+                        ]
+                    )
+                )
         await self.session.commit()
 
     def get_value(self, setting: OrganizationSetting) -> Any:
@@ -192,34 +209,43 @@ class SettingsService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
-    async def _create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
-        """Create a new organization setting."""
-
-        # Convert to bytes
+    def _encode_setting_value(self, params: SettingCreate) -> bytes:
         value_bytes = self._serialize_value_bytes(params.value)
-        # Then optionally encrypt
         if params.is_sensitive:
-            value = encrypt_value(
+            return encrypt_value(
                 value_bytes, key=self._encryption_key.get_secret_value()
             )
-        else:
-            value = value_bytes
+        return value_bytes
+
+    async def _create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
+        """Create a new organization setting."""
         setting = OrganizationSetting(
             organization_id=self.organization_id,
             key=params.key,
             value_type=params.value_type,
-            value=value,
+            value=self._encode_setting_value(params),
             is_encrypted=params.is_sensitive,
         )
         self.session.add(setting)
         return setting
+
+    async def _commit_settings(self) -> None:
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(
+                exc, "uq_organization_settings_organization_id_key"
+            ):
+                raise
+            raise TracecatConflictError("Setting already exists") from exc
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="create")
     async def create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
-        await self.session.commit()
+        await self._commit_settings()
         if params.key in AUDIT_SETTINGS_KEYS:
             clear_audit_setting_cache()
         return setting
@@ -306,7 +332,7 @@ class SettingsService(BaseOrgService):
             else:
                 params = SettingUpdate(value=value)
                 await self._update_setting(setting, params)
-        await self.session.commit()
+        await self._commit_settings()
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
@@ -328,6 +354,19 @@ class SettingsService(BaseOrgService):
         audit_settings = await self.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
         await self._update_grouped_settings(audit_settings, params)
         clear_audit_setting_cache()
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
+    async def update_security_settings(self, params: SecuritySettingsUpdate) -> None:
+        """Persist the organization IP allowlist.
+
+        Callers must clear the allowlist cache after this commits; the service
+        cannot import the enforcement module without creating an import cycle.
+        """
+        security_settings = await self.list_org_settings(
+            keys=SecuritySettingsUpdate.keys()
+        )
+        await self._update_grouped_settings(security_settings, params)
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
@@ -407,6 +446,36 @@ async def get_setting_from_bypass_session(
         logger.debug("Setting not found, using default value", key=key)
         return default
     return no_default_val
+
+
+async def workspace_allows_error_details(
+    *,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
+    session: SupportsExecute,
+) -> bool:
+    """Whether the org lets this workspace's actions opt out of secret error withholding.
+
+    Fails closed: any lookup failure or malformed value denies the workspace.
+    """
+    try:
+        value = await get_setting_from_bypass_session(
+            "app_unsafe_disable_secret_error_withholding_workspace_ids",
+            organization_id=organization_id,
+            session=session,
+            default=[],
+        )
+    except SQLAlchemyError as e:
+        logger.warning(
+            "Failed to read error-details workspace allow-list; denying",
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            error=str(e),
+        )
+        return False
+    if not isinstance(value, list):
+        return False
+    return str(workspace_id) in {str(item) for item in value}
 
 
 async def get_setting(

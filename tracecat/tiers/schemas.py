@@ -50,7 +50,7 @@ class EffectiveEntitlements(Schema):
     agent_addons: bool = Field(
         default=False,
         description="Whether add-on agent capabilities are enabled"
-        " (approvals, presets)",
+        " (agent folders, tags, and case agent runs)",
     )
     case_addons: bool = Field(
         default=False,
@@ -70,10 +70,50 @@ class EffectiveEntitlements(Schema):
         default=False,
         description="Whether Workspace Chat is enabled",
     )
+    multi_workspace: bool = Field(
+        default=False,
+        title="Multi-workspace",
+        description="Whether multiple workspaces per organization are enabled",
+    )
     watchtower: bool = Field(
         default=False,
         description="Whether Watchtower agent monitoring is enabled"
         " (agent sessions, tool-call telemetry, and controls)",
+    )
+    external_secret_stores: bool = Field(
+        default=False,
+        title="External secret stores",
+        description="Whether workspace secrets may reference external"
+        " secret stores such as AWS Secrets Manager",
+    )
+    agent_channels: bool = Field(
+        default=False,
+        title="Agent channels",
+        description="Whether agent channels are enabled (agent approvals"
+        " and interactions via Slack and Microsoft Teams)",
+    )
+    semantic_search: bool = Field(
+        default=False,
+        title="Semantic search",
+        description="Whether semantic (vector) search over table columns is enabled",
+    )
+    forms: bool = Field(
+        default=False,
+        title="Forms",
+        description="Whether workflow forms are enabled",
+    )
+    tunnels: bool = Field(
+        default=False,
+        title="Tunnels",
+        description="Whether workspaces may route actions through private"
+        " network tunnels such as Pangolin",
+    )
+    agent_runtime_preview: bool = Field(
+        default=False,
+        title="Agent runtime preview",
+        description="Whether agent backends other than the built-in one may be"
+        " listed, used to create or fork agent sessions, and used to run"
+        " new turns in existing sessions",
     )
 
 

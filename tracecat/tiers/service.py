@@ -175,5 +175,12 @@ class TierService(BaseService):
             rbac_addons=resolve_entitlement("rbac_addons"),
             service_accounts=resolve_entitlement("service_accounts"),
             workspace_chat=resolve_entitlement("workspace_chat"),
+            multi_workspace=resolve_entitlement("multi_workspace"),
             watchtower=resolve_entitlement("watchtower"),
+            external_secret_stores=resolve_entitlement("external_secret_stores"),
+            agent_channels=resolve_entitlement("agent_channels"),
+            semantic_search=resolve_entitlement("semantic_search"),
+            forms=resolve_entitlement("forms"),
+            tunnels=resolve_entitlement("tunnels"),
+            agent_runtime_preview=resolve_entitlement("agent_runtime_preview"),
         )

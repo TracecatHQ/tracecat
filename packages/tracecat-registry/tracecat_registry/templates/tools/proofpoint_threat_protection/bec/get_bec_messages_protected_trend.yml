@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: "Get BEC messages protected trend"
+  description: "Get BEC messages protected trend data over time. Calls GET /api/v1/dash/reports/bec-reports/bec-messages-protected-trend."
+  display_group: Proofpoint Threat Protection
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Reports_API
+  namespace: tools.proofpoint_threat_protection
+  name: get_bec_messages_protected_trend
+  secrets:
+    - type: oauth
+      provider_id: proofpoint_threat_protection
+      grant_type: client_credentials
+  expects:
+    start:
+      type: str
+      description: "Start time in ISO 8601 UTC format."
+    end:
+      type: str
+      description: "End time in ISO 8601 UTC format."
+    groupBy:
+      type: str | None
+      description: "Time grouping. Valid values: DAY, WEEK, MONTH, QUARTER. Defaults to DAY."
+      default: null
+    base_url:
+      type: str | None
+      description: "Proofpoint Threat Protection API base URL. Defaults to https://threatprotection-api.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_threat_protection.base_url || "https://threatprotection-api.proofpoint.com" }}/api/v1/dash/reports/bec-reports/bec-messages-protected-trend
+        method: GET
+        params:
+          start: ${{ inputs.start }}
+          end: ${{ inputs.end }}
+          groupBy: ${{ inputs.groupBy }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.proofpoint_threat_protection_oauth.PROOFPOINT_THREAT_PROTECTION_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

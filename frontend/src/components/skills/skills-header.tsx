@@ -8,11 +8,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  SearchIcon,
+  FolderIcon,
+  ListIcon,
+  MousePointerClickIcon,
   TypeIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
-import { Input } from "@/components/ui/input"
+import { FilterMultiSelect } from "@/components/filters/filter-multi-select"
+import { ListHeaderSearch } from "@/components/list-header-search"
+import type { SkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
 import {
   Select,
   SelectContent,
@@ -29,6 +33,8 @@ export interface SkillsSortValue {
   field: SkillsSortField
   direction: SkillsSortDirection
 }
+
+export type SkillsViewMode = "folders" | "list"
 
 export const DEFAULT_SKILL_SORT: SkillsSortValue = {
   field: "updated_at",
@@ -121,6 +127,10 @@ interface SkillsHeaderProps {
   onSearchChange: (query: string) => void
   sortBy: SkillsSortValue
   onSortByChange: (value: SkillsSortValue) => void
+  agentFilter: SkillAgentFilter
+  view: SkillsViewMode
+  onViewChange: (view: SkillsViewMode) => void
+  viewSwitchEnabled?: boolean
   totalCount: number
   countLabel: string
   limit: number
@@ -134,14 +144,17 @@ interface SkillsHeaderProps {
 
 /**
  * List header for the skills dashboard. Mirrors the workflows header layout
- * with a slimmed control set (no view toggle, tags, webhooks, schedules, or
- * case-trigger filters).
+ * with a slimmed control set: search, sort, and an agent filter.
  */
 export function SkillsHeader({
   searchQuery,
   onSearchChange,
   sortBy,
   onSortByChange,
+  agentFilter,
+  view,
+  onViewChange,
+  viewSwitchEnabled = true,
   totalCount,
   countLabel,
   limit,
@@ -152,34 +165,25 @@ export function SkillsHeader({
   onNextPage,
   isPaginationLoading = false,
 }: SkillsHeaderProps) {
-  const hasFilters = searchQuery.trim().length > 0 || !isDefaultSort(sortBy)
+  const hasFilters =
+    searchQuery.trim().length > 0 ||
+    !isDefaultSort(sortBy) ||
+    agentFilter.active
 
   const handleReset = () => {
     onSearchChange("")
     onSortByChange(DEFAULT_SKILL_SORT)
+    if (agentFilter.active) agentFilter.setAgentIds([])
   }
 
   return (
     <div className="shrink-0 border-b">
-      <header className="flex h-10 items-center border-b pl-3 pr-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-            <SearchIcon className="size-4 text-muted-foreground" />
-          </div>
-          <Input
-            type="text"
-            placeholder="Search skills..."
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className={cn(
-              "h-7 w-56 border-none bg-transparent p-0",
-              "text-sm",
-              "shadow-none outline-none",
-              "placeholder:text-muted-foreground",
-              "focus-visible:ring-0 focus-visible:ring-offset-0"
-            )}
-          />
-        </div>
+      <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
+        <ListHeaderSearch
+          placeholder="Search skills..."
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
@@ -219,7 +223,39 @@ export function SkillsHeader({
       </header>
 
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
+        {viewSwitchEnabled ? (
+          <Select
+            value={view}
+            onValueChange={(nextView) =>
+              onViewChange(nextView as SkillsViewMode)
+            }
+          >
+            <SelectTrigger className="h-6 w-[105px] gap-1.5 rounded-md px-2 text-xs font-medium">
+              {view === "folders" ? (
+                <FolderIcon className="size-3.5 text-muted-foreground" />
+              ) : (
+                <ListIcon className="size-3.5 text-muted-foreground" />
+              )}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start">
+              <SelectItem value="list">List</SelectItem>
+              <SelectItem value="folders">Folders</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : null}
         <SortBySelect value={sortBy} onChange={onSortByChange} />
+        <FilterMultiSelect
+          placeholder="Agents"
+          icon={MousePointerClickIcon}
+          value={agentFilter.agentIds}
+          options={agentFilter.options}
+          onChange={agentFilter.setAgentIds}
+          mode="include"
+          onModeChange={() => {}}
+          allowExclude={false}
+          emptyMessage={agentFilter.emptyMessage}
+        />
 
         {hasFilters && (
           <button

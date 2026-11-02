@@ -5,5 +5,5 @@ TEMPLATE_STRING = re.compile(
 )  # Lazy match, includes newlines
 """Pattern that matches a template and its expression."""
 
-STANDALONE_TEMPLATE = re.compile(r"^\${{\s*(?:(?!\${{).)*?\s*}}$")
-"""Pattern that matches a standalone template expression."""
+STANDALONE_TEMPLATE = re.compile(r"^\${{(?:(?!\${{)[\s\S])*}}$")
+"""Pattern that matches a standalone template expression in linear time."""

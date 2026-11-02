@@ -18,6 +18,8 @@ from typing import Any
 
 import httpx
 
+from tracecat.outbound import create_outbound_http_client
+
 MCP_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
@@ -117,20 +119,14 @@ def create_bounded_mcp_http_client(
     if timeout is None:
         timeout = httpx.Timeout(30.0, read=300.0)
 
-    client = httpx.AsyncClient(
+    client = create_outbound_http_client(
         follow_redirects=follow_redirects,
         timeout=timeout,
         headers=headers,
         auth=auth,
         **kwargs,
     )
-    # Wrapping the private transports is the only way to bound httpx's
-    # env-derived default and proxy transports without re-implementing proxy
-    # resolution. A None mount means "no proxy for this pattern" (NO_PROXY);
-    # preserve it. Requests matching a mount bypass _transport, so wrap both.
+    # The outbound factory forbids proxy/mount overrides. Compose the response
+    # cap with its guarded transport, preserving DNS pinning beneath streaming.
     client._transport = BoundedResponseTransport(client._transport)
-    client._mounts = {
-        pattern: BoundedResponseTransport(mount) if mount is not None else None
-        for pattern, mount in client._mounts.items()
-    }
     return client

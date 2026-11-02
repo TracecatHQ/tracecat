@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import NotRequired, TypedDict
+import uuid
+from typing import NotRequired, Self, TypedDict
 
-from pydantic import EmailStr, Field, computed_field, field_validator
+from pydantic import EmailStr, Field, computed_field, field_validator, model_validator
 
 from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
-from tracecat.invitations.enums import InvitationStatus
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.workspace_sync.enums import VcsProvider
 
 # === Workspace === #
@@ -78,15 +77,28 @@ class WorkspaceSettingsUpdate(Schema):
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
     )
 
-    @field_validator("git_provider")
-    @classmethod
-    def validate_git_provider(cls, value: VcsProvider | None) -> VcsProvider | None:
-        """Restrict writable workspace sync providers to implemented transports."""
-        if value is VcsProvider.BITBUCKET:
-            raise ValueError(
-                "bitbucket workspace sync is not implemented yet. Use github or gitlab."
-            )
-        return value
+    @model_validator(mode="after")
+    def validate_bitbucket_cloud(self) -> Self:
+        """Reject self-hosted URLs when selecting Bitbucket Cloud."""
+        if self.git_provider is VcsProvider.BITBUCKET and self.git_repo_url:
+            match = GIT_SSH_URL_REGEX.match(self.git_repo_url)
+            if match and (
+                match.group("host") != "bitbucket.org"
+                or match.group("port")
+                or len(match.group("path").split("/")) != 2
+            ):
+                raise ValueError(
+                    "Bitbucket Cloud requires a bitbucket.org workspace/repository URL"
+                )
+        if self.git_provider is VcsProvider.BITBUCKET_DATA_CENTER and self.git_repo_url:
+            match = GIT_SSH_URL_REGEX.match(self.git_repo_url)
+            if match and (
+                match.group("port") or len(match.group("path").split("/")) != 2
+            ):
+                raise ValueError(
+                    "Use a project/repository URL; configure the port and context path in the organization instance URL"
+                )
+        return self
 
     @field_validator("git_repo_url", mode="before")
     @classmethod
@@ -113,6 +125,10 @@ class WorkspaceCreate(Schema):
 class WorkspaceUpdate(Schema):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     settings: WorkspaceSettingsUpdate | None = None
+    default_agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Default agent preset for this workspace. Set to null to clear.",
+    )
 
 
 class WorkspaceSearch(Schema):
@@ -131,13 +147,23 @@ class WorkspaceMember(Schema):
     last_name: str | None
     email: EmailStr
     role_name: str
+    # Group-derived roles are managed in org settings, not here.
+    via_group: bool
 
 
 class WorkspaceRead(Schema):
     id: WorkspaceID
     name: str
+    default_agent_preset_id: uuid.UUID | None = Field(default=None)
     settings: WorkspaceSettingsRead | None = None
     organization_id: OrganizationID
+    unsafe_disable_secret_error_withholding_allowed: bool = Field(
+        default=False,
+        description=(
+            "Whether the organization lets this workspace's actions opt into "
+            "showing original error details when secrets are in scope."
+        ),
+    )
 
 
 WorkspaceSettingsRead.model_rebuild()
@@ -152,33 +178,3 @@ class WorkspaceMembershipCreate(Schema):
 class WorkspaceMembershipRead(Schema):
     user_id: UserID
     workspace_id: WorkspaceID
-
-
-# === Invitation === #
-class WorkspaceInvitationCreate(Schema):
-    """Request schema for creating a workspace invitation."""
-
-    email: EmailStr
-    role_id: str  # UUID as string for API compatibility
-
-
-class WorkspaceInvitationRead(Schema):
-    """Response schema for a workspace invitation."""
-
-    id: InvitationID
-    workspace_id: WorkspaceID
-    email: EmailStr
-    role_id: str
-    role_name: str
-    role_slug: str | None = None
-    status: InvitationStatus
-    invited_by: UserID | None
-    expires_at: datetime
-    accepted_at: datetime | None
-    created_at: datetime
-
-
-class WorkspaceInvitationList(Schema):
-    """Query params for listing workspace invitations."""
-
-    status: InvitationStatus | None = None

@@ -99,3 +99,34 @@ async def test_search_rows_rejects_unexpected_dict_shape(
 
     with pytest.raises(ValueError, match="Unexpected search response"):
         await tables_client.search_rows(table="test_table")
+
+
+@pytest.mark.anyio
+async def test_semantic_search_uses_relative_internal_path(
+    tables_client, mock_tracecat_client
+):
+    await tables_client.search(
+        "synthetic table",
+        "synthetic query",
+        limit=4,
+        cursor="opaque",
+        allow_partial=True,
+    )
+    path = mock_tracecat_client.post.call_args.args[0]
+    assert path == "/tables/synthetic%20table/rows/semantic-search"
+    assert mock_tracecat_client.post.call_args.kwargs["json"] == {
+        "query": "synthetic query",
+        "limit": 4,
+        "cursor": "opaque",
+        "allow_partial": True,
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("table", ["../other", "x?y", "x%2fy", "x#y", "x\\y"])
+async def test_semantic_search_rejects_path_syntax(
+    tables_client, mock_tracecat_client, table
+):
+    with pytest.raises(ValueError):
+        await tables_client.search(table, "synthetic")
+    mock_tracecat_client.post.assert_not_called()

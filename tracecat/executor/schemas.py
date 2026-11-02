@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-import json
-import traceback
 from datetime import datetime
-from enum import StrEnum
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import UUID4, BaseModel, Field
 
-from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
-from tracecat.logger import logger
+from tracecat.secrets.common import CapturedFailure, MaskedSecretError
+
+
+def _failure_site(e: Exception) -> CapturedFailure:
+    """Original failure type and location.
+
+    A masked exception's own traceback points at the masking boundary; prefer
+    the site captured before the original traceback was dropped.
+    """
+    if isinstance(e, MaskedSecretError) and e.captured is not None:
+        return e.captured
+    return CapturedFailure.from_exc(e)
 
 
 class ExecutorResultSuccess(BaseModel):
@@ -33,65 +39,6 @@ ExecutorResult = Annotated[
     ExecutorResultSuccess | ExecutorResultFailure,
     Field(discriminator="type"),
 ]
-
-
-class ExecutorBackendType(StrEnum):
-    """Executor backend types for action execution.
-
-    All sandbox backends use untrusted mode - DB credentials are never passed.
-
-    - EPHEMERAL: Cold nsjail subprocess per action (full isolation, multi-tenant, untrusted)
-    - DIRECT: Direct subprocess execution (no warm workers)
-    - TEST: In-process execution for tests only
-    - AUTO: Auto-select based on environment (never selects experimental backends)
-    """
-
-    EPHEMERAL = "ephemeral"
-    DIRECT = "direct"
-    TEST = "test"
-    AUTO = "auto"
-
-
-def _is_nsjail_available() -> bool:
-    """Check if nsjail is available in the current environment.
-
-    Validates that nsjail_path is an executable file and rootfs_path is a directory.
-    """
-    nsjail_path = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)
-    rootfs_path = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)
-    return nsjail_path.is_file() and rootfs_path.is_dir()
-
-
-def resolve_backend_type() -> ExecutorBackendType:
-    """Resolve the backend type from config, handling 'auto' mode."""
-
-    try:
-        backend_type = ExecutorBackendType(config.TRACECAT__EXECUTOR_BACKEND)
-    except ValueError:
-        valid = ", ".join(f"'{v.value}'" for v in ExecutorBackendType)
-        raise ValueError(
-            f"Invalid TRACECAT__EXECUTOR_BACKEND: {config.TRACECAT__EXECUTOR_BACKEND!r}. "
-            f"Valid values: {valid}"
-        ) from None
-
-    if backend_type == ExecutorBackendType.AUTO:
-        # Auto-select based on environment
-        if config.TRACECAT__DISABLE_NSJAIL:
-            logger.info(
-                "Auto-selecting 'direct' backend (DISABLE_NSJAIL=true)",
-            )
-            backend_type = ExecutorBackendType.DIRECT
-        elif _is_nsjail_available():
-            logger.info(
-                "Auto-selecting 'ephemeral' backend (nsjail available)",
-            )
-            backend_type = ExecutorBackendType.EPHEMERAL
-        else:
-            logger.warning(
-                "Auto-selecting 'direct' backend (nsjail not available)",
-            )
-            backend_type = ExecutorBackendType.DIRECT
-    return backend_type
 
 
 class ExecutorSyncInput(BaseModel):
@@ -170,6 +117,18 @@ class ResolvedContext(BaseModel):
     secret_projection: SecretEnvProjection | None = Field(default=None, exclude=True)
     """Runtime-ready secret env cached for host-side execution reuse."""
 
+    tunnel_name: str | None = None
+    """Tunnel this action is routed through, if any."""
+
+    tunnel_proxy_url: str | None = Field(default=None, repr=False)
+    """Gateway proxy URL carrying a short-lived proxy token."""
+
+    tunnel_gateway_ip: str | None = None
+    """Gateway address the sandbox network is locked to."""
+
+    tunnel_gateway_port: int | None = None
+    """Gateway port the sandbox network is locked to."""
+
 
 class ExecutorActionErrorInfo(BaseModel):
     """An error that occurred in the registry."""
@@ -196,7 +155,10 @@ class ExecutorActionErrorInfo(BaseModel):
     """Iteration number of the loop that caused the error."""
 
     loop_vars: dict[str, Any] | None = None
-    """Variables of the loop that caused the error."""
+    """Deprecated. Never populated: loop values are withheld like `var.*`.
+
+    Retained because the generated API client still declares the field.
+    """
 
     def __str__(self) -> str:
         parts = []
@@ -204,8 +166,7 @@ class ExecutorActionErrorInfo(BaseModel):
         if self.loop_iteration is not None:
             parts.append(
                 f"\n[for_each] (Iteration {self.loop_iteration})"
-                f"\n\nLoop variables:\n```\n{json.dumps(self.loop_vars or {}, indent=2)}\n```"
-                f"\n\n{msg}"
+                f"\n{msg}"
                 "\n\nPlease ensure that the loop is iterable and that the loop variable has the correct type."
             )
         else:
@@ -222,12 +183,12 @@ class ExecutorActionErrorInfo(BaseModel):
     @staticmethod
     def from_exc(e: Exception, action_name: str) -> ExecutorActionErrorInfo:
         """Create an error info from an exception."""
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
+        site = _failure_site(e)
         return ExecutorActionErrorInfo(
             action_name=action_name,
-            type=e.__class__.__name__,
+            type=site.original_type,
             message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
+            filename=site.filename,
+            function=site.function,
+            lineno=site.lineno,
         )

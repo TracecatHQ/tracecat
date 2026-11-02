@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from tracecat.registry.versions.schemas import RegistryVersionManifest
+
+type RegistrySource = Literal["org", "platform"]
+"""Registry table an action row came from."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,3 +58,15 @@ class IndexedActionResult:
     manifest: RegistryVersionManifest
     origin: str
     repository_id: uuid.UUID
+    source: RegistrySource
+    """Registry table the action came from."""
+
+
+@dataclass(frozen=True, slots=True)
+class MissingActionAttribution:
+    """Attribution for actions absent from an index lookup."""
+
+    platform: frozenset[str] = frozenset()
+    """Names a platform registry provides in some version."""
+    entitlement_denied: frozenset[str] = frozenset()
+    """Names whose every current registry row needs a disabled entitlement."""

@@ -1,6 +1,6 @@
 import threading
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, TypeVar
@@ -160,6 +160,11 @@ class IterableExpr[T]:
             yield self.iterator, item
 
 
+type JSONPathFinder = Callable[
+    [jsonpath_nodes.JSONPath, Any], list[jsonpath_nodes.DatumInContext]
+]
+
+
 K = TypeVar("K", str, StrEnum)
 ExprOperand = Mapping[K, Any]
 
@@ -174,11 +179,14 @@ def eval_jsonpath(
     *,
     context_type: ExprContext | None = None,
     strict: bool = False,
+    find: JSONPathFinder | None = None,
 ) -> Any | None:
     """Evaluate a jsonpath expression on the target object (operand)."""
 
     if operand is None or not isinstance(operand, dict | list):
-        logger.error("Invalid operand for jsonpath", operand=operand)
+        logger.error(
+            "Invalid operand for jsonpath", operand_type=type(operand).__name__
+        )
         raise TracecatExpressionError(
             f"A dict or list operand is required as jsonpath target. Got {type(operand)}"
         )
@@ -186,12 +194,14 @@ def eval_jsonpath(
         # Try to evaluate the expression
         jsonpath_expr = parse_jsonpath(expr)
     except JsonPathParserError as e:
-        logger.error(
-            "Invalid jsonpath expression", expr=repr(expr), context_type=context_type
-        )
+        # Paths can carry literal credentials typed into a template.
+        logger.error("Invalid jsonpath expression", context_type=context_type)
         formatted_expr = _expr_with_context(expr, context_type)
         raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
-    matches = [found.value for found in jsonpath_expr.find(operand)]
+    found = (
+        jsonpath_expr.find(operand) if find is None else find(jsonpath_expr, operand)
+    )
+    matches = [match.value for match in found]
 
     def _contains_filter(path: jsonpath_nodes.JSONPath) -> bool:
         stack: list[jsonpath_nodes.JSONPath] = [path]
@@ -239,11 +249,13 @@ def eval_jsonpath(
         if strict:
             # We know that if this function is called, there was a templated field.
             # Therefore, it means the jsonpath was valid but there was no match.
-            logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
+            # Operands may contain sensitive values and paths may carry
+            # literals, so log only the context and report the expression.
+            logger.error("Jsonpath no match", context_type=context_type)
             formatted_expr = _expr_with_context(expr, context_type)
             raise TracecatExpressionError(
                 f"Couldn't resolve expression {formatted_expr!r} in the context",
-                detail={"expression": formatted_expr, "operand": operand},
+                detail={"expression": formatted_expr},
             )
         # Return None instead of empty list
         return None

@@ -105,115 +105,60 @@ def sample_tool_calls() -> list[ToolCallContent]:
 
 @pytest.mark.anyio
 class TestApprovalManager:
-    async def test_prepare_initializes_approvals(
+    @pytest.mark.parametrize(
+        ("expected_ids", "approvals", "error"),
+        [
+            pytest.param(
+                ["call_123", "call_456"],
+                {"call_123": True, "call_456": False},
+                None,
+                id="all_approvals",
+            ),
+            pytest.param(
+                ["call_123", "call_456"],
+                {"call_123": True},
+                None,
+                id="partial_approvals",
+            ),
+            pytest.param(
+                ["call_123", "call_456"],
+                {"call_123": True, "call_456": False, "call_789": True},
+                "unexpected approval response",
+                id="unexpected_approvals",
+            ),
+            pytest.param(
+                ["call_123", "call_456"],
+                {"call_123": None, "call_456": False},
+                "cannot be None",
+                id="none_value",
+            ),
+            pytest.param(
+                ["call_123", "call_456"], {}, "cannot be empty", id="empty_approvals"
+            ),
+            pytest.param(
+                [], {"call_123": True}, "No pending approvals", id="no_pending"
+            ),
+        ],
+    )
+    async def test_validate_responses(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallContent],
-        mock_agent_session: AgentSession,
-        session: AsyncSession,
-        svc_role: Role,
+        expected_ids: list[str],
+        approvals: ApprovalMap,
+        error: str | None,
     ) -> None:
-        """Test that prepare() initializes approval state and persists records."""
-        # This is a simplified test since we can't easily test Temporal activities
-        # in isolation without a Temporal worker
-        assert approval_manager.status.value == "idle"
-        assert approval_manager._expected_tool_calls == {}
-
-        # Note: We cannot test the full prepare() method without a Temporal worker
-        # because it calls workflow.execute_activity(). This would be tested in
-        # integration tests with a real workflow.
-
-    async def test_validate_responses_success(
-        self,
-        approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallContent],
-    ) -> None:
-        """Test successful validation when all required approvals are provided."""
-        # Set up expected tool calls
-        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
-
-        # Provide valid approvals for all expected tool calls
-        approvals: ApprovalMap = {
-            "call_123": True,
-            "call_456": False,
+        """Partial submissions are valid since approvals are decided one by one;
+        unexpected, None, empty, and no-pending submissions are rejected."""
+        approval_manager._expected_tool_calls = {
+            tc.id: tc for tc in sample_tool_calls if tc.id in expected_ids
         }
 
-        # Should not raise
-        approval_manager.validate_responses(approvals)
-
-    async def test_validate_responses_accepts_partial_approvals(
-        self,
-        approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallContent],
-    ) -> None:
-        """Partial submissions are valid: approvals are decided one by one."""
-        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
-
-        # Provide only partial approvals
-        approvals: ApprovalMap = {
-            "call_123": True,
-            # call_456 will be decided in a later submission
-        }
-
-        # Should not raise
-        approval_manager.validate_responses(approvals)
-
-    async def test_validate_responses_unexpected_approvals(
-        self,
-        approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallContent],
-    ) -> None:
-        """Test validation fails when unexpected approval responses are provided."""
-        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
-
-        # Provide approvals including unexpected ones
-        approvals: ApprovalMap = {
-            "call_123": True,
-            "call_456": False,
-            "call_789": True,  # Unexpected
-        }
-
-        with pytest.raises(ValueError, match="unexpected approval response"):
+        if error is None:
             approval_manager.validate_responses(approvals)
-
-    async def test_validate_responses_none_value(
-        self,
-        approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallContent],
-    ) -> None:
-        """Test validation fails when approval response is None."""
-        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
-
-        approvals = {
-            "call_123": None,  # Invalid None value
-            "call_456": False,
-        }
-
-        with pytest.raises(ValueError, match="cannot be None"):
-            approval_manager.validate_responses(approvals)
-
-    async def test_validate_responses_empty_approvals(
-        self,
-        approval_manager: ApprovalManager,
-        sample_tool_calls: list[ToolCallContent],
-    ) -> None:
-        """Test validation fails when approval responses are empty."""
-        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
-
-        with pytest.raises(ValueError, match="cannot be empty"):
-            approval_manager.validate_responses({})
-
-    async def test_validate_responses_no_pending(
-        self,
-        approval_manager: ApprovalManager,
-    ) -> None:
-        """Test validation fails when there are no pending approvals."""
-        approval_manager._expected_tool_calls = {}
-
-        approvals: ApprovalMap = {"call_123": True}
-
-        with pytest.raises(ValueError, match="No pending approvals"):
-            approval_manager.validate_responses(approvals)
+        else:
+            with pytest.raises(ValueError, match=error):
+                approval_manager.validate_responses(approvals)
 
     async def test_is_ready(
         self,
@@ -425,21 +370,6 @@ class TestRecordApprovalRequestsActivity:
             assert updated.status == ApprovalStatus.PENDING
             assert updated.reason is None
             assert updated.approved_at is None
-
-    async def test_record_approvals_empty_list(
-        self,
-        svc_role: Role,
-        mock_agent_session: AgentSession,
-    ) -> None:
-        """Test recording empty approval list is a no-op."""
-        input_data = PersistApprovalsActivityInputs(
-            role=svc_role,
-            session_id=mock_agent_session.id,
-            approvals=[],
-        )
-
-        # Should not raise
-        await ApprovalManager.record_approval_requests(input_data)
 
     async def test_record_approvals_string_args(
         self,
@@ -665,21 +595,6 @@ class TestApplyApprovalDecisionsActivity:
         assert approval.tool_name == "unknown"
         assert approval.status == ApprovalStatus.APPROVED
         assert approval.approved_by == test_user.id
-
-    async def test_apply_approval_empty_decisions(
-        self,
-        svc_role: Role,
-        mock_agent_session: AgentSession,
-    ) -> None:
-        """Test applying empty decisions list is a no-op."""
-        input_data = ApplyApprovalResultsActivityInputs(
-            role=svc_role,
-            session_id=mock_agent_session.id,
-            decisions=[],
-        )
-
-        # Should not raise
-        await ApprovalManager.apply_approval_decisions(input_data)
 
 
 @pytest.mark.anyio

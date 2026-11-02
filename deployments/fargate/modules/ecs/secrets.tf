@@ -60,9 +60,9 @@ data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   arn   = var.saml_idp_metadata_url_arn
 }
 
-data "aws_secretsmanager_secret" "otel_exporter_otlp_headers" {
-  count = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
-  arn   = var.otel_exporter_otlp_headers_arn
+data "aws_secretsmanager_secret" "smtp_password" {
+  count = var.smtp_password_arn != null ? 1 : 0
+  arn   = var.smtp_password_arn
 }
 
 # Temporal UI authentication
@@ -127,10 +127,6 @@ data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
 }
 
-data "aws_secretsmanager_secret_version" "otel_exporter_otlp_headers" {
-  count     = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.otel_exporter_otlp_headers[0].id
-}
 
 # Temporal UI secrets
 
@@ -171,6 +167,29 @@ data "aws_secretsmanager_secret_version" "temporal_db_password" {
   secret_id = data.aws_secretsmanager_secret.temporal_db_password[0].id
 }
 
+# Sentry DSN is stored in a Terraform-managed secret and injected via ECS
+# `secrets`, never as a plain environment variable: var.sentry_dsn is
+# sensitive, so putting it in the env lists marks every affected
+# container_definitions as (sensitive value) in plans. Every gate on the DSN
+# goes through this non-sensitive flag; a plain `var.sentry_dsn != null`
+# conditional would re-poison the secrets list.
+locals {
+  sentry_dsn_enabled = nonsensitive(var.sentry_dsn != null)
+}
+
+# Store the Sentry DSN in Secrets Manager so ECS tasks can inject it.
+resource "aws_secretsmanager_secret" "sentry_dsn" {
+  count       = local.sentry_dsn_enabled ? 1 : 0
+  name_prefix = "${var.name_prefix}-sentry-dsn-"
+  description = "Tracecat Sentry DSN"
+}
+
+resource "aws_secretsmanager_secret_version" "sentry_dsn" {
+  count         = local.sentry_dsn_enabled ? 1 : 0
+  secret_id     = aws_secretsmanager_secret.sentry_dsn[0].id
+  secret_string = var.sentry_dsn
+}
+
 locals {
   required_tracecat_base_secrets = [
     {
@@ -195,6 +214,15 @@ locals {
     {
       name      = "TEMPORAL__API_KEY"
       valueFrom = data.aws_secretsmanager_secret_version.temporal_api_key[0].arn
+    }
+  ] : []
+
+  # Pin the secret version so a DSN change updates container_definitions,
+  # creating new task-definition revisions that roll the services.
+  sentry_dsn_secret = local.sentry_dsn_enabled ? [
+    {
+      name      = "SENTRY_DSN"
+      valueFrom = "${aws_secretsmanager_secret_version.sentry_dsn[0].arn}:::${aws_secretsmanager_secret_version.sentry_dsn[0].version_id}"
     }
   ] : []
 
@@ -252,6 +280,14 @@ locals {
     }
   ] : []
 
+  # Secret ARN only; reading the version would copy the password into state.
+  smtp_password_secret = var.smtp_password_arn != null ? [
+    {
+      name      = "TRACECAT__SMTP_PASSWORD"
+      valueFrom = data.aws_secretsmanager_secret.smtp_password[0].arn
+    }
+  ] : []
+
   temporal_auth_client_id_secret = var.temporal_auth_client_id_arn != null ? [
     {
       name      = "TEMPORAL_AUTH_CLIENT_ID"
@@ -266,22 +302,16 @@ locals {
     }
   ] : []
 
-  platform_otel_headers_secret = var.otel_exporter_otlp_headers_arn != null ? [
-    {
-      name      = "OTEL_EXPORTER_OTLP_HEADERS"
-      valueFrom = data.aws_secretsmanager_secret_version.otel_exporter_otlp_headers[0].arn
-    }
-  ] : []
-
   tracecat_api_secrets = concat(
     local.tracecat_temporal_secrets,
-    local.platform_otel_headers_secret,
+    local.sentry_dsn_secret,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
     local.oidc_client_id_secret,
     local.oidc_client_secret_secret,
     local.user_auth_secret_secret,
-    local.saml_idp_metadata_url_secret
+    local.saml_idp_metadata_url_secret,
+    local.smtp_password_secret
   )
 
   tracecat_ui_secrets = [
@@ -303,16 +333,9 @@ locals {
     local.temporal_auth_client_secret_secret,
   )
 
-  worker_secrets = concat(
-    local.tracecat_temporal_secrets,
-    local.platform_otel_headers_secret,
-  )
-
-  # The direct executor backend passes its process environment to untrusted
-  # action subprocesses, so platform exporter credentials must stay out of the
-  # executor task. Operators can expose an unauthenticated collector endpoint
-  # on the executor's private network when executor spans are required.
-  executor_secrets = local.tracecat_temporal_secrets
+  worker_secrets       = concat(local.tracecat_temporal_secrets, local.sentry_dsn_secret)
+  agent_worker_secrets = concat(local.tracecat_temporal_secrets, local.sentry_dsn_secret)
+  executor_secrets     = concat(local.tracecat_temporal_secrets, local.sentry_dsn_secret)
 
   litellm_secrets = local.tracecat_base_secrets
 

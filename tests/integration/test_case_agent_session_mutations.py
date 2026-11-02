@@ -100,6 +100,7 @@ async def _create_session_lineage(
         title="Case interaction continuation",
         entity_type="approval",
         entity_id=uuid.uuid4(),
+        forked_from_session=root,
         parent_session=root,
     )
     session.add_all([root, child])

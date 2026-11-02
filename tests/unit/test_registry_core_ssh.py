@@ -4,6 +4,12 @@ from unittest.mock import MagicMock
 
 import paramiko
 import pytest
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+)
 from tracecat_registry.core import ssh as registry_ssh
 
 
@@ -21,6 +27,48 @@ def mock_ssh_client() -> MagicMock:
     stdout.channel.recv_exit_status.return_value = 0
     client.exec_command.return_value = (stdin, stdout, stderr)
     return client
+
+
+@pytest.mark.parametrize(
+    ("private_key", "expected_type"),
+    [
+        (ed25519.Ed25519PrivateKey.generate(), paramiko.Ed25519Key),
+        (
+            rsa.generate_private_key(public_exponent=65537, key_size=2048),
+            paramiko.RSAKey,
+        ),
+        (ec.generate_private_key(ec.SECP256R1()), paramiko.ECDSAKey),
+    ],
+)
+def test_load_private_key_supports_modern_key_types(
+    private_key: ed25519.Ed25519PrivateKey
+    | rsa.RSAPrivateKey
+    | ec.EllipticCurvePrivateKey,
+    expected_type: type[paramiko.PKey],
+) -> None:
+    serialized_key = private_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.OpenSSH,
+        encryption_algorithm=NoEncryption(),
+    ).decode()
+
+    assert isinstance(registry_ssh._load_private_key(serialized_key), expected_type)
+
+
+def test_load_private_key_rejects_invalid_key() -> None:
+    with pytest.raises(ValueError, match="Unsupported or invalid private key format"):
+        registry_ssh._load_private_key("not-a-private-key")
+
+
+def test_load_private_key_rejects_removed_dsa_keys() -> None:
+    serialized_key = dsa.generate_private_key(key_size=1024).private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=NoEncryption(),
+    )
+
+    with pytest.raises(ValueError, match="Use an Ed25519, RSA, or ECDSA key"):
+        registry_ssh._load_private_key(serialized_key.decode())
 
 
 def test_execute_command_rejects_missing_host_key_when_checking_enabled(

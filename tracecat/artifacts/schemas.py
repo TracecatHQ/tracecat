@@ -18,6 +18,7 @@ type ArtifactType = Literal[
     "run",
     "table",
     "agent",
+    "form",
     "alert",
     "integration",
     "secret",
@@ -85,6 +86,13 @@ class AgentArtifact(BaseArtifact):
     type: Literal["agent"] = "agent"
 
 
+class FormArtifact(BaseArtifact):
+    """Workflow form artifact. Lets a surface refresh a form the chat edited."""
+
+    type: Literal["form"] = "form"
+    status: Literal["online", "offline"] | None = None
+
+
 class AlertArtifact(BaseArtifact):
     """Alert artifact stub. Extend when alert surfaces are wired."""
 
@@ -116,6 +124,7 @@ type Artifact = Annotated[
     | RunArtifact
     | TableArtifact
     | AgentArtifact
+    | FormArtifact
     | AlertArtifact
     | IntegrationArtifact
     | SecretArtifact

@@ -42,7 +42,7 @@ Tracecat requires four cryptographic secrets, plus an optional keyring if you en
 
 | Secret | Protects |
 | --- | --- |
-| `TRACECAT__DB_ENCRYPTION_KEY` | Fernet key for credentials and sensitive settings stored in PostgreSQL. |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Credentials and sensitive settings stored in PostgreSQL. A Fernet-format key. |
 | `TRACECAT__SERVICE_KEY` | Service-to-service JWT signing. |
 | `TRACECAT__SIGNING_SECRET` | Webhook URL signing and HMAC operations. |
 | `USER_AUTH_SECRET` | Password reset tokens, email verification, OAuth state, the MCP OIDC issuer keypair, and the internal OIDC client secret. |
@@ -66,6 +66,57 @@ openssl rand -hex 32
 
 Tracecat derives a separate AES-256-GCM key per workspace from the root secret, and stamps the key ID into every payload it encrypts. That stamp is what lets you rotate the keyring while older histories stay readable. On AWS, supply `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN` instead, and Tracecat fetches the keyring from Secrets Manager at runtime.
 
+### Database encryption
+
+`TRACECAT__DB_ENCRYPTION_ALGORITHM` picks the cipher Tracecat uses when it writes an encrypted value to PostgreSQL:
+
+| Value | Cipher |
+| --- | --- |
+| `fernet` (default) | Fernet: AES-128-CBC with an HMAC-SHA256 tag. |
+| `aes256gcm` | AES-256-GCM, keyed by HKDF-SHA256 from the 32 bytes of `TRACECAT__DB_ENCRYPTION_KEY`. |
+
+The setting controls writes only. Tracecat reads both formats whatever the setting is, so existing rows stay readable after a switch, and rows written before the switch stay Fernet until you re-encrypt them. Tracecat refuses to start when the value is anything else.
+
+`TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` takes a comma-separated list of retired keys. Tracecat decrypts with `TRACECAT__DB_ENCRYPTION_KEY` first, then each previous key, and always encrypts with `TRACECAT__DB_ENCRYPTION_KEY`. Each AES-256-GCM value carries a key ID derived from its key, so Tracecat picks the right key without trying each one.
+
+Set both variables on every service that receives `TRACECAT__DB_ENCRYPTION_KEY`. The bundled Compose file, Helm chart, and Fargate module do not pass them through, so add them to each service's environment, for example in a `docker-compose.override.yml`.
+
+<Warning>
+  Once any service writes with `aes256gcm`, Tracecat versions without this setting cannot read those rows. To downgrade, set `TRACECAT__DB_ENCRYPTION_ALGORITHM=fernet`, run the re-encrypt command below, and only then deploy the older version.
+</Warning>
+
+#### Re-encrypt stored values
+
+The re-encrypt command rewrites every encrypted value that is not yet in the current algorithm and key. Run it in the `api` container, with the same environment as the running services:
+
+```bash
+docker compose exec api python -m tracecat.secrets.reencrypt --dry-run
+docker compose exec api python -m tracecat.secrets.reencrypt
+```
+
+On Kubernetes or Fargate, run the same module in an `api` pod or task.
+
+- `--dry-run` prints per-column counts of Fernet values, AES-256-GCM values, values already current, and values no configured key can decrypt. It writes nothing.
+- Without `--dry-run`, the command scans first and refuses to write if any value fails to decrypt. Add the missing key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS`, or pass `--skip-undecryptable` to leave those values unchanged.
+- Writes go in committed batches of `--batch-size` rows (default 200). The command skips values that are already current and leaves a value alone if the application rewrites it mid-run, so you can stop it and run it again at any time.
+
+The output reports counts only, never values.
+
+#### Rotate the database key
+
+1. Generate a new key with `openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_'`.
+2. Add the new key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` on every service and deploy. Every service can now read values written under it.
+3. Set `TRACECAT__DB_ENCRYPTION_KEY` to the new key, move the old key to `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS`, and deploy. New writes use the new key.
+4. Confirm that every service that receives `TRACECAT__DB_ENCRYPTION_KEY` has restarted with the new values. In the bundled Compose file these are `api`, `worker`, `executor`, `agent-worker`, `agent-executor`, `litellm`, and `mcp`. Check each service's environment, with `docker compose config <service>`, the ECS task definition, or the pod spec, and check that it started after step 3. A service still running with the old key keeps writing rows under it.
+5. Run the re-encrypt command with `--dry-run` to check the counts, then without it to rewrite the values. Run `--dry-run` again and confirm every value counts as current.
+6. Remove the old key from `TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS` and deploy. Keep a backup of it until you no longer need database backups taken before the final dry run in step 5.
+
+<Warning>
+  Removing the old key makes every row still encrypted under it unreadable, and Tracecat cannot recover those rows without the key. Remove it only after step 4 confirms that no service still uses it, and after the final dry run in step 5 shows every value as current.
+</Warning>
+
+Rotating the key also resets MCP OAuth state that Tracecat keeps in Redis under `TRACECAT__DB_ENCRYPTION_KEY`, so MCP clients sign in again. To switch algorithms without rotating, set `TRACECAT__DB_ENCRYPTION_ALGORITHM` on every service and deploy. Confirm as in step 4 that every service restarted with the new value, then run step 5. A service still on the old algorithm keeps writing that format, which matters when you switch back to `fernet` before downgrading.
+
 ### Where to store them
 
 Keep these out of your application configuration and out of version control. Use the mechanism your platform already provides.
@@ -83,18 +134,15 @@ On Kubernetes, prefer External Secrets Operator over a hand-created Secret. Your
 Rotation support differs by secret. Check the differences before you plan a rotation window.
 
 <Warning>
-  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
-
-  Tracecat encrypts under a single Fernet key with no re-encryption path.
-  Changing it makes every stored credential unrecoverable, and there is no
-  migration to re-key existing rows. Treat this key as permanent for the life of
-  the deployment: back it up, and control access to it at least as tightly as
-  the credentials it encrypts.
+  Losing `TRACECAT__DB_ENCRYPTION_KEY` makes every stored credential
+  unrecoverable. Back it up, and control access to it at least as tightly as the
+  credentials it encrypts.
 </Warning>
 
 | Secret | Overlap window | Rotation procedure | Blast radius |
 | --- | --- | --- | --- |
 | `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Yes | Add the new key to `keys` and let every service pick it up, then point `current_key_id` at it. Keep retired keys as long as you retain their histories. | None for existing histories, which stay readable under the key they were written with. Between the two steps, a service still on the old keyring cannot decrypt payloads written under the new key. In ARN mode that gap lasts up to `TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS`. |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Yes | Follow [Rotate the database key](#rotate-the-database-key). | MCP clients sign in again. Removing the old key before every service has restarted with the new key, and before re-encryption finishes, makes rows still encrypted under the old key unreadable. |
 | `TRACECAT__SIGNING_SECRET` | No | Rotate, then reissue every affected URL. | Every webhook URL and agent channel endpoint URL. Breaks in-flight Slack OAuth installs, and pending Slack approval buttons for up to 24 hours. |
 | `TRACECAT__SERVICE_KEY` | No | Restart every service that holds it in one window, including `ui`, which uses it for the SAML ACS proxy. | While services disagree, in-flight agent turns fail their next tool or LLM call, executor calls fail, and service-to-service requests return `401`. Miss `ui` and SSO login breaks. |
 | `USER_AUTH_SECRET` | No | Restart `api` and `mcp` together. | Active MCP access tokens (1-hour lifetime), and in-flight password reset and verification links. Sessions are database-backed, so users stay logged in. MCP refresh tokens are hashed and survive. |
@@ -108,7 +156,7 @@ Defaults differ by deployment target.
 | Deployment | Default |
 | --- | --- |
 | [Kubernetes](/self-hosting/kubernetes#security) | nsjail sandbox. The chart applies the required security context to the executor pods. |
-| [Docker Compose](/self-hosting/docker-compose) | No isolation. `TRACECAT__DISABLE_NSJAIL=true` with the `direct` backend. |
+| [Docker Compose](/self-hosting/docker-compose) | No isolation. `TRACECAT__EXECUTOR_BACKEND=direct`. |
 | [AWS Fargate](/self-hosting/aws-fargate) | No isolation. Fargate cannot grant the capabilities nsjail requires. |
 
 ### nsjail sandbox (recommended for production)
@@ -123,9 +171,15 @@ For production, enable [nsjail](https://github.com/google/nsjail) — a process 
 To enable nsjail, set the following in your `.env`:
 
 ```bash
-TRACECAT__DISABLE_NSJAIL=false
-TRACECAT__EXECUTOR_BACKEND=ephemeral
+TRACECAT__EXECUTOR_BACKEND=nsjail
 ```
+
+The legacy `ephemeral` value remains an alias for `nsjail`. For Docker Compose, use the sandbox overlay in the [startup instructions](/self-hosting/docker-compose#start-tracecat) to supply container permissions and cgroup delegation.
+
+<Warning>
+  The `direct` backend does not sandbox ordinary workflow actions.
+  Set `TRACECAT__EXECUTOR_BACKEND=nsjail` for supported action isolation.
+</Warning>
 
 nsjail requires:
 - Linux with kernel 4.6+
@@ -138,19 +192,21 @@ nsjail requires:
 
 ### Resource limits
 
-Each sandbox runs under nsjail rlimits. The memory cap is the one you tune; the others are fixed.
+When you enable nsjail, each agent, Python script, custom action, and dependency-install sandbox gets a cgroup v2 memory budget shared by its child processes.
 
 | Sandbox | Memory cap | Configure with | CPU time | File size | Processes |
 | :------ | :--------- | :------------- | :------- | :-------- | :-------- |
 | `core.script.run_python` and custom actions | 2048 MB | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | 300 s | 256 MB | 64 |
-| Dependency installation for `core.script.run_python` | 2048 MB | Fixed | 300 s | 256 MB | 64 |
+| Dependency installation for `core.script.run_python` | 2048 MB | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | 300 s | 256 MB | 64 |
 | Agents | 4096 MB | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | Agent timeout ceiling | 256 MB | 128 |
 
-Both variables are read by the `executor` and `agent-executor` processes, so setting one in a `.env` file is not enough on its own: your deployment has to pass it through to those two services. On Docker Compose add it to their `environment` blocks, and on Kubernetes to the corresponding values.
+Pass `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` to your action executor and `TRACECAT__AGENT_SANDBOX_MEMORY_MB` to `agent-executor`. Docker Compose forwards both settings. Helm chart 0.7.0 or newer exposes them as `executor.sandboxMemoryMib` and `agentExecutor.sandboxMemoryMib` and provides the required executor cgroup bootstrap.
 
-The memory cap is `rlimit_as`: it bounds the virtual address space a process may map, not its resident memory. A runtime that reserves large address ranges up front hits the cap before it uses that much RAM, so size it above the peak virtual size of your workload rather than its RSS. Python raises `MemoryError` at the cap; native runtimes such as the agent's Claude Code CLI abort.
+Sandboxes have no per-process address-space cap (`rlimit_as`) by default, because the cgroup memory budget already bounds RAM. Set `TRACECAT__SANDBOX_ADDRESS_SPACE_MB=8192` or `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB=16384` to add one. Size this cap well above your workload's peak virtual size, since runtimes such as DuckDB reserve far more address space than the RAM they use. Stdio MCP connection probes use the same policy with a memory budget capped at 1024 MiB.
 
-The cap applies per process inside the sandbox. The executor pod's container memory limit still applies on top and covers every concurrent sandbox, so raising a sandbox cap without raising the pod limit trades a sandbox failure for an OOM kill of the executor.
+NsJail requires a writable cgroup v2 subtree with the memory controller enabled. The Compose sandbox overlay starts `python -m tracecat.sandbox.bootstrap` for executors and `python -m tracecat.agent.sandbox.cgroup` for agent executors as root to prepare the container's subtree, then drops privileges to `apiuser` before starting the worker. Other deployments must use that bootstrap with an isolated, writable container cgroup namespace, or delegate a subtree and set `TRACECAT__SANDBOX_CGROUP_PATH=/sys/fs/cgroup/action-sandboxes` for executors or `TRACECAT__AGENT_SANDBOX_CGROUP_PATH=/sys/fs/cgroup/agent-sandboxes` for agent executors. Both workers reject missing delegation before accepting activities.
+
+Set concurrency so all sandbox budgets plus worker overhead fit within the outer container limit. Tracecat does not resize concurrency automatically. A per-sandbox limit cannot prevent a container OOM when the sum of concurrent workloads exceeds that outer limit.
 
 Tracecat reports an action or agent run that exceeds the memory, CPU time, or file size limit as `sandbox.resource_limit_exceeded`. The failure is attributed to the workload, is not retried, and the error names the env var that controls the cap.
 
@@ -170,12 +226,14 @@ Review that code and pin those dependencies as you would any code with direct ac
 
 | Backend | Isolation | Latency | Use case |
 | :------ | :-------- | :------ | :------- |
-| `direct` | None | ~50ms | Trusted code, dependencies, and agents |
-| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Untrusted code, dependencies, and agents |
+| `direct` | Does not support sandboxing | ~50ms | Trusted code, dependencies, and agents |
+| `nsjail` (`ephemeral` alias) | nsjail sandbox (cold per action) | ~4000ms | Untrusted code, dependencies, and agents |
 
 ## Authentication
 
 Docker Compose deployments default to basic email/password authentication. For production, configure [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
+
+To require a hardware security key or passkey at sign-in, set `TRACECAT__PUBLIC_APP_URL` to an HTTPS URL and turn on [multi-factor authentication](/authentication/mfa). Browsers only offer security keys on HTTPS or `localhost`, and each key stays bound to that host.
 
 See [Roles and permissions](/manage-platform/rbac) for the roles you assign to users and groups once they can sign in.
 

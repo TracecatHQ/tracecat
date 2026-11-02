@@ -1,19 +1,22 @@
 "use client"
 
 import { LayersPlus, Loader2 } from "lucide-react"
+import type { ReactNode } from "react"
 import type { AgentPresetCreate } from "@/client"
+import { AgentPresetChatToggle } from "@/components/agents/agent-preset-chat-toggle"
 import { AgentPresetVersionHistory } from "@/components/agents/agent-preset-version-history"
+import { getAgentPresetVersionNumber } from "@/components/agents/agent-preset-version-select"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAgentPresetVersions } from "@/hooks/use-agent-presets"
 import { useAgentPresetDetailContext } from "@/providers/agent-preset-detail"
 
 /**
- * Props for the agent preset detail action group: version history plus the
- * publish button, driven by live form state.
+ * Props for the agent preset detail action group, driven by live form state.
  */
 export type AgentPresetDetailActionsProps = {
   workspaceId: string
@@ -24,13 +27,16 @@ export type AgentPresetDetailActionsProps = {
   canSubmit: boolean
   submitLabel: string
   onPublish: () => void
+  isDirty?: boolean
+  cutsVersion?: boolean
+  onDiscard?: () => void
+  syncActions?: ReactNode
 }
 
 /**
- * Icon-only action group for the agent preset detail surface: version
- * history followed by publish. Rendered either in the global controls
- * header (standalone preset route) or inline in the document panel (case
- * artifact view), matching the skills detail header treatment.
+ * Chat visibility, discard, sync, version history, and publish actions,
+ * laid out like the skill detail header. Rendered in the global controls
+ * header or inline in the document panel.
  */
 export function AgentPresetDetailActions({
   workspaceId,
@@ -41,9 +47,53 @@ export function AgentPresetDetailActions({
   canSubmit,
   submitLabel,
   onPublish,
+  isDirty = canSubmit,
+  cutsVersion = true,
+  onDiscard,
+  syncActions,
 }: AgentPresetDetailActionsProps) {
+  const { versions } = useAgentPresetVersions(
+    workspaceId,
+    presetId ?? undefined,
+    {
+      enabled: Boolean(presetId),
+    }
+  )
+  const currentVersionNumber = getAgentPresetVersionNumber(
+    versions,
+    currentVersionId
+  )
+  const publish = getPublishCopy({
+    presetId,
+    isDirty,
+    cutsVersion,
+    currentVersionNumber,
+    submitLabel,
+  })
+  const active = canSubmit && !isSaving
+
   return (
     <>
+      {presetId ? (
+        <AgentPresetChatToggle
+          workspaceId={workspaceId}
+          presetId={presetId}
+          disabled={isSaving}
+        />
+      ) : null}
+      {isDirty && presetId && onDiscard ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2.5 text-xs font-normal text-muted-foreground"
+          onClick={onDiscard}
+          disabled={isSaving}
+        >
+          Discard
+        </Button>
+      ) : null}
+      {syncActions}
       {presetId ? (
         <AgentPresetVersionHistory
           workspaceId={workspaceId}
@@ -59,10 +109,12 @@ export function AgentPresetDetailActions({
             type="button"
             size="icon"
             variant="ghost"
-            className="size-7"
-            onClick={onPublish}
-            disabled={isSaving || !canSubmit}
-            aria-label="Publish agent"
+            className="size-7 aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent"
+            onClick={() => {
+              if (active) onPublish()
+            }}
+            aria-disabled={!active}
+            aria-label={publish.label}
           >
             {isSaving ? (
               <Loader2 className="size-4 animate-spin" />
@@ -71,24 +123,68 @@ export function AgentPresetDetailActions({
             )}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{submitLabel}</TooltipContent>
+        <TooltipContent className="max-w-60">{publish.tip}</TooltipContent>
       </Tooltip>
     </>
   )
+}
+
+function getPublishCopy({
+  presetId,
+  isDirty,
+  cutsVersion,
+  currentVersionNumber,
+  submitLabel,
+}: {
+  presetId: string | null
+  isDirty: boolean
+  cutsVersion: boolean
+  currentVersionNumber: number | null
+  submitLabel: string
+}): { label: string; tip: string } {
+  if (!presetId) {
+    return { label: submitLabel, tip: "Creates the agent as v1." }
+  }
+  if (!isDirty) {
+    return {
+      label: "Publish",
+      tip:
+        currentVersionNumber !== null
+          ? `No changes to publish. v${currentVersionNumber} is live.`
+          : "No changes to publish.",
+    }
+  }
+  if (!cutsVersion) {
+    return {
+      label: "Publish",
+      tip: "Publishes name and description. The version does not change.",
+    }
+  }
+  const next = currentVersionNumber !== null ? currentVersionNumber + 1 : null
+  return {
+    label: "Publish",
+    tip:
+      next !== null
+        ? `Publish v${next}. Chat and workflows run it right away.`
+        : "Publish a new version.",
+  }
 }
 
 /**
  * Controls-header wrapper for the agent preset detail actions. Pulls the
  * handles the preset form registered into `AgentPresetDetailProvider`.
  *
- * @returns The header actions, or null when no provider is mounted or the
- * form has not registered yet.
+ * @returns The header actions, or only sync actions until the form registers.
  */
-export function AgentPresetDetailHeaderActions() {
+export function AgentPresetDetailHeaderActions({
+  syncActions,
+}: {
+  syncActions?: ReactNode
+}) {
   const detail = useAgentPresetDetailContext()
   const actions = detail?.actions
   if (!actions) {
-    return null
+    return syncActions ?? null
   }
   return (
     <AgentPresetDetailActions
@@ -100,6 +196,10 @@ export function AgentPresetDetailHeaderActions() {
       canSubmit={actions.canSubmit}
       submitLabel={actions.submitLabel}
       onPublish={actions.submit}
+      isDirty={actions.isDirty}
+      cutsVersion={actions.cutsVersion}
+      onDiscard={actions.discard}
+      syncActions={syncActions}
     />
   )
 }

@@ -35,6 +35,19 @@ export function useAutoCollapseSidebar() {
   // null = first run, so mounting while already narrow still collapses.
   const wasNarrow = useRef<boolean | null>(null)
   const autoCollapsed = useRef(false)
+  const setOpenRef = useRef(setOpen)
+  setOpenRef.current = setOpen
+
+  // The sidebar provider outlives this hook's route, so hand the nav back
+  // open when leaving a page that collapsed it.
+  useEffect(
+    () => () => {
+      if (autoCollapsed.current) {
+        setOpenRef.current(true, { persist: false })
+      }
+    },
+    []
+  )
 
   useEffect(() => {
     const crossed = wasNarrow.current !== isNarrow

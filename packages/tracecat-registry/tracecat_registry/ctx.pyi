@@ -108,6 +108,33 @@ class _AgentsAsync:
         *,
         skill_uuid: str | uuid.UUID | None = ...,
     ) -> None: ...
+    async def get_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_skill_draft_file(
+        self,
+        *,
+        skill_id: str,
+        path: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def patch_skill_draft(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def publish_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
 
 class _Agents:
     @property
@@ -204,8 +231,38 @@ class _Agents:
         *,
         skill_uuid: str | uuid.UUID | None = ...,
     ) -> None: ...
+    def get_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_skill_draft_file(
+        self,
+        *,
+        skill_id: str,
+        path: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def patch_skill_draft(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def publish_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
 
 class _CasesAsync:
+    async def aggregate_cases(
+        self, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     async def create_case(
         self,
         *,
@@ -254,6 +311,9 @@ class _CasesAsync:
         order_by: str | Unset = ...,
         sort: Literal["asc", "desc"] | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     async def search_cases(
         self,
@@ -262,6 +322,13 @@ class _CasesAsync:
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
         search_term: str | Unset = ...,
+        search_mode: Literal["full_text", "literal"] | Unset = ...,
+        search_columns: list[Literal["summary", "description"]] | Unset = ...,
+        short_id: str | Unset = ...,
+        case_id: str | Unset = ...,
+        filters: dict[str, Any] | Unset = ...,
+        hierarchy: Literal["all", "top_level"] | Unset = ...,
+        parent_id: str | Unset = ...,
         status: list[CaseStatus] | Unset = ...,
         priority: list[CasePriority] | Unset = ...,
         severity: list[CaseSeverity] | Unset = ...,
@@ -275,6 +342,12 @@ class _CasesAsync:
         updated_after: datetime | str | Unset = ...,
         updated_before: datetime | str | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
+        include_durations: bool | Unset = ...,
+        include_count: bool | Unset = ...,
+        field_ids: list[str] | Unset = ...,
     ) -> types.CaseListResponse: ...
     async def list_comments(
         self,
@@ -365,12 +438,12 @@ class _CasesAsync:
     ) -> str: ...
     async def download_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentDownloadData: ...
     async def delete_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> None: ...
     async def list_events(
@@ -443,12 +516,12 @@ class _CasesAsync:
     ) -> types.Case: ...
     async def get_attachment_metadata(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentRead: ...
     async def get_attachment_presigned_url(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
         *,
         expiry: int | None = ...,
@@ -489,6 +562,13 @@ class _CasesAsync:
         workflow_id: str | None | Unset = ...,
         default_trigger_values: dict[str, Any] | None | Unset = ...,
     ) -> types.CaseTaskRead: ...
+    async def run_task(
+        self,
+        case_id: str,
+        task_id: str,
+        *,
+        inputs: dict[str, Any] | None | Unset = ...,
+    ) -> types.CaseTaskRunRead: ...
     async def delete_task(
         self,
         task_id: str,
@@ -501,6 +581,18 @@ class _CasesAsync:
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
     ) -> dict[str, Any]: ...
+    async def list_linked_cases(
+        self,
+        table_id: str,
+        row_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | Unset = ...,
+        reverse: bool | Unset = ...,
+        order_by: str | Unset = ...,
+        sort: Literal["asc", "desc"] | Unset = ...,
+        exclude_case_id: str | Unset = ...,
+    ) -> types.CaseListResponse: ...
     async def link_case_row(
         self,
         case_id: str,
@@ -526,6 +618,7 @@ class _CasesAsync:
 class _Cases:
     @property
     def aio(self) -> _CasesAsync: ...
+    def aggregate_cases(self, spec: dict[str, Any]) -> types.AggregateResponse: ...
     def create_case(
         self,
         *,
@@ -574,6 +667,9 @@ class _Cases:
         order_by: str | Unset = ...,
         sort: Literal["asc", "desc"] | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     def search_cases(
         self,
@@ -582,6 +678,13 @@ class _Cases:
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
         search_term: str | Unset = ...,
+        search_mode: Literal["full_text", "literal"] | Unset = ...,
+        search_columns: list[Literal["summary", "description"]] | Unset = ...,
+        short_id: str | Unset = ...,
+        case_id: str | Unset = ...,
+        filters: dict[str, Any] | Unset = ...,
+        hierarchy: Literal["all", "top_level"] | Unset = ...,
+        parent_id: str | Unset = ...,
         status: list[CaseStatus] | Unset = ...,
         priority: list[CasePriority] | Unset = ...,
         severity: list[CaseSeverity] | Unset = ...,
@@ -595,6 +698,12 @@ class _Cases:
         updated_after: datetime | str | Unset = ...,
         updated_before: datetime | str | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
+        include_durations: bool | Unset = ...,
+        include_count: bool | Unset = ...,
+        field_ids: list[str] | Unset = ...,
     ) -> types.CaseListResponse: ...
     def list_comments(
         self,
@@ -685,12 +794,12 @@ class _Cases:
     ) -> str: ...
     def download_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentDownloadData: ...
     def delete_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> None: ...
     def list_events(
@@ -763,12 +872,12 @@ class _Cases:
     ) -> types.Case: ...
     def get_attachment_metadata(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentRead: ...
     def get_attachment_presigned_url(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
         *,
         expiry: int | None = ...,
@@ -821,6 +930,18 @@ class _Cases:
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
     ) -> dict[str, Any]: ...
+    def list_linked_cases(
+        self,
+        table_id: str,
+        row_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | Unset = ...,
+        reverse: bool | Unset = ...,
+        order_by: str | Unset = ...,
+        sort: Literal["asc", "desc"] | Unset = ...,
+        exclude_case_id: str | Unset = ...,
+    ) -> types.CaseListResponse: ...
     def link_case_row(
         self,
         case_id: str,
@@ -859,7 +980,71 @@ class _Deduplicate:
         expire_seconds: int,
     ) -> list[bool]: ...
 
+class _FormsAsync:
+    async def list_forms(
+        self, *, limit: int = ..., cursor: str | None = ...
+    ) -> dict[str, Any]: ...
+    async def get_form(self, form_id: str) -> dict[str, Any]: ...
+    async def update_form(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        config: dict[str, Any] | None = ...,
+    ) -> dict[str, Any]: ...
+    async def list_submissions(
+        self,
+        form_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        submitted_after: datetime | None = ...,
+        submitted_before: datetime | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_submission(self, submission_id: str) -> dict[str, Any]: ...
+    async def delete_submission(self, submission_id: str) -> None: ...
+    async def download_file(self, file_id: str) -> dict[str, Any]: ...
+
+class _Forms:
+    @property
+    def aio(self) -> _FormsAsync: ...
+    def list_forms(
+        self, *, limit: int = ..., cursor: str | None = ...
+    ) -> dict[str, Any]: ...
+    def get_form(self, form_id: str) -> dict[str, Any]: ...
+    def update_form(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        config: dict[str, Any] | None = ...,
+    ) -> dict[str, Any]: ...
+    def list_submissions(
+        self,
+        form_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        submitted_after: datetime | None = ...,
+        submitted_before: datetime | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_submission(self, submission_id: str) -> dict[str, Any]: ...
+    def delete_submission(self, submission_id: str) -> None: ...
+    def download_file(self, file_id: str) -> dict[str, Any]: ...
+
 class _TablesAsync:
+    async def search(
+        self,
+        table: str,
+        query: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        allow_partial: bool = ...,
+    ) -> types.SemanticSearchPage: ...
+    async def aggregate_rows(
+        self, table_name: str, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     async def list_tables(self) -> list[types.Table]: ...
     async def create_table(
         self,
@@ -968,6 +1153,18 @@ class _TablesAsync:
     ) -> list[dict[str, Any]] | str: ...
 
 class _Tables:
+    def search(
+        self,
+        table: str,
+        query: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        allow_partial: bool = ...,
+    ) -> types.SemanticSearchPage: ...
+    def aggregate_rows(
+        self, table_name: str, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     @property
     def aio(self) -> _TablesAsync: ...
     def list_tables(self) -> list[types.Table]: ...
@@ -1310,6 +1507,7 @@ class _Workflows:
 agents: _Agents
 cases: _Cases
 deduplicate: _Deduplicate
+forms: _Forms
 tables: _Tables
 variables: _Variables
 workflows: _Workflows

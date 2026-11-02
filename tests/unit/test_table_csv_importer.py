@@ -11,7 +11,7 @@ import pytest
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatImportError
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import ColumnInfo, CSVImporter, CSVSchemaInferer
+from tracecat.tables.importer import CSVImporter, CSVSchemaInferer
 from tracecat.tables.service import TablesService
 
 
@@ -64,65 +64,49 @@ def csv_importer(table_columns: list[TableColumn]) -> CSVImporter:
 class TestCSVImporter:
     """Test suite for CSVImporter class."""
 
-    def test_init(self, table_columns: list[TableColumn]) -> None:
-        """Test CSVImporter initialization."""
-        importer = CSVImporter(table_columns=table_columns)
+    @pytest.mark.parametrize(
+        ("value", "sql_type", "expected"),
+        [
+            ("", SqlType.TEXT, ""),
+            ("", SqlType.INTEGER, None),
+            ("", SqlType.BOOLEAN, None),
+            ("hello", SqlType.TEXT, "hello"),
+            ("123", SqlType.INTEGER, 123),
+            ("-456", SqlType.INTEGER, -456),
+            ("123.45", SqlType.NUMERIC, Decimal("123.45")),
+            ("-456.78", SqlType.NUMERIC, Decimal("-456.78")),
+            ("true", SqlType.BOOLEAN, True),
+            ("false", SqlType.BOOLEAN, False),
+            ("1", SqlType.BOOLEAN, True),
+            ("0", SqlType.BOOLEAN, False),
+        ],
+    )
+    def test_convert_value(
+        self,
+        csv_importer: CSVImporter,
+        value: str,
+        sql_type: SqlType,
+        expected: object,
+    ) -> None:
+        converted = csv_importer.convert_value(value, sql_type)
+        assert converted == expected
+        assert type(converted) is type(expected)
 
-        assert importer.chunk_size == 1000
-        assert importer.total_rows_inserted == 0
-        assert len(importer.columns) == 4
-
-        # Verify column info mappings
-        assert all(
-            isinstance(col_info, ColumnInfo) for col_info in importer.columns.values()
-        )
-        assert importer.columns["name"].type == SqlType.TEXT
-        assert importer.columns["age"].type == SqlType.INTEGER
-        assert importer.columns["active"].type == SqlType.BOOLEAN
-        assert importer.columns["score"].type == SqlType.NUMERIC
-
-    def test_convert_value_empty(self, csv_importer: CSVImporter) -> None:
-        """Test convert_value with empty values."""
-        assert csv_importer.convert_value("", SqlType.TEXT) == ""
-        assert csv_importer.convert_value("", SqlType.INTEGER) is None
-        assert csv_importer.convert_value("", SqlType.BOOLEAN) is None
-
-    def test_convert_value_text(self, csv_importer: CSVImporter) -> None:
-        """Test convert_value with text values."""
-        assert csv_importer.convert_value("hello", SqlType.TEXT) == "hello"
-
-    def test_convert_value_integer(self, csv_importer: CSVImporter) -> None:
-        """Test convert_value with integer values."""
-        assert csv_importer.convert_value("123", SqlType.INTEGER) == 123
-        assert csv_importer.convert_value("-456", SqlType.INTEGER) == -456
+    @pytest.mark.parametrize(
+        ("value", "sql_type"),
+        [
+            ("12.34", SqlType.INTEGER),
+            ("abc", SqlType.NUMERIC),
+            ("invalid", SqlType.BOOLEAN),
+        ],
+    )
+    def test_convert_value_rejects_invalid(
+        self, csv_importer: CSVImporter, value: str, sql_type: SqlType
+    ) -> None:
         with pytest.raises(
-            TypeError, match="Cannot convert value '12.34' to SqlType INTEGER"
+            TypeError, match=f"Cannot convert value '{value}' to SqlType {sql_type}"
         ):
-            csv_importer.convert_value("12.34", SqlType.INTEGER)
-
-    def test_convert_value_numeric(self, csv_importer: CSVImporter) -> None:
-        """Test convert_value with numeric values."""
-        assert csv_importer.convert_value("123.45", SqlType.NUMERIC) == Decimal(
-            "123.45"
-        )
-        assert csv_importer.convert_value("-456.78", SqlType.NUMERIC) == Decimal(
-            "-456.78"
-        )
-        with pytest.raises(
-            TypeError, match="Cannot convert value 'abc' to SqlType NUMERIC"
-        ):
-            csv_importer.convert_value("abc", SqlType.NUMERIC)
-
-    def test_convert_value_boolean(self, csv_importer: CSVImporter) -> None:
-        """Test convert_value with boolean values."""
-        assert csv_importer.convert_value("true", SqlType.BOOLEAN) is True
-        assert csv_importer.convert_value("false", SqlType.BOOLEAN) is False
-        assert csv_importer.convert_value("1", SqlType.BOOLEAN) is True
-        assert csv_importer.convert_value("0", SqlType.BOOLEAN) is False
-        with pytest.raises(
-            TypeError, match="Cannot convert value 'invalid' to SqlType BOOLEAN"
-        ):
-            csv_importer.convert_value("invalid", SqlType.BOOLEAN)
+            csv_importer.convert_value(value, sql_type)
 
     def test_map_row(self, csv_importer: CSVImporter) -> None:
         """Test mapping CSV rows to table columns."""

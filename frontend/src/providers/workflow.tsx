@@ -23,6 +23,16 @@ import {
 } from "@/client"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
+import {
+  ExportErrorMessage,
+  getExportError,
+} from "@/components/workspace-sync/export-error"
+import {
+  isPublishRequired,
+  PublishFirstDialog,
+  type PublishFirstError,
+} from "@/components/workspace-sync/publish-first-dialog"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import {
   type MutateFunction,
@@ -49,9 +59,19 @@ type WorkflowContextType = {
     WorkflowDslPublish,
     unknown
   >
-  updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
+  updateWorkflow: MutateFunction<
+    WorkflowRead,
+    ApiError,
+    WorkflowUpdate,
+    unknown
+  >
   validationErrors: ValidationResult[] | null
   setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
+  /**
+   * True when the workflow is managed by Tracecat. Edits, saves, publishes,
+   * renames, moves and deletes are locked; runs and schedules stay allowed.
+   */
+  isReadOnly: boolean
 }
 type TracecatErrorMessage = {
   type?: string
@@ -75,6 +95,12 @@ export function WorkflowProvider({
   const [validationErrors, setValidationErrors] = useState<
     ValidationResult[] | null
   >(null)
+  const [publishRequiredOpen, setPublishRequiredOpen] = useState(false)
+  const [publishError, setPublishError] = useState<PublishFirstError | null>(
+    null
+  )
+  const { isManaged } = useManagedResources(workspaceId)
+  const isReadOnly = isManaged("workflow", workflowId)
 
   // Queries
   const {
@@ -100,7 +126,7 @@ export function WorkflowProvider({
   })
 
   // Mutations
-  const { mutateAsync: commitWorkflow } = useMutation({
+  const { mutateAsync: commitWorkflow, isPending: isCommitting } = useMutation({
     mutationFn: async () =>
       await workflowsCommitWorkflow({ workspaceId, workflowId }),
     onSuccess: (response) => {
@@ -126,7 +152,7 @@ export function WorkflowProvider({
       toast({
         title: "Error saving workflow",
         description:
-          (error.body as TracecatErrorMessage).message ||
+          (error.body as TracecatErrorMessage | undefined)?.message ||
           "Could not save workflow. Please try again.",
         variant: "destructive",
       })
@@ -177,7 +203,21 @@ export function WorkflowProvider({
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
     onError: (error: ApiError) => {
-      console.warn("Failed to publish workflow:", error)
+      if (isPublishRequired(error)) {
+        setPublishError(null)
+        setPublishRequiredOpen(true)
+        return
+      }
+      if (getExportError(error)) {
+        toast({
+          variant: "destructive",
+          title: "Failed to publish workflow",
+          description: (
+            <ExportErrorMessage error={error} workspaceId={workspaceId} />
+          ),
+        })
+        return
+      }
       const apiError = error as TracecatApiError<string>
       const detail = apiError.body?.detail
       switch (apiError.status) {
@@ -244,6 +284,9 @@ export function WorkflowProvider({
       // dashboard keeps showing the old name after a rename in the builder.
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to update workflow:", error)
@@ -272,6 +315,28 @@ export function WorkflowProvider({
     },
   })
 
+  async function handlePublishFirst() {
+    setPublishError(null)
+    try {
+      const response = await commitWorkflow()
+      if (response.status === "success") {
+        setValidationErrors(null)
+        setPublishRequiredOpen(false)
+      } else {
+        setValidationErrors(response.errors || null)
+        setPublishError({
+          message: "Fix the workflow validation errors before publishing.",
+          validationErrors: response.errors,
+        })
+      }
+    } catch {
+      // The commit mutation also shows the "Error saving workflow" toast.
+      setPublishError({
+        message: "Could not publish this workflow. Please try again.",
+      })
+    }
+  }
+
   return (
     <WorkflowContext.Provider
       value={{
@@ -285,9 +350,17 @@ export function WorkflowProvider({
         updateWorkflow,
         validationErrors,
         setValidationErrors,
+        isReadOnly,
       }}
     >
       {children}
+      <PublishFirstDialog
+        open={publishRequiredOpen}
+        onOpenChange={setPublishRequiredOpen}
+        onPublish={handlePublishFirst}
+        isPublishing={isCommitting}
+        publishError={publishError}
+      />
     </WorkflowContext.Provider>
   )
 }

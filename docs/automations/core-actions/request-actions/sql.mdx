@@ -82,6 +82,46 @@ SQL to execute in an in-process DuckDB connection.
 
 </ParamField>
 
+<ParamField path="duration_seconds" type="integer | null">
+
+Duration of the chained role session in seconds (900-3600). AWS limits role chaining to a maximum of one hour. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="external_id" type="string | null">
+
+External ID required by the chained role's trust policy, if any. Only used together with role_arn.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="region_name" type="string | null">
+
+AWS region of the S3 buckets this query reads. Overrides the AWS_REGION secret for the DuckDB S3 secret.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_arn" type="string | null">
+
+ARN of an IAM role to assume (role chaining) with the credentials from the AWS secret before calling the service, e.g. a role in another AWS account that trusts the configured role or user. Requires sts:AssumeRole on that role.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="role_session_name" type="string | null">
+
+Session name recorded in CloudTrail for the chained AssumeRole. Defaults to a Tracecat workspace/run derived name.
+
+Default: `null`.
+
+</ParamField>
+
 ### Examples
 
 **Run in-process SQL**
@@ -110,4 +150,25 @@ SQL to execute in an in-process DuckDB connection.
     sql: |
       SELECT *
       FROM read_parquet('s3://my-bucket/findings/*.parquet')
+```
+
+**Read a bucket in another account and region**
+
+```yaml
+# role_arn chains from the amazon_s3 credentials into a role in the
+# bucket's account. region_name is the bucket's region and overrides the
+# secret's AWS_REGION, so one secret can read buckets in several regions.
+- ref: read_audit_logs
+  action: core.duckdb.execute_sql
+  args:
+    role_arn: arn:aws:iam::123456789012:role/log-reader
+    region_name: us-west-2
+    sql: |
+      SELECT action, count(*) AS events
+      FROM read_json(
+        's3://my-audit-logs/2026/01/01/*/*.json.gz',
+        format = 'newline_delimited',
+        compression = 'gzip'
+      )
+      GROUP BY action
 ```

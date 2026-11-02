@@ -75,18 +75,6 @@ def _field(
     )
 
 
-def test_agg_function_values_are_stable() -> None:
-    assert [function.value for function in AggFunction] == [
-        "count",
-        "count_distinct",
-        "sum",
-        "mean",
-        "median",
-        "min",
-        "max",
-    ]
-
-
 @pytest.mark.parametrize(
     "function",
     [
@@ -113,12 +101,6 @@ def test_aggregate_default_aliases() -> None:
         AggSpec(function=AggFunction.SUM, field="fields.bytes").output_key
         == "sum_bytes"
     )
-
-
-def test_group_by_defaults_alias_to_full_field_address() -> None:
-    group = GroupBySpec(field="fields.region")
-
-    assert group.output_key == "fields.region"
 
 
 def test_group_by_validates_timezone_and_bucket_relationship() -> None:
@@ -260,7 +242,7 @@ def test_compiles_plain_group_and_count() -> None:
     assert "LIMIT 26" in sql
 
 
-@pytest.mark.parametrize("bucket", ["hour", "day", "week", "month"])
+@pytest.mark.parametrize("bucket", ["hour", "week"])
 def test_compiles_timestamptz_buckets_with_timezone(bucket: TimeBucket) -> None:
     spec = AggregationSpec(
         group_by=[

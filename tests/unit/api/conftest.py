@@ -11,7 +11,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tracecat.api.app import app as api_app
-from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
+from tracecat.auth.credentials import (
+    AuthenticatedUserOnly,
+    SuperuserRole,
+    SuperuserStepUpRole,
+)
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
     OrgActorRole,
@@ -92,6 +96,7 @@ def _test_client(
         WorkspaceServiceAccountRole,
         ExecutorWorkspaceRole,
         SuperuserRole,
+        SuperuserStepUpRole,
         AuthenticatedUserOnly,
         OrgActorRole,
         OrganizationServiceAccountRole,

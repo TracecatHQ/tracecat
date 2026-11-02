@@ -7,6 +7,7 @@ import type { Extension } from "@codemirror/state"
 import { EditorView } from "@codemirror/view"
 import ReactCodeMirror from "@uiw/react-codemirror"
 import { useTheme } from "next-themes"
+import { useMemo } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -19,7 +20,11 @@ interface CodeEditorProps {
   placeholder?: string
   extensions?: Extension[]
   className?: string
+  /** Called once with the editor view, for callers that drive it directly. */
+  onCreateEditor?: (view: EditorView) => void
 }
+
+const NO_EXTENSIONS: Extension[] = []
 
 function getLanguageExtension(language: string): Extension | null {
   switch (language) {
@@ -42,17 +47,22 @@ export function CodeEditor({
   readOnly = false,
   wrapLongLines = false,
   placeholder,
-  extensions: customExtensions = [],
+  extensions: customExtensions = NO_EXTENSIONS,
   className,
+  onCreateEditor,
 }: CodeEditorProps) {
   const { resolvedTheme } = useTheme()
   const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
-  const languageExtension = getLanguageExtension(language)
-  const extensions = [
-    ...(languageExtension ? [languageExtension] : []),
-    ...(wrapLongLines ? [EditorView.lineWrapping] : []),
-    ...customExtensions,
-  ]
+  // A new array reconfigures the editor, so keep it stable for callers that
+  // pass stable extensions.
+  const extensions = useMemo(() => {
+    const languageExtension = getLanguageExtension(language)
+    return [
+      ...(languageExtension ? [languageExtension] : []),
+      ...(wrapLongLines ? [EditorView.lineWrapping] : []),
+      ...customExtensions,
+    ]
+  }, [language, wrapLongLines, customExtensions])
 
   return (
     <ReactCodeMirror
@@ -62,16 +72,18 @@ export function CodeEditor({
       theme={codeMirrorTheme}
       readOnly={readOnly}
       placeholder={placeholder}
+      onCreateEditor={onCreateEditor}
       className={cn(
         // Ensure the editor and all its tooltips/autocomplete popups are fully rounded and do not stick out
-        "max-w-full min-w-0 rounded-md text-xs focus-visible:outline-none",
-        // Editor container
-        "[&_.cm-editor]:min-w-0 [&_.cm-editor]:rounded-md [&_.cm-editor]:border [&_.cm-focused]:outline-none",
-        // Scroller
-        "[&_.cm-scroller]:min-w-0 [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:rounded-md",
+        "flex max-w-full min-w-0 flex-col rounded-md text-xs focus-visible:outline-none",
+        // Editor container. Grows to any min-height set by the caller.
+        "[&_.cm-editor]:min-w-0 [&_.cm-editor]:grow [&_.cm-editor]:rounded-md [&_.cm-editor]:border [&_.cm-focused]:outline-none",
+        // Scroller fills the editor so the gutter and horizontal scrollbar
+        // reach its bottom edge.
+        "[&_.cm-scroller]:min-w-0 [&_.cm-scroller]:grow [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:rounded-md [&_.cm-editor_.cm-scroller]:!items-stretch [&_.cm-editor_.cm-gutters]:!h-auto",
         wrapLongLines
           ? "[&_.cm-content]:min-w-0 [&_.cm-content]:w-full [&_.cm-line]:break-words [&_.cm-lineWrapping]:break-words [&_.cm-lineWrapping]:whitespace-pre-wrap"
-          : "[&_.cm-content]:min-w-full [&_.cm-content]:w-max",
+          : "[&_.cm-content]:w-max",
         // Tooltip (e.g., hover, autocomplete)
         "[&_.cm-tooltip]:rounded-md",
         // Autocomplete suggestion widget and its children

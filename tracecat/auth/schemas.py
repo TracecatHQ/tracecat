@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from fastapi_users import schemas
 from pydantic import UUID4, BaseModel, EmailStr
@@ -45,6 +45,15 @@ class UserReadMinimal(BaseModel):
     last_name: str | None = None
 
 
+class UserSearchRead(BaseModel):
+    """Identity fields returned by the org-scoped user email search."""
+
+    id: uuid.UUID
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+
+
 class UserCreate(schemas.BaseUserCreate):
     first_name: str | None = None
     last_name: str | None = None
@@ -71,3 +80,21 @@ class SessionRead(BaseModel):
     created_at: datetime
     user_id: UUID4
     user_email: EmailStr
+    ip_address: str | None = None
+    user_agent: str | None = None
+    last_seen_at: datetime | None = None
+
+
+class ScopeDeniedErrorDetail(BaseModel):
+    """Structured explanation of an authorization scope denial."""
+
+    code: Literal["insufficient_scope"]
+    message: str
+    required_scopes: list[str]
+    missing_scopes: list[str]
+
+
+class ScopeDeniedResponse(BaseModel):
+    """HTTP 403 response emitted by the scope-denial exception handler."""
+
+    error: ScopeDeniedErrorDetail

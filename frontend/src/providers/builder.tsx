@@ -121,11 +121,22 @@ interface ReactFlowContextType {
   setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
   currentExecutionId: string | null
   setCurrentExecutionId: React.Dispatch<SetStateAction<string | null>>
+  /** Open the rerun dialog for the shown run, optionally from an action ref. */
+  rerunRequest: { fromRef: string | null } | null
+  setRerunRequest: React.Dispatch<
+    SetStateAction<{ fromRef: string | null } | null>
+  >
   triggerPayload: string
   setTriggerPayload: React.Dispatch<SetStateAction<string>>
   actionDrafts: Record<string, unknown>
   setActionDraft: (actionId: string, draft: unknown) => void
   clearActionDraft: (actionId: string) => void
+  /**
+   * Canvas-wide override for `run_if` badges: `true` shows every condition,
+   * `false` collapses them, `null` follows the org compact-conditions setting.
+   */
+  showAllConditions: boolean | null
+  setShowAllConditions: React.Dispatch<SetStateAction<boolean | null>>
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -157,6 +168,9 @@ export const WorkflowBuilderProvider: React.FC<
   const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
     null
   )
+  const [rerunRequest, setRerunRequest] = useState<{
+    fromRef: string | null
+  } | null>(null)
   const [triggerPayloadState, setTriggerPayloadState] = useState<string>(
     DEFAULT_TRIGGER_PAYLOAD
   )
@@ -165,6 +179,9 @@ export const WorkflowBuilderProvider: React.FC<
   // This lets the action panel restore unsaved edits when the user
   // switches between nodes without touching the backend.
   const [actionDrafts, setActionDrafts] = useState<Record<string, unknown>>({})
+  const [showAllConditions, setShowAllConditions] = useState<boolean | null>(
+    null
+  )
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
@@ -403,14 +420,8 @@ export const WorkflowBuilderProvider: React.FC<
   }, [actionPanelRef])
 
   const expandSidebarAndFocusEvents = React.useCallback(() => {
-    setIsSidebarCollapsed(() => {
-      const newState = false
-      if (sidebarRef.current) {
-        sidebarRef.current.expand()
-        // sidebarRef.current.setActiveTab("workflow-events")
-      }
-      return newState
-    })
+    setIsSidebarCollapsed(false)
+    sidebarRef.current?.expand()
   }, [sidebarRef])
 
   const value = React.useMemo(
@@ -438,11 +449,15 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      rerunRequest,
+      setRerunRequest,
       triggerPayload,
       setTriggerPayload,
       actionDrafts,
       setActionDraft,
       clearActionDraft,
+      showAllConditions,
+      setShowAllConditions,
     }),
     [
       workflowId,
@@ -466,11 +481,13 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      rerunRequest,
       triggerPayload,
       setTriggerPayload,
       actionDrafts,
       setActionDraft,
       clearActionDraft,
+      showAllConditions,
     ]
   )
 

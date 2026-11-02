@@ -4,7 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-APPROVAL_CONTINUATION_PROMPT = "Continue."
+APPROVAL_CONTINUATION_PROMPT = (
+    "<tracecat-approval-continuation>\n"
+    "This is an automated system notice, not a message from the user. The user "
+    "has reviewed the tool calls that required approval; the results are "
+    "recorded in the tool_result blocks above.\n"
+    "- Approved tool calls were executed. Use their results.\n"
+    "- Denied tool calls (tool_result marked as denied by the user) were NOT "
+    "executed. Do not retry them, do not call the same tool with different "
+    "arguments, and do not treat the denial as an accident or a request to "
+    "continue. Acknowledge the denial and any reason the user gave, then stop "
+    "and wait for further instructions. Do not offer to retry or to re-run "
+    "the denied action with different parameters.\n"
+    'Any preceding message such as "Continue from where you left off." or '
+    '"No response requested." is a session-resume artifact, not from the '
+    "user; ignore it. The user has said nothing since their last visible "
+    "message except the approval decisions above.\n"
+    "Resume your response to the user's most recent actual message "
+    "accordingly.\n"
+    "</tracecat-approval-continuation>"
+)
 MODEL_CONTEXT_PROMPT_PREFIX = "<tracecat-model-context>\n"
 DISPLAY_ONLY_SESSION_LINE_FLAG = "isDisplayOnly"
 APPROVAL_INTERRUPT_CONTENT_EXACT = "interrupted"
@@ -74,7 +93,7 @@ def is_approval_continuation_prompt_line(line_data: Mapping[str, object]) -> boo
 
 def is_continuation_control_artifact(
     line_data: Mapping[str, object],
-    internal_uuids: set[str],
+    hidden_uuids: set[str],
 ) -> bool:
     """Return True for Claude Code continuation artifacts, even if mis-kind-ed.
 
@@ -89,7 +108,7 @@ def is_continuation_control_artifact(
 
     match line_data:
         case {"parentUuid": str(parent_uuid)}:
-            parent_is_internal = parent_uuid in internal_uuids
+            parent_is_internal = parent_uuid in hidden_uuids
         case _:
             parent_is_internal = False
 
@@ -140,3 +159,38 @@ def is_approval_interrupt_content(content: object) -> bool:
     return content_text == APPROVAL_INTERRUPT_CONTENT_EXACT or any(
         marker in content_text for marker in APPROVAL_INTERRUPT_CONTENT_MARKERS
     )
+
+
+def _parent_uuid(line_data: Mapping[str, object]) -> str | None:
+    match line_data:
+        case {"parentUuid": str(parent_uuid)}:
+            return parent_uuid
+        case _:
+            return None
+
+
+def mark_hidden_continuation(
+    line_data: Mapping[str, object],
+    hidden_uuids: set[str],
+    *,
+    internal_row: bool,
+) -> bool:
+    """Return True for rows in a hidden continuation chain, recording their UUID.
+
+    An internal row joins only by opening a chain (a synthetic row or the
+    approval prompt) or descending from one. Other internal rows, such as
+    attachments and skill loads, are ordinary turn context, so the reasoning
+    that follows them is shown. Any other row joins as a control artifact.
+    """
+    line_uuid = session_line_uuid(line_data)
+    if internal_row:
+        in_chain = line_uuid is not None and (
+            is_synthetic_session_line(line_data)
+            or is_approval_continuation_prompt_line(line_data)
+            or _parent_uuid(line_data) in hidden_uuids
+        )
+    else:
+        in_chain = is_continuation_control_artifact(line_data, hidden_uuids)
+    if in_chain and line_uuid is not None:
+        hidden_uuids.add(line_uuid)
+    return in_chain

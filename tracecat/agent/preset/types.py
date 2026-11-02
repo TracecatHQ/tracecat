@@ -3,7 +3,25 @@
 from __future__ import annotations
 
 import uuid
-from typing import NamedTuple
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, NamedTuple
+
+from tracecat.agent.skill.types import SkillMcpGrant
+
+if TYPE_CHECKING:
+    from tracecat.agent.common.types import MCPStdioServerConfig
+    from tracecat.integrations.schemas import MCPToolSummary
+
+
+@dataclass(frozen=True, slots=True)
+class StdioMCPIntegrationSnapshot:
+    """A stdio integration's config, tool policy and env from one row read."""
+
+    config: MCPStdioServerConfig
+    tools: dict[str, MCPToolSummary]
+    env: dict[str, str] | None = field(repr=False)
+    """Resolved process env, credentials included; None when not requested."""
 
 
 class SkillBindingSpec(NamedTuple):
@@ -11,3 +29,39 @@ class SkillBindingSpec(NamedTuple):
 
     skill_id: uuid.UUID
     skill_version_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class PresetToolSource:
+    """A tool declaration and its origin, retained through policy evaluation."""
+
+    tool_id: str
+    skill_id: uuid.UUID | None = None
+    skill_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PresetToolInputs:
+    """Authored inputs and exact skill versions for one policy evaluation."""
+
+    key: uuid.UUID
+    actions: Sequence[str]
+    namespaces: Sequence[str]
+    mcp_integrations: Sequence[str]
+    tool_approvals: Mapping[str, bool]
+    skill_version_ids: Sequence[uuid.UUID]
+    library_skills: Sequence[str] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EffectivePresetTools:
+    """Combined tool grants after applying source-independent preset policies."""
+
+    actions: tuple[str, ...]
+    skill_actions: tuple[str, ...]
+    mcp_grants: tuple[SkillMcpGrant, ...]
+    mcp_slugs: tuple[str, ...]
+    tool_approvals: dict[str, bool]
+    requires_internet_access: bool
+    blocked_tools: tuple[PresetToolSource, ...]
+    internet_sources: tuple[PresetToolSource, ...]

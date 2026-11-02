@@ -334,6 +334,7 @@ def build_query(
     close_time_to: datetime | None = None,
     duration_gte_seconds: int | None = None,
     duration_lte_seconds: int | None = None,
+    correlation_id: str | None = None,
     _include_legacy: bool = True,
 ) -> str:
     query = []
@@ -402,6 +403,11 @@ def build_query(
         execution_type_query = " OR ".join(execution_type_clauses)
         if execution_type_query:
             query.append(f"({execution_type_query})")
+
+    if correlation_id is not None:
+        if "'" in correlation_id or "\\" in correlation_id:
+            raise ValueError("Invalid correlation ID")
+        query.append(f"{TemporalSearchAttr.CORRELATION_ID.value} = '{correlation_id}'")
 
     if exclude_workflow_types:
         workflow_type_query = " AND ".join(

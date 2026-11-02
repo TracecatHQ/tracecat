@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Search intel actors
+  description: >-
+    Search Falcon Intelligence threat actors by FQL filter or free text. Requires
+    the Actors (Falcon Intelligence): Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/intel/#queryintelactorentities
+  namespace: tools.crowdstrike
+  name: search_intel_actors
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter, for example `name:'FANCY BEAR'`.
+      default: null
+    q:
+      type: str | None
+      description: Free-text search across all fields.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of threat actors to return. Maximum 5000.
+      default: null
+    offset:
+      type: int | None
+      description: Offset to start retrieving records from.
+      default: null
+    sort:
+      type: str | None
+      description: Property to sort by, for example `created_date|desc`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: search_intel_actors
+      action: tools.falconpy.call_command
+      args:
+        operation_id: QueryIntelActorEntities
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          q: ${{ inputs.q }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.search_intel_actors.result }}

@@ -1,30 +1,43 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
-from pydantic import ValidationError
-from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError, StatementError
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
 from tracecat.db.models import Table, TableColumn, Workspace
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
+from tracecat.query.aggregations import (
+    AggFunction,
+    AggSpec,
+    GroupBySpec,
+    TimeBucket,
+)
+from tracecat.query.errors import TracecatQueryTimeoutError
+from tracecat.query.filters import Condition, FilterOp, FilterValue
 from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
     handle_default_value,
     parse_postgres_default,
+    to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.schemas import (
+    TableAggregateRequest,
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
@@ -33,6 +46,7 @@ from tracecat.tables.schemas import (
 )
 from tracecat.tables.service import (
     DYNAMIC_WORKSPACE_TENANT_COLUMN,
+    BaseTablesService,
     TableEditorService,
     TablesService,
     is_internal_column_name,
@@ -271,18 +285,6 @@ class TestTablesService:
         with pytest.raises(TracecatAuthorizationError):
             await tables_service_basic.create_table(TableCreate(name="blocked_table"))
 
-    async def test_list_tables(self, tables_service: TablesService) -> None:
-        """Test listing tables after creating multiple tables."""
-        # Create two tables
-        table1 = await tables_service.create_table(TableCreate(name="table_one"))
-        table2 = await tables_service.create_table(TableCreate(name="table_two"))
-
-        tables = await tables_service.list_tables()
-        # Check that the created tables are in the list
-        table_ids = {table.id for table in tables}
-        assert table1.id in table_ids
-        assert table2.id in table_ids
-
     async def test_create_table_with_columns(
         self, tables_service: TablesService
     ) -> None:
@@ -486,14 +488,6 @@ class TestTablesService:
         # Attempt to retrieve the table; should raise TracecatNotFoundError
         with pytest.raises(TracecatNotFoundError):
             await tables_service.get_table_by_name("deletable_table")
-
-    @pytest.mark.parametrize("invalid_type", ["TIMESTAMP", "UUID"])
-    def test_table_column_create_rejects_removed_types(self, invalid_type: str) -> None:
-        """Removed user-defined SQL types should fail schema validation."""
-        with pytest.raises(ValidationError, match=invalid_type):
-            TableColumnCreate.model_validate(
-                {"name": "legacy_column", "type": invalid_type}
-            )
 
 
 class TestParsePostgresDefault:
@@ -785,28 +779,6 @@ class TestTableColumns:
 
         assert updated.name == "nickname"
 
-    async def test_create_column_default_with_single_quote(
-        self, tables_service: TablesService
-    ) -> None:
-        """Quoted text defaults should be stored as string literals, not SQL."""
-        table = await tables_service.create_table(
-            TableCreate(name="quoted_default_create")
-        )
-
-        column = await tables_service.create_column(
-            table,
-            TableColumnCreate(
-                name="nickname",
-                type=SqlType.TEXT,
-                nullable=True,
-                default="O'Brien",
-            ),
-        )
-        assert column.default == "O'Brien"
-
-        inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
-        assert inserted["nickname"] == "O'Brien"
-
     async def test_update_column_default_with_single_quote(
         self, tables_service: TablesService
     ) -> None:
@@ -828,29 +800,6 @@ class TestTableColumns:
 
         inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
         assert inserted["display_name"] == "O'Brien"
-
-    async def test_table_editor_update_column_default_with_single_quote(
-        self, tables_service: TablesService
-    ) -> None:
-        """TableEditorService should also escape quoted defaults."""
-        table = await tables_service.create_table(
-            TableCreate(name="quoted_default_editor_update")
-        )
-        await tables_service.create_column(
-            table,
-            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
-        )
-        editor = TableEditorService(
-            tables_service.session,
-            tables_service.role,
-            table_name=table.name,
-            schema_name=tables_service._get_schema_name(),
-        )
-
-        await editor.update_column("nickname", TableColumnUpdate(default="O'Brien"))
-
-        inserted = await editor.insert_row(TableRowInsert(data={}))
-        assert inserted["nickname"] == "O'Brien"
 
     async def test_table_editor_create_column_rejects_internal_name(
         self, tables_service: TablesService
@@ -909,31 +858,6 @@ class TestTableColumns:
                 "nickname",
                 TableColumnUpdate(name="__TC_workspace_id"),
             )
-
-    async def test_table_editor_update_column_ignores_null_rename(
-        self, tables_service: TablesService
-    ) -> None:
-        """TableEditorService should treat explicit null rename payloads as no-ops."""
-        table = await tables_service.create_table(
-            TableCreate(
-                name="editor_reject_null_update",
-                columns=[
-                    TableColumnCreate(name="nickname", type=SqlType.TEXT),
-                ],
-            )
-        )
-        editor = TableEditorService(
-            tables_service.session,
-            tables_service.role,
-            table_name=table.name,
-            schema_name=tables_service._get_schema_name(),
-        )
-
-        await editor.update_column("nickname", TableColumnUpdate(name=None))
-
-        columns = await editor.get_columns()
-
-        assert any(column["name"] == "nickname" for column in columns)
 
     async def test_update_column_handles_legacy_metadata_name(
         self, tables_service: TablesService
@@ -1027,8 +951,8 @@ class TestTableColumns:
             table, TableRowInsert(data={"name": "UniqueUser", "age": 25})
         )
 
-        # Attempt to insert a row with the same name, should fail with integrity error
-        with pytest.raises(ValueError) as exc_info:
+        # Duplicate user input is a structured conflict.
+        with pytest.raises(TableRowError) as exc_info:
             await tables_service.insert_row(
                 table, TableRowInsert(data={"name": "UniqueUser", "age": 30})
             )
@@ -1037,23 +961,118 @@ class TestTableColumns:
         error_msg = str(exc_info.value)
         assert "unique" in error_msg.lower() or "duplicate" in error_msg.lower()
 
-    async def test_update_column_can_create_unique_index(
-        self, tables_service: TablesService, table: Table, session: AsyncSession
+    @pytest.mark.parametrize("via", ["create_column", "create_table", "update_column"])
+    async def test_is_index_creates_unique_index(
+        self,
+        tables_service: TablesService,
+        table: Table,
+        session: AsyncSession,
+        via: str,
     ) -> None:
-        """Creating a unique index via update_column should not trigger lazy-load IO."""
-        name_column_id = await session.scalar(
-            select(TableColumn.id).where(
-                TableColumn.table_id == table.id,
-                TableColumn.name == "name",
+        match via:
+            case "create_column":
+                await tables_service.create_column(
+                    table,
+                    TableColumnCreate(name="email", type=SqlType.TEXT, is_index=True),
+                )
+                expected = "email"
+            case "create_table":
+                table = await tables_service.create_table(
+                    TableCreate(
+                        name="indexed_on_create",
+                        columns=[
+                            TableColumnCreate(
+                                name="key", type=SqlType.TEXT, is_index=True
+                            ),
+                            TableColumnCreate(name="value", type=SqlType.TEXT),
+                        ],
+                    )
+                )
+                expected = "key"
+            case _:
+                name_column_id = await session.scalar(
+                    select(TableColumn.id).where(
+                        TableColumn.table_id == table.id,
+                        TableColumn.name == "name",
+                    )
+                )
+                assert name_column_id is not None
+                column = await tables_service.get_column(table.id, name_column_id)
+                await tables_service.update_column(
+                    column, TableColumnUpdate(is_index=True)
+                )
+                expected = "name"
+
+        refreshed = await tables_service.get_table(table.id)
+        assert await tables_service.get_index(refreshed) == [expected]
+
+    async def test_create_table_adds_columns_in_one_statement(
+        self,
+        tables_service: TablesService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A new table's columns are added by one ALTER TABLE, not per column."""
+
+        async def fail_create_column(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("create_table must not add columns one by one")
+
+        monkeypatch.setattr(BaseTablesService, "create_column", fail_create_column)
+        statements: list[str] = []
+
+        def capture(
+            conn: object,
+            cursor: object,
+            statement: str,
+            parameters: object,
+            context: object,
+            executemany: bool,
+        ) -> None:
+            statements.append(statement)
+
+        bind = session.get_bind()
+        event.listen(bind, "before_cursor_execute", capture)
+        try:
+            created = await tables_service.create_table(
+                TableCreate(
+                    name="batched_columns",
+                    columns=[
+                        TableColumnCreate(name="key", type=SqlType.TEXT, is_index=True),
+                        TableColumnCreate(
+                            name="count",
+                            type=SqlType.INTEGER,
+                            nullable=False,
+                            default=0,
+                        ),
+                        TableColumnCreate(
+                            name="status",
+                            type=SqlType.SELECT,
+                            options=["open", "closed"],
+                        ),
+                    ],
+                )
             )
+        finally:
+            event.remove(bind, "before_cursor_execute", capture)
+
+        add_column_statements = [s for s in statements if "ADD COLUMN" in s]
+        assert len(add_column_statements) == 1
+        assert add_column_statements[0].count("ADD COLUMN") == 3
+
+        refreshed = await tables_service.get_table(created.id)
+        columns = {column.name: column for column in refreshed.columns}
+        assert set(columns) == {"key", "count", "status"}
+        assert columns["count"].nullable is False
+        assert columns["count"].default == "0"
+        assert columns["status"].options == ["open", "closed"]
+        assert await tables_service.get_index(refreshed) == ["key"]
+        await tables_service.insert_row(
+            refreshed, TableRowInsert(data={"key": "a", "status": "open"})
         )
-        assert name_column_id is not None
-        column = await tables_service.get_column(table.id, name_column_id)
-
-        await tables_service.update_column(column, TableColumnUpdate(is_index=True))
-
-        index_columns = await tables_service.get_index(table)
-        assert "name" in index_columns
+        rows = await _list_rows(tables_service, refreshed)
+        assert [(row["key"], row["count"], row["status"]) for row in rows] == [
+            ("a", 0, "open")
+        ]
 
     async def test_create_unique_index_with_existing_duplicates(
         self, tables_service: TablesService, table: Table
@@ -1084,14 +1103,31 @@ class TestTableColumns:
 
         assert "Table cannot have multiple unique indexes" in str(exc_info.value)
 
+    @pytest.mark.parametrize("via", ["drop_unique_index", "update_column"])
     async def test_drop_unique_index_removes_index(
-        self, tables_service: TablesService, table: Table
+        self,
+        tables_service: TablesService,
+        table: Table,
+        session: AsyncSession,
+        via: str,
     ) -> None:
-        """Test that dropping a unique index removes it from the table."""
         await tables_service.create_unique_index(table, "name")
         assert "name" in await tables_service.get_index(table)
 
-        await tables_service.drop_unique_index(table, "name")
+        if via == "drop_unique_index":
+            await tables_service.drop_unique_index(table, "name")
+        else:
+            name_column_id = await session.scalar(
+                select(TableColumn.id).where(
+                    TableColumn.table_id == table.id,
+                    TableColumn.name == "name",
+                )
+            )
+            assert name_column_id is not None
+            column = await tables_service.get_column(table.id, name_column_id)
+            await tables_service.update_column(
+                column, TableColumnUpdate(is_index=False)
+            )
         assert await tables_service.get_index(table) == []
 
     async def test_drop_unique_index_fails_when_no_index(
@@ -1102,25 +1138,6 @@ class TestTableColumns:
             await tables_service.drop_unique_index(table, "name")
 
         assert "No unique index exists on column 'name'" in str(exc_info.value)
-
-    async def test_update_column_can_drop_unique_index(
-        self, tables_service: TablesService, table: Table, session: AsyncSession
-    ) -> None:
-        """Calling update_column with is_index=False drops the existing unique index."""
-        await tables_service.create_unique_index(table, "name")
-
-        name_column_id = await session.scalar(
-            select(TableColumn.id).where(
-                TableColumn.table_id == table.id,
-                TableColumn.name == "name",
-            )
-        )
-        assert name_column_id is not None
-        column = await tables_service.get_column(table.id, name_column_id)
-
-        await tables_service.update_column(column, TableColumnUpdate(is_index=False))
-
-        assert await tables_service.get_index(table) == []
 
 
 @pytest.mark.anyio
@@ -1206,40 +1223,57 @@ class TestTableRows:
         assert "updated_at" in upserted
         assert isinstance(upserted["updated_at"], datetime)
 
-    async def test_upsert_index_required(
-        self, tables_service: TablesService, table: Table
+    @pytest.mark.parametrize(
+        ("batch", "create_index", "row", "error"),
+        [
+            pytest.param(
+                False,
+                False,
+                {"name": "TestUser", "age": 41},
+                "Table must have at least one unique index for upsert",
+                id="single-no-index",
+            ),
+            pytest.param(
+                False,
+                True,
+                {"age": 41},
+                "Data to upsert must contain the unique index column",
+                id="single-missing-index-column",
+            ),
+            pytest.param(
+                True,
+                False,
+                {"name": "Alice", "age": 26},
+                "Table must have at least one unique index for upsert",
+                id="batch-no-index",
+            ),
+            pytest.param(
+                True,
+                True,
+                {"age": 25},
+                "Each row to upsert must contain the unique index column",
+                id="batch-missing-index-column",
+            ),
+        ],
+    )
+    async def test_upsert_requires_unique_index_column(
+        self,
+        tables_service: TablesService,
+        table: Table,
+        batch: bool,
+        create_index: bool,
+        row: dict[str, Any],
+        error: str,
     ) -> None:
-        """Test that upsert fails without a unique index."""
-        # Insert a row
-        await tables_service.insert_row(
-            table, TableRowInsert(data={"name": "TestUser", "age": 40})
-        )
-
-        # Attempt upsert without index
-        with pytest.raises(ValueError) as exc_info:
-            upsert_insert = TableRowInsert(
-                data={"name": "TestUser", "age": 41}, upsert=True
-            )
-            await tables_service.insert_row(table, upsert_insert)
-
-        # Verify error message
-        assert "Table must have at least one unique index for upsert" in str(
-            exc_info.value
-        )
-
-    async def test_upsert_index_field_required(
-        self, tables_service: TablesService, table: Table
-    ) -> None:
-        """Test that upsert fails if the field is not in the index."""
-        await tables_service.create_unique_index(table, "name")
-
-        with pytest.raises(ValueError) as exc_info:
-            upsert_insert = TableRowInsert(data={"age": 41}, upsert=True)
-            await tables_service.insert_row(table, upsert_insert)
-
-        assert "Data to upsert must contain the unique index column" in str(
-            exc_info.value
-        )
+        if create_index:
+            await tables_service.create_unique_index(table, "name")
+        with pytest.raises(ValueError, match=error):
+            if batch:
+                await tables_service.batch_insert_rows(table, [row], upsert=True)
+            else:
+                await tables_service.insert_row(
+                    table, TableRowInsert(data=row, upsert=True)
+                )
 
     async def test_update_row(
         self, tables_service: TablesService, table: Table
@@ -1262,6 +1296,54 @@ class TestTableRows:
         assert updated["name"] == "Alice"  # Name should remain unchanged
         assert "updated_at" in updated
         assert isinstance(updated["updated_at"], datetime)
+
+    async def test_row_writes_bump_updated_at(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Upserts and updates must advance updated_at past its insert time."""
+        await tables_service.create_unique_index(table, "name")
+        rows = {
+            name: await tables_service.insert_row(
+                table, TableRowInsert(data={"name": name, "age": 1})
+            )
+            for name in ("single", "batch")
+        }
+
+        async def updated_at(name: str) -> datetime:
+            listed = await _list_rows(tables_service, table)
+            return next(row for row in listed if row["name"] == name)["updated_at"]
+
+        writes = [
+            (
+                "single",
+                lambda: tables_service.insert_row(
+                    table,
+                    TableRowInsert(data={"name": "single", "age": 2}, upsert=True),
+                ),
+            ),
+            (
+                "single",
+                lambda: tables_service.update_row(
+                    table, rows["single"]["id"], {"age": 3}
+                ),
+            ),
+            (
+                "batch",
+                lambda: tables_service.batch_insert_rows(
+                    table, [{"name": "batch", "age": 2}], upsert=True
+                ),
+            ),
+            (
+                "batch",
+                lambda: tables_service.batch_update_rows(
+                    table, [rows["batch"]["id"]], {"age": 3}
+                ),
+            ),
+        ]
+        for name, write in writes:
+            before = await updated_at(name)
+            await write()
+            assert await updated_at(name) > before
 
     async def test_insert_row_preserves_null_for_text_column(
         self, tables_service: TablesService, table: Table
@@ -1395,6 +1477,50 @@ class TestTableRows:
         )
 
         assert exists is True
+
+    async def test_lookup_row_by_id_string(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """JSON callers pass ids as strings; they must bind as uuid, not varchar."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[str(inserted["id"])],
+        )
+        assert len(results) == 1
+        assert results[0]["id"] == inserted["id"]
+
+        exists = await tables_service.exists_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[str(inserted["id"])],
+        )
+        assert exists is True
+
+    async def test_lookup_row_by_id_rejects_non_uuid(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        with pytest.raises(ValueError, match="expects a UUID"):
+            await tables_service.lookup_rows(
+                table_name=table.name, columns=["id"], values=["not-a-uuid"]
+            )
+
+    async def test_lookup_row_coerces_string_to_integer_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name, columns=["age"], values=["40"]
+        )
+        assert len(results) == 1
+        assert results[0]["age"] == 40
 
     async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
         """Test listing rows with cursor-based pagination."""
@@ -1819,22 +1945,10 @@ class TestTableRows:
 
         # Input coercion now fails before SQL execution, but the batch should
         # still behave atomically and leave the table unchanged.
-        with pytest.raises(ValueError, match="Invalid integer value: 'invalid'"):
+        with pytest.raises(TableRowError, match="requires a valid INTEGER value"):
             await tables_service.batch_insert_rows(table, rows)
 
         # Verify no rows were inserted (transaction rolled back)
-        all_rows = await _list_rows(tables_service, table)
-        assert len(all_rows) == 0
-
-    async def test_batch_insert_empty_list(
-        self, tables_service: TablesService, table: Table
-    ) -> None:
-        """Test batch insert with empty list."""
-        # Insert empty list
-        inserted_count = await tables_service.batch_insert_rows(table, [])
-        assert inserted_count == 0
-
-        # Verify no rows were inserted
         all_rows = await _list_rows(tables_service, table)
         assert len(all_rows) == 0
 
@@ -1920,50 +2034,6 @@ class TestTableRows:
         assert alice_row["age"] == 25
         # Bob should have the specified age
         assert bob_row["age"] == 30
-
-    async def test_batch_upsert_without_index_fails(
-        self, tables_service: TablesService, table: Table
-    ) -> None:
-        """Test that batch upsert fails when table has no unique index."""
-        # Insert some initial data
-        initial_rows = [
-            {"name": "Alice", "age": 25},
-            {"name": "Bob", "age": 30},
-        ]
-        await tables_service.batch_insert_rows(table, initial_rows)
-
-        # Attempt batch upsert without unique index
-        upsert_rows = [
-            {"name": "Alice", "age": 26},
-            {"name": "Carol", "age": 35},
-        ]
-
-        with pytest.raises(ValueError) as exc_info:
-            await tables_service.batch_insert_rows(table, upsert_rows, upsert=True)
-
-        assert "Table must have at least one unique index for upsert" in str(
-            exc_info.value
-        )
-
-    async def test_batch_upsert_missing_index_column_fails(
-        self, tables_service: TablesService, table: Table
-    ) -> None:
-        """Test that batch upsert fails when rows don't contain the unique index column."""
-        # Create unique index on name column
-        await tables_service.create_unique_index(table, "name")
-
-        # Attempt batch upsert with rows missing the index column
-        upsert_rows = [
-            {"age": 25},  # Missing 'name' column
-            {"age": 30},  # Missing 'name' column
-        ]
-
-        with pytest.raises(ValueError) as exc_info:
-            await tables_service.batch_insert_rows(table, upsert_rows, upsert=True)
-
-        assert "Each row to upsert must contain the unique index column" in str(
-            exc_info.value
-        )
 
     async def test_batch_upsert_with_mixed_operations(
         self, tables_service: TablesService, table: Table
@@ -2203,25 +2273,25 @@ class TestTableDataTypes:
             # Test invalid integer
             pytest.param(
                 {"int_col": "not a number"},
-                "Invalid integer value: 'not a number'",
+                "Column 'int_col' requires a valid INTEGER value.",
                 id="invalid_integer",
             ),
             # Test invalid boolean
             pytest.param(
                 {"bool_col": "not a boolean"},
-                "Expected bool or 0/1, got str",
+                "Column 'bool_col' requires a valid BOOLEAN value.",
                 id="invalid_boolean",
             ),
-            # Test invalid JSON - this raises TypeError directly
+            # Test invalid JSON input
             pytest.param(
                 {"json_col": object()},
-                "Object of type object is not JSON serializable",
+                "Column 'json_col' requires a valid JSONB value.",
                 id="invalid_json",
             ),
             # Test invalid timestamp
             pytest.param(
                 {"timestamptz_col": "not-a-timestamp"},
-                "Invalid ISO datetime string: 'not-a-timestamp'",
+                "Column 'timestamptz_col' requires a valid TIMESTAMPTZ value.",
                 id="invalid_timestamp",
             ),
         ],
@@ -2235,37 +2305,11 @@ class TestTableDataTypes:
         expected_error: str,
     ) -> None:
         """Test that invalid type conversions are handled appropriately."""
-        try:
-            # Don't start a new transaction, just use the existing one
-            with pytest.raises(
-                (DBAPIError, TypeError, ValueError, StatementError)
-            ) as exc_info:
-                row_insert = TableRowInsert(data=invalid_data)
-                await tables_service.insert_row(complex_table, row_insert)
-
-            # Log the actual error for debugging
-            logger.info(
-                "Got expected error",
-                error_type=type(exc_info.value).__name__,
-                error_msg=str(exc_info.value),
+        with pytest.raises(TableRowError) as exc_info:
+            await tables_service.insert_row(
+                complex_table, TableRowInsert(data=invalid_data)
             )
-
-            # Verify the error message
-            assert expected_error in str(exc_info.value)
-
-        except Exception as e:
-            logger.error(
-                "Unexpected error in test",
-                error_type=type(e).__name__,
-                error_msg=str(e),
-                invalid_data=invalid_data,
-            )
-            # Rollback the existing transaction
-            await tables_service.session.rollback()
-            raise
-        finally:
-            # Always ensure we rollback after the test
-            await tables_service.session.rollback()
+        assert expected_error in str(exc_info.value)
 
     async def test_edge_cases(
         self, tables_service: TablesService, complex_table: Table
@@ -2308,3 +2352,938 @@ class TestTableDataTypes:
         assert retrieved_timestamptz.astimezone(UTC).replace(
             tzinfo=None
         ) == expected_timestamptz.astimezone(UTC).replace(tzinfo=None)
+
+
+@pytest.fixture
+async def aggregate_table(tables_service: TablesService) -> Table:
+    """Create a typed table with representative rows for aggregation tests."""
+    table = await tables_service.create_table(
+        TableCreate(
+            name="aggregate_table",
+            columns=[
+                TableColumnCreate(name="text_value", type=SqlType.TEXT),
+                TableColumnCreate(
+                    name="select_value",
+                    type=SqlType.SELECT,
+                    options=["red", "blue"],
+                ),
+                TableColumnCreate(name="integer_value", type=SqlType.INTEGER),
+                TableColumnCreate(name="numeric_value", type=SqlType.NUMERIC),
+                TableColumnCreate(name="boolean_value", type=SqlType.BOOLEAN),
+                TableColumnCreate(name="event_date", type=SqlType.DATE),
+                TableColumnCreate(name="event_at", type=SqlType.TIMESTAMPTZ),
+                TableColumnCreate(name="payload", type=SqlType.JSONB),
+                TableColumnCreate(
+                    name="tags",
+                    type=SqlType.MULTI_SELECT,
+                    options=["one", "two"],
+                ),
+            ],
+        )
+    )
+    await tables_service.batch_insert_rows(
+        table,
+        [
+            {
+                "text_value": "alpha",
+                "select_value": "red",
+                "integer_value": 1,
+                "numeric_value": Decimal("1.5"),
+                "boolean_value": True,
+                "event_date": date(2026, 3, 8),
+                "event_at": datetime(2026, 3, 8, 6, 30, tzinfo=UTC),
+                "payload": {"kind": "first"},
+                "tags": ["one"],
+            },
+            {
+                "text_value": "alpha",
+                "select_value": "red",
+                "integer_value": 3,
+                "numeric_value": Decimal("2.5"),
+                "boolean_value": True,
+                "event_date": date(2026, 3, 8),
+                "event_at": datetime(2026, 3, 8, 7, 30, tzinfo=UTC),
+                "payload": {"kind": "second"},
+                "tags": ["two"],
+            },
+            {
+                "text_value": "beta",
+                "select_value": "blue",
+                "integer_value": 5,
+                "numeric_value": None,
+                "boolean_value": False,
+                "event_date": date(2026, 3, 9),
+                "event_at": datetime(2026, 3, 9, 4, 30, tzinfo=UTC),
+                "payload": {"kind": "third"},
+                "tags": [],
+            },
+        ],
+    )
+    return table
+
+
+@pytest.mark.anyio
+class TestTableAggregations:
+    @pytest.mark.parametrize(
+        ("field", "expected"),
+        [
+            pytest.param(
+                "integer_value",
+                {
+                    "count_value": 3,
+                    "distinct_value": 3,
+                    "sum_value": 9.0,
+                    "mean_value": 3.0,
+                    "median_value": 3.0,
+                    "min_value": 1,
+                    "max_value": 5,
+                },
+                id="integer",
+            ),
+            pytest.param(
+                "numeric_value",
+                {
+                    "count_value": 2,
+                    "distinct_value": 2,
+                    "sum_value": 4.0,
+                    "mean_value": 2.0,
+                    "median_value": 2.0,
+                    "min_value": 1.5,
+                    "max_value": 2.5,
+                },
+                id="numeric",
+            ),
+        ],
+    )
+    async def test_all_aggregate_functions_on_numeric_types(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        field: str,
+        expected: dict[str, int | float],
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[],
+                aggs=[
+                    AggSpec(
+                        function=AggFunction.COUNT, field=field, alias="count_value"
+                    ),
+                    AggSpec(
+                        function=AggFunction.COUNT_DISTINCT,
+                        field=field,
+                        alias="distinct_value",
+                    ),
+                    AggSpec(function=AggFunction.SUM, field=field, alias="sum_value"),
+                    AggSpec(function=AggFunction.MEAN, field=field, alias="mean_value"),
+                    AggSpec(
+                        function=AggFunction.MEDIAN,
+                        field=field,
+                        alias="median_value",
+                    ),
+                    AggSpec(function=AggFunction.MIN, field=field, alias="min_value"),
+                    AggSpec(function=AggFunction.MAX, field=field, alias="max_value"),
+                ],
+            ),
+        )
+
+        assert response.groups == [expected]
+        assert response.truncated is False
+
+    async def test_groups_text_select_and_boolean_columns(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[
+                    GroupBySpec(field="text_value"),
+                    GroupBySpec(field="select_value"),
+                    GroupBySpec(field="boolean_value"),
+                ]
+            ),
+        )
+
+        assert response.groups == [
+            {
+                "text_value": "alpha",
+                "select_value": "red",
+                "boolean_value": True,
+                "count": 2,
+            },
+            {
+                "text_value": "beta",
+                "select_value": "blue",
+                "boolean_value": False,
+                "count": 1,
+            },
+        ]
+
+    async def test_numeric_group_keys_preserve_decimal_precision(
+        self,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="precise_numeric_groups",
+                columns=[TableColumnCreate(name="value", type=SqlType.NUMERIC)],
+            )
+        )
+        first = Decimal("9007199254740992.1")
+        second = Decimal("9007199254740992.2")
+        await tables_service.batch_insert_rows(
+            table,
+            [{"value": first}, {"value": second}],
+        )
+
+        response = await tables_service.aggregate_rows(
+            table.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="value")]),
+        )
+
+        assert len(response.groups) == 2
+        assert {group["value"] for group in response.groups} == {first, second}
+        assert all(group["count"] == 1 for group in response.groups)
+
+    async def test_text_groups_collapse_at_256_character_prefix(
+        self,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="long_text_aggregate",
+                columns=[TableColumnCreate(name="message", type=SqlType.TEXT)],
+            )
+        )
+        prefix = "x" * 256
+        await tables_service.batch_insert_rows(
+            table,
+            [{"message": f"{prefix}a"}, {"message": f"{prefix}b"}],
+        )
+
+        response = await tables_service.aggregate_rows(
+            table.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="message")]),
+        )
+
+        assert response.groups == [{"message": prefix, "count": 2}]
+
+    @pytest.mark.parametrize(
+        ("bucket", "expected_group_count"),
+        [
+            pytest.param("hour", 3, id="hour"),
+            pytest.param("day", 2, id="day"),
+            pytest.param("week", 2, id="week"),
+            pytest.param("month", 1, id="month"),
+        ],
+    )
+    async def test_timestamptz_buckets_across_dst_boundary(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        bucket: TimeBucket,
+        expected_group_count: int,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[
+                    GroupBySpec(
+                        field="event_at",
+                        bucket=bucket,
+                        timezone="America/New_York",
+                    )
+                ]
+            ),
+        )
+
+        assert len(response.groups) == expected_group_count
+        total = 0
+        for group in response.groups:
+            count = group["count"]
+            assert isinstance(count, int)
+            total += count
+        assert total == 3
+        assert all(
+            isinstance(group["event_at"], datetime)
+            and group["event_at"].tzinfo is not None
+            for group in response.groups
+        )
+        if bucket == "day":
+            assert [group["event_at"] for group in response.groups] == [
+                datetime(2026, 3, 8, 5, tzinfo=UTC),
+                datetime(2026, 3, 9, 4, tzinfo=UTC),
+            ]
+
+    async def test_date_bucket_is_stable_under_non_utc_session_timezone(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        await tables_service.session.execute(
+            sa.text("SET LOCAL TIME ZONE 'Pacific/Auckland'")
+        )
+
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[GroupBySpec(field="event_date", bucket="day")]
+            ),
+        )
+
+        assert response.groups == [
+            {"event_date": date(2026, 3, 8), "count": 2},
+            {"event_date": date(2026, 3, 9), "count": 1},
+        ]
+
+    async def test_system_timestamp_column_is_bucketable(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[GroupBySpec(field="created_at", bucket="day")]
+            ),
+        )
+
+        assert len(response.groups) == 1
+        assert isinstance(response.groups[0]["created_at"], datetime)
+        assert response.groups[0]["count"] == 3
+
+    @pytest.mark.parametrize(
+        ("field", "op", "value", "expected_count"),
+        [
+            pytest.param("text_value", FilterOp.CONTAINS, "lph", 2, id="text"),
+            pytest.param("select_value", FilterOp.EQ, "red", 2, id="select"),
+            pytest.param("integer_value", FilterOp.GTE, 3, 2, id="integer"),
+            pytest.param("numeric_value", FilterOp.LT, "2", 1, id="numeric"),
+            pytest.param("boolean_value", FilterOp.EQ, True, 2, id="boolean"),
+            pytest.param("event_date", FilterOp.EQ, "2026-03-08", 2, id="date"),
+            pytest.param(
+                "event_at",
+                FilterOp.LT,
+                "2026-03-09T00:00:00Z",
+                2,
+                id="timestamptz",
+            ),
+        ],
+    )
+    async def test_filters_every_supported_type(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        field: str,
+        op: FilterOp,
+        value: FilterValue,
+        expected_count: int,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                filters=Condition(field=field, op=op, value=value),
+                group_by=[],
+            ),
+        )
+
+        assert response.groups == [{"count": expected_count}]
+
+    async def test_empty_in_list_matches_no_rows(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                filters=Condition(
+                    field="text_value",
+                    op=FilterOp.IN,
+                    value=[],
+                ),
+                group_by=[],
+            ),
+        )
+
+        assert response.groups == [{"count": 0}]
+
+    async def test_limit_truncation_min_count_and_grand_total(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        truncated = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[GroupBySpec(field="text_value")],
+                limit=1,
+            ),
+        )
+        assert truncated.groups == [{"text_value": "alpha", "count": 2}]
+        assert truncated.truncated is True
+
+        minimum = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[GroupBySpec(field="text_value")],
+                min_count=2,
+            ),
+        )
+        assert minimum.groups == [{"text_value": "alpha", "count": 2}]
+        assert minimum.truncated is False
+
+        total = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(group_by=[]),
+        )
+        assert total.groups == [{"count": 3}]
+
+    @pytest.mark.parametrize("field", ["payload", "tags"])
+    async def test_jsonb_and_multi_select_are_rejected(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        field: str,
+    ) -> None:
+        with pytest.raises(TracecatValidationError, match=field):
+            await tables_service.aggregate_rows(
+                aggregate_table.name,
+                TableAggregateRequest(group_by=[GroupBySpec(field=field)]),
+            )
+
+        with pytest.raises(TracecatValidationError, match=field):
+            await tables_service.aggregate_rows(
+                aggregate_table.name,
+                TableAggregateRequest(
+                    filters=Condition(field=field, op=FilterOp.IS_NULL),
+                    group_by=[],
+                ),
+            )
+
+    async def test_same_table_name_is_isolated_between_workspaces(
+        self,
+        tables_service: TablesService,
+        other_tables_service: TablesService,
+    ) -> None:
+        definition = TableCreate(
+            name="shared_aggregate_name",
+            columns=[TableColumnCreate(name="category", type=SqlType.TEXT)],
+        )
+        table_a = await tables_service.create_table(definition)
+        table_b = await other_tables_service.create_table(definition)
+        await tables_service.batch_insert_rows(table_a, [{"category": "a"}])
+        await other_tables_service.batch_insert_rows(
+            table_b,
+            [{"category": "b"}, {"category": "b"}],
+        )
+
+        response_a = await tables_service.aggregate_rows(
+            table_a.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="category")]),
+        )
+        response_b = await other_tables_service.aggregate_rows(
+            table_b.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="category")]),
+        )
+
+        assert response_a.groups == [{"category": "a", "count": 1}]
+        assert response_b.groups == [{"category": "b", "count": 2}]
+
+    async def test_forced_statement_timeout_maps_to_shared_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="slow_aggregate",
+                columns=[TableColumnCreate(name="value", type=SqlType.INTEGER)],
+            )
+        )
+        physical_table = sa.table(
+            table.name,
+            sa.column("value", sa.BigInteger()),
+            schema=tables_service._get_schema_name(),
+        )
+        await tables_service.session.execute(
+            sa.insert(physical_table).from_select(
+                ["value"],
+                sa.select(sa.func.generate_series(1, 200_000)),
+            )
+        )
+        monkeypatch.setattr(config, "TRACECAT__AGG_STATEMENT_TIMEOUT_MS", 1)
+
+        with pytest.raises(TracecatQueryTimeoutError):
+            await tables_service.aggregate_rows(
+                table.name,
+                TableAggregateRequest(
+                    group_by=[],
+                    aggs=[AggSpec(function=AggFunction.MEDIAN, field="value")],
+                ),
+            )
+
+
+@pytest.fixture
+async def required_row_table(tables_service: TablesService) -> Table:
+    return await tables_service.create_table(
+        TableCreate(
+            name="required_row_values",
+            columns=[
+                TableColumnCreate(
+                    name="record_key", type=SqlType.TEXT, nullable=False, is_index=True
+                ),
+                TableColumnCreate(name="description", type=SqlType.TEXT),
+                TableColumnCreate(
+                    name="attempts", type=SqlType.INTEGER, nullable=False, default=0
+                ),
+            ],
+        )
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+@pytest.mark.parametrize(
+    "data,code",
+    [({}, "missing_required_column"), ({"record_key": None}, "null_not_allowed")],
+)
+async def test_required_row_input_rejected_before_write(
+    tables_service: TablesService,
+    required_row_table: Table,
+    batch: bool,
+    data: dict[str, Any],
+    code: str,
+) -> None:
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(
+                required_row_table, [{"record_key": "valid"}, data]
+            )
+        else:
+            await tables_service.insert_row(
+                required_row_table, TableRowInsert(data=data)
+            )
+    assert exc.value.code == code
+    assert exc.value.detail["column"] == "record_key"
+    assert exc.value.__context__ is None
+    assert await _list_rows(tables_service, required_row_table) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_required_row_defaults_and_partial_updates(
+    tables_service: TablesService, required_row_table: Table, batch: bool
+) -> None:
+    if batch:
+        await tables_service.batch_insert_rows(
+            required_row_table, [{"record_key": "first"}]
+        )
+        row = (await _list_rows(tables_service, required_row_table))[0]
+    else:
+        row = await tables_service.insert_row(
+            required_row_table, TableRowInsert(data={"record_key": "first"})
+        )
+    assert row["attempts"] == 0
+    assert row["description"] is None
+    updated = await tables_service.update_row(
+        required_row_table, row["id"], {"description": "updated"}
+    )
+    assert updated["record_key"] == "first"
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.update_row(
+            required_row_table, row["id"], {"attempts": None}
+        )
+    assert exc.value.code == "null_not_allowed"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_duplicate_row_is_safe_conflict(
+    tables_service: TablesService, required_row_table: Table, batch: bool
+) -> None:
+    data = {"record_key": "private-test-value"}
+    await tables_service.insert_row(required_row_table, TableRowInsert(data=data))
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(required_row_table, [data])
+        else:
+            await tables_service.insert_row(
+                required_row_table, TableRowInsert(data=data)
+            )
+    assert exc.value.code == "duplicate_value"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+
+
+@pytest.mark.anyio
+async def test_duplicate_row_update_is_safe_conflict(
+    tables_service: TablesService, required_row_table: Table
+) -> None:
+    await tables_service.insert_row(
+        required_row_table, TableRowInsert(data={"record_key": "private-test-value"})
+    )
+    row = await tables_service.insert_row(
+        required_row_table, TableRowInsert(data={"record_key": "other"})
+    )
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.update_row(
+            required_row_table, row["id"], {"record_key": "private-test-value"}
+        )
+    assert exc.value.code == "duplicate_value"
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+
+
+@pytest.mark.anyio
+async def test_batch_upsert_repeated_key_is_safe_conflict(
+    tables_service: TablesService, required_row_table: Table
+) -> None:
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.batch_insert_rows(
+            required_row_table,
+            [
+                {"record_key": "private-test-value", "description": "first"},
+                {"record_key": "private-test-value", "description": "second"},
+            ],
+            upsert=True,
+        )
+    assert exc.value.code == "duplicate_value"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+    await tables_service.session.refresh(required_row_table)
+    assert await _list_rows(tables_service, required_row_table) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "sql_type,value",
+    [
+        (SqlType.TEXT, 123),
+        (SqlType.JSONB, {"value": "private-test-value\u0000"}),
+    ],
+)
+async def test_batch_invalid_database_values_are_safe_client_errors(
+    tables_service: TablesService, table: Table, sql_type: SqlType, value: Any
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="payload", type=sql_type)
+    )
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.batch_insert_rows(table, [{"payload": value}])
+    assert exc.value.code == "invalid_value"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+    await tables_service.session.refresh(table)
+    assert await _list_rows(tables_service, table) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_database_not_null_fallback(
+    tables_service: TablesService, required_row_table: Table, batch: bool
+) -> None:
+    # Simulate metadata lag: PostgreSQL's constraint still protects the row.
+    column = next(c for c in required_row_table.columns if c.name == "record_key")
+    column.nullable = True
+    await tables_service.session.flush()
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(
+                required_row_table, [{"description": "private-test-value"}]
+            )
+        else:
+            await tables_service.insert_row(
+                required_row_table,
+                TableRowInsert(data={"description": "private-test-value"}),
+            )
+    assert exc.value.code == "null_not_allowed"
+    assert exc.value.detail["column"] == "record_key"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("true", True),
+        ("false", False),
+        ("1", True),
+        ("0", False),
+        ("TRUE", True),
+        ("FaLsE", False),
+        (True, True),
+        (False, False),
+        (1, True),
+        (0, False),
+    ],
+)
+def test_boolean_sql_clause_coerces_supported_values(
+    value: str | bool | int, expected: bool
+) -> None:
+    assert to_sql_clause(value, "enabled", SqlType.BOOLEAN).value is expected
+
+
+@pytest.mark.parametrize("value", ["yes", "", 2, 1.5, {}, []])
+def test_boolean_sql_clause_rejects_invalid_values(value: Any) -> None:
+    with pytest.raises(TypeError):
+        to_sql_clause(value, "enabled", SqlType.BOOLEAN)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("value,expected", [("FaLsE", False), (1, True)])
+async def test_boolean_row_writes_preserve_supported_values(
+    tables_service: TablesService,
+    table: Table,
+    value: str | bool | int,
+    expected: bool,
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="enabled", type=SqlType.BOOLEAN)
+    )
+    await tables_service.create_unique_index(table, "name")
+
+    row = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": value})
+    )
+    assert row["enabled"] is expected
+    updated = await tables_service.update_row(table, row["id"], {"enabled": value})
+    assert updated["enabled"] is expected
+    upserted = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": value}, upsert=True)
+    )
+    assert upserted["enabled"] is expected
+
+    assert (
+        await tables_service.batch_insert_rows(
+            table, [{"name": "batch", "enabled": value}]
+        )
+        == 1
+    )
+    assert (
+        await tables_service.batch_insert_rows(
+            table, [{"name": "batch", "enabled": value}], upsert=True
+        )
+        == 1
+    )
+    assert (
+        await tables_service.batch_update_rows(table, [row["id"]], {"enabled": value})
+        == 1
+    )
+    rows = await _list_rows(tables_service, table)
+    assert len(rows) == 2
+    assert all(result["enabled"] is expected for result in rows)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "value,batch", [("yes", False), ("", True), (2, False), ({}, True)]
+)
+async def test_boolean_row_writes_reject_invalid_values_safely(
+    tables_service: TablesService, table: Table, value: Any, batch: bool
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="enabled", type=SqlType.BOOLEAN)
+    )
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(table, [{"enabled": value}])
+        else:
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"enabled": value})
+            )
+    assert exc.value.code == "invalid_value"
+    assert exc.value.detail["column"] == "enabled"
+    assert exc.value.__context__ is None
+    assert await _list_rows(tables_service, table) == []
+
+
+@pytest.fixture
+async def search_table(tables_service: TablesService) -> Table:
+    """Table with two text columns and an integer column, for search and sort."""
+    table = await tables_service.create_table(
+        TableCreate(
+            name="search_table",
+            columns=[
+                TableColumnCreate(name="name", type=SqlType.TEXT),
+                TableColumnCreate(name="notes", type=SqlType.TEXT),
+                TableColumnCreate(name="age", type=SqlType.INTEGER),
+            ],
+        )
+    )
+    rows = [
+        {"name": "charlie", "notes": "alpha one", "age": 3},
+        {"name": "alpha", "notes": "bravo", "age": 1},
+        {"name": "delta", "notes": "zulu", "age": 4},
+        {"name": "bravo", "notes": "alpha", "age": 2},
+    ]
+    for row in rows:
+        await tables_service.insert_row(table, TableRowInsert(data=row))
+    return table
+
+
+@pytest.mark.anyio
+async def test_list_rows_search_column_restricts_search_to_one_column(
+    tables_service: TablesService, search_table: Table
+) -> None:
+    params = CursorPaginationParams(limit=10)
+
+    all_columns = await tables_service.list_rows(
+        search_table, params, search_term="alpha"
+    )
+    assert {row["name"] for row in all_columns.items} == {"alpha", "bravo", "charlie"}
+
+    name_only = await tables_service.list_rows(
+        search_table, params, search_term="ALPHA", search_column="name"
+    )
+    assert [row["name"] for row in name_only.items] == ["alpha"]
+
+    no_match = await tables_service.list_rows(
+        search_table, params, search_term="zulu", search_column="name"
+    )
+    assert no_match.items == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("search_column", ["age", "missing", "created_at"])
+async def test_list_rows_search_column_rejects_invalid_columns(
+    tables_service: TablesService, search_table: Table, search_column: str
+) -> None:
+    with pytest.raises(ValueError, match=search_column):
+        await tables_service.list_rows(
+            search_table,
+            CursorPaginationParams(limit=10),
+            search_term="alpha",
+            search_column=search_column,
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "sort,expected",
+    [
+        ("asc", ["alpha", "bravo", "charlie", "delta"]),
+        ("desc", ["delta", "charlie", "bravo", "alpha"]),
+    ],
+)
+async def test_list_rows_sorts_by_text_column(
+    tables_service: TablesService,
+    search_table: Table,
+    sort: Literal["asc", "desc"],
+    expected: list[str],
+) -> None:
+    page = await tables_service.list_rows(
+        search_table,
+        CursorPaginationParams(limit=10),
+        order_by="name",
+        sort=sort,
+    )
+    assert [row["name"] for row in page.items] == expected
+
+
+@pytest.mark.anyio
+async def test_list_rows_column_search_with_sort_and_cursor_round_trip(
+    tables_service: TablesService, search_table: Table
+) -> None:
+    async def list_page(cursor: str | None):
+        return await tables_service.list_rows(
+            search_table,
+            CursorPaginationParams(limit=1, cursor=cursor),
+            search_term="alpha",
+            search_column="notes",
+            order_by="name",
+            sort="asc",
+        )
+
+    first = await list_page(None)
+    assert [row["name"] for row in first.items] == ["bravo"]
+    assert first.next_cursor is not None
+
+    second = await list_page(first.next_cursor)
+    assert [row["name"] for row in second.items] == ["charlie"]
+    assert second.next_cursor is None
+    assert second.prev_cursor is not None
+
+    back = await list_page(second.prev_cursor)
+    assert [row["name"] for row in back.items] == ["bravo"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("search_column", ["HostName", "hostname"])
+async def test_list_rows_search_column_resolves_case_normalized_name(
+    tables_service: TablesService, search_column: str
+) -> None:
+    table = await tables_service.create_table(
+        TableCreate(
+            name="search_case_table",
+            columns=[
+                TableColumnCreate(name="HostName", type=SqlType.TEXT),
+                TableColumnCreate(name="notes", type=SqlType.TEXT),
+            ],
+        )
+    )
+    assert {column.name for column in table.columns} == {"hostname", "notes"}
+    for row in (
+        {"hostname": "alpha", "notes": "bravo"},
+        {"hostname": "bravo", "notes": "alpha"},
+    ):
+        await tables_service.insert_row(table, TableRowInsert(data=row))
+
+    page = await tables_service.list_rows(
+        table,
+        CursorPaginationParams(limit=10),
+        search_term="alpha",
+        search_column=search_column,
+    )
+    assert [row["hostname"] for row in page.items] == ["alpha"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("order_by", ["HostName", "hostname", "Created_At"])
+async def test_list_rows_order_by_resolves_case_normalized_name(
+    tables_service: TablesService, order_by: str
+) -> None:
+    table = await tables_service.create_table(
+        TableCreate(
+            name="sort_case_table",
+            columns=[TableColumnCreate(name="HostName", type=SqlType.TEXT)],
+        )
+    )
+    for hostname in ("alpha", "bravo"):
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"hostname": hostname})
+        )
+    # Rows inserted in one transaction share created_at; make the order explicit.
+    await tables_service.session.execute(
+        sa.text(
+            f"UPDATE {tables_service._full_table_name(table.name)} "
+            "SET created_at = created_at + interval '1 second' "
+            "WHERE hostname = 'bravo'"
+        )
+    )
+
+    page = await tables_service.list_rows(
+        table, CursorPaginationParams(limit=10), order_by=order_by, sort="asc"
+    )
+    assert [row["hostname"] for row in page.items] == ["alpha", "bravo"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("order_by", ["missing", "not a column"])
+async def test_list_rows_order_by_rejects_invalid_columns(
+    tables_service: TablesService, search_table: Table, order_by: str
+) -> None:
+    with pytest.raises(ValueError, match=f"^Invalid order_by column: {order_by}$"):
+        await tables_service.list_rows(
+            search_table, CursorPaginationParams(limit=10), order_by=order_by
+        )

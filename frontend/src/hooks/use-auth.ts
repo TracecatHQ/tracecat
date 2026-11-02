@@ -13,6 +13,7 @@ import {
 import { authConfig } from "@/config/auth"
 import { getCurrentUser, User } from "@/lib/auth"
 import { useQuery, useQueryClient } from "@/lib/query"
+import { getMfaStatus, isMfaPending } from "@/lib/webauthn"
 
 /* ── AUTH ACTIONS HOOK ─────────────────────────────────────────────────── */
 
@@ -26,15 +27,24 @@ export function useAuthActions() {
       await queryClient.invalidateQueries({
         queryKey: ["auth"],
       })
+      // The new session reads as signed out until MFA is done, so send the
+      // user to the challenge, keeping the sign-in query (returnUrl).
+      const mfaStatus = await getMfaStatus().catch(() => null)
+      if (mfaStatus && isMfaPending(mfaStatus.state)) {
+        router.replace(`/mfa${window.location.search}`)
+      }
       return loginResponse
     },
-    [queryClient]
+    [queryClient, router]
   )
 
   const logout = useCallback(
     async (redirectUrl?: string) => {
       const logoutResponse = await authAuthDatabaseLogout()
       Cookies.remove("tracecat:active-org-id")
+      // Clear the legacy literal name as well as js-cookie's encoded name.
+      document.cookie =
+        "tracecat:active-org-id=; Path=/; Max-Age=0; SameSite=Lax"
       await queryClient.invalidateQueries({
         queryKey: ["auth"],
       })

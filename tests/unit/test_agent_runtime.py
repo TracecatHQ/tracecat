@@ -9,6 +9,7 @@ import asyncio
 import os
 import tempfile
 import uuid
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -16,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
+from claude_agent_sdk import CLIConnectionError
 from claude_agent_sdk.types import (
     AssistantMessage,
     HookContext,
@@ -29,6 +31,7 @@ from claude_agent_sdk.types import (
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxProcessExitError,
     AgentSandboxValidationError,
 )
@@ -41,6 +44,7 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
+from tracecat.agent.error_policy import agent_runtime_failure
 from tracecat.agent.llm_routing import (
     get_litellm_route_model,
 )
@@ -60,7 +64,8 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
-from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.executor.enums import ExecutorBackendType
+from tracecat.runtime.errors import RetryDisposition, RuntimeErrorKind
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
 
@@ -175,6 +180,22 @@ def mock_claude_sdk_client() -> MagicMock:
     return mock_client
 
 
+@pytest.fixture
+def captured_options(mock_claude_sdk_client: MagicMock) -> Iterator[list[Any]]:
+    """Patch ClaudeSDKClient and collect the options each construction receives."""
+    captured: list[Any] = []
+
+    def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+        captured.append(kwargs["options"])
+        return mock_claude_sdk_client
+
+    with patch(
+        "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+        side_effect=_mock_client_ctor,
+    ):
+        yield captured
+
+
 def make_hook_input(
     tool_name: str,
     tool_input: dict[str, Any],
@@ -208,15 +229,6 @@ def make_hook_context() -> HookContext:
 def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
     """Extract hookSpecificOutput from result."""
     return cast(dict[str, Any], result.get("hookSpecificOutput", {}))
-
-
-def test_pre_tool_use_hook_input_declares_subagent_context_fields() -> None:
-    """SDK PreToolUse input must expose subagent attribution fields."""
-    annotations = set(PreToolUseHookInput.__annotations__)
-    optional_keys = set(getattr(PreToolUseHookInput, "__optional_keys__", frozenset()))
-
-    assert {"agent_id", "agent_type"} <= annotations
-    assert {"agent_id", "agent_type"} <= optional_keys
 
 
 @pytest.mark.parametrize(
@@ -282,35 +294,6 @@ class TestClaudeAgentRuntimeRun:
             "tracecat-registry-2",
             "tracecat_registry-2",
         }
-
-    def test_trusted_mcp_bridge_disables_response_compression(self) -> None:
-        """The MCP SDK parses bridge responses itself, so request plain JSON."""
-        server_config = ClaudeAgentRuntime._trusted_mcp_server_config("test-jwt-token")
-
-        assert server_config.get("headers") == {
-            "Authorization": "Bearer test-jwt-token",
-            "Accept-Encoding": "identity",
-        }
-
-    def test_system_prompt_documents_command_line_tools(
-        self, mock_socket_writer: MagicMock
-    ) -> None:
-        """Runtime prompt should document local CLI tools available in shell."""
-        runtime = ClaudeAgentRuntime(
-            mock_socket_writer, transport_factory=lambda _: MagicMock()
-        )
-
-        prompt = runtime._build_system_prompt("Preset instructions.")
-
-        assert "<CommandLineTools>" in prompt
-        assert "`python3`" in prompt
-        assert "Python 3 is installed in the runtime environment" in prompt
-        assert "Use it through Bash" in prompt
-        assert "`duckdb`" in prompt
-        assert "DuckDB CLI" in prompt
-        assert "`json`, `httpfs`, `inet`, and `fts` extensions" in prompt
-        assert "not a Tracecat action or MCP tool" in prompt
-        assert "\n\nPreset instructions.\n\n" in prompt
 
     def test_system_prompt_prefers_attached_subagent_aliases(
         self, mock_socket_writer: MagicMock
@@ -394,6 +377,44 @@ class TestClaudeAgentRuntimeRun:
 
         # Should have called send_stream_event
         mock_socket_writer.send_stream_event.assert_awaited()
+
+    @pytest.mark.anyio
+    async def test_ping_stream_event_is_filtered(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Keep-alive ping events are dropped before adapter conversion."""
+
+        async def mock_receive() -> Any:
+            yield StreamEvent(
+                uuid="ping-event-uuid",
+                session_id="test-sdk-session",
+                event={"type": "ping"},
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        mock_adapter = MagicMock()
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(sample_init_payload)
+
+        mock_adapter.to_unified_event.assert_not_called()
+        mock_socket_writer.send_stream_event.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_stream_events_flush_new_session_lines(
@@ -764,84 +785,40 @@ class TestClaudeAgentRuntimeRun:
         assert internal_by_uuid[prompt_uuid] is True
 
     @pytest.mark.anyio
-    async def test_sets_skip_version_check_before_sdk_connect(
+    @pytest.mark.parametrize(
+        ("existing", "expected"), [(None, "1"), ("existing", "existing")]
+    )
+    async def test_primes_skip_version_check_before_sdk_connect(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
+        existing: str | None,
+        expected: str,
     ) -> None:
-        """Test that the runtime primes the SDK skip-version-check env var."""
-        monkeypatch.delenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", raising=False)
-        mock_client = MagicMock()
+        """The runtime primes the SDK skip-version-check env var without overwriting it."""
+        if existing is None:
+            monkeypatch.delenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", raising=False)
+        else:
+            monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", existing)
 
         async def connect_client(_prompt: Any = None) -> None:
-            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
+            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == expected
 
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.connect = AsyncMock(side_effect=connect_client)
-        mock_client.disconnect = AsyncMock()
-        mock_client.query = AsyncMock()
-        mock_client.interrupt = AsyncMock()
+        mock_claude_sdk_client.connect.side_effect = connect_client
 
-        async def empty_response() -> Any:
-            return
-            yield  # pragma: no cover  # noqa: B901
-
-        mock_client.receive_response = empty_response
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                return_value=mock_client,
-            ),
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
             )
             await runtime.run(sample_init_payload)
 
-        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
-
-    @pytest.mark.anyio
-    async def test_preserves_existing_skip_version_check_value(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        mock_socket_writer: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        """Test that runtime does not overwrite an existing SDK env value."""
-        monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "existing")
-        mock_client = MagicMock()
-
-        async def connect_client(_prompt: Any = None) -> None:
-            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
-
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.connect = AsyncMock(side_effect=connect_client)
-        mock_client.disconnect = AsyncMock()
-        mock_client.query = AsyncMock()
-        mock_client.interrupt = AsyncMock()
-
-        async def empty_response() -> Any:
-            return
-            yield  # pragma: no cover  # noqa: B901
-
-        mock_client.receive_response = empty_response
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                return_value=mock_client,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(sample_init_payload)
-
-        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
+        assert mock_claude_sdk_client.connect.await_count
+        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == expected
 
     @pytest.mark.anyio
     async def test_sends_error_on_exception(
@@ -872,15 +849,10 @@ class TestClaudeAgentRuntimeRun:
     async def test_canonicalizes_registry_mcp_alias_on_resume(
         self,
         mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
+        captured_options: list[Any],
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
         """Test that resumed sessions only mount the canonical registry MCP name."""
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
 
         resumed_payload = replace(
             sample_init_payload,
@@ -888,16 +860,10 @@ class TestClaudeAgentRuntimeRun:
             sdk_session_data='{"type":"user","message":{"content":"test"}}\n',
         )
 
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(resumed_payload)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(resumed_payload)
 
         assert captured_options
         mcp_servers = captured_options[0].mcp_servers
@@ -917,15 +883,9 @@ class TestClaudeAgentRuntimeRun:
     async def test_root_agent_preserves_attached_stdio_mcp_servers(
         self,
         mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
+        captured_options: list[Any],
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
         payload = replace(
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
@@ -954,16 +914,10 @@ class TestClaudeAgentRuntimeRun:
             ),
         )
 
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(payload)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(payload)
 
         assert captured_options
         options = captured_options[0]
@@ -996,15 +950,9 @@ class TestClaudeAgentRuntimeRun:
     async def test_root_agent_strips_protected_uvx_options_from_legacy_config(
         self,
         mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
+        captured_options: list[Any],
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
         payload = replace(
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
@@ -1030,14 +978,10 @@ class TestClaudeAgentRuntimeRun:
             ),
         )
 
-        with patch(
-            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-            side_effect=_mock_client_ctor,
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(payload)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(payload)
 
         assert captured_options
         assert captured_options[0].mcp_servers["legacy-tools"] == {
@@ -1056,15 +1000,9 @@ class TestClaudeAgentRuntimeRun:
     async def test_root_agent_uses_verified_stdio_tool_inventory(
         self,
         mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
+        captured_options: list[Any],
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
         payload = replace(
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
@@ -1097,16 +1035,10 @@ class TestClaudeAgentRuntimeRun:
             ),
         )
 
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(payload)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(payload)
 
         assert captured_options
         options = captured_options[0]
@@ -1133,15 +1065,9 @@ class TestClaudeAgentRuntimeRun:
     async def test_root_agent_sanitizes_stdio_tool_inventory_and_approvals(
         self,
         mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
+        captured_options: list[Any],
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
         payload = replace(
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
@@ -1174,16 +1100,10 @@ class TestClaudeAgentRuntimeRun:
             ),
         )
 
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(payload)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(payload)
 
         assert captured_options
         options = captured_options[0]
@@ -1203,194 +1123,112 @@ class TestClaudeAgentRuntimeRun:
         )
 
     @pytest.mark.anyio
-    async def test_sets_max_buffer_size_on_sdk_options(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        """Test that runtime overrides the SDK buffer limit for larger outputs."""
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(sample_init_payload)
-
-        assert captured_options
-        assert captured_options[0].max_buffer_size == CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES
-
-    @pytest.mark.anyio
-    async def test_enable_thinking_uses_fixed_budget_thinking(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(sample_init_payload)
-
-        assert captured_options
-        assert captured_options[0].effort is None
-        assert captured_options[0].thinking == {
-            "type": "enabled",
-            "budget_tokens": 1024,
-        }
-
-    @pytest.mark.anyio
-    async def test_disable_thinking_uses_disabled_thinking_config(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        payload = replace(
-            sample_init_payload,
-            config=sample_init_payload.config.model_copy(
-                update={"enable_thinking": False}
-            ),
-        )
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(payload)
-
-        assert captured_options
-        assert captured_options[0].effort is None
-        assert captured_options[0].thinking == {"type": "disabled"}
-
-    @pytest.mark.anyio
-    async def test_sets_auto_compact_window_for_custom_model_provider(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        """Custom model providers should lower Claude Code's auto-compact window."""
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        custom_payload = replace(
-            sample_init_payload,
-            config=sample_init_payload.config.model_copy(
-                update={"model_provider": "custom-model-provider"}
-            ),
-        )
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(custom_payload)
-
-        assert captured_options
-        assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
-
     @pytest.mark.parametrize(
-        ("provider", "expected"),
+        ("config_update", "expected"),
         [
-            ("anthropic", "true"),
-            ("bedrock", "false"),
+            pytest.param(
+                {},
+                {
+                    "max_buffer_size": CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
+                    "effort": None,
+                    "thinking": {"type": "enabled", "budget_tokens": 1024},
+                },
+                id="defaults",
+            ),
+            pytest.param(
+                {"enable_thinking": False},
+                {"effort": None, "thinking": {"type": "disabled"}},
+                id="thinking-disabled",
+            ),
+            pytest.param(
+                {"model_provider": "custom-model-provider"},
+                {"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW": "128000"},
+                id="custom-provider-compact-window",
+            ),
         ],
     )
-    def test_configures_tool_search_by_root_provider(
+    async def test_sdk_options_from_config(
         self,
+        mock_socket_writer: MagicMock,
+        captured_options: list[Any],
         sample_init_payload: RuntimeInitPayload,
-        provider: str,
-        expected: str,
+        config_update: dict[str, Any],
+        expected: dict[str, Any],
     ) -> None:
+        """Buffer limit, thinking mode and auto-compact window reach the SDK options."""
         payload = replace(
             sample_init_payload,
-            config=sample_init_payload.config.model_copy(
-                update={"model_provider": provider}
+            config=sample_init_payload.config.model_copy(update=config_update),
+        )
+
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(payload)
+
+        assert captured_options
+        options = captured_options[0]
+        for key, value in expected.items():
+            if key.startswith("env."):
+                assert options.env[key.removeprefix("env.")] == value
+            else:
+                assert getattr(options, key) == value
+
+    @pytest.mark.parametrize(
+        ("config_update", "present", "absent"),
+        [
+            pytest.param(
+                {"model_provider": "anthropic"},
+                {
+                    "ENABLE_TOOL_SEARCH": "true",
+                    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+                },
+                set(),
+                id="anthropic",
             ),
-        )
-
-        env = ClaudeAgentRuntime._sdk_env(payload)
-
-        assert env["ENABLE_TOOL_SEARCH"] == expected
-
-    def test_passthrough_keeps_experimental_beta_features_enabled(
+            pytest.param(
+                {"model_provider": "bedrock"},
+                {"ENABLE_TOOL_SEARCH": "false"},
+                set(),
+                id="bedrock",
+            ),
+            pytest.param(
+                {"passthrough": True},
+                {},
+                {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"},
+                id="passthrough-keeps-betas",
+            ),
+        ],
+    )
+    def test_sdk_env(
         self,
         sample_init_payload: RuntimeInitPayload,
+        config_update: dict[str, Any],
+        present: dict[str, str],
+        absent: set[str],
     ) -> None:
         payload = replace(
             sample_init_payload,
-            config=sample_init_payload.config.model_copy(update={"passthrough": True}),
+            config=sample_init_payload.config.model_copy(update=config_update),
         )
 
         env = ClaudeAgentRuntime._sdk_env(payload)
 
-        assert "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS" not in env
+        for key, value in present.items():
+            assert env[key] == value
+        assert absent.isdisjoint(env)
 
     @pytest.mark.anyio
     async def test_general_purpose_agent_tool_is_always_available(
         self,
         mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
+        captured_options: list[Any],
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(sample_init_payload)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(sample_init_payload)
 
         assert captured_options
         options = captured_options[0]
@@ -1408,6 +1246,8 @@ class TestClaudeAgentRuntimeRun:
             "CronList",
             "EnterWorktree",
             "ExitWorktree",
+            "ScheduleWakeup",
+            "ListAgents",
         }
         assert options.agents is None
 
@@ -1415,10 +1255,9 @@ class TestClaudeAgentRuntimeRun:
     async def test_explicit_subagents_get_root_style_agent_definitions(
         self,
         mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
+        captured_options: list[Any],
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        captured_options: list[Any] = []
         child_actions = {
             "core.lookup_ip": MCPToolDefinition(
                 name="core.lookup_ip",
@@ -1450,10 +1289,6 @@ class TestClaudeAgentRuntimeRun:
             allowed_actions=child_actions,
         )
 
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
         payload = replace(
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
@@ -1480,16 +1315,10 @@ class TestClaudeAgentRuntimeRun:
             subagents=[child],
         )
 
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(payload)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(payload)
 
         assert captured_options
         options = captured_options[0]
@@ -1549,6 +1378,8 @@ class TestClaudeAgentRuntimeRun:
             "CronList",
             "EnterWorktree",
             "ExitWorktree",
+            "ScheduleWakeup",
+            "ListAgents",
         }
         assert "ToolSearch" not in (agent_def.disallowedTools or [])
 
@@ -1606,14 +1437,44 @@ class TestClaudeAgentRuntimeRun:
         assert agent_def.tools == []
         assert agent_def.mcpServers is None
 
-    @pytest.mark.anyio
-    async def test_subagent_internet_policy_enables_runtime_internet_tools(
+    def test_subagent_preloads_qualified_library_skills_without_tools(
         self,
         mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        captured_options: list[Any] = []
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for phishing triage.",
+            prompt="Triage the report.",
+            config=sample_init_payload.config.model_copy(
+                update={"library_skills": ["phishing-triage"]}
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(sample_init_payload, subagents=[child])
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+        )
+
+        definitions = runtime._build_agent_definitions(payload=payload)
+
+        assert definitions is not None
+        agent_def = definitions["analyst"]
+        assert agent_def.skills == ["tracecat:phishing-triage"]
+        assert agent_def.tools == []
+        assert "Skill" not in (agent_def.tools or [])
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("root_internet", [False, True])
+    async def test_internet_policy_on_root_or_subagent_enables_internet_tools(
+        self,
+        mock_socket_writer: MagicMock,
+        captured_options: list[Any],
+        sample_init_payload: RuntimeInitPayload,
+        root_internet: bool,
+    ) -> None:
+        """Internet access on either the root or a subagent enables the tools for both."""
         child = SandboxSubagentConfig(
             alias="web",
             description="Use for internet research.",
@@ -1622,7 +1483,7 @@ class TestClaudeAgentRuntimeRun:
                 update={
                     "model_name": "gpt-5-mini",
                     "model_provider": "openai",
-                    "enable_internet_access": True,
+                    "enable_internet_access": not root_internet,
                 }
             ),
             mcp_auth_token="child-mcp-token",
@@ -1631,7 +1492,7 @@ class TestClaudeAgentRuntimeRun:
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
                 update={
-                    "enable_internet_access": False,
+                    "enable_internet_access": root_internet,
                     "agents": AgentSubagentsConfig.model_validate(
                         {
                             "subagents": [{"preset": "web"}],
@@ -1642,20 +1503,10 @@ class TestClaudeAgentRuntimeRun:
             subagents=[child],
         )
 
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(payload)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        await runtime.run(payload)
 
         assert captured_options
         options = captured_options[0]
@@ -1676,79 +1527,6 @@ class TestClaudeAgentRuntimeRun:
         )
         root_hook_output = get_hook_output(root_result)
         assert root_hook_output.get("permissionDecision") == "allow"
-
-        child_result = await runtime._pre_tool_use_hook(
-            input_data=make_hook_input(
-                tool_name="WebSearch",
-                tool_input={"query": "tracecat"},
-                tool_use_id="call-child-web-search",
-                agent_id="agent-123",
-                agent_type="web",
-            ),
-            tool_use_id="call-child-web-search",
-            context=make_hook_context(),
-        )
-        child_hook_output = get_hook_output(child_result)
-        assert child_hook_output.get("permissionDecision") == "allow"
-
-    @pytest.mark.anyio
-    async def test_root_internet_policy_enables_subagent_internet_tools(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        captured_options: list[Any] = []
-        child = SandboxSubagentConfig(
-            alias="web",
-            description="Use for internet research.",
-            prompt="Research the user's request.",
-            config=sample_init_payload.config.model_copy(
-                update={
-                    "model_name": "gpt-5-mini",
-                    "model_provider": "openai",
-                    "enable_internet_access": False,
-                }
-            ),
-            mcp_auth_token="child-mcp-token",
-        )
-        payload = replace(
-            sample_init_payload,
-            config=sample_init_payload.config.model_copy(
-                update={
-                    "enable_internet_access": True,
-                    "agents": AgentSubagentsConfig.model_validate(
-                        {
-                            "subagents": [{"preset": "web"}],
-                        }
-                    ),
-                }
-            ),
-            subagents=[child],
-        )
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(payload)
-
-        assert captured_options
-        options = captured_options[0]
-        internet_tools = set(runtime_module.INTERNET_TOOLS)
-        assert internet_tools.isdisjoint(options.disallowed_tools)
-        assert options.agents is not None
-        child_disallowed_tools = options.agents["web"].disallowedTools or []
-        assert internet_tools.isdisjoint(child_disallowed_tools)
 
         child_result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
@@ -1848,7 +1626,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """A mocked SDK turn should still drive runtime approval interrupts."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         class ApprovalHookClient:
@@ -1951,7 +1735,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """Approval continuations send a hidden tick after tool_result is seeded."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
@@ -1995,7 +1785,10 @@ class TestClaudeAgentRuntimeRun:
         assert messages == [
             {
                 "type": "user",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": runtime_module.APPROVAL_CONTINUATION_PROMPT,
+                },
                 "parent_tool_use_id": None,
                 "session_id": "default",
                 "isMeta": True,
@@ -2105,7 +1898,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """Forked sessions should pass fork_session=True and not re-emit parent JSONL."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         parent_sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
@@ -2308,118 +2107,71 @@ class TestClaudeAgentRuntimePreToolUseHook:
     """
 
     @pytest.mark.anyio
-    async def test_auto_approve_user_mcp_tools(
+    @pytest.mark.parametrize(
+        ("tool_name", "tool_input", "updated_input"),
+        [
+            pytest.param(
+                "mcp__tracecat-registry__mcp__some_tool",
+                {"arg": "value"},
+                None,
+                id="user-mcp-via-registry",
+            ),
+            pytest.param(
+                "mcp__tracecat-registry__core__http_request",
+                {"url": "https://example.com", "method": "GET"},
+                {
+                    "url": "https://example.com",
+                    "method": "GET",
+                    PROXY_TOOL_METADATA_KEY: {PROXY_TOOL_CALL_ID_KEY: "call-1"},
+                },
+                id="registry-tool-without-approval",
+            ),
+            pytest.param(
+                "mcp__tracecat-registry__internal__builder__list_sessions",
+                {"query": "abc"},
+                None,
+                id="internal-tool",
+            ),
+            pytest.param(
+                "mcp__jira__search",
+                {"jql": "project = TRACE"},
+                None,
+                id="non-registry-mcp",
+            ),
+        ],
+    )
+    async def test_auto_approve(
         self,
         mock_socket_writer: MagicMock,
         sample_init_payload: RuntimeInitPayload,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        updated_input: dict[str, Any] | None,
     ) -> None:
-        """Test that user MCP tools are auto-approved."""
+        """Auto-approved calls only carry proxy metadata for registry actions."""
         runtime = ClaudeAgentRuntime(
             mock_socket_writer, transport_factory=lambda _: MagicMock()
         )
         runtime.registry_tools = sample_init_payload.allowed_actions
-        runtime.tool_approvals = sample_init_payload.config.tool_approvals
+        runtime.tool_approvals = {"core.http_request": False}
 
-        # User MCP tool format: mcp__{server_name}__{tool_name}
         result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
-                tool_name="mcp__tracecat-registry__mcp__some_tool",
-                tool_input={"arg": "value"},
+                tool_name=tool_name,
+                tool_input=tool_input,
                 tool_use_id="call-1",
             ),
             tool_use_id="call-1",
             context=make_hook_context(),
         )
 
-        hook_output = get_hook_output(result)
-        assert hook_output == {
+        expected: dict[str, Any] = {
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
         }
-
-    @pytest.mark.anyio
-    async def test_auto_approve_registry_tool_without_approval(
-        self,
-        mock_socket_writer: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        """Test that registry tools are auto-approved when not requiring approval."""
-        runtime = ClaudeAgentRuntime(
-            mock_socket_writer, transport_factory=lambda _: MagicMock()
-        )
-        runtime.registry_tools = sample_init_payload.allowed_actions
-        runtime.tool_approvals = {"core.http_request": False}  # No approval needed
-
-        result = await runtime._pre_tool_use_hook(
-            input_data=make_hook_input(
-                # MCP tool name format: mcp__tracecat-registry__core__http_request
-                tool_name="mcp__tracecat-registry__core__http_request",
-                tool_input={"url": "https://example.com", "method": "GET"},
-                tool_use_id="call-2",
-            ),
-            tool_use_id="call-2",
-            context=make_hook_context(),
-        )
-
-        hook_output = get_hook_output(result)
-        assert hook_output.get("permissionDecision") == "allow"
-        assert hook_output["updatedInput"] == {
-            "url": "https://example.com",
-            "method": "GET",
-            PROXY_TOOL_METADATA_KEY: {
-                PROXY_TOOL_CALL_ID_KEY: "call-2",
-            },
-        }
-
-    @pytest.mark.anyio
-    async def test_auto_approve_internal_tool_does_not_inject_metadata(
-        self,
-        mock_socket_writer: MagicMock,
-    ) -> None:
-        runtime = ClaudeAgentRuntime(
-            mock_socket_writer, transport_factory=lambda _: MagicMock()
-        )
-
-        result = await runtime._pre_tool_use_hook(
-            input_data=make_hook_input(
-                tool_name="mcp__tracecat-registry__internal__builder__list_sessions",
-                tool_input={"query": "abc"},
-                tool_use_id="call-internal",
-            ),
-            tool_use_id="call-internal",
-            context=make_hook_context(),
-        )
-
-        hook_output = get_hook_output(result)
-        assert hook_output == {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-        }
-
-    @pytest.mark.anyio
-    async def test_auto_approve_non_registry_mcp_tool_does_not_inject_metadata(
-        self,
-        mock_socket_writer: MagicMock,
-    ) -> None:
-        runtime = ClaudeAgentRuntime(
-            mock_socket_writer, transport_factory=lambda _: MagicMock()
-        )
-
-        result = await runtime._pre_tool_use_hook(
-            input_data=make_hook_input(
-                tool_name="mcp__jira__search",
-                tool_input={"jql": "project = TRACE"},
-                tool_use_id="call-jira",
-            ),
-            tool_use_id="call-jira",
-            context=make_hook_context(),
-        )
-
-        hook_output = get_hook_output(result)
-        assert hook_output == {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-        }
+        if updated_input is not None:
+            expected["updatedInput"] = updated_input
+        assert get_hook_output(result) == expected
 
     @pytest.mark.anyio
     async def test_tool_requires_approval(
@@ -2490,6 +2242,149 @@ class TestClaudeAgentRuntimePreToolUseHook:
         )
         mock_socket_writer.send_stream_event.assert_awaited()
         runtime.client.interrupt.assert_awaited()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("requires_approval", [False, True])
+    @pytest.mark.parametrize("root_collision", [False, True])
+    async def test_child_stdio_approval_policy_is_enforced(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        requires_approval: bool,
+        root_collision: bool,
+    ) -> None:
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Analyze synthetic data.",
+            prompt="Analyze synthetic data.",
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "local-tools",
+                            "command": "synthetic-mcp",
+                            "tools": [
+                                {
+                                    "name": "write",
+                                    "requires_approval": requires_approval,
+                                }
+                            ],
+                        }
+                    ],
+                    "tool_approvals": {},
+                }
+            ),
+            mcp_auth_token="synthetic-child-token",
+        )
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        root_config = sample_init_payload.config.model_copy(deep=True)
+        if root_collision:
+            root_config.mcp_servers = [
+                {
+                    "type": "stdio",
+                    "name": "subagent-analyst-local-tools",
+                    "command": "synthetic-root",
+                    "tools": [
+                        {"name": "write", "requires_approval": not requires_approval}
+                    ],
+                }
+            ]
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            return_value=mock_claude_sdk_client,
+        ) as client_ctor:
+            await runtime.run(
+                replace(sample_init_payload, config=root_config, subagents=[child])
+            )
+        child_server = (
+            "subagent-analyst-local-tools-2"
+            if root_collision
+            else "subagent-analyst-local-tools"
+        )
+        tool_name = f"mcp__{child_server}__write"
+        options = client_ctor.call_args.kwargs["options"]
+        assert tool_name in options.agents["analyst"].tools
+
+        with patch.object(
+            runtime, "_handle_approval_request", new=AsyncMock()
+        ) as approve:
+            result = await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name=tool_name,
+                    tool_input={},
+                    tool_use_id="synthetic-call",
+                    agent_id="synthetic-child",
+                    agent_type="analyst",
+                ),
+                tool_use_id="synthetic-call",
+                context=make_hook_context(),
+            )
+        assert get_hook_output(result).get("permissionDecision") == (
+            "deny" if requires_approval else "allow"
+        )
+        approve.assert_not_awaited()
+
+        if root_collision:
+            result = await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name="mcp__subagent-analyst-local-tools__write",
+                    tool_input={},
+                    tool_use_id="synthetic-root-call",
+                ),
+                tool_use_id="synthetic-root-call",
+                context=make_hook_context(),
+            )
+            assert get_hook_output(result).get("permissionDecision") == (
+                "allow" if requires_approval else "deny"
+            )
+
+    def test_sibling_stdio_server_names_are_unique(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        children = [
+            SandboxSubagentConfig(
+                alias=alias,
+                description="Synthetic child",
+                prompt="Synthetic task",
+                config=sample_init_payload.config.model_copy(
+                    update={
+                        "mcp_servers": [
+                            {
+                                "type": "stdio",
+                                "name": name,
+                                "command": "synthetic-mcp",
+                                "tools": [
+                                    {"name": "write", "requires_approval": approval}
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                mcp_auth_token="synthetic-token",
+            )
+            for alias, name, approval in [
+                ("analyst", "local-tools", True),
+                ("analyst-local", "tools", False),
+            ]
+        ]
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        definitions = runtime._build_agent_definitions(
+            payload=replace(sample_init_payload, subagents=children)
+        )
+        assert definitions is not None
+        blocked = "mcp__subagent-analyst-local-tools__write"
+        ordinary = "mcp__subagent-analyst-local-tools-2__write"
+        assert blocked in (definitions["analyst"].tools or [])
+        assert ordinary in (definitions["analyst-local"].tools or [])
+        assert runtime._stdio_approval_blocked_tools == {blocked}
 
     @pytest.mark.anyio
     async def test_stdio_mcp_tool_with_approval_is_hard_denied(
@@ -2767,6 +2662,35 @@ class TestClaudeAgentRuntimeParallelApprovals:
 
         # No duplicate approval events from the hook, and a single interrupt.
         assert len(_approval_events(mock_socket_writer)) == 2
+        interrupt.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_hook_interrupts_after_assistant_message_finishes(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime, interrupt = self._make_runtime(mock_socket_writer)
+        runtime._root_message_done.clear()
+
+        hook = asyncio.create_task(
+            runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name="mcp__tracecat-registry__core__http_request",
+                    tool_input={"url": "https://example.com"},
+                    tool_use_id="call-1",
+                ),
+                tool_use_id="call-1",
+                context=make_hook_context(),
+            )
+        )
+        await asyncio.sleep(0.05)
+        # Siblings may still be streaming, so the turn stays alive.
+        interrupt.assert_not_awaited()
+
+        runtime._root_message_done.set()
+        result = await asyncio.wait_for(hook, timeout=1)
+
+        assert get_hook_output(result).get("permissionDecision") == "deny"
         interrupt.assert_awaited_once()
 
     @pytest.mark.anyio
@@ -3314,7 +3238,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
     ) -> None:
         """Long paths are rejected instead of guessing Claude's hash suffix."""
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentPreparationError,
             match="runtime cwd is too long",
         ):
             _claude_project_dir_name(cwd)
@@ -3332,7 +3256,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         )
 
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentPreparationError,
             match="runtime cwd is too long",
         ):
             runtime._ensure_working_directory(uuid.uuid4())
@@ -3606,6 +3530,35 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         )
         assert runtime._last_seen_byte_offset == len(child_bytes)
 
+    @pytest.mark.anyio
+    async def test_resume_preparation_error_is_not_wrapped(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """An ExceptionGroup wrapper would hide the typed error from attribution."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        payload = replace(
+            sample_init_payload,
+            sdk_session_id="../escape",
+            sdk_session_data="{}",
+        )
+
+        with pytest.raises(AgentPreparationError) as raised:
+            await runtime._prepare_resume_and_mcp(payload, write_session_file=True)
+
+        classification = agent_runtime_failure(
+            raised.value, fallback_message="unused"
+        ).classification
+        assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
 
 @pytest.mark.anyio
 async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
@@ -3622,7 +3575,9 @@ async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
     resource-limit classification, and the typed error is what propagates.
     Attribution requires a jail, so nsjail is enabled explicitly here.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=Exception("Sandbox shim failed with exit code 134")
     )
@@ -3671,11 +3626,13 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
 ) -> None:
     """Invariant: without a jail an exit code carries no resource-limit meaning.
 
-    TRACECAT__DISABLE_NSJAIL installs no rlimits, so a direct process that
+    The direct backend installs no rlimits, so a direct process that
     aborts or is OOM-killed by the host must stay platform-owned rather than
     blaming the caller for a cap this deployment never enforced.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
     mock_claude_sdk_client.query = AsyncMock(side_effect=ValueError("Test error"))
     transport = MagicMock(spec=SandboxedCLITransport)
     transport.exit_code = 137
@@ -3695,7 +3652,7 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -3712,7 +3669,9 @@ async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
     so a failure that carries its own attribution would reach the activity as
     a process exit and lose it.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=AgentSandboxValidationError("Bad agent config")
     )
@@ -3734,7 +3693,7 @@ async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -3768,7 +3727,7 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     assert await_args is not None
     assert await_args.args[0] == "Test error"
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
     # Nothing was re-attributed, so the log carries no cause fields.
     log_args = mock_socket_writer.send_log.await_args
@@ -3776,3 +3735,102 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     assert log_args.kwargs["error_type"] == "ValueError"
     assert log_args.kwargs["error_message"] == "Test error"
     assert "cause_type" not in log_args.kwargs
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("interrupt_in_flight", [False, True])
+@pytest.mark.parametrize("runtime_failed", [False, True])
+@pytest.mark.parametrize(
+    "connection_error", [CLIConnectionError, BrokenPipeError, ConnectionResetError]
+)
+async def test_interrupt_racing_sdk_teardown_preserves_turn_outcome(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    interrupt_in_flight: bool,
+    runtime_failed: bool,
+    connection_error: type[Exception],
+) -> None:
+    """Late stop requests must not replace a completed or failed turn's outcome."""
+    response_started = asyncio.Event()
+    finish_response = asyncio.Event()
+    disconnect_started = asyncio.Event()
+    finish_disconnect = asyncio.Event()
+    interrupt_started = asyncio.Event()
+
+    async def receive_response() -> Any:
+        response_started.set()
+        await finish_response.wait()
+        if runtime_failed:
+            raise ValueError("synthetic runtime failure")
+        return
+        yield  # noqa: B901
+
+    async def disconnect() -> None:
+        disconnect_started.set()
+        await finish_disconnect.wait()
+
+    async def interrupt() -> None:
+        interrupt_started.set()
+        await disconnect_started.wait()
+        raise connection_error("synthetic closed transport")
+
+    mock_claude_sdk_client.receive_response = receive_response
+    mock_claude_sdk_client.disconnect.side_effect = disconnect
+    mock_claude_sdk_client.interrupt.side_effect = interrupt
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        async with asyncio.timeout(5):
+            run_task = asyncio.create_task(runtime.run(sample_init_payload))
+            await response_started.wait()
+            interrupt_task = None
+            if interrupt_in_flight:
+                interrupt_task = asyncio.create_task(
+                    runtime.interrupt(reason="user_cancel")
+                )
+                await interrupt_started.wait()
+            finish_response.set()
+            await disconnect_started.wait()
+            try:
+                if interrupt_task is not None:
+                    await interrupt_task
+                else:
+                    await runtime.interrupt(reason="user_cancel")
+                    mock_claude_sdk_client.interrupt.assert_not_awaited()
+            finally:
+                finish_disconnect.set()
+                if runtime_failed:
+                    with pytest.raises(ValueError, match="synthetic runtime failure"):
+                        await run_task
+                else:
+                    await run_task
+
+    if runtime_failed:
+        mock_socket_writer.send_error.assert_awaited_once()
+    else:
+        mock_socket_writer.send_error.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "connection_error", [CLIConnectionError, BrokenPipeError, ConnectionResetError]
+)
+async def test_interrupt_preserves_live_connection_error(
+    mock_socket_writer: MagicMock,
+    connection_error: type[Exception],
+) -> None:
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+    client = MagicMock()
+    client.interrupt = AsyncMock(side_effect=connection_error("synthetic live failure"))
+    runtime.client = client
+    runtime._client_connected_event.set()
+    runtime._query_sent_event.set()
+
+    with pytest.raises(connection_error, match="synthetic live failure"):
+        await runtime.interrupt(reason="user_cancel")

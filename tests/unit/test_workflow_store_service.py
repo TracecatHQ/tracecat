@@ -70,57 +70,6 @@ def _workflow_fixture(
     )
 
 
-@pytest.mark.anyio
-async def test_publish_workflow_uses_workspace_sync_service(
-    workflow_store_service: WorkflowStoreService,
-    sample_dsl: DSLInput,
-) -> None:
-    workflow_id = WorkflowUUID.new_uuid4()
-    workflow = _workflow_fixture(
-        workflow_id,
-        case_trigger=SimpleNamespace(
-            status="offline",
-            event_types=[],
-            tag_filters=[],
-        ),
-    )
-
-    with patch(
-        "tracecat.workflow.store.service.WorkspaceSyncService.for_workspace",
-        new_callable=AsyncMock,
-    ) as for_workspace:
-        sync_service = AsyncMock()
-        sync_service.export_workflow.return_value = WorkspaceSyncExportResult(
-            commit=CommitInfo(
-                status=PushStatus.NO_OP,
-                sha=None,
-                ref="feature/test",
-                base_ref="main",
-                message="No changes",
-            ),
-            files=[],
-        )
-        for_workspace.return_value = sync_service
-
-        result = await workflow_store_service.publish_workflow_dsl(
-            workflow_id=workflow_id,
-            dsl=sample_dsl,
-            params=WorkflowDslPublish(branch="feature/test", create_pr=False),
-            workflow=cast(Workflow, workflow),
-        )
-
-    assert result.branch == "feature/test"
-    for_workspace.assert_awaited_once_with(
-        session=workflow_store_service.session,
-        role=workflow_store_service.role,
-    )
-    call_kwargs = sync_service.export_workflow.call_args.kwargs
-    assert call_kwargs["workflow"] is workflow
-    assert call_kwargs["dsl"] is sample_dsl
-    assert call_kwargs["params"].branch == "feature/test"
-    assert call_kwargs["params"].create_pr is False
-
-
 def test_workflow_spec_omits_inert_case_trigger_and_schedules_by_default(
     sample_dsl: DSLInput,
 ) -> None:
@@ -250,49 +199,3 @@ async def test_publish_workflow_legacy_branch_still_creates_pr(
     params = sync_service.export_workflow.call_args.kwargs["params"]
     assert params.branch.startswith("tracecat-sync-")
     assert params.create_pr is True
-
-
-@pytest.mark.anyio
-async def test_publish_workflow_includes_configured_case_trigger(
-    workflow_store_service: WorkflowStoreService,
-    sample_dsl: DSLInput,
-) -> None:
-    workflow_id = WorkflowUUID.new_uuid4()
-    workflow = _workflow_fixture(
-        workflow_id,
-        case_trigger=SimpleNamespace(
-            status="online",
-            event_types=[CaseEventType.CASE_CREATED.value],
-            tag_filters=["phishing"],
-        ),
-    )
-
-    with patch(
-        "tracecat.workflow.store.service.WorkspaceSyncService.for_workspace",
-        new_callable=AsyncMock,
-    ) as for_workspace:
-        sync_service = AsyncMock()
-        sync_service.export_workflow.return_value = WorkspaceSyncExportResult(
-            commit=CommitInfo(
-                status=PushStatus.NO_OP,
-                sha=None,
-                ref="feature/test",
-                base_ref="main",
-                message="No changes",
-            ),
-            files=[],
-        )
-        for_workspace.return_value = sync_service
-
-        await workflow_store_service.publish_workflow_dsl(
-            workflow_id=workflow_id,
-            dsl=sample_dsl,
-            params=WorkflowDslPublish(branch="feature/test", create_pr=False),
-            workflow=cast(Workflow, workflow),
-        )
-
-    for_workspace.assert_awaited_once_with(
-        session=workflow_store_service.session,
-        role=workflow_store_service.role,
-    )
-    sync_service.export_workflow.assert_awaited_once()

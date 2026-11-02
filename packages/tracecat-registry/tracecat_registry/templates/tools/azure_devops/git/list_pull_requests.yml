@@ -1,0 +1,111 @@
+type: action
+definition:
+  title: List pull requests
+  description: "List pull requests in a repository matching optional search criteria."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-requests?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_pull_requests
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    repository_id:
+      type: str
+      description: "Repository ID or name."
+    status:
+      type: str | None
+      description: "Pull request status. One of `active`, `abandoned`, `completed`, `all`, `notSet`."
+      default: null
+    creator_id:
+      type: str | None
+      description: "Only pull requests created by this user ID."
+      default: null
+    reviewer_id:
+      type: str | None
+      description: "Only pull requests with this reviewer user ID."
+      default: null
+    source_ref_name:
+      type: str | None
+      description: "Only pull requests from this source branch (e.g. `refs/heads/feature`)."
+      default: null
+    target_ref_name:
+      type: str | None
+      description: "Only pull requests into this target branch (e.g. `refs/heads/main`)."
+      default: null
+    title:
+      type: str | None
+      description: "Only pull requests whose title contains this text."
+      default: null
+    min_time:
+      type: str | None
+      description: "Only pull requests created or closed after this time (ISO 8601)."
+      default: null
+    max_time:
+      type: str | None
+      description: "Only pull requests created or closed before this time (ISO 8601)."
+      default: null
+    query_time_range_type:
+      type: str | None
+      description: "Which time to filter on with `min_time`/`max_time`. One of `created`, `closed`."
+      default: null
+    include_links:
+      type: bool | None
+      description: "Include reference links."
+      default: null
+    top:
+      type: int | None
+      description: "Maximum number of pull requests to return."
+      default: null
+    skip:
+      type: int | None
+      description: "Number of pull requests to skip."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            searchCriteria.status: ${{ inputs.status }}
+            searchCriteria.creatorId: ${{ inputs.creator_id }}
+            searchCriteria.reviewerId: ${{ inputs.reviewer_id }}
+            searchCriteria.sourceRefName: ${{ inputs.source_ref_name }}
+            searchCriteria.targetRefName: ${{ inputs.target_ref_name }}
+            searchCriteria.title: ${{ inputs.title }}
+            searchCriteria.minTime: ${{ inputs.min_time }}
+            searchCriteria.maxTime: ${{ inputs.max_time }}
+            searchCriteria.queryTimeRangeType: ${{ inputs.query_time_range_type }}
+            searchCriteria.includeLinks: ${{ inputs.include_links }}
+            $top: ${{ inputs.top }}
+            $skip: ${{ inputs.skip }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.2"
+              return query
+    - ref: list_pull_requests
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/git/repositories/${{ FN.url_encode(inputs.repository_id) }}/pullrequests
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_pull_requests.result }}

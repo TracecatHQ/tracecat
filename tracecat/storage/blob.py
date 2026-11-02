@@ -13,6 +13,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import aioboto3
 from aiobotocore.config import AioConfig
@@ -160,6 +161,11 @@ _STORAGE_CLIENTS_LOCK = threading.RLock()
 
 def _create_storage_client_context() -> AbstractAsyncContextManager[S3Client]:
     session = aioboto3.Session()
+    # Only override TLS verification when it is explicitly disabled. Passing
+    # verify=True would bypass botocore's default CA-bundle resolution
+    # (AWS_CA_BUNDLE / the ca_bundle config), so leave it as None in the default
+    # case to preserve that behavior.
+    verify = None if config.TRACECAT__BLOB_STORAGE_SSL_VERIFY else False
     # Configure client based on protocol
     if config.TRACECAT__BLOB_STORAGE_ENDPOINT:
         # MinIO configuration - use AWS_* or MINIO_ROOT_* credentials
@@ -167,6 +173,7 @@ def _create_storage_client_context() -> AbstractAsyncContextManager[S3Client]:
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
             config=_STORAGE_CLIENT_CONFIG,
+            verify=verify,
             # Defaults to minio default credentials. MUST REPLACE WITH PRODUCTION CREDENTIALS.
             aws_access_key_id=os.environ.get(
                 "AWS_ACCESS_KEY_ID",
@@ -178,7 +185,7 @@ def _create_storage_client_context() -> AbstractAsyncContextManager[S3Client]:
             ),
         )
     # AWS S3 configuration - use AWS credentials from environment or default credential chain
-    return session.client("s3", config=_AWS_STORAGE_CLIENT_CONFIG)
+    return session.client("s3", config=_AWS_STORAGE_CLIENT_CONFIG, verify=verify)
 
 
 async def _get_storage_client() -> S3Client:
@@ -335,6 +342,25 @@ async def ensure_bucket_exists(bucket: str) -> None:
                 raise
 
 
+_verified_buckets: set[str] = set()
+
+
+async def ensure_bucket_exists_once(bucket: str) -> None:
+    """Ensure the bucket exists, skipping the S3 check once it has passed.
+
+    For hot paths that would otherwise send a HEAD request before every upload.
+    Concurrent first calls may each check. A bucket deleted after a passing
+    check is not recreated until restart.
+
+    Args:
+        bucket: Bucket name (required)
+    """
+    if bucket in _verified_buckets:
+        return
+    await ensure_bucket_exists(bucket)
+    _verified_buckets.add(bucket)
+
+
 async def get_bucket_lifecycle(
     bucket: str,
 ) -> GetBucketLifecycleConfigurationOutputTypeDef | None:
@@ -442,6 +468,21 @@ def _rewrite_presigned_endpoint(url: str) -> str:
     return f"{public}{url[len(internal) :]}"
 
 
+def _attachment_disposition(filename: str) -> str:
+    """Build a ``Content-Disposition: attachment`` value for a user-supplied name.
+
+    The quoted fallback keeps only ASCII letters, digits, spaces, dots,
+    underscores and hyphens, so the name cannot close the quotes or add a
+    parameter. The exact name travels percent-encoded in ``filename*``.
+    """
+    fallback = "".join(
+        char if char.isascii() and (char.isalnum() or char in " ._-") else "_"
+        for char in filename
+    )
+    encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+
+
 async def generate_presigned_download_url(
     key: str,
     bucket: str,
@@ -449,6 +490,7 @@ async def generate_presigned_download_url(
     force_download: bool = True,
     override_content_type: str | None = None,
     redact_log_identifiers: bool = False,
+    download_filename: str | None = None,
 ) -> str:
     """Generate a presigned URL for downloading a file with enhanced security.
 
@@ -458,6 +500,9 @@ async def generate_presigned_download_url(
         expiry: URL expiry time in seconds (defaults to config)
         force_download: If True, forces Content-Disposition: attachment
         override_content_type: Override the Content-Type header (e.g., 'application/octet-stream')
+        download_filename: Name the browser saves a forced download under.
+            Sanitized into the header; never part of the key. Defaults to the
+            last segment of the key.
         redact_log_identifiers: Hide the key, bucket, and provider prose in logs
             and raised errors.
 
@@ -480,9 +525,14 @@ async def generate_presigned_download_url(
 
     # Force download instead of inline display
     if force_download:
-        # Extract filename from key for proper download naming
-        filename = key.split("/")[-1] if "/" in key else key
-        params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
+        if download_filename is not None:
+            params["ResponseContentDisposition"] = _attachment_disposition(
+                download_filename
+            )
+        else:
+            # Extract filename from key for proper download naming
+            filename = key.split("/")[-1] if "/" in key else key
+            params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
 
     # Override content type to prevent browser execution
     if override_content_type:

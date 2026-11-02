@@ -5,8 +5,8 @@ import { z } from "zod"
 import type { CaseFieldRead, CaseUpdate } from "@/client"
 import {
   ExpandFieldCell,
-  JsonFieldDialog,
-  LongTextFieldDialog,
+  JsonFieldDrawer,
+  LongTextFieldDrawer,
 } from "@/components/cases/case-field-kind-dialogs"
 import {
   UrlFieldPopover,
@@ -69,7 +69,7 @@ export function CustomField({
   formClassName,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
   inputClassName?: string
   inputStyle?: CSSProperties
   onValueChange?: (id: string, value: unknown) => void
@@ -112,7 +112,7 @@ function InlineCustomField({
   formClassName,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
   inputClassName?: string
   inputStyle?: CSSProperties
   onValueChange?: (id: string, value: unknown) => void
@@ -162,7 +162,7 @@ function LongTextCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const currentValue =
@@ -187,7 +187,7 @@ function LongTextCustomField({
         onClick={() => setDialogOpen(true)}
         hasValue={currentValue.length > 0}
       />
-      <LongTextFieldDialog
+      <LongTextFieldDrawer
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         fieldLabel={customField.display_name}
@@ -203,7 +203,7 @@ function UrlCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
   const parsed =
     customField.value &&
@@ -243,7 +243,7 @@ function JsonCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const hasValue = customField.value !== null && customField.value !== undefined
@@ -267,7 +267,7 @@ function JsonCustomField({
         onClick={() => setDialogOpen(true)}
         hasValue={hasValue}
       />
-      <JsonFieldDialog
+      <JsonFieldDrawer
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         fieldLabel={customField.display_name}

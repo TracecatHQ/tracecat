@@ -12,12 +12,14 @@ import {
   Upload,
 } from "lucide-react"
 import dynamic from "next/dynamic"
-import { type ChangeEvent, useMemo, useRef } from "react"
+import { type ChangeEvent, useMemo, useRef, useState } from "react"
 import type { SkillDraftFileRead, SkillDraftRead, SkillRead } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import { SkillFileTree } from "@/components/skills/file-tree"
 import { RenameDialog } from "@/components/skills/rename-dialog"
 import { SkillFileIcon } from "@/components/skills/skill-file-icon"
+import { SkillToolsPanel } from "@/components/skills/skill-tools-panel"
 
 const CodeEditor = dynamic(
   () =>
@@ -25,6 +27,13 @@ const CodeEditor = dynamic(
       (m) => m.CodeEditor
     ),
   { ssr: false }
+)
+const SkillFrontmatterEditor = dynamic(
+  () =>
+    import("@/components/skills/skill-frontmatter-editor").then(
+      (m) => m.SkillFrontmatterEditor
+    ),
+  { ssr: false, loading: FrontmatterEditorSkeleton }
 )
 const SimpleEditor = dynamic(
   () =>
@@ -42,6 +51,9 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useIsAtLeastWidth } from "@/hooks/use-is-at-least-width"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import {
   composeMarkdownFrontmatter,
   splitMarkdownFrontmatter,
@@ -54,6 +66,30 @@ import {
   isMarkdownPath,
   SKILL_MD_PATH,
 } from "@/lib/skills-studio"
+import { cn } from "@/lib/utils"
+
+// Below this editor-area width the tools panel stacks under the instructions.
+const TOOLS_SPLIT_MIN_WIDTH = 720
+
+function FrontmatterEditorSkeleton() {
+  return (
+    <div role="status" className="w-full rounded-md border px-3 py-2">
+      <span className="sr-only">Loading frontmatter editor</span>
+      <div aria-hidden="true" className="flex gap-4">
+        <div className="flex shrink-0 flex-col gap-2 border-r pr-3">
+          <Skeleton className="h-3 w-2" />
+          <Skeleton className="h-3 w-2" />
+          <Skeleton className="h-3 w-2" />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <Skeleton className="h-3 w-1/3" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-2/3" />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 type EditorPanelProps = {
   skill?: SkillRead
@@ -134,12 +170,41 @@ export function EditorPanel({
     [visibleFiles]
   )
   const replaceInputRef = useRef<HTMLInputElement>(null)
+  // Managed skills are read-only: no file edits, creates, moves or deletes.
+  const { isManaged } = useManagedResources()
+  const readOnly = isManaged("skill", skill?.id)
   const splitFrontmatter =
     selectedFile !== null &&
     isMarkdownPath(selectedFile.path) &&
     currentTextValue !== null
       ? splitMarkdownFrontmatter(currentTextValue)
       : null
+  // A callback ref, because the editor area mounts after the loading returns.
+  const [editorArea, setEditorArea] = useState<HTMLDivElement | null>(null)
+  const toolsBeside = useIsAtLeastWidth(editorArea, TOOLS_SPLIT_MIN_WIDTH)
+  // Tools sit beside SKILL.md whenever its frontmatter and instructions show.
+  const showTools =
+    selectedFile?.path === SKILL_MD_PATH &&
+    splitFrontmatter !== null &&
+    !draftFileLoading &&
+    selectedFile.change?.kind !== "delete" &&
+    selectedFile.change?.kind !== "upload" &&
+    isEditablePath(selectedFile.path)
+
+  function handleToolsChange(nextFrontmatter: string) {
+    if (!splitFrontmatter) {
+      return
+    }
+    // A tools edit is always a user action, unlike the change events the
+    // markdown editor emits on mount. The tools panel and its portalled picker
+    // sit outside the editor's focus capture; activate for exactly this write.
+    const activated = markdownEditorActivatedRef.current
+    markdownEditorActivatedRef.current = true
+    onEditorChange(
+      composeMarkdownFrontmatter(nextFrontmatter, splitFrontmatter.body)
+    )
+    markdownEditorActivatedRef.current = activated
+  }
 
   if (skillLoading || draftLoading) {
     return (
@@ -163,6 +228,191 @@ export function EditorPanel({
     )
   }
 
+  const editorBody = (
+    <div className="h-full min-h-0 flex-1 overflow-auto">
+      <ReadOnlyFieldset
+        readOnly={readOnly}
+        className="flex min-h-full flex-col p-4"
+      >
+        {!selectedFile ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            Select a file to start editing.
+          </div>
+        ) : draftFileLoading ? (
+          <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
+            {selectedFile.path === SKILL_MD_PATH ? (
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-3 w-2/3" />
+                <FrontmatterEditorSkeleton />
+              </div>
+            ) : (
+              <div className="flex flex-1 items-center justify-center">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+        ) : selectedFile.change?.kind === "delete" ? (
+          <div className="flex flex-1 items-center justify-center">
+            <Alert className="max-w-md">
+              <Trash2 className="size-4" />
+              <AlertTitle>Marked for deletion</AlertTitle>
+              <AlertDescription>
+                Save the working copy to remove this file from the skill, or
+                click Reset to keep it.
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : selectedFile.change?.kind === "upload" ? (
+          <div className="flex flex-1 items-center justify-center">
+            <Alert className="max-w-md">
+              <Upload className="size-4" />
+              <AlertTitle>Replacement pending</AlertTitle>
+              <AlertDescription>
+                Save the working copy to upload and attach the replacement, or
+                click Reset to keep the current file.
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : currentTextValue !== null && isEditablePath(selectedFile.path) ? (
+          isMarkdownPath(selectedFile.path) && splitFrontmatter ? (
+            <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4">
+              <div
+                className="flex flex-col gap-2"
+                onFocusCapture={() => {
+                  markdownEditorActivatedRef.current = true
+                }}
+              >
+                <div>
+                  <div className="text-sm font-medium">Frontmatter</div>
+                  <div className="text-xs text-muted-foreground">
+                    Metadata the agent uses to discover this skill. Requires{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                      name
+                    </code>{" "}
+                    and{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                      description
+                    </code>
+                    .
+                  </div>
+                </div>
+                {selectedFile.path === SKILL_MD_PATH ? (
+                  <SkillFrontmatterEditor
+                    value={splitFrontmatter.frontmatter}
+                    readOnly={readOnly}
+                    onChange={(nextFrontmatter) =>
+                      onEditorChange(
+                        composeMarkdownFrontmatter(
+                          nextFrontmatter,
+                          splitFrontmatter.body
+                        )
+                      )
+                    }
+                  />
+                ) : (
+                  <CodeEditor
+                    value={splitFrontmatter.frontmatter}
+                    readOnly={readOnly}
+                    onChange={(nextFrontmatter) =>
+                      onEditorChange(
+                        composeMarkdownFrontmatter(
+                          nextFrontmatter,
+                          splitFrontmatter.body
+                        )
+                      )
+                    }
+                    language="yaml"
+                    className="[&_.cm-scroller]:max-h-64"
+                  />
+                )}
+              </div>
+              <div className="flex flex-1 flex-col">
+                <div className="mb-2">
+                  <div className="text-sm font-medium">Instructions</div>
+                  <div className="text-xs text-muted-foreground">
+                    Workflow, examples, and references the agent loads when the
+                    skill is triggered.
+                  </div>
+                </div>
+                <SimpleEditor
+                  value={splitFrontmatter.body}
+                  editable={!readOnly}
+                  onChange={(nextBody) =>
+                    onEditorChange(
+                      composeMarkdownFrontmatter(
+                        splitFrontmatter.frontmatter,
+                        nextBody
+                      )
+                    )
+                  }
+                  onSave={readOnly ? undefined : () => void onSaveWorkingCopy()}
+                  onFocus={() => {
+                    markdownEditorActivatedRef.current = true
+                  }}
+                  className="flex-1"
+                />
+              </div>
+            </div>
+          ) : isMarkdownPath(selectedFile.path) ? (
+            <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
+              <SimpleEditor
+                value={currentTextValue}
+                editable={!readOnly}
+                onChange={onEditorChange}
+                onSave={readOnly ? undefined : () => void onSaveWorkingCopy()}
+                onFocus={() => {
+                  markdownEditorActivatedRef.current = true
+                }}
+                className="flex-1"
+              />
+            </div>
+          ) : (
+            <CodeEditor
+              value={currentTextValue}
+              readOnly={readOnly}
+              onChange={onEditorChange}
+              language={getLanguageForPath(selectedFile.path)}
+              className="flex-1"
+            />
+          )
+        ) : (
+          <div className="flex flex-1 items-center justify-center">
+            <Alert className="max-w-md">
+              <Download className="size-4" />
+              <AlertTitle>Read-only file</AlertTitle>
+              <AlertDescription className="space-y-3">
+                <p>
+                  This file type is not editable inline in v1. You can replace
+                  it, delete it, or download the current blob.
+                </p>
+                {draftFile?.kind === "download" && draftFile.download_url ? (
+                  // Downloading does not edit, so it stays usable on a
+                  // managed skill's locked fieldset.
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="pointer-events-auto"
+                  >
+                    <a
+                      href={draftFile.download_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Download className="mr-2 size-4" />
+                      Download current file
+                    </a>
+                  </Button>
+                ) : null}
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+      </ReadOnlyFieldset>
+    </div>
+  )
+
   return (
     <>
       <ResizablePanelGroup
@@ -182,11 +432,14 @@ export function EditorPanel({
               variant="ghost"
               className="size-6 text-muted-foreground hover:text-foreground"
               onClick={onBeginCreate}
+              disabled={readOnly}
               aria-label="New file"
             >
               <FilePlus2 className="size-3.5" />
             </Button>
-            {selectedFile && selectedFile.path !== SKILL_MD_PATH ? (
+            {!readOnly &&
+            selectedFile &&
+            selectedFile.path !== SKILL_MD_PATH ? (
               <>
                 <Button
                   size="icon"
@@ -215,15 +468,19 @@ export function EditorPanel({
                 nodes={fileTree}
                 selectedPath={selectedPath}
                 onSelectPath={onSelectPath}
-                pendingCreate={pendingCreate}
+                // Managed skills get no tree mutations: create, move or
+                // folder rename.
+                pendingCreate={!readOnly && pendingCreate}
                 pendingCreateError={pendingCreateError}
-                onSubmitCreate={onSubmitCreate}
+                onSubmitCreate={readOnly ? undefined : onSubmitCreate}
                 onCancelCreate={onCancelCreate}
                 onChangeCreatePath={onChangeCreatePath}
-                moveSource={moveSource}
+                moveSource={readOnly ? null : moveSource}
                 onCancelMove={onCancelMove}
-                onCommitMove={onCommitMove}
-                onBeginRenameFolder={(path) => onBeginRename(path, true)}
+                onCommitMove={readOnly ? undefined : onCommitMove}
+                onBeginRenameFolder={
+                  readOnly ? undefined : (path) => onBeginRename(path, true)
+                }
               />
             </div>
           </ScrollArea>
@@ -249,7 +506,7 @@ export function EditorPanel({
               </span>
             </div>
             <div className="flex items-center gap-1">
-              {selectedFile?.change ? (
+              {!readOnly && selectedFile?.change ? (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -260,7 +517,7 @@ export function EditorPanel({
                   Reset
                 </Button>
               ) : null}
-              {selectedFile ? (
+              {!readOnly && selectedFile ? (
                 <>
                   <input
                     ref={replaceInputRef}
@@ -291,150 +548,35 @@ export function EditorPanel({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto">
-            <div className="flex min-h-full flex-col p-4">
-              {!selectedFile ? (
-                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                  Select a file to start editing.
-                </div>
-              ) : draftFileLoading ? (
-                <div className="flex flex-1 items-center justify-center">
-                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : selectedFile.change?.kind === "delete" ? (
-                <div className="flex flex-1 items-center justify-center">
-                  <Alert className="max-w-md">
-                    <Trash2 className="size-4" />
-                    <AlertTitle>Marked for deletion</AlertTitle>
-                    <AlertDescription>
-                      Save the working copy to remove this file from the skill,
-                      or click Reset to keep it.
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              ) : selectedFile.change?.kind === "upload" ? (
-                <div className="flex flex-1 items-center justify-center">
-                  <Alert className="max-w-md">
-                    <Upload className="size-4" />
-                    <AlertTitle>Replacement pending</AlertTitle>
-                    <AlertDescription>
-                      Save the working copy to upload and attach the
-                      replacement, or click Reset to keep the current file.
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              ) : currentTextValue !== null &&
-                isEditablePath(selectedFile.path) ? (
-                isMarkdownPath(selectedFile.path) && splitFrontmatter ? (
-                  <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4">
-                    <div
-                      className="flex flex-col gap-2"
-                      onFocusCapture={() => {
-                        markdownEditorActivatedRef.current = true
-                      }}
-                    >
-                      <div>
-                        <div className="text-sm font-medium">Frontmatter</div>
-                        <div className="text-xs text-muted-foreground">
-                          Metadata the agent uses to discover this skill.
-                          Requires{" "}
-                          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                            name
-                          </code>{" "}
-                          and{" "}
-                          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                            description
-                          </code>
-                          .
-                        </div>
-                      </div>
-                      <CodeEditor
-                        value={splitFrontmatter.frontmatter}
-                        onChange={(nextFrontmatter) =>
-                          onEditorChange(
-                            composeMarkdownFrontmatter(
-                              nextFrontmatter,
-                              splitFrontmatter.body
-                            )
-                          )
-                        }
-                        language="yaml"
+          <div ref={setEditorArea} className="flex min-h-0 flex-1 flex-col">
+            {showTools && splitFrontmatter ? (
+              <ResizablePanelGroup
+                direction={toolsBeside ? "horizontal" : "vertical"}
+                className="min-h-0 flex-1"
+              >
+                <ResizablePanel defaultSize={62} minSize={40}>
+                  {editorBody}
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel
+                  defaultSize={38}
+                  minSize={26}
+                  className={cn(toolsBeside && "min-w-[280px]")}
+                >
+                  <div className="h-full overflow-auto px-4 pb-4 [--tool-list-inset:1rem]">
+                    <ReadOnlyFieldset readOnly={readOnly}>
+                      <SkillToolsPanel
+                        workspaceId={skill.workspace_id}
+                        frontmatter={splitFrontmatter.frontmatter}
+                        onChange={handleToolsChange}
                       />
-                    </div>
-                    <div className="flex flex-1 flex-col">
-                      <div className="mb-2">
-                        <div className="text-sm font-medium">Instructions</div>
-                        <div className="text-xs text-muted-foreground">
-                          Workflow, examples, and references the agent loads
-                          when the skill is triggered.
-                        </div>
-                      </div>
-                      <SimpleEditor
-                        value={splitFrontmatter.body}
-                        onChange={(nextBody) =>
-                          onEditorChange(
-                            composeMarkdownFrontmatter(
-                              splitFrontmatter.frontmatter,
-                              nextBody
-                            )
-                          )
-                        }
-                        onSave={() => void onSaveWorkingCopy()}
-                        onFocus={() => {
-                          markdownEditorActivatedRef.current = true
-                        }}
-                        className="flex-1"
-                      />
-                    </div>
+                    </ReadOnlyFieldset>
                   </div>
-                ) : isMarkdownPath(selectedFile.path) ? (
-                  <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
-                    <SimpleEditor
-                      value={currentTextValue}
-                      onChange={onEditorChange}
-                      onSave={() => void onSaveWorkingCopy()}
-                      onFocus={() => {
-                        markdownEditorActivatedRef.current = true
-                      }}
-                      className="flex-1"
-                    />
-                  </div>
-                ) : (
-                  <CodeEditor
-                    value={currentTextValue}
-                    onChange={onEditorChange}
-                    language={getLanguageForPath(selectedFile.path)}
-                    className="flex-1"
-                  />
-                )
-              ) : (
-                <div className="flex flex-1 items-center justify-center">
-                  <Alert className="max-w-md">
-                    <Download className="size-4" />
-                    <AlertTitle>Read-only file</AlertTitle>
-                    <AlertDescription className="space-y-3">
-                      <p>
-                        This file type is not editable inline in v1. You can
-                        replace it, delete it, or download the current blob.
-                      </p>
-                      {draftFile?.kind === "download" &&
-                      draftFile.download_url ? (
-                        <Button asChild size="sm" variant="outline">
-                          <a
-                            href={draftFile.download_url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <Download className="mr-2 size-4" />
-                            Download current file
-                          </a>
-                        </Button>
-                      ) : null}
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              )}
-            </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            ) : (
+              editorBody
+            )}
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

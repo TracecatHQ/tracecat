@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Generate endpoint memory dump
-  description: Generate a memory dump on an Elastic Endpoint.
+  description: Generate a memory dump on an Elastic Endpoint. Requires Kibana 9.3+.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointgeneratememorydump
   namespace: tools.elastic_security

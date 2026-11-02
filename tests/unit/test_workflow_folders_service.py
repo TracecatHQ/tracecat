@@ -289,37 +289,19 @@ class TestWorkflowFolderService:
         # Parent should still exist
         assert await folder_service.get_folder(parent.id) is not None
 
-    async def test_delete_folder_recursive(
-        self, folder_service: WorkflowFolderService
-    ) -> None:
-        """Test deleting a folder tree recursively."""
-        # Create a folder hierarchy
-        parent = await folder_service.create_folder(name="parent", parent_path="/")
-        child = await folder_service.create_folder(name="child", parent_path="/parent/")
-        grandchild = await folder_service.create_folder(
-            name="grandchild", parent_path="/parent/child/"
-        )
-
-        # Store IDs for verification
-        parent_id, child_id, grandchild_id = parent.id, child.id, grandchild.id
-
-        # Delete parent recursively
-        await folder_service.delete_folder(parent_id, recursive=True)
-
-        # Verify all folders are deleted
-        assert await folder_service.get_folder(parent_id) is None
-        assert await folder_service.get_folder(child_id) is None
-        assert await folder_service.get_folder(grandchild_id) is None
-
     async def test_delete_folder_recursive_clears_workflows(
         self,
         folder_service: WorkflowFolderService,
         workflow_id: WorkflowID,
         session: AsyncSession,
     ) -> None:
-        """Test recursive folder delete moves contained workflows to root."""
+        """Test recursive folder delete removes the folder tree and moves
+        contained workflows to root."""
         parent = await folder_service.create_folder(name="parent", parent_path="/")
         child = await folder_service.create_folder(name="child", parent_path="/parent/")
+        grandchild = await folder_service.create_folder(
+            name="grandchild", parent_path="/parent/child/"
+        )
         workflow = await folder_service.move_workflow(workflow_id, child)
         assert workflow.folder_id == child.id
 
@@ -333,6 +315,31 @@ class TestWorkflowFolderService:
         )
         assert workflow_folder_id is None
         assert remaining_child is None
+        assert await folder_service.get_folder(parent.id) is None
+        assert await folder_service.get_folder(grandchild.id) is None
+
+    async def test_delete_folder_recursive_deletes_workflows(
+        self,
+        folder_service: WorkflowFolderService,
+        workflow_id: WorkflowID,
+        session: AsyncSession,
+    ) -> None:
+        """Test recursive folder delete with delete_workflows removes the
+        folder tree and every contained workflow."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+        child = await folder_service.create_folder(name="child", parent_path="/parent/")
+        await folder_service.move_workflow(workflow_id, child)
+
+        await folder_service.delete_folder(
+            parent.id, recursive=True, delete_workflows=True
+        )
+
+        remaining_workflow = await session.scalar(
+            select(Workflow.id).where(Workflow.id == workflow_id)
+        )
+        assert remaining_workflow is None
+        assert await folder_service.get_folder(parent.id) is None
+        assert await folder_service.get_folder(child.id) is None
 
     async def test_workflows_in_folder(
         self,
@@ -376,3 +383,63 @@ class TestWorkflowFolderService:
         workflows_in_folder2 = await folder_service.get_workflows_in_folder(folder2.id)
         assert len(workflows_in_folder2) == 1
         assert workflows_in_folder2[0].id == workflow_id
+
+    async def test_get_directory_items_returns_real_direct_item_counts(
+        self,
+        folder_service: WorkflowFolderService,
+        session: AsyncSession,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Folder rows should report direct child counts, not boolean presence."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+        child_a = await folder_service.create_folder(
+            name="child-a", parent_path="/parent/"
+        )
+        await folder_service.create_folder(name="child-b", parent_path="/parent/")
+        await folder_service.create_folder(
+            name="grandchild", parent_path="/parent/child-a/"
+        )
+
+        session.add_all(
+            [
+                Workflow(
+                    title=f"workflow-{i}",
+                    workspace_id=svc_workspace.id,
+                    description="",
+                    status="active",
+                    folder_id=parent.id,
+                )
+                for i in range(3)
+            ]
+        )
+        session.add(
+            Workflow(
+                title="nested-workflow",
+                workspace_id=svc_workspace.id,
+                description="",
+                status="active",
+                folder_id=child_a.id,
+            )
+        )
+        await session.commit()
+
+        directory_items = await folder_service.get_directory_items("/")
+        parent_item = next(
+            item
+            for item in directory_items
+            if item.type == "folder" and item.id == parent.id
+        )
+        assert parent_item.num_items == 5
+        assert parent_item.num_workflows == 4
+
+        child_items = await folder_service.get_directory_items("/parent/")
+        counts = {
+            item.name: item.num_items for item in child_items if item.type == "folder"
+        }
+        assert counts == {"child-a": 2, "child-b": 0}
+        workflow_counts = {
+            item.name: item.num_workflows
+            for item in child_items
+            if item.type == "folder"
+        }
+        assert workflow_counts == {"child-a": 1, "child-b": 0}

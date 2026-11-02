@@ -14,8 +14,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -56,8 +58,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -104,6 +108,56 @@ Default: `null`.
 
 </ParamField>
 
+## Create git ref
+
+Action ID: `tools.github.create_git_ref`
+
+Create git ref. IMPORTANT: `ref` must be the full name `refs/heads/my-branch`, but `branch` in create_or_update_repository_content and `head` in create_pull_request take the bare `my-branch`. Fails if GitHub returns 422 (for example, the ref already exists or `ref` is malformed), so a retry or repeat run with the same `ref` fails. Calls POST /repos/&#123;owner&#125;/&#123;repo&#125;/git/refs directly. Accepted OAuth scopes: repo (default; omit only for public repository data).
+
+Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
+
+### Secrets
+
+Optional secrets:
+
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
+- `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="owner" type="string" required>
+
+GitHub API path value for owner.
+
+</ParamField>
+
+<ParamField path="ref" type="string" required>
+
+The name of the fully qualified reference (ie: `refs/heads/master`). If it doesn't start with 'refs' and have at least two slashes, it will be rejected. Use `refs/heads/my-branch` here; other GitHub actions take the bare `my-branch`.
+
+</ParamField>
+
+<ParamField path="repo" type="string" required>
+
+GitHub API path value for repo.
+
+</ParamField>
+
+<ParamField path="sha" type="string" required>
+
+The SHA1 value for this reference.
+
+</ParamField>
+
+<ParamField path="base_url" type="string">
+
+GitHub.com REST API base URL.
+
+Default: `"https://api.github.com"`.
+
+</ParamField>
+
 ## Create issue
 
 Action ID: `tools.github.create_issue`
@@ -114,8 +168,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -158,8 +214,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -206,8 +264,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -256,8 +316,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -300,8 +362,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -350,8 +414,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -400,8 +466,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -444,8 +512,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -486,8 +556,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -522,8 +594,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -558,8 +632,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -608,8 +684,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -650,8 +728,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -686,8 +766,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -722,8 +804,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -764,8 +848,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -806,8 +892,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -842,8 +930,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -900,8 +990,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -942,8 +1034,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -972,8 +1066,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1002,8 +1098,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1044,8 +1142,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1122,8 +1222,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1158,8 +1260,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1200,8 +1304,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1242,8 +1348,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1278,8 +1386,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1320,8 +1430,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1370,8 +1482,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1406,8 +1520,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1448,8 +1564,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1498,8 +1616,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1534,8 +1654,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1584,8 +1706,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1658,8 +1782,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1758,8 +1884,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1804,8 +1932,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -1972,8 +2102,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2038,8 +2170,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2156,8 +2290,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2330,8 +2466,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2520,8 +2658,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2598,8 +2738,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2656,8 +2798,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2738,8 +2882,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2830,8 +2976,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -2970,8 +3118,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3134,8 +3284,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3274,8 +3426,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3470,8 +3624,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3554,8 +3710,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3670,8 +3828,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3722,8 +3882,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3780,8 +3942,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3846,8 +4010,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3896,8 +4062,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3938,8 +4106,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -3988,8 +4158,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4050,8 +4222,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4112,8 +4286,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4190,8 +4366,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4252,8 +4430,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4296,8 +4476,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4346,8 +4528,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4396,8 +4580,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4440,8 +4626,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4490,8 +4678,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4540,8 +4730,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4590,8 +4782,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields
@@ -4640,8 +4834,10 @@ Reference: [https://docs.github.com/en/rest](https://docs.github.com/en/rest)
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `github_app_oauth`: OAuth token `GITHUB_APP_SERVICE_TOKEN`.
+- `github_app_oauth`: OAuth token `GITHUB_APP_USER_TOKEN`.
 - `github_oauth`: OAuth token `GITHUB_USER_TOKEN`.
 
 ### Input fields

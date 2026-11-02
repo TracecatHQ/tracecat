@@ -1,0 +1,268 @@
+"""Workspace secret references: secrets whose values live in an external store."""
+
+from __future__ import annotations
+
+import uuid
+
+from asyncpg import ForeignKeyViolationError
+from sqlalchemy import Select, or_, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
+
+from tracecat.audit.logger import audit_log
+from tracecat.authz.controls import require_scope
+from tracecat.db.models import (
+    OrganizationSecretStore,
+    Secret,
+    Workspace,
+    WorkspaceSecretStoreAuthorization,
+)
+from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.managed_resources.guard import (
+    hold_for_customer_write,
+    refresh_for_customer_write,
+)
+from tracecat.managed_resources.values import (
+    changed_fields,
+    ensure_values_only_update,
+)
+from tracecat.pagination import Page, PageParams, paginate
+from tracecat.secrets.enums import (
+    AwsSecretResolutionErrorCode,
+    SecretSource,
+    SecretType,
+)
+from tracecat.secrets.schemas import (
+    AwsSecretReferenceCreate,
+    AwsSecretReferenceUpdate,
+    SecretReferenceCheckResult,
+)
+from tracecat.secrets.service import (
+    SecretsService,
+    build_external_secret_reference,
+    is_external_reference,
+)
+from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
+
+
+class SecretReferencesService(SecretsService):
+    """Create, update, and verify workspace secrets backed by an external store."""
+
+    service_name = "external_secrets"
+
+    def _authorized_store_query(self) -> Select[tuple[OrganizationSecretStore]]:
+        """Apply organization ownership and either form of workspace access."""
+        workspace_id = self._require_workspace_id()
+        workspace_in_org = select(Workspace.id).where(
+            Workspace.id == workspace_id,
+            Workspace.organization_id == self.organization_id,
+        )
+        authorization = select(WorkspaceSecretStoreAuthorization.id).where(
+            WorkspaceSecretStoreAuthorization.workspace_id == workspace_id,
+            WorkspaceSecretStoreAuthorization.store_id == OrganizationSecretStore.id,
+            WorkspaceSecretStoreAuthorization.organization_id == self.organization_id,
+        )
+        return select(OrganizationSecretStore).where(
+            OrganizationSecretStore.organization_id == self.organization_id,
+            workspace_in_org.exists(),
+            or_(
+                OrganizationSecretStore.all_workspaces.is_(True), authorization.exists()
+            ),
+        )
+
+    async def list_authorized_stores(
+        self, page: PageParams
+    ) -> Page[OrganizationSecretStore]:
+        """List external stores the current workspace may reference."""
+        return await paginate(
+            self.session,
+            self._authorized_store_query(),
+            page=page,
+            order_by=(
+                OrganizationSecretStore.created_at.asc(),
+                OrganizationSecretStore.id.asc(),
+            ),
+        )
+
+    async def list_all_authorized_stores(self) -> list[OrganizationSecretStore]:
+        """Return every external store the current workspace may reference."""
+        stmt = self._authorized_store_query().order_by(OrganizationSecretStore.name)
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def _get_authorized_store(
+        self, store_id: uuid.UUID
+    ) -> OrganizationSecretStore:
+        # Serialize reference creation with access-scope changes. The grant and
+        # reference commit together, preserving the existing authorization FK.
+        stmt = (
+            self._authorized_store_query()
+            .where(OrganizationSecretStore.id == store_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt)
+        store = result.scalar_one_or_none()
+        if store is None:
+            raise TracecatAuthorizationError(
+                "This workspace is not authorized to use the selected secret store."
+            )
+        if store.all_workspaces:
+            # Keep bindings created under organization-wide access when the
+            # store returns to selected workspaces; revocation still checks refs.
+            await self.session.execute(
+                insert(WorkspaceSecretStoreAuthorization)
+                .values(
+                    organization_id=self.organization_id,
+                    workspace_id=self._require_workspace_id(),
+                    store_id=store.id,
+                )
+                .on_conflict_do_nothing(index_elements=["workspace_id", "store_id"])
+            )
+        return store
+
+    async def get_authorized_store_by_name(self, name: str) -> OrganizationSecretStore:
+        """Look up an authorized store by its organization-unique name."""
+        stmt = self._authorized_store_query().where(
+            OrganizationSecretStore.name == name
+        )
+        store = (await self.session.execute(stmt)).scalar_one_or_none()
+        if store is None:
+            raise TracecatAuthorizationError(
+                f"This workspace is not authorized to use a secret store named {name!r}."
+            )
+        return await self._get_authorized_store(store.id)
+
+    @staticmethod
+    def validate_reference(
+        store: OrganizationSecretStore, remote_reference: str
+    ) -> None:
+        """Raise ``ValueError`` when the reference doesn't fit the store."""
+        backend = get_backend(store.provider)
+        backend.validate_reference(parse_store_config(store), remote_reference)
+
+    @require_scope("secret:create")
+    @audit_log(resource_type="secret", action="create")
+    async def create_aws_secret_reference(
+        self, params: AwsSecretReferenceCreate
+    ) -> Secret:
+        """Create a custom workspace secret backed by AWS Secrets Manager.
+
+        No remote value is fetched or stored; ``encrypted_keys`` holds an
+        encrypted empty key list so the column contract is unchanged.
+        """
+        workspace_id = self._require_workspace_id()
+        # Before the store lock, as rollouts order it: a rollout adopts a
+        # secret by (environment, name), so this create must not land between
+        # its conflict check and its import.
+        await hold_for_customer_write(self.session, workspace_id)
+        store = await self._get_authorized_store(params.store_id)
+        self.validate_reference(store, params.remote_reference)
+        secret = Secret(
+            workspace_id=workspace_id,
+            name=params.name,
+            type=SecretType.CUSTOM,
+            description=params.description,
+            tags=params.tags,
+            encrypted_keys=self.encrypt_keys([]),
+            environment=params.environment,
+            source=SecretSource.AWS_SECRETS_MANAGER,
+            store_id=store.id,
+            remote_reference=params.remote_reference,
+            remote_key_mapping=params.key_mapping.model_dump(mode="json"),
+        )
+        self.session.add(secret)
+        await self._commit_reference()
+        return secret
+
+    async def _commit_reference(self) -> None:
+        """Commit, mapping a lost store authorization to an authorization error."""
+        try:
+            await self.session.commit()
+        except IntegrityError as e:
+            # Any FK failure on this commit means the grant or store vanished.
+            cause = e.orig.__cause__ if e.orig else None
+            if not isinstance(cause, ForeignKeyViolationError):
+                raise
+            await self.session.rollback()
+            raise TracecatAuthorizationError(
+                "This workspace is not authorized to use the selected secret store."
+            ) from e
+
+    @require_scope("secret:update")
+    @audit_log(resource_type="secret", action="update")
+    async def update_aws_secret_reference(
+        self, secret: Secret, params: AwsSecretReferenceUpdate
+    ) -> None:
+        """Update the reference or mapping of an AWS-backed workspace secret."""
+        await refresh_for_customer_write(self.session, self.role.workspace_id, secret)
+        # On a managed secret the FDE matches the store; the customer only
+        # points it at their own ARN or secret name.
+        await ensure_values_only_update(
+            self.session,
+            workspace_id=self.role.workspace_id,
+            resource_type=SyncResourceType.SECRET_METADATA,
+            local_id=secret.id,
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True),
+                {
+                    "name": secret.name,
+                    "description": secret.description,
+                    "environment": secret.environment,
+                    "tags": secret.tags,
+                    "store_id": secret.store_id,
+                    "key_mapping": secret.remote_key_mapping,
+                },
+            ),
+            allowed_fields={"remote_reference"},
+        )
+        if not is_external_reference(secret):
+            raise ValueError("Secret is not backed by AWS Secrets Manager.")
+        set_fields = params.model_dump(exclude_unset=True)
+        set_fields.pop("store_id", None)
+        set_fields.pop("remote_reference", None)
+        set_fields.pop("key_mapping", None)
+
+        effective_store_id = params.store_id or secret.store_id
+        if effective_store_id is None:
+            raise ValueError("A secret store is required.")
+        store = await self._get_authorized_store(effective_store_id)
+        effective_reference = params.remote_reference or secret.remote_reference
+        if effective_reference is None:
+            raise ValueError("A secret ARN is required.")
+        self.validate_reference(store, effective_reference)
+
+        secret.store_id = store.id
+        secret.remote_reference = effective_reference
+        if params.key_mapping is not None:
+            secret.remote_key_mapping = params.key_mapping.model_dump(mode="json")
+        for field, value in set_fields.items():
+            setattr(secret, field, value)
+        self.session.add(secret)
+        await self._commit_reference()
+
+    @require_scope("secret:read")
+    async def check_aws_secret_reference(
+        self, secret: Secret
+    ) -> SecretReferenceCheckResult:
+        """Verify an AWS-backed secret resolves. Never returns the value."""
+        if not is_external_reference(secret):
+            raise ValueError("Secret is not backed by AWS Secrets Manager.")
+        await self.session.refresh(secret, attribute_names=["store"])
+        reference = build_external_secret_reference(secret)
+        backend = get_backend(reference.provider)
+        # Release the DB session before the remote call.
+        await self.session.commit()
+        result = await backend.check(reference)
+        message: str | None = None
+        if not result.ok:
+            code = result.error_code or AwsSecretResolutionErrorCode.UNKNOWN
+            message = f"Reference check failed: {code.value}"
+            if result.provider_error_code:
+                message += f" (AWS error code {result.provider_error_code})"
+        return SecretReferenceCheckResult(
+            ok=result.ok,
+            error_code=result.error_code,
+            message=message,
+            resolved_keys=result.resolved_keys,
+        )

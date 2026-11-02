@@ -22,7 +22,7 @@ from tracecat_registry import ctx, registry, types
 async def get_case_metrics(
     case_ids: Annotated[
         list[str],
-        Doc("List of case IDs to get case metrics for."),
+        Doc("List of case IDs or short IDs (e.g. CASE-0042) to get case metrics for."),
     ],
 ) -> list[types.CaseDurationMetric]:
     """Get case metrics as OTEL-aligned time-series for the provided case IDs.

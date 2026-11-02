@@ -13,6 +13,9 @@ own embedded collection truncation behavior below.
 - `list_workspaces(limit=20, cursor=None)`
 - `create_workflow(workspace_id, title, description="", definition_yaml=None)`
 - `get_workflow(workspace_id, workflow_id, include_definition_yaml=False)`
+- `list_workflow_actions(workspace_id, workflow_id)`
+- `get_workflow_action(workspace_id, workflow_id, ref)`
+- `get_workflow_graph(workspace_id, workflow_id)`
 - `update_workflow(workspace_id, workflow_id, title=None, description=None, status=None, alias=None, error_handler=None, definition_yaml=None, update_mode="patch")`
 - `edit_workflow(workspace_id, workflow_id, base_revision, patch_ops, validate_only=False)`
 - `list_workflows(workspace_id, status=None, limit=50, search=None, cursor=None)`
@@ -20,8 +23,13 @@ own embedded collection truncation behavior below.
 - `validate_workflow(workspace_id, workflow_id)`
 - `publish_workflow(workspace_id, workflow_id)`
 - `run_workflow(workspace_id, workflow_id, inputs=None, use_draft=True, version=None)`
+- `rerun_workflow_execution(workspace_id, execution_id, use_draft=True, version=None, fixed_action_refs=None, rerun_from_ref=None, dry_run=False)`
+- `list_workflow_action_runs(workspace_id, workflow_id, ref, limit=10)`
+- `lock_workflow_action(workspace_id, workflow_id, ref, execution_id)`
 - `list_workflow_executions(workspace_id, workflow_id, limit=20, cursor=None)`
-- `get_workflow_execution(workspace_id, execution_id)`
+- `get_workflow_execution(workspace_id, execution_id, action_refs=None, include_results=True)`
+- `get_execution_action_result(workspace_id, execution_id, action_ref, stream_id=None, max_bytes=65536, offset=0)`
+- `cancel_workflow_execution(workspace_id, execution_id)`
 
 ### Workflow definition editing
 
@@ -30,6 +38,27 @@ own embedded collection truncation behavior below.
   send the smallest RFC 6902 JSON Patch that changes the intended fields. Call
   `get_workflow` only when the latest draft is missing, stale, or a revision
   conflict says the draft changed.
+- On large workflows, avoid `get_workflow` entirely: `list_workflow_actions`
+  returns the `draft_revision` plus one `{index, ref, action, depends_on, ...}`
+  row per action, and `get_workflow_action` returns a single action with its
+  layout entry.
+- Address actions by ref in patch paths: `/definition/actions/@<ref>` (any
+  suffix, e.g. `/definition/actions/@build_alert/args/url`) and
+  `/layout/actions/@<ref>`. Each op resolves the ref against the document as
+  it stands when that op runs, so earlier removes do not shift later paths.
+  `add` to a bare `/definition/actions/@<ref>` appends a new action whose
+  `ref` must match; `remove` deletes that action; an unknown ref fails the
+  patch and lists the known refs. Numeric paths still work, but the server
+  re-sorts actions by ref on save.
+- Both `validate_only` and applied `edit_workflow` responses include
+  `actions: [{index, ref}]` in post-save order.
+- Call `get_workflow_graph` before adding or editing `run_if`, `depends_on`,
+  or joins. It returns a Mermaid `flowchart TD` with refs, action types, loops,
+  joins, and conditions (no `args`), plus a per-action `gated_by` list of
+  upstream refs whose `run_if` already guards that action.
+- The canvas is auto-formatted after `create_workflow` with YAML, and after
+  `edit_workflow` or `update_workflow` changes that add actions or change any
+  `depends_on`. Supplied layout positions are ignored for those changes.
 - Use `update_workflow` without `definition_yaml` for metadata-only updates.
 - Use inline YAML on `create_workflow` and `update_workflow` only when creating
   a workflow from YAML or intentionally replacing/bulk-updating the definition.
@@ -39,6 +68,32 @@ own embedded collection truncation behavior below.
   it returns `definition_transport="too_large"`.
 - Template validation uploads and CSV exports still use separate staged blob
   transfer tools.
+
+### Execution results
+
+- `get_workflow_execution` inlines each event `result` only when its JSON is
+  short and otherwise returns a cut-off `result_truncated` preview. Pass
+  `action_refs` to keep only those actions (the synthetic
+  `__workflow_trigger__`, `__workflow_completed__`, and `__workflow_failure__`
+  events are always kept) and `include_results=False` for a status-and-timing
+  timeline with no result payloads.
+- `get_execution_action_result` returns one action's complete result as JSON
+  text in byte windows (`result`, `total_bytes`, `offset`, `truncated`,
+  `next_offset`; `max_bytes` is capped at 1 MiB). Results the engine offloaded
+  to blob storage are dereferenced server-side. When a ref ran in several
+  streams (scatter items), pass `stream_id`; the error lists the available ids.
+- `cancel_workflow_execution` requests graceful cancellation and needs the
+  `workflow:terminate` scope. It returns once the request is sent; call
+  `get_workflow_execution` to confirm the run closed as `CANCELED`. Cancelling
+  a run that already finished does nothing.
+
+## Workspace settings tools
+
+- `update_workspace_attachment_types(workspace_id, allowed_extensions=None, allowed_mime_types=None)`
+
+Each list replaces the workspace allowlist for case attachments, and an empty
+list restores the system defaults. Call it with no lists to read the current
+and effective values. Writes need the `workspace:update` scope.
 
 ## Action discovery and authoring context
 
@@ -58,6 +113,21 @@ truncation metadata under `truncation.collections`.
 - `get_case_trigger(workspace_id, workflow_id)`
 - `update_case_trigger(workspace_id, workflow_id, status=None, event_types=None, tag_filters=None)`
 
+## Form tools
+
+These need the `forms` feature flag and the `forms` entitlement, plus scopes:
+`list_forms` needs `form:read`; `get_form` needs `form:read` and one of
+`form:update` or `form:submission:read`, and reports a form it hides as not
+found; `update_form` needs `form:read` and `form:update`, and `form:create`
+when it creates the form.
+
+- `list_forms(workspace_id, limit=..., cursor=None)`
+- `get_form(workspace_id, form_id)`
+- `update_form(workspace_id, workflow_id, status=None, config=None)`
+
+`update_form` creates the form if the workflow has none. `config` replaces the
+stored config whole. Submissions are not exposed over MCP.
+
 ## Workflow tag tools
 
 - `list_workflow_tags(workspace_id, limit=20, cursor=None)`
@@ -67,6 +137,19 @@ truncation metadata under `truncation.collections`.
 - `list_tags_for_workflow(workspace_id, workflow_id, limit=20, cursor=None)`
 - `add_workflow_tag(workspace_id, workflow_id, tag_id)`
 - `remove_workflow_tag(workspace_id, workflow_id, tag_id)`
+
+## Sub-case tools
+
+- `search_cases(..., parent_id=None, hierarchy="all")` lists a parent's sub-cases with `parent_id`, or only top-level cases with `hierarchy="top_level"`
+- `create_case(..., parent_id=None)` creates the case as a sub-case of a top-level case
+- `set_case_parent(workspace_id, case_ids, parent_id)` groups cases under a top-level parent case
+- `clear_case_parent(workspace_id, case_ids)` returns sub-cases to the top level
+
+Notes:
+
+- Sub-case tools and the `parent_id` arguments require the case add-ons entitlement.
+- `get_case`, `list_cases`, and `search_cases` return `parent` and `num_sub_cases` on every case.
+- Sub-cases are one level deep. Closing a parent case does not change its sub-cases.
 
 ## Case tag tools
 
@@ -147,6 +230,9 @@ Notes:
 
 - `list_variables(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
 - `get_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
+- `create_variable(workspace_id, name, values, description=None, environment=DEFAULT_SECRETS_ENVIRONMENT, tags=None)`
+- `update_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT, new_name=None, description=None, values=None, tags=None, new_environment=None)`
+- `delete_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
 - `list_secrets_metadata(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
 - `get_secret_metadata(workspace_id, secret_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
 
@@ -155,13 +241,19 @@ Notes:
 - `list_integrations(workspace_id)`
 - `get_agent_preset_authoring_context(workspace_id)`
 - `list_skills(workspace_id, limit=20, cursor=None)`
+- `list_skill_tree(workspace_id, path="/", depth=1, include_skills=True, limit=20, cursor=None)`
+- `create_skill_folder(workspace_id, path, parents=False)`
+- `rename_skill_folder(workspace_id, path, new_name)`
+- `move_skill_folder(workspace_id, path, destination_parent_path="/")`
+- `delete_skill_folder(workspace_id, path, recursive=False)`
+- `move_skills(workspace_id, skill_slugs, destination_path="/", dry_run=False)`
 - `get_skill(workspace_id, skill_id, path=None)`
 - `prepare_skill_download(workspace_id, skill_id)`
 - `prepare_skill_upload(workspace_id, files, skill_id=None, name=None, description=None)`
 - `complete_skill_upload(workspace_id, skill_id, base_revision, files)`
 - `publish_skill(workspace_id, skill_id)`
-- `create_agent_preset(workspace_id, name, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
-- `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
+- `create_agent_preset(workspace_id, name, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, tool_tunnels=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None, subagents=None)`
+- `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, clear_output_type=False, actions=None, namespaces=None, tool_approvals=None, tool_tunnels=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None, subagents=None)`
 - `list_agent_presets(workspace_id, limit=20, cursor=None)`
 - `get_agent_preset(workspace_id, preset_slug)`
 - `run_agent_preset(workspace_id, preset_slug, prompt, preset_version=None, timeout_seconds=120)`

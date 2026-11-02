@@ -20,6 +20,9 @@ from collections.abc import (
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+from opentelemetry import metrics
 
 from tracecat import config
 from tracecat.concurrency import (
@@ -92,6 +95,7 @@ class RegistryArtifactCacheCapacityError(RuntimeError):
         current_bytes: int,
         additional_bytes: int,
         max_bytes: int,
+        releasable_bytes: int | None = None,
     ) -> None:
         super().__init__(
             "Registry artifact admission exceeds the cache byte budget: "
@@ -101,10 +105,118 @@ class RegistryArtifactCacheCapacityError(RuntimeError):
         self.current_bytes = current_bytes
         self.additional_bytes = additional_bytes
         self.max_bytes = max_bytes
+        # Part of current_bytes other attempts' leases hold; None when unmeasured.
+        self.releasable_bytes = releasable_bytes
 
 
 class RegistryArtifactCacheLeaseContentionError(RegistryArtifactCacheCapacityError):
-    """Active leases temporarily pin bytes needed by a cold artifact."""
+    """Leases or in-flight reservations temporarily hold bytes a cold artifact needs."""
+
+
+def _contention_error(
+    blocked: RegistryArtifactCacheCapacityError,
+) -> RegistryArtifactCacheLeaseContentionError:
+    """Return a retryable error for a writer that stops waiting for capacity."""
+    return RegistryArtifactCacheLeaseContentionError(
+        current_bytes=blocked.current_bytes,
+        additional_bytes=blocked.additional_bytes,
+        max_bytes=blocked.max_bytes,
+        releasable_bytes=blocked.releasable_bytes,
+    )
+
+
+_METER = metrics.get_meter("tracecat.executor.registry_cache")
+_ADMISSION_WAIT_MS = _METER.create_histogram(
+    "registry_cache.admission_lock.wait_ms",
+    unit="ms",
+    description="Time spent waiting to acquire the registry cache admission lock.",
+)
+_ADMISSION_HOLD_MS = _METER.create_histogram(
+    "registry_cache.admission_lock.hold_ms",
+    unit="ms",
+    description="Time the registry cache admission lock was held per acquisition.",
+)
+_CAPACITY_STEP_MS = _METER.create_histogram(
+    "registry_cache.capacity_check.step_ms",
+    unit="ms",
+    description="Duration of each capacity-check step run under the admission lock.",
+)
+_SLOT_WAIT_MS = _METER.create_histogram(
+    "registry_cache.slots.wait_ms",
+    unit="ms",
+    description="Time a cold-path step waited for a download, extract, or mount slot.",
+)
+_SLOTS_IN_USE = _METER.create_up_down_counter(
+    "registry_cache.slots.in_use",
+    description="Download, extract, and mount slots currently held.",
+)
+_RESERVED_BYTES = _METER.create_up_down_counter(
+    "registry_cache.reserved_bytes",
+    unit="By",
+    description="Bytes reserved against the cache cap by in-flight cold writers.",
+)
+_CAPACITY_WAIT_MS = _METER.create_histogram(
+    "registry_cache.capacity_wait.wait_ms",
+    unit="ms",
+    description="Time a cold writer waited for reservations or leases to free space.",
+)
+
+SQUASHFS_MOUNT_SLOTS = 1
+"""In-flight SquashFS mounts per pod; loop-device setup races across pods."""
+
+RESERVATION_WAIT_SECONDS = 30.0
+"""How long a cold writer waits for in-flight reservations or leases to free space."""
+
+SlotKind = Literal["download", "extract", "mount"]
+
+
+class MeteredSlots:
+    """Bounded slots for one kind of cold-path work, with wait and usage metrics."""
+
+    def __init__(self, kind: SlotKind, slots: int) -> None:
+        self._semaphore = asyncio.Semaphore(slots)
+        self._attributes = {"kind": kind}
+        self.in_use = 0
+
+    async def __aenter__(self) -> None:
+        started = time.monotonic()
+        await self._semaphore.acquire()
+        _SLOT_WAIT_MS.record((time.monotonic() - started) * 1000, self._attributes)
+        self.in_use += 1
+        _SLOTS_IN_USE.add(1, self._attributes)
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        self.in_use -= 1
+        _SLOTS_IN_USE.add(-1, self._attributes)
+        self._semaphore.release()
+
+
+class MeteredAdmissionLock(asyncio.Lock):
+    """asyncio.Lock that records wait and hold time for the admission lock."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._acquired_at: float | None = None
+
+    async def acquire(self) -> Literal[True]:
+        started = time.monotonic()
+        await super().acquire()
+        self._acquired_at = time.monotonic()
+        _ADMISSION_WAIT_MS.record((self._acquired_at - started) * 1000)
+        return True
+
+    def release(self) -> None:
+        if (acquired_at := self._acquired_at) is not None:
+            self._acquired_at = None
+            _ADMISSION_HOLD_MS.record((time.monotonic() - acquired_at) * 1000)
+        super().release()
+
+
+def _record_capacity_step(step: str, started: float) -> float:
+    """Record one capacity-check step and return the next step's start."""
+    now = time.monotonic()
+    _CAPACITY_STEP_MS.record((now - started) * 1000, {"step": step})
+    return now
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +314,24 @@ class RegistryArtifactAdmission:
 
     max_bytes: int
     allocation_unit: int
+    reservation: RegistryArtifactByteReservation
     ensure_capacity: Callable[[int], Awaitable[None]]
+    settle: Callable[[], Awaitable[None]]
+    """Shrink the charge to owned staging bytes after a publish or failed write."""
+
+
+@dataclass(slots=True, eq=False)
+class RegistryArtifactByteReservation:
+    """Bytes one cold materialization holds against the cache cap.
+
+    The reservation owns the staging paths its materialization creates, so the
+    capacity scan skips them while the reservation charges for them.
+    """
+
+    bytes: int = 0
+    staging_paths: list[Path] = field(default_factory=list)
+    blocked_on: asyncio.Event | None = None
+    """Capacity event current when this writer was blocked only by reservations."""
 
 
 @dataclass(slots=True)
@@ -214,12 +343,18 @@ class RegistryArtifactMaterializationContext:
     paths: RegistryArtifactPaths
     defer_cleanup: Callable[[Path], None]
     squashfs_mount_policy: registry_artifact_mounts.SquashfsMountPolicy
+    download_slots: MeteredSlots
+    extract_slots: MeteredSlots
+    mount_slots: MeteredSlots
     admission: RegistryArtifactAdmission | None = None
+    squashfs_remount_failed: bool = False
+    """This lease's warm remount already exhausted its mount attempts."""
 
     def can_mount_squashfs(self) -> bool:
         """Return whether SquashFS mounting is enabled and worth attempting."""
         return (
-            config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+            not self.squashfs_remount_failed
+            and config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
             and self.squashfs_mount_policy.should_attempt_mount()
         )
 
@@ -472,6 +607,11 @@ def unique_work_path(root: Path, cache_key: str, *, suffix: str = "") -> Path:
         unique_id += 1
 
 
+def _is_owned_staging_name(name: str, owned_names: frozenset[str]) -> bool:
+    """Match an owned staging path or a sibling derived from it (``.part``)."""
+    return any(name == owned or name.startswith(f"{owned}.") for owned in owned_names)
+
+
 def _move_entry_to_trash(entry_dir: Path, trash_dir: Path, cache_key: str) -> Path:
     """Atomically retire one cache entry and return its trash path."""
     trash_path = unique_work_path(trash_dir, cache_key)
@@ -491,7 +631,17 @@ class RegistryArtifactCacheStorage:
         self._owner_binding_lock = threading.Lock()
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._owner_thread_id: int | None = None
-        self._admission_lock = asyncio.Lock()
+        self._admission_lock = MeteredAdmissionLock()
+        self._download_slots = MeteredSlots(
+            "download", config.TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS
+        )
+        self._extract_slots = MeteredSlots(
+            "extract", config.TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS
+        )
+        self._mount_slots = MeteredSlots("mount", SQUASHFS_MOUNT_SLOTS)
+        self._reserved_bytes = 0
+        self._live_reservations: set[RegistryArtifactByteReservation] = set()
+        self._capacity_changed = asyncio.Event()
         self._swept = False
         self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
@@ -574,7 +724,9 @@ class RegistryArtifactCacheStorage:
         runtime = self._runtime_for(cache_key)
         runtime.lock_users += 1
         try:
-            if not wait and runtime.lock.locked():
+            # locked() reads False while a released lock is handed to a waiter,
+            # so also refuse when another task holds or waits on this key.
+            if not wait and (runtime.lock.locked() or runtime.lock_users > 1):
                 yield None
                 return
             async with runtime.lock:
@@ -628,6 +780,9 @@ class RegistryArtifactCacheStorage:
             paths=self._paths_for(cache_key),
             defer_cleanup=self._defer_cleanup,
             squashfs_mount_policy=self._squashfs_mount_policy,
+            download_slots=self._download_slots,
+            extract_slots=self._extract_slots,
+            mount_slots=self._mount_slots,
             admission=admission,
         )
 
@@ -648,31 +803,181 @@ class RegistryArtifactCacheStorage:
     def _admission_for(
         self,
         cache_key: str,
+        reservation: RegistryArtifactByteReservation,
         *,
         attempt_cache_keys: Collection[str] = (),
     ) -> RegistryArtifactAdmission | None:
-        """Return byte-bound admission controls for one cold cache key."""
+        """Return admission that reserves bytes under a short admission-lock hold.
+
+        Writes within one materialization are sequential, so a new reservation
+        replaces the previous one. Bytes already published into the entry are
+        measured on disk, so a waiting or settled reservation holds only its
+        owned staging bytes (a tarball during extraction).
+        """
         max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
         if max_bytes <= 0:
             return None
         allocation_unit = _filesystem_allocation_unit(self.cache_dir)
-
-        async def ensure_capacity(additional_bytes: int) -> None:
-            await self._ensure_cache_capacity(
-                additional_bytes=allocated_size_bound(
-                    additional_bytes,
-                    allocation_unit=allocation_unit,
-                ),
-                protected_key=cache_key,
-                max_bytes=max_bytes,
-                attempt_cache_keys=attempt_cache_keys,
-            )
-
         return RegistryArtifactAdmission(
             max_bytes=max_bytes,
             allocation_unit=allocation_unit,
-            ensure_capacity=ensure_capacity,
+            reservation=reservation,
+            ensure_capacity=functools.partial(
+                self._reserve,
+                reservation,
+                cache_key=cache_key,
+                max_bytes=max_bytes,
+                allocation_unit=allocation_unit,
+                attempt_cache_keys=attempt_cache_keys,
+            ),
+            settle=functools.partial(
+                self._settle_reservation, reservation, allocation_unit
+            ),
         )
+
+    async def _reserve(
+        self,
+        reservation: RegistryArtifactByteReservation,
+        additional_bytes: int,
+        *,
+        cache_key: str,
+        max_bytes: int,
+        allocation_unit: int,
+        attempt_cache_keys: Collection[str],
+    ) -> None:
+        """Charge a writer's next write, waiting while in-flight work can free space."""
+        need = allocated_size_bound(additional_bytes, allocation_unit=allocation_unit)
+        self._live_reservations.add(reservation)
+        started = time.monotonic()
+        deadline = started + RESERVATION_WAIT_SECONDS
+        try:
+            while True:
+                async with self._admission_lock:
+                    # Taken before checking, so a release after the check wakes us.
+                    changed = self._capacity_changed
+                    carried = await self._staged_bytes(reservation, allocation_unit)
+                    others = self._reserved_bytes - reservation.bytes
+                    try:
+                        await self._ensure_cache_capacity(
+                            additional_bytes=need + carried + others,
+                            protected_key=cache_key,
+                            max_bytes=max_bytes,
+                            attempt_cache_keys=attempt_cache_keys,
+                            owned_staging_names=self._owned_staging_names(),
+                        )
+                    except RegistryArtifactCacheCapacityError as error:
+                        lease_blocked = isinstance(
+                            error, RegistryArtifactCacheLeaseContentionError
+                        )
+                        # Permanent when bytes no lease or reservation frees leave no room.
+                        releasable = error.releasable_bytes
+                        floor = (
+                            0
+                            if releasable is None
+                            else error.current_bytes - releasable
+                        )
+                        never_fits = floor + need + carried > max_bytes
+                        if never_fits or (not lease_blocked and others == 0):
+                            raise
+                        blocked = error
+                        # Writer-blocked if it fits once other reservations drain.
+                        fits = error.current_bytes + need + carried <= max_bytes
+                        reservation.blocked_on = changed if others and fits else None
+                    else:
+                        self._set_reserved_bytes(reservation, need + carried)
+                        return
+                    # Published bytes are measured on disk; hold only staged ones.
+                    self._set_reserved_bytes(reservation, carried)
+                    if self._reservations_deadlocked(reservation):
+                        raise _contention_error(blocked) from blocked
+                try:
+                    await asyncio.wait_for(
+                        changed.wait(), max(deadline - time.monotonic(), 0)
+                    )
+                except TimeoutError:
+                    raise _contention_error(blocked) from blocked
+        finally:
+            reservation.blocked_on = None
+            _CAPACITY_WAIT_MS.record((time.monotonic() - started) * 1000)
+
+    async def _staged_bytes(
+        self,
+        reservation: RegistryArtifactByteReservation,
+        allocation_unit: int,
+    ) -> int:
+        """Measure the staging paths one reservation owns."""
+        return await asyncio.to_thread(
+            self._owned_staging_footprint,
+            frozenset(path.name for path in reservation.staging_paths),
+            allocation_unit,
+        )
+
+    async def _settle_reservation(
+        self,
+        reservation: RegistryArtifactByteReservation,
+        allocation_unit: int,
+    ) -> None:
+        """Shrink a charge to owned staging bytes once its writes land or fail."""
+        staged = await self._staged_bytes(reservation, allocation_unit)
+        self._set_reserved_bytes(reservation, staged)
+
+    def _reservations_deadlocked(
+        self,
+        reservation: RegistryArtifactByteReservation,
+    ) -> bool:
+        """Return whether every other byte holder waits on reservations too.
+
+        Only a timeout would free space then, so the last holder to block backs
+        off and releases its staged bytes.
+        """
+        current = self._capacity_changed
+        if reservation.blocked_on is not current or reservation.bytes == 0:
+            return False
+        holders = [
+            other
+            for other in self._live_reservations
+            if other is not reservation and other.bytes > 0
+        ]
+        return bool(holders) and all(other.blocked_on is current for other in holders)
+
+    def _set_reserved_bytes(
+        self,
+        reservation: RegistryArtifactByteReservation,
+        charge: int,
+    ) -> None:
+        """Replace one reservation's charge, keep the pod total in step, and wake
+        capacity waiters when it shrinks."""
+        delta = charge - reservation.bytes
+        reservation.bytes = charge
+        self._reserved_bytes += delta
+        _RESERVED_BYTES.add(delta)
+        if delta < 0:
+            self._signal_capacity_changed()
+
+    def _release_reservation(
+        self,
+        reservation: RegistryArtifactByteReservation,
+    ) -> None:
+        """Return reserved bytes; must not await, so cancellation cannot skip it.
+
+        Owned staging left behind (failed cleanup) becomes unowned, so the
+        capacity scan charges it from here on.
+        """
+        self._set_reserved_bytes(reservation, 0)
+        self._live_reservations.discard(reservation)
+
+    def _owned_staging_names(self) -> frozenset[str]:
+        """Return staging names that live reservations already charge for."""
+        return frozenset(
+            path.name
+            for reservation in self._live_reservations
+            for path in reservation.staging_paths
+        )
+
+    def _signal_capacity_changed(self) -> None:
+        """Wake every capacity waiter; later waiters take a fresh event."""
+        self._capacity_changed.set()
+        self._capacity_changed = asyncio.Event()
 
     def _acquire_lease(self, cache_key: str) -> None:
         """Pin a cache entry against eviction and mark it recently used."""
@@ -833,8 +1138,9 @@ class RegistryArtifactCacheStorage:
         protected_key: str,
         max_bytes: int,
         attempt_cache_keys: Collection[str] = (),
+        owned_staging_names: frozenset[str] = frozenset(),
     ) -> None:
-        """Reserve peak bytes for one serialized cold writer."""
+        """Check that a cold writer's peak bytes fit, evicting idle LRU entries."""
         if additional_bytes < 0:
             raise ValueError("additional_bytes must be non-negative")
 
@@ -842,6 +1148,7 @@ class RegistryArtifactCacheStorage:
             current_bytes: int,
             *,
             lease_contention: bool = False,
+            releasable_bytes: int | None = None,
         ) -> RegistryArtifactCacheCapacityError:
             error_type = (
                 RegistryArtifactCacheLeaseContentionError
@@ -852,10 +1159,17 @@ class RegistryArtifactCacheStorage:
                 current_bytes=current_bytes,
                 additional_bytes=additional_bytes,
                 max_bytes=max_bytes,
+                releasable_bytes=releasable_bytes,
             )
 
+        step_started = time.monotonic()
         trash_clean, startup_clean = await self._reclaim_pending_work()
-        snapshot = await asyncio.to_thread(self._scan_cache_snapshot)
+        step_started = _record_capacity_step("reclaim", step_started)
+        snapshot = await asyncio.to_thread(
+            self._scan_cache_snapshot,
+            owned_staging_names=owned_staging_names,
+        )
+        step_started = _record_capacity_step("scan", step_started)
         entries = snapshot.entries
         total_bytes = snapshot.total_bytes
         fixed_bytes = (
@@ -888,12 +1202,14 @@ class RegistryArtifactCacheStorage:
             raise capacity_error(
                 non_evictable_bytes,
                 lease_contention=fits_after_busy_entries_release,
+                releasable_bytes=retryable_busy_bytes,
             )
         if (
             not (trash_clean and startup_clean)
             and total_bytes + additional_bytes > max_bytes
         ):
-            raise capacity_error(total_bytes)
+            # Eviction waits on cleanup, so no on-disk byte is releasable yet.
+            raise capacity_error(total_bytes, releasable_bytes=0)
         eviction_pass = await self._evict_until_fits(
             entries,
             total_bytes=total_bytes,
@@ -904,6 +1220,7 @@ class RegistryArtifactCacheStorage:
                 additional_bytes=additional_bytes,
             ),
         )
+        _record_capacity_step("evict", step_started)
         if not eviction_pass.fits:
             retryable_busy_bytes = sum(
                 entry.size_bytes
@@ -921,6 +1238,7 @@ class RegistryArtifactCacheStorage:
             raise capacity_error(
                 eviction_pass.total_bytes,
                 lease_contention=fits_after_busy_entries_release,
+                releasable_bytes=retryable_busy_bytes,
             )
 
     def _cache_entry_is_busy(self, cache_key: str) -> bool:
@@ -928,7 +1246,7 @@ class RegistryArtifactCacheStorage:
         if self._refcount(cache_key) > 0:
             return True
         runtime = self._runtime.get(cache_key)
-        return runtime is not None and runtime.lock.locked()
+        return runtime is not None and (runtime.lock.locked() or runtime.lock_users > 0)
 
     async def _evict_until_fits(
         self,
@@ -1119,25 +1437,67 @@ class RegistryArtifactCacheStorage:
             ensure_real_directory(root)
             _validate_cache_child_directory(root)
 
-    def _scan_cache_snapshot(self) -> RegistryArtifactCacheSnapshot:
-        """Measure entries, work directories, and structure together."""
+    def _scan_cache_snapshot(
+        self,
+        *,
+        owned_staging_names: frozenset[str] = frozenset(),
+    ) -> RegistryArtifactCacheSnapshot:
+        """Measure entries, work directories, and structure together.
+
+        Staging paths owned by live reservations are skipped; their
+        reservations already charge for them.
+        """
         self._prepare_budget_roots()
         allocation_unit = _filesystem_allocation_unit(self.cache_dir)
+        staging_bytes = self._unowned_staging_footprint(
+            owned_staging_names, allocation_unit
+        )
         return RegistryArtifactCacheSnapshot(
             entries=self._scan_cache_entries(allocation_unit=allocation_unit),
             structural_bytes=self._cache_structural_footprint(
                 allocation_unit=allocation_unit
             ),
-            staging_bytes=_directory_footprint(
-                self.staging_dir,
-                allocation_unit=allocation_unit,
-                include_root=False,
-            ),
+            staging_bytes=staging_bytes,
             trash_bytes=_directory_footprint(
                 self.trash_dir,
                 allocation_unit=allocation_unit,
                 include_root=False,
             ),
+        )
+
+    def _staging_children(self) -> list[Path]:
+        """Return top-level staging paths, tolerating concurrent removal."""
+        try:
+            return [Path(entry.path) for entry in os.scandir(self.staging_dir)]
+        except FileNotFoundError:
+            return []
+
+    def _unowned_staging_footprint(
+        self, owned_names: frozenset[str], allocation_unit: int
+    ) -> int:
+        """Measure staging paths no live reservation owns."""
+        if not owned_names:
+            return _directory_footprint(
+                self.staging_dir,
+                allocation_unit=allocation_unit,
+                include_root=False,
+            )
+        return sum(
+            _directory_footprint(path, allocation_unit=allocation_unit)
+            for path in self._staging_children()
+            if not _is_owned_staging_name(path.name, owned_names)
+        )
+
+    def _owned_staging_footprint(
+        self, owned_names: frozenset[str], allocation_unit: int
+    ) -> int:
+        """Measure staging paths owned by one reservation."""
+        if not owned_names:
+            return 0
+        return sum(
+            _directory_footprint(path, allocation_unit=allocation_unit)
+            for path in self._staging_children()
+            if _is_owned_staging_name(path.name, owned_names)
         )
 
     def _scan_cache_entries(
@@ -1175,18 +1535,16 @@ class RegistryArtifactCacheStorage:
         *,
         allocation_unit: int | None = None,
     ) -> RegistryArtifactCacheEntry:
-        """Measure all entry-owned inodes, pruning active mount contents."""
+        """Measure all entry-owned inodes, never descending into the mount point.
+
+        The mount point only holds a mounted image, already charged through the
+        image file. Warm mounts land outside the admission lock, mid-scan.
+        """
         paths = self._paths_for(cache_key)
         validate_cache_entry_path(paths)
         if allocation_unit is None:
             allocation_unit = _filesystem_allocation_unit(self.cache_dir)
-        try:
-            mount_is_active = registry_artifact_mounts.is_mount(
-                paths.squashfs_mount_dir
-            )
-        except FileNotFoundError:
-            mount_is_active = False
-        pruned_directories = (paths.squashfs_mount_dir,) if mount_is_active else ()
+        pruned_directories = (paths.squashfs_mount_dir,)
         size_bytes = _directory_footprint(
             paths.entry_dir,
             allocation_unit=allocation_unit,

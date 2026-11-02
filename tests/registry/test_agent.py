@@ -6,6 +6,7 @@ from tracecat_registry import ActionIsInterfaceError
 from tracecat_registry.core.agent import action, agent, preset_agent
 from tracecat_registry.fields import ModelSelection
 
+from tests._registry_utils import input_schema_for
 from tracecat.auth.types import Role
 from tracecat.registry.repository import RegisterKwargs, generate_model_from_function
 
@@ -35,12 +36,6 @@ JSON_SCHEMA_OUTPUT_TYPES = [
 ]
 
 
-def _input_schema_for(fn: Any) -> dict[str, Any]:
-    kwargs = RegisterKwargs.model_validate(getattr(fn, "__tracecat_udf_kwargs"))
-    args_cls, _, _ = generate_model_from_function(fn, kwargs)
-    return args_cls.model_json_schema()
-
-
 def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
     """Craft a targeted prompt to help the model satisfy the output_type."""
     if isinstance(output_type, str) and output_type == "list[str]":
@@ -51,7 +46,7 @@ def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
 
 
 def test_agent_schema_marks_legacy_model_fields_deprecated() -> None:
-    schema = _input_schema_for(agent)
+    schema = input_schema_for(agent)
     properties = schema["properties"]
 
     assert "model" not in schema.get("required", [])
