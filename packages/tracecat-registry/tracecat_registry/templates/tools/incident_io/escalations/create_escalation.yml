@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Create escalation
+  description: >-
+    Create an escalation. Calls POST /v2/escalations directly. Requires API key scope:
+    escalations.create.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/escalations-v2/create
+  namespace: tools.incident_io
+  name: create_escalation
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    description:
+      type: str | None
+      description: Additional details about the escalation
+      default: null
+    escalation_path_id:
+      type: str | None
+      description: ID of the escalation path to follow
+      default: null
+    idempotency_key:
+      type: str
+      description: >-
+        Unique key to prevent duplicate escalations. If this key has already been used, the
+        existing escalation will be returned.
+    incident_id:
+      type: str | None
+      description: >-
+        ID of an incident to associate with this escalation. The linked incident will appear in
+        the escalation's related_incidents field.
+      default: null
+    title:
+      type: str
+      description: >-
+        The title of the escalation. This message will be included in all notifications about this
+        escalation.
+    user_ids:
+      type: list[str] | None
+      description: IDs of users to escalate directly to
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/escalations
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          description: ${{ inputs.description }}
+          escalation_path_id: ${{ inputs.escalation_path_id }}
+          idempotency_key: ${{ inputs.idempotency_key }}
+          incident_id: ${{ inputs.incident_id }}
+          title: ${{ inputs.title }}
+          user_ids: ${{ inputs.user_ids }}
+  returns: ${{ steps.request.result }}
