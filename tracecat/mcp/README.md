@@ -230,6 +230,9 @@ Notes:
 
 - `list_variables(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
 - `get_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
+- `create_variable(workspace_id, name, values, description=None, environment=DEFAULT_SECRETS_ENVIRONMENT, tags=None)`
+- `update_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT, new_name=None, description=None, values=None, tags=None, new_environment=None)`
+- `delete_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
 - `list_secrets_metadata(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
 - `get_secret_metadata(workspace_id, secret_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
 

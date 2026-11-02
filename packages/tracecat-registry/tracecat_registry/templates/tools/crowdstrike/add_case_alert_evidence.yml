@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Add case alert evidence
+  description: >-
+    Attach alerts to a Falcon case as evidence. Requires the Cases: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/case-management/#entitiesalert-evidencepostv1
+  namespace: tools.crowdstrike
+  name: add_case_alert_evidence
+  expects:
+    id:
+      type: str
+      description: Case ID.
+    alerts:
+      type: list[dict[str, str]]
+      description: >-
+        Alerts to attach, as `{"id": "<alert composite ID>"}` objects.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: add_case_alert_evidence
+      action: tools.falconpy.call_command
+      args:
+        operation_id: entities_alert_evidence_post_v1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            id: ${{ inputs.id }}
+            alerts: ${{ inputs.alerts }}
+  returns: ${{ steps.add_case_alert_evidence.result }}

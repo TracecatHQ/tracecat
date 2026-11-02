@@ -562,6 +562,13 @@ class _CasesAsync:
         workflow_id: str | None | Unset = ...,
         default_trigger_values: dict[str, Any] | None | Unset = ...,
     ) -> types.CaseTaskRead: ...
+    async def run_task(
+        self,
+        case_id: str,
+        task_id: str,
+        *,
+        inputs: dict[str, Any] | None | Unset = ...,
+    ) -> types.CaseTaskRunRead: ...
     async def delete_task(
         self,
         task_id: str,

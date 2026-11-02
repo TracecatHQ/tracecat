@@ -327,6 +327,14 @@ describe("icon source identities", () => {
     )
   })
 
+  it("reuses the incident.io catalog mark for actions and secrets", () => {
+    const catalogIcon = getIconSource("tools.incident_io")
+    expect(catalogIcon).toBe(getIconSource("tools.incident_io.list_incidents"))
+    expect(catalogIcon).not.toBe(getIconSource("tools"))
+    expect(secretIcons.incident_io).toBeDefined()
+    expect(secretIcons.incident_io_alert_source).toBeDefined()
+  })
+
   it("resolves Lucide icons and generic fallbacks consistently", () => {
     expect(getIconSource("tools.abuseipdb.check_ip")).toBe(
       getIconSource("tools.abuseipdb")
@@ -390,6 +398,7 @@ describe("Core and AI action icon mappings", () => {
     ["core.cases.update_case", "square-pen", "bg-rose-500/10"],
     ["core.cases.create_comment", "message-circle-plus", "bg-rose-500/10"],
     ["core.cases.update_comment", "message-circle-more", "bg-rose-500/10"],
+    ["core.cases.delete_comment", "message-circle-x", "bg-rose-500/10"],
     ["unknown.namespace.action", "box", "bg-muted"],
   ])("renders %s with the %s icon", (action, icon, fill) => {
     const container = renderIcon(getIcon(action))

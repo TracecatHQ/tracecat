@@ -219,6 +219,48 @@ Default: `null`.
     status: in_progress
 ```
 
+## `core.cases.run_task`
+
+Run the workflow linked to a case task.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+### Inputs
+
+<ParamField path="case_id" type="string" required>
+
+The ID or short ID (e.g. CASE-0042) of the case the task belongs to.
+
+</ParamField>
+
+<ParamField path="task_id" type="string" required>
+
+The ID of the task to run.
+
+</ParamField>
+
+<ParamField path="inputs" type="object | null">
+
+Trigger inputs that override the task's default trigger values.
+
+Default: `null`.
+
+</ParamField>
+
+### Examples
+
+**Run a task's workflow**
+
+```yaml
+- ref: run_task
+  action: core.cases.run_task
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    task_id: ${{ TRIGGER.task_id }}
+    inputs:
+      reason: Requested by analyst
+```
+
 ## `core.cases.delete_task`
 
 Delete a case task.

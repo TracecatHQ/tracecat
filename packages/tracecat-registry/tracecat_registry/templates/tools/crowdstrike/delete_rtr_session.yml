@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Delete RTR session
+  description: >-
+    Close a Real Time Response session. Requires the Real time response: Read API
+    scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-deletesession
+  namespace: tools.crowdstrike
+  name: delete_rtr_session
+  expects:
+    session_id:
+      type: str
+      description: RTR session ID.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: delete_rtr_session
+      action: tools.falconpy.call_command
+      args:
+        operation_id: RTR_DeleteSession
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          session_id: ${{ inputs.session_id }}
+  returns: ${{ steps.delete_rtr_session.result }}

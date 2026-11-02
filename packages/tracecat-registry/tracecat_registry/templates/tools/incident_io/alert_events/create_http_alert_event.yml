@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Create HTTP alert event
+  description: >-
+    Create an alert event using an HTTP source. Calls POST
+    /v2/alert_events/http/{alert_source_config_id} directly. Authenticates with the HTTP alert
+    source secret, not an API key.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alert-events-v2/create
+  namespace: tools.incident_io
+  name: create_http_alert_event
+  secrets:
+    - name: incident_io_alert_source
+      keys: ["INCIDENT_IO_ALERT_SOURCE_TOKEN"]
+  expects:
+    alert_source_config_id:
+      type: str
+      description: Which alert source config produced this alert
+    deduplication_key:
+      type: str | None
+      description: |-
+        A deduplication key which uniquely references this alert from your alert source. For newly created HTTP sources, this field is required.
+        If you send an event with the same deduplication_key multiple times, only one alert will be created in incident.io for this alert source config.
+        You can filter on this field to find the alert created by an event you've sent us.
+      default: null
+    description:
+      type: str | None
+      description: Description that optionally adds more detail to title. Supports markdown.
+      default: null
+    metadata:
+      type: dict[str, Any] | None
+      description: Any additional metadata that you've configured your alert source to parse
+      default: null
+    source_url:
+      type: str | None
+      description: If applicable, a link to the alert in the upstream system
+      default: null
+    status:
+      type: str
+      description: 'Current status of this alert. Allowed values: `firing`, `resolved`.'
+    title:
+      type: str
+      description: >-
+        The title of the alert, parsed from the alert payload according to the alert source
+        configuration
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alert_events/http/${{ FN.url_encode(inputs.alert_source_config_id) }}
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io_alert_source.INCIDENT_IO_ALERT_SOURCE_TOKEN }}
+        payload:
+          deduplication_key: ${{ inputs.deduplication_key }}
+          description: ${{ inputs.description }}
+          metadata: ${{ inputs.metadata }}
+          source_url: ${{ inputs.source_url }}
+          status: ${{ inputs.status }}
+          title: ${{ inputs.title }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Set alert tags
+  description: >-
+    Replace all tags on an alert. Calls POST /v2/alerts/{id}/actions/set_tags directly. Requires
+    API key scope: alerts.edit.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/alerts-v2/set-tags
+  namespace: tools.incident_io
+  name: set_alert_tags
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Unique identifier for the alert
+    tags:
+      type: list[str]
+      description: The complete set of tag names for this alert
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/alerts/${{ FN.url_encode(inputs.id) }}/actions/set_tags
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          tags: ${{ inputs.tags }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get cases
+  description: >-
+    Retrieve Falcon cases by ID. Requires the Cases: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/case-management/#entitiescasespostv2
+  namespace: tools.crowdstrike
+  name: get_cases
+  expects:
+    ids:
+      type: list[str]
+      description: Case IDs to retrieve.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_cases
+      action: tools.falconpy.call_command
+      args:
+        operation_id: entities_cases_post_v2
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            ids: ${{ inputs.ids }}
+  returns: ${{ steps.get_cases.result }}

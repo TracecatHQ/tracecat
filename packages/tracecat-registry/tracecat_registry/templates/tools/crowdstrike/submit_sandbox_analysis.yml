@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Submit sandbox analysis
+  description: >-
+    Submit an uploaded file or a URL for Falcon Sandbox analysis. Requires the
+    Sandbox (Falcon Intelligence): Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/falconx-sandbox/#submit
+  namespace: tools.crowdstrike
+  name: submit_sandbox_analysis
+  expects:
+    sandbox:
+      type: list[dict[str, Any]]
+      description: >-
+        Submissions. Documented fields: sha256 (of an uploaded sample) or url,
+        environment_id (for example 160 for Windows 10 64-bit), action_script,
+        command_line, document_password, network_settings, submit_name, system_date,
+        system_time.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: submit_sandbox_analysis
+      action: tools.falconpy.call_command
+      args:
+        operation_id: Submit
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            sandbox: ${{ inputs.sandbox }}
+  returns: ${{ steps.submit_sandbox_analysis.result }}
