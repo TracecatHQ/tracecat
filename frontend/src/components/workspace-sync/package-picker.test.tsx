@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { useState } from "react"
 import type { WorkspacePackageRead } from "@/client"
 import {
@@ -274,6 +274,24 @@ describe("PackageResourcesDialog", () => {
 describe("PackageSummary", () => {
   beforeEach(() => {
     mockUser.isSuperuser = true
+  })
+
+  it("returns focus to the opener when the dialog closes", async () => {
+    render(
+      <PackageSummary
+        workspacePackage={PACKAGE}
+        selected={USES_SETTINGS}
+        isChanged={false}
+        onApply={jest.fn()}
+      />
+    )
+    const opener = screen.getByRole("button", { name: "Edit resources" })
+
+    opener.focus()
+    fireEvent.click(opener)
+    fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
+
+    await waitFor(() => expect(opener).toHaveFocus())
   })
 
   it("names the admin page without linking it for other users", () => {

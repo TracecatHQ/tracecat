@@ -2,7 +2,7 @@
 
 import { ChevronRightIcon, PackageIcon, SearchIcon } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import type { WorkspacePackageRead, WorkspacePackageResource } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -344,9 +344,26 @@ export function PackageResourcesDialog({
   selected: Set<string>
   onApply: (selected: Set<string>) => void
 }) {
+  const openerRef = useRef<HTMLElement | null>(null)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl" className="max-w-3xl">
+      <DialogContent
+        size="xl"
+        className="max-w-3xl"
+        onOpenAutoFocus={() => {
+          // The dialog has no Radix trigger, so remember what opened it.
+          openerRef.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null
+        }}
+        onCloseAutoFocus={(event) => {
+          // Without a trigger Radix would leave focus on the body.
+          event.preventDefault()
+          openerRef.current?.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Choose package resources</DialogTitle>
           <DialogDescription>
