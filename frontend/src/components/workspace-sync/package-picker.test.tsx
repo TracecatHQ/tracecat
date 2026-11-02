@@ -1,6 +1,20 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import type { WorkspacePackageRead } from "@/client"
-import { PackagePicker } from "@/components/workspace-sync/package-picker"
+import {
+  PackageResourcesDialog,
+  PackageSummary,
+} from "@/components/workspace-sync/package-picker"
+
+jest.mock("next/link", () => ({
+  __esModule: true,
+  default: ({
+    children,
+    href,
+  }: {
+    children: React.ReactNode
+    href: string
+  }) => <a href={href}>{children}</a>,
+}))
 
 const PACKAGE: WorkspacePackageRead = {
   is_source: true,
@@ -29,33 +43,118 @@ const PACKAGE: WorkspacePackageRead = {
   ],
 }
 
-function renderPicker(selected: Set<string>) {
+const USES_SETTINGS = new Set(["workflow:triage"])
+
+function renderDialog(selected: Set<string>, onApply = jest.fn()) {
   render(
-    <PackagePicker
+    <PackageResourcesDialog
+      open
+      onOpenChange={jest.fn()}
       workspacePackage={PACKAGE}
       selected={selected}
-      isChanged={selected.size === 0}
-      onToggle={jest.fn()}
+      onApply={onApply}
     />
   )
+  return onApply
+}
+
+function expandGroups() {
   for (const group of screen.getAllByRole("button", { expanded: false })) {
     fireEvent.click(group)
   }
-  return screen.getByRole("checkbox", { name: /settings/ })
 }
 
-describe("PackagePicker", () => {
+describe("PackageResourcesDialog", () => {
+  it("starts with every group collapsed", () => {
+    renderDialog(USES_SETTINGS)
+
+    expect(screen.queryByRole("checkbox", { name: /^triage/ })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: /Workflows/ }))
+    expect(screen.getByRole("checkbox", { name: /^triage/ })).toBeVisible()
+  })
+
   it("keeps an implied resource while the resource using it is checked", () => {
-    const dependency = renderPicker(new Set(["workflow:triage"]))
+    renderDialog(USES_SETTINGS)
+    expandGroups()
+
+    const dependency = screen.getByRole("checkbox", { name: /settings/ })
     expect(dependency).toBeChecked()
     expect(dependency).toBeDisabled()
-    expect(screen.getByText("2 of 2")).toBeInTheDocument()
+    expect(screen.getByText(/Included because triage uses it/)).toBeVisible()
+    expect(screen.getByText(/2 of 2 in the package/)).toBeInTheDocument()
   })
 
   it("drops an implied resource once its last user is unchecked", () => {
-    const dependency = renderPicker(new Set())
+    renderDialog(USES_SETTINGS)
+    expandGroups()
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /^triage/ }))
+
+    const dependency = screen.getByRole("checkbox", { name: /settings/ })
     expect(dependency).not.toBeChecked()
     expect(dependency).toBeEnabled()
-    expect(screen.getByText("0 of 2")).toBeInTheDocument()
+    expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
+  })
+
+  it("applies a draft only when asked", () => {
+    const onApply = renderDialog(USES_SETTINGS)
+    expandGroups()
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /^triage/ }))
+    expect(onApply).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
+    expect(onApply).toHaveBeenCalledWith(new Set())
+  })
+
+  it("checks a whole group at once, leaving locked resources alone", () => {
+    const onApply = renderDialog(new Set())
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Select all Workflows/i })
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
+
+    expect(onApply).toHaveBeenCalledWith(new Set(["workflow:triage"]))
+  })
+
+  it("filters resources by name across groups", () => {
+    renderDialog(USES_SETTINGS)
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search resources" }),
+      {
+        target: { value: "sett" },
+      }
+    )
+
+    expect(screen.getByRole("checkbox", { name: /settings/ })).toBeVisible()
+    expect(screen.queryByRole("checkbox", { name: /^triage/ })).toBeNull()
+  })
+})
+
+describe("PackageSummary", () => {
+  it("counts the package and opens the dialog", () => {
+    render(
+      <PackageSummary
+        workspacePackage={PACKAGE}
+        selected={USES_SETTINGS}
+        isChanged={false}
+        onApply={jest.fn()}
+      />
+    )
+
+    expect(screen.getByText(/2 of 2 resources/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Publishing changes no customer workspace/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Admin, Managed Workspaces" })
+    ).toHaveAttribute("href", "/admin/managed-package")
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit resources" }))
+    expect(
+      screen.getByRole("dialog", { name: "Choose package resources" })
+    ).toBeInTheDocument()
   })
 })
