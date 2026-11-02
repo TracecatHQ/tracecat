@@ -67,7 +67,7 @@ export function AdminSidebar({
       isActive: pathname?.includes("/admin/agent"),
     },
     {
-      title: "Managed package",
+      title: "Managed Workspaces",
       url: "/admin/managed-package",
       icon: PackageIcon,
       isActive: pathname?.includes("/admin/managed-package"),

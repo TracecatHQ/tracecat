@@ -1,19 +1,36 @@
 "use client"
 
-import { ChevronRightIcon, PackageIcon } from "lucide-react"
+import { ChevronRightIcon, PackageIcon, SearchIcon } from "lucide-react"
+import Link from "next/link"
+import type { ReactNode } from "react"
 import { useState } from "react"
 import type { WorkspacePackageRead, WorkspacePackageResource } from "@/client"
+import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { GitSyncNotice } from "@/components/workspace-sync/git-sync-change-list"
 import {
-  getWorkspaceSyncResourceAbbr,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import {
   getWorkspaceSyncResourceLabel,
   WORKSPACE_SYNC_RESOURCE_TYPE_ORDER,
 } from "@/components/workspace-sync/resource-metadata"
+import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
 
 /** Repository-root file that lists the package's include patterns. */
 export const PACKAGE_INCLUDE_FILENAME = ".tracecatinclude"
+
+/** Platform admin page where releases are cut and deployed. */
+const MANAGED_PACKAGE_ADMIN_PATH = "/admin/managed-package"
+const MANAGED_PACKAGE_ADMIN_LABEL = "Admin, Managed Workspaces"
 
 /** Stable identity of one package resource, e.g. `workflow:wf-triage`. */
 function getPackageResourceKey(resource: WorkspacePackageResource): string {
@@ -124,18 +141,10 @@ export function usePackageSelection(
   const selected =
     edit && edit.source === workspacePackage ? edit.selected : initial
 
-  function toggle(resource: WorkspacePackageResource, checked: boolean) {
-    if (!workspacePackage) {
-      return
+  function setSelected(next: Set<string>) {
+    if (workspacePackage) {
+      setEdit({ source: workspacePackage, selected: next })
     }
-    const next = new Set(selected)
-    const key = getPackageResourceKey(resource)
-    if (checked) {
-      next.add(key)
-    } else {
-      next.delete(key)
-    }
-    setEdit({ source: workspacePackage, selected: next })
   }
 
   const isChanged = !setsEqual(selected, initial)
@@ -143,7 +152,7 @@ export function usePackageSelection(
     workspacePackage && isChanged
       ? buildPackageInclude(workspacePackage, selected)
       : null
-  return { selected, toggle, isChanged, packageInclude }
+  return { selected, setSelected, isChanged, packageInclude }
 }
 
 interface PackageGroup {
@@ -183,34 +192,18 @@ function groupPackageResources(
   }))
 }
 
-interface PackagePickerProps {
-  workspacePackage: WorkspacePackageRead
-  selected: Set<string>
-  isChanged: boolean
-  disabled?: boolean
-  onToggle: (resource: WorkspacePackageResource, checked: boolean) => void
-}
-
 /**
- * Package panel for the managed resources source workspace: every resource
- * grouped by type with a checkbox. Checked resources are named in the include
- * file. Resources they use come along automatically and show as checked but
- * locked.
+ * Works out each resource's state under a selection.
+ *
+ * An implied resource stays only while a resource that uses it is still in
+ * the package, so unchecking its last user drops it too.
  */
-export function PackagePicker({
-  workspacePackage,
-  selected,
-  isChanged,
-  disabled = false,
-  onToggle,
-}: PackagePickerProps) {
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
+function getPackageMembership(
+  workspacePackage: WorkspacePackageRead,
+  selected: Set<string>
+) {
   const patterns = new Set(workspacePackage.patterns ?? [])
   const resources = workspacePackage.resources ?? []
-  const groups = groupPackageResources(resources)
-  const warnings = workspacePackage.warnings ?? []
-  const ref = workspacePackage.ref ?? "the default branch"
-
   // Names of the explicit resources still in the package after edits.
   const rootNames = new Set(
     resources
@@ -222,12 +215,13 @@ export function PackagePicker({
       .map((resource) => resource.name)
   )
 
-  /**
-   * An implied resource stays only while a resource that uses it is still
-   * in the package, so unchecking its last user drops it here too.
-   */
+  // A row selected directly is not implied, even while something uses it, so
+  // it can always be unchecked.
   function isImplied(resource: WorkspacePackageResource): boolean {
-    if (resource.status !== "implied") {
+    if (
+      resource.status !== "implied" ||
+      selected.has(getPackageResourceKey(resource))
+    ) {
       return false
     }
     const users = resource.implied_by ?? []
@@ -242,160 +236,367 @@ export function PackagePicker({
     )
   }
 
-  function toggleGroup(type: string) {
-    setOpenGroups((previous) => {
-      const next = new Set(previous)
-      if (next.has(type)) {
-        next.delete(type)
-      } else {
-        next.add(type)
+  /**
+   * Why a row cannot be toggled, or undefined when it can. Implied resources
+   * follow the resources that use them; glob-selected ones follow their glob.
+   */
+  function lockedReason(
+    resource: WorkspacePackageResource
+  ): string | undefined {
+    if (isImplied(resource)) {
+      const users = resource.implied_by ?? []
+      if (users.length === 0) {
+        return "Included because another resource uses it"
       }
-      return next
-    })
+      return `Included because ${users.join(", ")} ${users.length === 1 ? "uses" : "use"} it`
+    }
+    if (isSelectedByOtherPattern(resource, patterns)) {
+      return `Selected by a hand-written pattern in ${PACKAGE_INCLUDE_FILENAME}`
+    }
+    return undefined
   }
 
-  const packageCount = resources.filter(isInPackage).length
+  return { isInPackage, lockedReason }
+}
+
+interface PackageSummaryProps {
+  workspacePackage: WorkspacePackageRead
+  selected: Set<string>
+  isChanged: boolean
+  disabled?: boolean
+  onApply: (selected: Set<string>) => void
+}
+
+/**
+ * One-row package summary for the push page. It says how much of the workspace
+ * is in the package and opens the resource dialog to change that.
+ */
+export function PackageSummary({
+  workspacePackage,
+  selected,
+  isChanged,
+  disabled = false,
+  onApply,
+}: PackageSummaryProps) {
+  const { user } = useAuth()
+  const resources = workspacePackage.resources ?? []
+  const { isInPackage } = getPackageMembership(workspacePackage, selected)
+  const ref = workspacePackage.ref ?? "the default branch"
 
   return (
-    <section aria-label="Package" className="flex flex-col border-b">
-      <div className="flex h-9 items-center gap-2 border-b bg-muted/40 px-5 text-xs text-muted-foreground">
-        <PackageIcon className="size-3.5 shrink-0" />
-        <span className="font-medium text-foreground">Package</span>
-        <span aria-hidden>·</span>
-        <span className="min-w-0 truncate">
-          {isChanged
-            ? `Edited from ${PACKAGE_INCLUDE_FILENAME} on ${ref}`
-            : `From ${PACKAGE_INCLUDE_FILENAME} on ${ref}`}
-        </span>
-        <span className="ml-auto shrink-0 font-mono text-[11px]">
-          {packageCount} of {resources.length}
-        </span>
-      </div>
-      <p className="px-5 py-2.5 text-xs text-muted-foreground">
-        This workspace is the managed resources source, so every push exports
-        the package: the checked resources and the resources they use. Every
-        other resource file is deleted from the branch, and the selection is
-        saved to {PACKAGE_INCLUDE_FILENAME} in the same commit. Dependencies
-        below reflect {ref}; preview to see the effect of your edits.
-      </p>
-      {warnings.map((warning) => (
-        <GitSyncNotice key={warning} tone="warning">
-          {warning}
-        </GitSyncNotice>
-      ))}
-      {groups.length === 0 ? (
-        <p className="border-t px-5 py-4 text-xs text-muted-foreground">
-          This workspace has no resources to package.
+    <section
+      aria-label="Package"
+      className="flex items-center gap-3 rounded-md border px-4 py-3"
+    >
+      <PackageIcon className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="text-sm font-medium">
+          {resources.filter(isInPackage).length} of {resources.length} resources
+          in the package
         </p>
-      ) : (
-        <ul className="max-h-96 overflow-y-auto border-t">
-          {groups.map((group) => {
-            const isOpen = openGroups.has(group.type)
-            const groupCount = group.resources.filter(isInPackage).length
-            const label = getWorkspaceSyncResourceLabel(group.type)
-            return (
-              <li key={group.type} className="border-b last:border-b-0">
-                <button
-                  type="button"
-                  aria-expanded={isOpen}
-                  onClick={() => toggleGroup(group.type)}
-                  className="flex h-10 w-full items-center gap-2.5 px-5 text-left hover:bg-muted/40"
-                >
-                  <ChevronRightIcon
-                    className={cn(
-                      "size-3.5 shrink-0 text-muted-foreground transition-transform",
-                      isOpen && "rotate-90"
-                    )}
-                  />
-                  <span className="flex size-[22px] shrink-0 items-center justify-center rounded bg-muted font-mono text-[9px] font-semibold text-muted-foreground">
-                    {getWorkspaceSyncResourceAbbr(group.type)}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {label}
-                  </span>
-                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                    {groupCount} of {group.resources.length}
-                  </span>
-                </button>
-                {isOpen && (
-                  <ul>
-                    {group.resources.map((resource) => (
-                      <PackageResourceRow
-                        key={getPackageResourceKey(resource)}
-                        resource={resource}
-                        checked={isInPackage(resource)}
-                        lockedReason={getLockedReason(
-                          resource,
-                          patterns,
-                          isImplied(resource)
-                        )}
-                        disabled={disabled}
-                        onToggle={onToggle}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      )}
+        <p className="text-xs text-muted-foreground">
+          {isChanged
+            ? `Edited from ${PACKAGE_INCLUDE_FILENAME} on ${ref}. `
+            : `From ${PACKAGE_INCLUDE_FILENAME} on ${ref}. `}
+          Publishing changes no customer workspace. Deploy a release from{" "}
+          {user?.isSuperuser ? (
+            <Link
+              href={MANAGED_PACKAGE_ADMIN_PATH}
+              className="font-medium text-foreground underline underline-offset-2"
+            >
+              {MANAGED_PACKAGE_ADMIN_LABEL}
+            </Link>
+          ) : (
+            MANAGED_PACKAGE_ADMIN_LABEL
+          )}
+          .
+        </p>
+      </div>
+      <PackageResourcesDialog
+        trigger={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            disabled={disabled}
+          >
+            Edit resources
+          </Button>
+        }
+        workspacePackage={workspacePackage}
+        selected={selected}
+        onApply={onApply}
+      />
     </section>
   )
 }
 
 /**
- * Why a row cannot be toggled, or undefined when it can. Implied resources
- * follow the resources that use them; glob-selected ones follow their glob.
+ * Dialog for choosing what the package contains. Edits stay in a draft until
+ * applied, so closing it discards them and the push preview is left alone.
  */
-function getLockedReason(
-  resource: WorkspacePackageResource,
-  patterns: Set<string>,
-  implied: boolean
-): string | undefined {
-  if (implied) {
-    const users = resource.implied_by ?? []
-    if (users.length === 0) {
-      return "Included because another resource uses it"
+export function PackageResourcesDialog({
+  trigger,
+  workspacePackage,
+  selected,
+  onApply,
+}: {
+  trigger: ReactNode
+  workspacePackage: WorkspacePackageRead
+  selected: Set<string>
+  onApply: (selected: Set<string>) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent size="xl" className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Choose package resources</DialogTitle>
+          <DialogDescription>
+            Checked resources and everything they use are published. Other
+            resource files are removed from the branch.
+          </DialogDescription>
+        </DialogHeader>
+        <PackageResourcesForm
+          workspacePackage={workspacePackage}
+          selected={selected}
+          onApply={(next) => {
+            onApply(next)
+            setOpen(false)
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Dialog content. It mounts on open, so each open starts from the selection. */
+function PackageResourcesForm({
+  workspacePackage,
+  selected,
+  onApply,
+}: {
+  workspacePackage: WorkspacePackageRead
+  selected: Set<string>
+  onApply: (selected: Set<string>) => void
+}) {
+  // A draft only applies to the package it was edited against, so a refetch
+  // that changes the package restarts it from the current selection.
+  const [edit, setEdit] = useState<{
+    source: WorkspacePackageRead
+    draft: Set<string>
+  }>()
+  const draft = edit && edit.source === workspacePackage ? edit.draft : selected
+  const [search, setSearch] = useState("")
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const resources = workspacePackage.resources ?? []
+  const { isInPackage, lockedReason } = getPackageMembership(
+    workspacePackage,
+    draft
+  )
+  const query = search.trim().toLowerCase()
+  const groups = groupPackageResources(
+    resources.filter((resource) => resource.name.toLowerCase().includes(query))
+  )
+
+  function setChecked(items: WorkspacePackageResource[], checked: boolean) {
+    const next = new Set(draft)
+    for (const resource of items) {
+      const key = getPackageResourceKey(resource)
+      if (checked) {
+        next.add(key)
+      } else {
+        next.delete(key)
+      }
     }
-    return `Included because ${users.join(", ")} ${users.length === 1 ? "uses" : "use"} it`
+    setEdit({ source: workspacePackage, draft: next })
   }
-  if (isSelectedByOtherPattern(resource, patterns)) {
-    return `Selected by a hand-written pattern in ${PACKAGE_INCLUDE_FILENAME}`
+
+  function toggleExpanded(type: string) {
+    const next = new Set(expanded)
+    if (!next.delete(type)) {
+      next.add(type)
+    }
+    setExpanded(next)
   }
-  return undefined
+
+  const emptyMessage =
+    resources.length === 0
+      ? "This workspace has no resources to package."
+      : "No resources match your search."
+
+  return (
+    <>
+      <DialogBody>
+        <div className="relative">
+          <SearchIcon className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+          <Input
+            aria-label="Search resources"
+            placeholder="Search resources"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-8 pl-8"
+          />
+        </div>
+        {groups.length === 0 ? (
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            {emptyMessage}
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {groups.map((group) => (
+              <PackageResourceGroup
+                key={group.type}
+                group={group}
+                // Searching looks across every group.
+                isOpen={query !== "" || expanded.has(group.type)}
+                canToggleOpen={query === ""}
+                isInPackage={isInPackage}
+                lockedReason={lockedReason}
+                onToggleOpen={() => toggleExpanded(group.type)}
+                onChecked={setChecked}
+              />
+            ))}
+          </ul>
+        )}
+      </DialogBody>
+      <DialogFooter className="sm:justify-between">
+        <span className="text-xs text-muted-foreground">
+          {resources.filter(isInPackage).length} of {resources.length} in the
+          package. Dependencies reflect{" "}
+          {workspacePackage.ref ?? "the default branch"}. Preview to see the
+          effect of your edits.
+        </span>
+        <Button type="button" size="sm" onClick={() => onApply(draft)}>
+          Apply selection
+        </Button>
+      </DialogFooter>
+    </>
+  )
+}
+
+function PackageResourceGroup({
+  group,
+  isOpen,
+  canToggleOpen,
+  isInPackage,
+  lockedReason,
+  onToggleOpen,
+  onChecked,
+}: {
+  group: PackageGroup
+  isOpen: boolean
+  canToggleOpen: boolean
+  isInPackage: (resource: WorkspacePackageResource) => boolean
+  lockedReason: (resource: WorkspacePackageResource) => string | undefined
+  onToggleOpen: () => void
+  onChecked: (items: WorkspacePackageResource[], checked: boolean) => void
+}) {
+  const label = getWorkspaceSyncResourceLabel(group.type)
+  // Implied resources follow their users, so checking a group never adds them.
+  // That would give each one its own include line.
+  const addable = group.resources.filter(
+    (resource) => resource.status !== "implied" && !isInPackage(resource)
+  )
+  const hasRemovable = group.resources.some(
+    (resource) => isInPackage(resource) && lockedReason(resource) === undefined
+  )
+  const count = group.resources.filter(isInPackage).length
+  let groupChecked: boolean | "indeterminate" = "indeterminate"
+  if (count === 0) {
+    groupChecked = false
+  } else if (count === group.resources.length) {
+    groupChecked = true
+  }
+
+  return (
+    <li>
+      <div className="flex h-8 items-center gap-2.5">
+        <Checkbox
+          aria-label={`Select all ${label}`}
+          checked={groupChecked}
+          disabled={addable.length === 0 && !hasRemovable}
+          onCheckedChange={() => {
+            if (addable.length > 0) {
+              onChecked(addable, true)
+            } else {
+              onChecked(group.resources, false)
+            }
+          }}
+        />
+        <button
+          type="button"
+          aria-expanded={isOpen}
+          disabled={!canToggleOpen}
+          onClick={onToggleOpen}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
+          <span className="truncate text-sm font-medium">{label}</span>
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              isOpen && "rotate-90"
+            )}
+          />
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            {count} of {group.resources.length}
+          </span>
+        </button>
+      </div>
+      {isOpen && (
+        <ul className="max-h-60 overflow-y-auto pr-2">
+          {group.resources.map((resource) => (
+            <PackageResourceRow
+              key={getPackageResourceKey(resource)}
+              resource={resource}
+              checked={isInPackage(resource)}
+              lockedReason={lockedReason(resource)}
+              onChecked={onChecked}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
 }
 
 function PackageResourceRow({
   resource,
   checked,
   lockedReason,
-  disabled,
-  onToggle,
+  onChecked,
 }: {
   resource: WorkspacePackageResource
   checked: boolean
   lockedReason: string | undefined
-  disabled: boolean
-  onToggle: (resource: WorkspacePackageResource, checked: boolean) => void
+  onChecked: (items: WorkspacePackageResource[], checked: boolean) => void
 }) {
   const id = `package-resource-${resource.resource_type}-${resource.source_id}`
   return (
-    <li className="flex items-start gap-2.5 py-2 pl-[52px] pr-5 hover:bg-muted/20">
+    <li className="flex items-start gap-2.5 py-1 pl-6">
       <Checkbox
         id={id}
         className="mt-0.5"
         checked={checked}
-        disabled={disabled || lockedReason !== undefined}
-        onCheckedChange={(value) => onToggle(resource, value === true)}
+        disabled={lockedReason !== undefined}
+        onCheckedChange={(value) => onChecked([resource], value === true)}
       />
-      <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
-        <span className="block truncate text-sm">{resource.name}</span>
-        <span className="block truncate font-mono text-[11px] text-muted-foreground">
-          {resource.path}
+      <label
+        htmlFor={id}
+        title={resource.path}
+        className="min-w-0 flex-1 cursor-pointer"
+      >
+        <span className="flex items-baseline gap-3">
+          <span className="min-w-0 truncate text-sm">{resource.name}</span>
+          <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+            {resource.path}
+          </span>
         </span>
         {lockedReason && (
-          <span className="block text-[11px] text-muted-foreground">
+          <span className="block text-xs text-muted-foreground">
             {lockedReason}
           </span>
         )}

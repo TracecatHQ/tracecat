@@ -1,20 +1,6 @@
 import { render, screen } from "@testing-library/react"
 import type { PullResourceDiff } from "@/client"
-import {
-  PackagePublishSteps,
-  PackagePublishSummary,
-} from "@/components/workspace-sync/package-publish-overview"
-
-jest.mock("next/link", () => ({
-  __esModule: true,
-  default: ({
-    children,
-    href,
-  }: {
-    children: React.ReactNode
-    href: string
-  }) => <a href={href}>{children}</a>,
-}))
+import { PackagePublishSummary } from "@/components/workspace-sync/package-publish-overview"
 
 function diff(
   change_type: PullResourceDiff["change_type"],
@@ -29,20 +15,6 @@ function diff(
     diff: "",
   }
 }
-
-describe("PackagePublishSteps", () => {
-  it("says publishing changes no customer and links to the deploy page", () => {
-    render(<PackagePublishSteps branch="package/update" />)
-
-    expect(screen.getByText("package/update")).toBeInTheDocument()
-    expect(
-      screen.getByText(/No customer workspace changes/)
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("link", { name: "Admin, Managed package" })
-    ).toHaveAttribute("href", "/admin/managed-package")
-  })
-})
 
 describe("PackagePublishSummary", () => {
   it("lists what is added, updated and removed by name", () => {

@@ -29,7 +29,7 @@ export function SourceSection() {
       setWorkspaceId("")
       toast({
         title: "Source updated",
-        description: "The managed package now publishes from this workspace.",
+        description: "The package now publishes from this workspace.",
       })
     } catch (err) {
       toastApiError("Failed to set source", err)

@@ -35,13 +35,10 @@ import {
   GitSyncPreviewEmpty,
 } from "@/components/workspace-sync/git-sync-change-list"
 import {
-  PackagePicker,
+  PackageSummary,
   usePackageSelection,
 } from "@/components/workspace-sync/package-picker"
-import {
-  PackagePublishSteps,
-  PackagePublishSummary,
-} from "@/components/workspace-sync/package-publish-overview"
+import { PackagePublishSummary } from "@/components/workspace-sync/package-publish-overview"
 import {
   getReviewRequestAbbreviation,
   getReviewRequestLabel,
@@ -120,7 +117,7 @@ export function GitSyncPushTab({
   const sourcePackage = isSource ? workspacePackage : undefined
   const {
     selected: packageSelection,
-    toggle: togglePackageResource,
+    setSelected: setPackageSelection,
     isChanged: packageIsChanged,
     packageInclude,
   } = usePackageSelection(sourcePackage)
@@ -235,7 +232,7 @@ export function GitSyncPushTab({
           reviewRequestShort,
         }),
         description: sourcePackage
-          ? "No customer workspace changed. Merge it, then cut a release and deploy it from Admin, Managed package."
+          ? "No customer workspace changed. Merge it, then cut a release and deploy it from Admin, Managed Workspaces."
           : (result.commit.message ?? result.commit.sha ?? undefined),
         action: prUrl ? (
           <ToastAction
@@ -267,7 +264,13 @@ export function GitSyncPushTab({
       <div className="flex flex-1 flex-col">
         <div className="px-4 py-3">
           {sourcePackage ? (
-            <PackagePublishSteps branch={targetBranch} />
+            <PackageSummary
+              workspacePackage={sourcePackage}
+              selected={packageSelection}
+              isChanged={packageIsChanged}
+              disabled={exportWorkspaceIsPending}
+              onApply={setPackageSelection}
+            />
           ) : (
             <WorkspacePushExplanation />
           )}
@@ -282,15 +285,11 @@ export function GitSyncPushTab({
             />
           </GitSyncNotice>
         )}
-        {sourcePackage && (
-          <PackagePicker
-            workspacePackage={sourcePackage}
-            selected={packageSelection}
-            isChanged={packageIsChanged}
-            disabled={exportWorkspaceIsPending}
-            onToggle={togglePackageResource}
-          />
-        )}
+        {sourcePackage?.warnings?.map((warning) => (
+          <GitSyncNotice key={warning} tone="warning">
+            {warning}
+          </GitSyncNotice>
+        ))}
         {isBlocked && (
           <GitSyncNotice tone="warning">
             Pushing to {blockedBranch} directly is off. Pick or create another
