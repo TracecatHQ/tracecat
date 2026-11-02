@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { useState } from "react"
 import type { WorkspacePackageRead } from "@/client"
 import {
   PackageResourcesDialog,
@@ -81,6 +80,10 @@ const USES_SETTINGS = new Set(["workflow:triage"])
 
 const TRIGGER = <button type="button">Open</button>
 
+function openDialog() {
+  fireEvent.click(screen.getByRole("button", { name: "Open" }))
+}
+
 function renderDialog(
   selected: Set<string>,
   workspacePackage: WorkspacePackageRead = PACKAGE,
@@ -89,13 +92,12 @@ function renderDialog(
   render(
     <PackageResourcesDialog
       trigger={TRIGGER}
-      open
-      onOpenChange={jest.fn()}
       workspacePackage={workspacePackage}
       selected={selected}
       onApply={onApply}
     />
   )
+  openDialog()
   return onApply
 }
 
@@ -151,32 +153,13 @@ describe("PackageResourcesDialog", () => {
   })
 
   it("discards a draft when closed without applying", () => {
-    const onApply = jest.fn()
-    function ClosableDialog() {
-      const [open, setOpen] = useState(true)
-      return (
-        <>
-          <button type="button" onClick={() => setOpen(true)}>
-            Reopen
-          </button>
-          <PackageResourcesDialog
-            trigger={TRIGGER}
-            open={open}
-            onOpenChange={setOpen}
-            workspacePackage={PACKAGE}
-            selected={USES_SETTINGS}
-            onApply={onApply}
-          />
-        </>
-      )
-    }
-    render(<ClosableDialog />)
+    const onApply = renderDialog(USES_SETTINGS)
     expandGroups()
     fireEvent.click(screen.getByRole("checkbox", { name: /^triage/ }))
     expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }))
-    fireEvent.click(screen.getByRole("button", { name: "Reopen" }))
+    openDialog()
 
     expect(screen.getByText(/2 of 2 in the package/)).toBeInTheDocument()
     expect(onApply).not.toHaveBeenCalled()
@@ -188,8 +171,6 @@ describe("PackageResourcesDialog", () => {
       return (
         <PackageResourcesDialog
           trigger={TRIGGER}
-          open
-          onOpenChange={jest.fn()}
           workspacePackage={workspacePackage}
           selected={USES_SETTINGS}
           onApply={onApply}
@@ -197,6 +178,7 @@ describe("PackageResourcesDialog", () => {
       )
     }
     const { rerender } = render(dialog(PACKAGE))
+    openDialog()
     expandGroups()
     fireEvent.click(screen.getByRole("checkbox", { name: /^triage/ }))
     expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
@@ -235,16 +217,9 @@ describe("PackageResourcesDialog", () => {
   })
 
   it("keeps a dependency implied when its group is toggled off and on", () => {
-    const onApply = jest.fn()
-    render(
-      <PackageResourcesDialog
-        trigger={TRIGGER}
-        open
-        onOpenChange={jest.fn()}
-        workspacePackage={SAME_GROUP_PACKAGE}
-        selected={new Set(["workflow:parent"])}
-        onApply={onApply}
-      />
+    const onApply = renderDialog(
+      new Set(["workflow:parent"]),
+      SAME_GROUP_PACKAGE
     )
     const group = screen.getByRole("checkbox", {
       name: /Select all Workflows/i,

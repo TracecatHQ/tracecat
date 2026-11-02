@@ -274,7 +274,6 @@ export function PackageSummary({
   onApply,
 }: PackageSummaryProps) {
   const { user } = useAuth()
-  const [dialogOpen, setDialogOpen] = useState(false)
   const resources = workspacePackage.resources ?? []
   const { isInPackage } = getPackageMembership(workspacePackage, selected)
   const ref = workspacePackage.ref ?? "the default branch"
@@ -320,8 +319,6 @@ export function PackageSummary({
             Edit resources
           </Button>
         }
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
         workspacePackage={workspacePackage}
         selected={selected}
         onApply={onApply}
@@ -336,21 +333,19 @@ export function PackageSummary({
  */
 export function PackageResourcesDialog({
   trigger,
-  open,
-  onOpenChange,
   workspacePackage,
   selected,
   onApply,
 }: {
   trigger: ReactNode
-  open: boolean
-  onOpenChange: (open: boolean) => void
   workspacePackage: WorkspacePackageRead
   selected: Set<string>
   onApply: (selected: Set<string>) => void
 }) {
+  const [open, setOpen] = useState(false)
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent size="xl" className="max-w-3xl">
         <DialogHeader>
@@ -365,7 +360,7 @@ export function PackageResourcesDialog({
           selected={selected}
           onApply={(next) => {
             onApply(next)
-            onOpenChange(false)
+            setOpen(false)
           }}
         />
       </DialogContent>
