@@ -50,14 +50,45 @@ const PACKAGE: WorkspacePackageRead = {
   ],
 }
 
+const SAME_GROUP_PACKAGE: WorkspacePackageRead = {
+  is_source: true,
+  ref: "main",
+  patterns: ["workflows/parent/**"],
+  resources: [
+    {
+      resource_type: "workflow",
+      source_id: "parent",
+      local_id: "wf-parent",
+      name: "parent",
+      path: "workflows/parent/workflow.yml",
+      pattern: "workflows/parent/**",
+      status: "explicit",
+    },
+    {
+      resource_type: "workflow",
+      source_id: "child",
+      local_id: "wf-child",
+      name: "child",
+      path: "workflows/child/workflow.yml",
+      pattern: "workflows/child/**",
+      status: "implied",
+      implied_by: ["parent"],
+    },
+  ],
+}
+
 const USES_SETTINGS = new Set(["workflow:triage"])
 
-function renderDialog(selected: Set<string>, onApply = jest.fn()) {
+function renderDialog(
+  selected: Set<string>,
+  workspacePackage: WorkspacePackageRead = PACKAGE,
+  onApply = jest.fn()
+) {
   render(
     <PackageResourcesDialog
       open
       onOpenChange={jest.fn()}
-      workspacePackage={PACKAGE}
+      workspacePackage={workspacePackage}
       selected={selected}
       onApply={onApply}
     />
@@ -195,6 +226,48 @@ describe("PackageResourcesDialog", () => {
 
     expect(screen.getByRole("checkbox", { name: /settings/ })).toBeVisible()
     expect(screen.queryByRole("checkbox", { name: /^triage/ })).toBeNull()
+    expect(screen.getByRole("button", { name: /Variables/ })).toBeDisabled()
+  })
+
+  it("keeps a dependency implied when its group is toggled off and on", () => {
+    const onApply = jest.fn()
+    render(
+      <PackageResourcesDialog
+        open
+        onOpenChange={jest.fn()}
+        workspacePackage={SAME_GROUP_PACKAGE}
+        selected={new Set(["workflow:parent"])}
+        onApply={onApply}
+      />
+    )
+    const group = screen.getByRole("checkbox", {
+      name: /Select all Workflows/i,
+    })
+
+    fireEvent.click(group)
+    expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
+    fireEvent.click(group)
+    expect(screen.getByText(/2 of 2 in the package/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
+    expect(onApply).toHaveBeenCalledWith(new Set(["workflow:parent"]))
+  })
+
+  it("marks a partly selected group", () => {
+    renderDialog(new Set(), {
+      ...SAME_GROUP_PACKAGE,
+      resources: SAME_GROUP_PACKAGE.resources?.map((resource) => ({
+        ...resource,
+        status: "explicit",
+      })),
+    })
+    expandGroups()
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /^child/ }))
+
+    expect(
+      screen.getByRole("checkbox", { name: /Select all Workflows/i })
+    ).toHaveAttribute("aria-checked", "mixed")
   })
 })
 

@@ -3,9 +3,6 @@
 import type { PullResourceDiff } from "@/client"
 import { getWorkspaceSyncResourceLabel } from "@/components/workspace-sync/resource-metadata"
 
-/** Path of the platform admin page where releases are cut and deployed. */
-export const MANAGED_PACKAGE_ADMIN_PATH = "/admin/managed-package"
-
 const CHANGE_GROUPS = [
   { change: "added", label: "Added to the package" },
   { change: "modified", label: "Updated in the package" },

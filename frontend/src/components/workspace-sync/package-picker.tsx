@@ -16,7 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { MANAGED_PACKAGE_ADMIN_PATH } from "@/components/workspace-sync/package-publish-overview"
 import {
   getWorkspaceSyncResourceLabel,
   WORKSPACE_SYNC_RESOURCE_TYPE_ORDER,
@@ -26,6 +25,10 @@ import { cn } from "@/lib/utils"
 
 /** Repository-root file that lists the package's include patterns. */
 export const PACKAGE_INCLUDE_FILENAME = ".tracecatinclude"
+
+/** Platform admin page where releases are cut and deployed. */
+const MANAGED_PACKAGE_ADMIN_PATH = "/admin/managed-package"
+const MANAGED_PACKAGE_ADMIN_LABEL = "Admin, Managed Workspaces"
 
 /** Stable identity of one package resource, e.g. `workflow:wf-triage`. */
 function getPackageResourceKey(resource: WorkspacePackageResource): string {
@@ -188,28 +191,6 @@ function groupPackageResources(
 }
 
 /**
- * Why a row cannot be toggled, or undefined when it can. Implied resources
- * follow the resources that use them; glob-selected ones follow their glob.
- */
-function getLockedReason(
-  resource: WorkspacePackageResource,
-  patterns: Set<string>,
-  implied: boolean
-): string | undefined {
-  if (implied) {
-    const users = resource.implied_by ?? []
-    if (users.length === 0) {
-      return "Included because another resource uses it"
-    }
-    return `Included because ${users.join(", ")} ${users.length === 1 ? "uses" : "use"} it`
-  }
-  if (isSelectedByOtherPattern(resource, patterns)) {
-    return `Selected by a hand-written pattern in ${PACKAGE_INCLUDE_FILENAME}`
-  }
-  return undefined
-}
-
-/**
  * Works out each resource's state under a selection.
  *
  * An implied resource stays only while a resource that uses it is still in
@@ -248,8 +229,24 @@ function getPackageMembership(
     )
   }
 
-  function lockedReason(resource: WorkspacePackageResource) {
-    return getLockedReason(resource, patterns, isImplied(resource))
+  /**
+   * Why a row cannot be toggled, or undefined when it can. Implied resources
+   * follow the resources that use them; glob-selected ones follow their glob.
+   */
+  function lockedReason(
+    resource: WorkspacePackageResource
+  ): string | undefined {
+    if (isImplied(resource)) {
+      const users = resource.implied_by ?? []
+      if (users.length === 0) {
+        return "Included because another resource uses it"
+      }
+      return `Included because ${users.join(", ")} ${users.length === 1 ? "uses" : "use"} it`
+    }
+    if (isSelectedByOtherPattern(resource, patterns)) {
+      return `Selected by a hand-written pattern in ${PACKAGE_INCLUDE_FILENAME}`
+    }
+    return undefined
   }
 
   return { isInPackage, lockedReason }
@@ -301,10 +298,10 @@ export function PackageSummary({
               href={MANAGED_PACKAGE_ADMIN_PATH}
               className="font-medium text-foreground underline underline-offset-2"
             >
-              Admin, Managed Workspaces
+              {MANAGED_PACKAGE_ADMIN_LABEL}
             </Link>
           ) : (
-            "Admin, Managed Workspaces"
+            MANAGED_PACKAGE_ADMIN_LABEL
           )}
           .
         </p>
@@ -420,49 +417,52 @@ function PackageResourcesForm({
     setExpanded(next)
   }
 
+  const emptyMessage =
+    resources.length === 0
+      ? "This workspace has no resources to package."
+      : "No resources match your search."
+
   return (
     <>
       <DialogBody>
-        <div className="space-y-3">
-          <div className="relative">
-            <SearchIcon className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
-            <Input
-              aria-label="Search resources"
-              placeholder="Search resources"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 pl-8"
-            />
-          </div>
-          {groups.length === 0 ? (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              {resources.length === 0
-                ? "This workspace has no resources to package."
-                : "No resources match your search."}
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {groups.map((group) => (
-                <PackageResourceGroup
-                  key={group.type}
-                  group={group}
-                  // Searching looks across every group.
-                  isOpen={query !== "" || expanded.has(group.type)}
-                  isInPackage={isInPackage}
-                  lockedReason={lockedReason}
-                  onToggleOpen={() => toggleExpanded(group.type)}
-                  onChecked={setChecked}
-                />
-              ))}
-            </ul>
-          )}
+        <div className="relative">
+          <SearchIcon className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+          <Input
+            aria-label="Search resources"
+            placeholder="Search resources"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-8 pl-8"
+          />
         </div>
+        {groups.length === 0 ? (
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            {emptyMessage}
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {groups.map((group) => (
+              <PackageResourceGroup
+                key={group.type}
+                group={group}
+                // Searching looks across every group.
+                isOpen={query !== "" || expanded.has(group.type)}
+                canToggleOpen={query === ""}
+                isInPackage={isInPackage}
+                lockedReason={lockedReason}
+                onToggleOpen={() => toggleExpanded(group.type)}
+                onChecked={setChecked}
+              />
+            ))}
+          </ul>
+        )}
       </DialogBody>
-      <DialogFooter className="items-center sm:justify-between">
+      <DialogFooter className="sm:justify-between">
         <span className="text-xs text-muted-foreground">
           {resources.filter(isInPackage).length} of {resources.length} in the
           package. Dependencies reflect{" "}
-          {workspacePackage.ref ?? "the default branch"} until you preview.
+          {workspacePackage.ref ?? "the default branch"}. Preview to see the
+          effect of your edits.
         </span>
         <Button type="button" size="sm" onClick={() => onApply(draft)}>
           Apply selection
@@ -475,6 +475,7 @@ function PackageResourcesForm({
 function PackageResourceGroup({
   group,
   isOpen,
+  canToggleOpen,
   isInPackage,
   lockedReason,
   onToggleOpen,
@@ -482,14 +483,18 @@ function PackageResourceGroup({
 }: {
   group: PackageGroup
   isOpen: boolean
+  canToggleOpen: boolean
   isInPackage: (resource: WorkspacePackageResource) => boolean
   lockedReason: (resource: WorkspacePackageResource) => string | undefined
   onToggleOpen: () => void
   onChecked: (items: WorkspacePackageResource[], checked: boolean) => void
 }) {
   const label = getWorkspaceSyncResourceLabel(group.type)
-  const editable = group.resources.filter(
-    (resource) => lockedReason(resource) === undefined
+  // Implied resources follow their users, so the group checkbox leaves them
+  // alone. Checking them here would give each one its own include line.
+  const selectable = group.resources.filter(
+    (resource) =>
+      resource.status !== "implied" && lockedReason(resource) === undefined
   )
   const count = group.resources.filter(isInPackage).length
   let groupChecked: boolean | "indeterminate" = "indeterminate"
@@ -505,12 +510,15 @@ function PackageResourceGroup({
         <Checkbox
           aria-label={`Select all ${label}`}
           checked={groupChecked}
-          disabled={editable.length === 0}
-          onCheckedChange={() => onChecked(editable, groupChecked !== true)}
+          disabled={selectable.length === 0}
+          onCheckedChange={() =>
+            onChecked(selectable, !selectable.every(isInPackage))
+          }
         />
         <button
           type="button"
           aria-expanded={isOpen}
+          disabled={!canToggleOpen}
           onClick={onToggleOpen}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
         >
