@@ -20,6 +20,7 @@ from fastmcp.tools import ToolResult
 from mcp.types import CallToolRequestParams
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
@@ -53,6 +54,7 @@ from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
     ScopeDeniedError,
+    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.expressions.common import ExprType
@@ -8920,3 +8922,316 @@ def test_auto_generate_layout_leaves_room_below_trigger():
     row_gap = second["y"] - (first["y"] + layout_module.ACTION_NODE_HEIGHT)
 
     assert trigger_gap == row_gap > 0
+
+
+def _variable_stub(**overrides: Any) -> SimpleNamespace:
+    values: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "name": "splunk",
+        "description": None,
+        "environment": "default",
+        "values": {"url": "https://splunk.example.com"},
+        "tags": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _patch_variables_service(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    scopes: frozenset[str],
+    existing: SimpleNamespace | None = None,
+    write_error: Exception | None = None,
+) -> dict[str, list[Any]]:
+    calls: dict[str, list[Any]] = {
+        "create": [],
+        "lookup": [],
+        "update": [],
+        "delete": [],
+    }
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Any]:
+        return uuid.uuid4(), SimpleNamespace(scopes=scopes)
+
+    class _VariablesService:
+        async def create_variable(self, params):
+            calls["create"].append(params)
+            if write_error is not None:
+                raise write_error
+            return _variable_stub(
+                name=params.name,
+                description=params.description,
+                environment=params.environment,
+                values=params.values,
+                tags=params.tags,
+            )
+
+        async def get_variable_by_name(self, name, *, environment=None):
+            calls["lookup"].append((name, environment))
+            if existing is None:
+                raise TracecatNotFoundError(f"Variable {name} not found")
+            return existing
+
+        async def update_variable(self, variable, params):
+            calls["update"].append(params)
+            if write_error is not None:
+                raise write_error
+            for field, value in params.model_dump(exclude_unset=True).items():
+                setattr(variable, field, value)
+            return variable
+
+        async def delete_variable(self, variable):
+            calls["delete"].append(variable)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.VariablesService,
+        "with_session",
+        lambda role: _AsyncContext(_VariablesService()),
+    )
+    return calls
+
+
+@pytest.mark.anyio
+async def test_create_variable_returns_created_variable(monkeypatch):
+    calls = _patch_variables_service(
+        monkeypatch, scopes=frozenset({"variable:create", "variable:read"})
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com", "index": "main"},
+            description="Splunk config",
+        )
+    )
+
+    assert payload["name"] == "splunk"
+    assert payload["keys"] == ["index", "url"]
+    assert payload["values"]["index"] == "main"
+    assert payload["environment"] == "default"
+    assert len(calls["create"]) == 1
+    assert calls["create"][0].description == "Splunk config"
+
+
+@pytest.mark.anyio
+async def test_create_variable_omits_values_without_read_scope(monkeypatch):
+    _patch_variables_service(monkeypatch, scopes=frozenset({"variable:create"}))
+
+    payload = _payload(
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com"},
+        )
+    )
+
+    assert payload["keys"] == ["url"]
+    assert payload["values"] == {}
+
+
+@pytest.mark.anyio
+async def test_create_variable_requires_create_scope(monkeypatch):
+    calls = _patch_variables_service(monkeypatch, scopes=frozenset({"variable:read"}))
+
+    with pytest.raises(ToolError, match="Missing required scope: variable:create"):
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com"},
+        )
+
+    assert calls["create"] == []
+
+
+@pytest.mark.anyio
+async def test_create_variable_rejects_empty_values(monkeypatch):
+    calls = _patch_variables_service(monkeypatch, scopes=frozenset({"variable:create"}))
+
+    with pytest.raises(ToolError):
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={},
+        )
+
+    assert calls["create"] == []
+
+
+@pytest.mark.anyio
+async def test_create_variable_reports_duplicate(monkeypatch):
+    _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:create"}),
+        write_error=IntegrityError("INSERT", {}, Exception("duplicate key")),
+    )
+
+    with pytest.raises(ToolError, match="already exists in environment 'default'"):
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com"},
+        )
+
+
+@pytest.mark.anyio
+async def test_update_variable_applies_only_provided_fields(monkeypatch):
+    existing = _variable_stub(description="Original")
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update", "variable:read"}),
+        existing=existing,
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            values={"url": "https://splunk2.example.com"},
+        )
+    )
+
+    assert calls["lookup"] == [("splunk", "default")]
+    assert calls["update"][0].model_fields_set == {"values"}
+    assert payload["values"] == {"url": "https://splunk2.example.com"}
+    assert payload["description"] == "Original"
+
+
+@pytest.mark.anyio
+async def test_update_variable_returns_values_with_update_scope_only(monkeypatch):
+    _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update"}),
+        existing=_variable_stub(),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            description="Updated",
+        )
+    )
+
+    assert payload["description"] == "Updated"
+    assert payload["values"] == {"url": "https://splunk.example.com"}
+
+
+@pytest.mark.anyio
+async def test_update_variable_requires_fields(monkeypatch):
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update"}),
+        existing=_variable_stub(),
+    )
+
+    with pytest.raises(ToolError, match="No fields to update"):
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+        )
+
+    assert calls["lookup"] == []
+    assert calls["update"] == []
+
+
+@pytest.mark.anyio
+async def test_update_variable_requires_update_scope(monkeypatch):
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:read", "variable:create"}),
+        existing=_variable_stub(),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: variable:update"):
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            description="New",
+        )
+
+    assert calls["update"] == []
+
+
+@pytest.mark.anyio
+async def test_update_variable_reports_missing_variable(monkeypatch):
+    _patch_variables_service(monkeypatch, scopes=frozenset({"variable:update"}))
+
+    with pytest.raises(ToolError, match="'missing' not found in environment"):
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="missing",
+            description="New",
+        )
+
+
+@pytest.mark.anyio
+async def test_update_variable_reports_name_conflict(monkeypatch):
+    _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update"}),
+        existing=_variable_stub(),
+        write_error=IntegrityError("UPDATE", {}, Exception("duplicate key")),
+    )
+
+    with pytest.raises(ToolError, match="already exists in the target environment"):
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            new_name="taken",
+        )
+
+
+@pytest.mark.anyio
+async def test_delete_variable_deletes_by_name(monkeypatch):
+    existing = _variable_stub()
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:delete"}),
+        existing=existing,
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.delete_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            environment="prod",
+        )
+    )
+
+    assert "deleted successfully" in payload["message"]
+    assert calls["lookup"] == [("splunk", "prod")]
+    assert calls["delete"] == [existing]
+
+
+@pytest.mark.anyio
+async def test_delete_variable_requires_delete_scope(monkeypatch):
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:read", "variable:update"}),
+        existing=_variable_stub(),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: variable:delete"):
+        await _tool(mcp_server.delete_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+        )
+
+    assert calls["lookup"] == []
+    assert calls["delete"] == []
+
+
+@pytest.mark.anyio
+async def test_delete_variable_reports_missing_variable(monkeypatch):
+    calls = _patch_variables_service(monkeypatch, scopes=frozenset({"variable:delete"}))
+
+    with pytest.raises(ToolError, match="'missing' not found in environment"):
+        await _tool(mcp_server.delete_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="missing",
+        )
+
+    assert calls["delete"] == []
