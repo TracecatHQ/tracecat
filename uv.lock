@@ -1150,15 +1150,15 @@ wheels = [
 
 [[package]]
 name = "crowdstrike-falconpy"
-version = "1.6.2"
+version = "1.6.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "requests" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/33/e3/eb1f9218c4ce68a398d69356d78558d79040ce796d09e3f3e744f747599c/crowdstrike_falconpy-1.6.2.tar.gz", hash = "sha256:c86ac31a37175cb31dc0171feceb8cf0cb3e323ca1f84e2863938aef8153b119", size = 9408416, upload-time = "2026-05-01T03:04:28.041Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/bf/c738015a568ead4e866fe9a44d23388ce363696cff5562d0eb3f54627a60/crowdstrike_falconpy-1.6.6.tar.gz", hash = "sha256:8f36ac6c3d4e536cdef319f109e7077f92c4c9a2cb316814a5402eca5aaaa9b6", size = 9580888, upload-time = "2026-09-28T17:54:05.141Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/58/be6722ddfdbe0a74b7fa9280e8e5734eddf7197bf7ced91b34450160c6d1/crowdstrike_falconpy-1.6.2-py3-none-any.whl", hash = "sha256:e4e0ded5adb3d81c27c554e53149c1c19d420282a9d3edb9290a092b7c117d1b", size = 1123680, upload-time = "2026-05-01T03:04:26.227Z" },
+    { url = "https://files.pythonhosted.org/packages/37/46/7602aa797f96c289d4bc01798e28525861f4d675b040127ddd51c3a8bf26/crowdstrike_falconpy-1.6.6-py3-none-any.whl", hash = "sha256:5dcdacf25b20bedc08210e6b75ee919caf670c482bbd4deb13f67070acba1caa", size = 1444622, upload-time = "2026-09-28T17:54:02.646Z" },
 ]
 
 [[package]]
@@ -6031,7 +6031,7 @@ requires-dist = [
     { name = "ansible-runner", specifier = "==2.4.0" },
     { name = "boto3", specifier = "==1.40.61" },
     { name = "cloudflare", specifier = "==5.2.0" },
-    { name = "crowdstrike-falconpy", specifier = "==1.6.2" },
+    { name = "crowdstrike-falconpy", specifier = "==1.6.6" },
     { name = "databricks-sdk", specifier = "==0.133.0" },
     { name = "dnspython", specifier = "==2.9.0" },
     { name = "docker", specifier = "==7.1.0" },

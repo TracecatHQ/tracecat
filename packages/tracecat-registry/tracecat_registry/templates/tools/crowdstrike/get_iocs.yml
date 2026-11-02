@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get IOCs
+  description: >-
+    Get custom IOCs by ID. Requires the IOC Management: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/ioc/#indicatorgetv1
+  namespace: tools.crowdstrike
+  name: get_iocs
+  expects:
+    ids:
+      type: list[str]
+      description: Indicator IDs to retrieve.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_iocs
+      action: tools.falconpy.call_command
+      args:
+        operation_id: indicator_get_v1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          ids: ${{ inputs.ids }}
+  returns: ${{ steps.get_iocs.result }}

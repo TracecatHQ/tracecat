@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Get NGSIEM search status
+  description: >-
+    Get the status and results of a Falcon Next-Gen SIEM query job. Requires the
+    NGSIEM: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/ngsiem/#getsearchstatusv1
+  namespace: tools.crowdstrike
+  name: get_ngsiem_search_status
+  expects:
+    repository:
+      type: str
+      description: Repository the search was started in.
+    id:
+      type: str
+      description: Query job ID from `tools.crowdstrike.start_ngsiem_search`.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_ngsiem_search_status
+      action: tools.falconpy.call_command
+      args:
+        operation_id: GetSearchStatusV1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          repository: ${{ inputs.repository }}
+          id: ${{ inputs.id }}
+  returns: ${{ steps.get_ngsiem_search_status.result }}
