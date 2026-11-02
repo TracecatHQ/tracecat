@@ -215,8 +215,13 @@ function getPackageMembership(
       .map((resource) => resource.name)
   )
 
+  // A row selected directly is not implied, even while something uses it, so
+  // it can always be unchecked.
   function isImplied(resource: WorkspacePackageResource): boolean {
-    if (resource.status !== "implied") {
+    if (
+      resource.status !== "implied" ||
+      selected.has(getPackageResourceKey(resource))
+    ) {
       return false
     }
     const users = resource.implied_by ?? []

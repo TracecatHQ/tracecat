@@ -76,6 +76,33 @@ const SAME_GROUP_PACKAGE: WorkspacePackageRead = {
   ],
 }
 
+const SAME_NAME_PACKAGE: WorkspacePackageRead = {
+  is_source: true,
+  ref: "main",
+  patterns: ["workflows/parent/**"],
+  resources: [
+    {
+      resource_type: "workflow",
+      source_id: "parent",
+      local_id: "wf-parent",
+      name: "parent",
+      path: "workflows/parent/workflow.yml",
+      pattern: "workflows/parent/**",
+      status: "explicit",
+    },
+    {
+      resource_type: "agent_preset",
+      source_id: "shared-name",
+      local_id: "preset-1",
+      name: "parent",
+      path: "agents/shared-name/preset.yml",
+      pattern: "agents/shared-name/**",
+      status: "implied",
+      implied_by: ["parent"],
+    },
+  ],
+}
+
 const USES_SETTINGS = new Set(["workflow:triage"])
 
 const TRIGGER = <button type="button">Open</button>
@@ -281,6 +308,21 @@ describe("PackageResourcesDialog", () => {
     fireEvent.click(group)
     fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
     expect(onApply).toHaveBeenCalledWith(new Set())
+  })
+
+  it("keeps a selected dependency uncheckable when a user shares its name", () => {
+    renderDialog(new Set(["workflow:parent"]), SAME_NAME_PACKAGE)
+    expandGroups()
+    const [workflow, preset] = screen.getAllByRole("checkbox", {
+      name: /^parent/,
+    })
+
+    fireEvent.click(workflow)
+    fireEvent.click(preset)
+    expect(preset).toBeEnabled()
+
+    fireEvent.click(preset)
+    expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
   })
 
   it("marks a partly selected group", () => {
