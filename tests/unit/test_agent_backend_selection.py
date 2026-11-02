@@ -27,14 +27,15 @@ CONFIGURED_BACKEND = (
         # Chat-shaped surfaces take the configured backend.
         (AgentSessionEntity.WORKSPACE_CHAT, True, "external"),
         (AgentSessionEntity.AGENT_PRESET, True, "external"),
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, True, "external"),
         (AgentSessionEntity.CASE, True, "external"),
         (AgentSessionEntity.EXTERNAL_CHANNEL, True, "external"),
         # Orgs without the entitlement keep the built-in backend.
         (AgentSessionEntity.WORKSPACE_CHAT, False, "oss"),
         (AgentSessionEntity.CASE, False, "oss"),
         (AgentSessionEntity.EXTERNAL_CHANNEL, False, "oss"),
-        # Builder tools and workflow agent actions need the built-in workflow.
-        (AgentSessionEntity.AGENT_PRESET_BUILDER, True, "oss"),
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, False, "oss"),
+        # Workflow agent actions need the built-in workflow.
         (AgentSessionEntity.WORKFLOW, True, "oss"),
     ],
 )
