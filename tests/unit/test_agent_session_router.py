@@ -57,7 +57,10 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.session.views import build_session_read
-from tracecat.api.app import entitlement_exception_handler
+from tracecat.api.app import (
+    entitlement_exception_handler,
+    scope_denied_exception_handler,
+)
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
@@ -826,7 +829,7 @@ async def test_send_message_maps_conflicting_decision_to_409() -> None:
         session=Mock(),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(
-            return_value=SimpleNamespace(curr_run_id=None, created_by=None)
+            return_value=_agent_session_stub(curr_run_id=None, created_by=None)
         ),
         run_turn=AsyncMock(
             side_effect=TracecatConflictError(
@@ -2081,3 +2084,219 @@ def test_send_message_still_requires_execute_scope() -> None:
 
     with_session_mock.assert_not_called()
     assert tracked.closed
+
+
+# The preset builder edits its preset: driving one needs agent:update too.
+EXECUTE_ONLY = frozenset({"agent:read", "agent:execute"})
+EDITOR = frozenset({"agent:read", "agent:execute", "agent:update"})
+
+
+def _scoped_role(workspace_id: uuid.UUID, scopes: frozenset[str]) -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+
+
+def _scoped_app(role: Role) -> FastAPI:
+    app = FastAPI()
+    app.include_router(router)
+    app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: role
+    app.dependency_overrides[get_async_session] = lambda: AsyncMock()
+    return app
+
+
+def _builder_denied(response: Any) -> bool:
+    return response.status_code == status.HTTP_403_FORBIDDEN and response.json()[
+        "error"
+    ]["missing_scopes"] == ["agent:update"]
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "scopes", "allowed"),
+    [
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, EXECUTE_ONLY, False),
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, EDITOR, True),
+        (AgentSessionEntity.AGENT_PRESET, EXECUTE_ONLY, True),
+    ],
+)
+def test_creating_a_builder_session_requires_agent_update(
+    entity_type: AgentSessionEntity, scopes: frozenset[str], allowed: bool
+) -> None:
+    session_stub = _agent_session_stub(entity_type=entity_type)
+    fake_svc = SimpleNamespace(create_session=AsyncMock(return_value=session_stub))
+    app = _scoped_app(_scoped_role(session_stub.workspace_id, scopes))
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            "/agent/sessions",
+            json={"entity_type": entity_type, "entity_id": str(session_stub.entity_id)},
+        )
+
+    if allowed:
+        assert response.status_code == status.HTTP_200_OK
+        fake_svc.create_session.assert_awaited_once()
+    else:
+        assert _builder_denied(response)
+        fake_svc.create_session.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "scopes", "allowed"),
+    [
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, EXECUTE_ONLY, False),
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, EDITOR, True),
+        (AgentSessionEntity.AGENT_PRESET, EXECUTE_ONLY, True),
+    ],
+)
+def test_messaging_a_builder_session_requires_agent_update(
+    entity_type: AgentSessionEntity, scopes: frozenset[str], allowed: bool
+) -> None:
+    session_stub = _agent_session_stub(entity_type=entity_type)
+    role = _scoped_role(session_stub.workspace_id, scopes)
+    tracked = _TrackedSession()
+    app, _ = _session_release_app(tracked, role)
+    app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
+    fake_svc = SimpleNamespace(
+        session=Mock(),
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=session_stub),
+        run_turn=AsyncMock(
+            return_value=ChatResponse(
+                stream_url="/stream", chat_id=session_stub.id, curr_run_id=uuid.uuid4()
+            )
+        ),
+        clear_active_turn=AsyncMock(),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
+    )
+    fake_stream = _fake_stream()
+    fake_stream.sse = Mock(
+        side_effect=lambda *_a, **_kw: _released_event_stream(tracked, [])
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            f"/agent/sessions/{session_stub.id}/messages",
+            json=_vercel_chat_request().model_dump(mode="json"),
+        )
+
+    if allowed:
+        assert response.status_code == status.HTTP_200_OK
+        fake_svc.run_turn.assert_awaited_once()
+    else:
+        assert _builder_denied(response)
+        fake_svc.run_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("surface", ["update", "fork", "cancel", "control"])
+async def test_other_builder_session_writes_require_agent_update(
+    surface: str,
+) -> None:
+    """Configuring, forking into, cancelling or steering a builder session needs
+    agent:update; reads stay agent:read."""
+    builder = _agent_session_stub(
+        entity_type=AgentSessionEntity.AGENT_PRESET_BUILDER,
+        curr_run_id=uuid.uuid4(),
+    )
+    role = _scoped_role(builder.workspace_id, EXECUTE_ONLY)
+    fake_svc = SimpleNamespace(
+        is_legacy_session=AsyncMock(return_value=False),
+        get_session=AsyncMock(return_value=builder),
+        update_session=AsyncMock(),
+        fork_session=AsyncMock(),
+        request_cancel=AsyncMock(),
+        control=AsyncMock(),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        pytest.raises(ScopeDeniedError) as exc_info,
+    ):
+        match surface:
+            case "update":
+                await cast(Any, update_session).__wrapped__(
+                    session_id=builder.id,
+                    params=AgentSessionUpdate(title="Renamed"),
+                    role=role,
+                    session=AsyncMock(),
+                )
+            case "fork":
+                await cast(Any, fork_session).__wrapped__(
+                    session_id=builder.id, role=role, session=AsyncMock()
+                )
+            case "cancel":
+                await cast(Any, cancel_session).__wrapped__(
+                    session_id=builder.id, role=role, session=AsyncMock()
+                )
+            case "control":
+                await cast(Any, control_session).__wrapped__(
+                    session_id=builder.id,
+                    request=AgentCancelControl(type="cancel", id=uuid.uuid4()),
+                    role=role,
+                    session=AsyncMock(),
+                )
+
+    assert exc_info.value.missing_scopes == ["agent:update"]
+    for method in ("update_session", "fork_session", "request_cancel", "control"):
+        getattr(fake_svc, method).assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_forking_into_a_builder_session_requires_agent_update() -> None:
+    """A fork may change its entity type: a builder target needs agent:update."""
+    source = _agent_session_stub(entity_type=AgentSessionEntity.AGENT_PRESET)
+    role = _scoped_role(source.workspace_id, EXECUTE_ONLY)
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=source), fork_session=AsyncMock()
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        pytest.raises(ScopeDeniedError),
+    ):
+        await cast(Any, fork_session).__wrapped__(
+            session_id=source.id,
+            role=role,
+            session=AsyncMock(),
+            request=AgentSessionForkRequest(
+                entity_type=AgentSessionEntity.AGENT_PRESET_BUILDER
+            ),
+        )
+    fake_svc.fork_session.assert_not_awaited()
