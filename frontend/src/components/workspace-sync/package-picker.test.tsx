@@ -1,9 +1,16 @@
 import { fireEvent, render, screen } from "@testing-library/react"
+import { useState } from "react"
 import type { WorkspacePackageRead } from "@/client"
 import {
   PackageResourcesDialog,
   PackageSummary,
 } from "@/components/workspace-sync/package-picker"
+
+const mockUser = { isSuperuser: true }
+
+jest.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: mockUser }),
+}))
 
 jest.mock("next/link", () => ({
   __esModule: true,
@@ -69,8 +76,10 @@ describe("PackageResourcesDialog", () => {
     renderDialog(USES_SETTINGS)
 
     expect(screen.queryByRole("checkbox", { name: /^triage/ })).toBeNull()
+    expect(screen.queryByRole("checkbox", { name: /^settings/ })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /Workflows/ }))
     expect(screen.getByRole("checkbox", { name: /^triage/ })).toBeVisible()
+    expect(screen.getByText("workflows/triage/workflow.yml")).toBeVisible()
   })
 
   it("keeps an implied resource while the resource using it is checked", () => {
@@ -105,6 +114,37 @@ describe("PackageResourcesDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
     expect(onApply).toHaveBeenCalledWith(new Set())
+  })
+
+  it("discards a draft when closed without applying", () => {
+    const onApply = jest.fn()
+    function ClosableDialog() {
+      const [open, setOpen] = useState(true)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Reopen
+          </button>
+          <PackageResourcesDialog
+            open={open}
+            onOpenChange={setOpen}
+            workspacePackage={PACKAGE}
+            selected={USES_SETTINGS}
+            onApply={onApply}
+          />
+        </>
+      )
+    }
+    render(<ClosableDialog />)
+    expandGroups()
+    fireEvent.click(screen.getByRole("checkbox", { name: /^triage/ }))
+    expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }))
+    fireEvent.click(screen.getByRole("button", { name: "Reopen" }))
+
+    expect(screen.getByText(/2 of 2 in the package/)).toBeInTheDocument()
+    expect(onApply).not.toHaveBeenCalled()
   })
 
   it("restarts the draft when the package changes while open", () => {
@@ -159,6 +199,25 @@ describe("PackageResourcesDialog", () => {
 })
 
 describe("PackageSummary", () => {
+  beforeEach(() => {
+    mockUser.isSuperuser = true
+  })
+
+  it("names the admin page without linking it for other users", () => {
+    mockUser.isSuperuser = false
+    render(
+      <PackageSummary
+        workspacePackage={PACKAGE}
+        selected={USES_SETTINGS}
+        isChanged={false}
+        onApply={jest.fn()}
+      />
+    )
+
+    expect(screen.getByText(/Admin, Managed Workspaces/)).toBeInTheDocument()
+    expect(screen.queryByRole("link")).toBeNull()
+  })
+
   it("counts the package and opens the dialog", () => {
     render(
       <PackageSummary

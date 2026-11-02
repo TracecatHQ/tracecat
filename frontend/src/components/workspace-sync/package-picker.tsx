@@ -21,6 +21,7 @@ import {
   getWorkspaceSyncResourceLabel,
   WORKSPACE_SYNC_RESOURCE_TYPE_ORDER,
 } from "@/components/workspace-sync/resource-metadata"
+import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
 
 /** Repository-root file that lists the package's include patterns. */
@@ -273,6 +274,7 @@ export function PackageSummary({
   disabled = false,
   onApply,
 }: PackageSummaryProps) {
+  const { user } = useAuth()
   const [dialogOpen, setDialogOpen] = useState(false)
   const resources = workspacePackage.resources ?? []
   const { isInPackage } = getPackageMembership(workspacePackage, selected)
@@ -294,12 +296,16 @@ export function PackageSummary({
             ? `Edited from ${PACKAGE_INCLUDE_FILENAME} on ${ref}. `
             : `From ${PACKAGE_INCLUDE_FILENAME} on ${ref}. `}
           Publishing changes no customer workspace. Deploy a release from{" "}
-          <Link
-            href={MANAGED_PACKAGE_ADMIN_PATH}
-            className="font-medium text-foreground underline underline-offset-2"
-          >
-            Admin, Managed Workspaces
-          </Link>
+          {user?.isSuperuser ? (
+            <Link
+              href={MANAGED_PACKAGE_ADMIN_PATH}
+              className="font-medium text-foreground underline underline-offset-2"
+            >
+              Admin, Managed Workspaces
+            </Link>
+          ) : (
+            "Admin, Managed Workspaces"
+          )}
           .
         </p>
       </div>
@@ -563,7 +569,12 @@ function PackageResourceRow({
         title={resource.path}
         className="min-w-0 flex-1 cursor-pointer"
       >
-        <span className="block truncate text-sm">{resource.name}</span>
+        <span className="flex items-baseline gap-3">
+          <span className="min-w-0 truncate text-sm">{resource.name}</span>
+          <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+            {resource.path}
+          </span>
+        </span>
         {lockedReason && (
           <span className="block text-xs text-muted-foreground">
             {lockedReason}
