@@ -41,6 +41,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.git.plumbing import GitPlumbing, GitRefConflictError, validate_path
 from tracecat.git.types import GitUrl
+from tracecat.managed_resources.include import PACKAGE_INCLUDE_FILENAME
 from tracecat.registry.repositories.schemas import (
     GitBranchInfo,
     GitCommitInfo,
@@ -195,6 +196,14 @@ class VcsSyncTransport(Protocol):
         one, may raise ``TracecatValidationError``. Malformed tags, tags that do not point at
         a commit, and undated tags are skipped with a warning, so a page can
         hold fewer tags than its page size.
+        """
+        ...
+
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag ``tag`` pointing at commit ``sha``.
+
+        Raises a ``VcsProviderError`` if the provider refuses, for example
+        because the tag already exists.
         """
         ...
 
@@ -599,11 +608,16 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
                 except Exception:
                     pass
 
+        # The package include file is the only other root-level file read; it
+        # only exists in a managed resources source repository.
         resource_paths = [
             path
             for path in sorted(paths)
             if path != MANIFEST_FILENAME
-            and any(path.startswith(f"{root}/") for root in resource_roots)
+            and (
+                path == PACKAGE_INCLUDE_FILENAME
+                or any(path.startswith(f"{root}/") for root in resource_roots)
+            )
         ]
         for path, content in await asyncio.gather(
             *(fetch_path(path) for path in resource_paths)
@@ -1275,6 +1289,21 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         page_info = repository.refs.pageInfo
         return tags, page_info.endCursor if page_info.hasNextPage else None
 
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag through the Git refs API."""
+        gh_svc = GitHubAppService(session=self.session, role=self.role)
+        gh = await gh_svc.get_github_client_for_repo(url)
+        try:
+            repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            await asyncio.to_thread(repo.create_git_ref, f"refs/tags/{tag}", sha)
+        except GithubException as e:
+            raise GitHubAppError(
+                f"GitHub API error: {e.status} - {e.data}",
+                status_code=github_upstream_status(e),
+            ) from e
+        finally:
+            gh.close()
+
     async def _upsert_pull_request(
         self,
         *,
@@ -1659,6 +1688,16 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         except PydanticValidationError as e:
             # An out-of-range x-next-page is a bad provider response, not a 500.
             raise GitLabError("GitLab pagination response was invalid") from e
+
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag through the repository tags API."""
+        async with self._authed_client(url) as client:
+            await self._gitlab_json(
+                client,
+                "POST",
+                f"/projects/{_gitlab_project_id(url)}/repository/tags",
+                json={"tag_name": tag, "ref": sha},
+            )
 
     async def _credentials(self) -> GitLabTokenCredentials:
         """Load organization GitLab token credentials."""
@@ -2290,6 +2329,16 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         next_cursor = encode_tag_cursor(page + 1, pagelen) if next_link else None
         return tags, next_cursor
 
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag through the refs API."""
+        async with self._connection(url) as (client, _git, path):
+            await self._request(
+                client,
+                "POST",
+                f"{path}/refs/tags",
+                body={"name": tag, "target": {"hash": sha}},
+            )
+
     def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
         return f"https://bitbucket.org/{repository_path(url)}.git"
 
@@ -2657,6 +2706,13 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
             encode_tag_cursor(next_start, page_size) if next_start is not None else None
         )
         return tags, next_cursor
+
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag through the repository tags API."""
+        async with self._connection(url) as (client, _git, path):
+            await self._request(
+                client, "POST", f"{path}/tags", body={"name": tag, "startPoint": sha}
+            )
 
     async def _data_center_commit_dates(
         self, client: httpx.AsyncClient, path: str, shas: set[str]

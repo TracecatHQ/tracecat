@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useAgentPreset, useUpdateAgentPreset } from "@/hooks/use-agent-presets"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 
 /** Persist the preset's opt-in visibility in chat mention pickers. */
 export function AgentPresetChatToggle({
@@ -27,6 +28,9 @@ export function AgentPresetChatToggle({
   const { preset } = useAgentPreset(workspaceId, presetId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
     useUpdateAgentPreset(workspaceId)
+  // Chat visibility is part of a managed preset's locked configuration.
+  const { isManaged } = useManagedResources(workspaceId)
+  const presetIsManaged = isManaged("agent_preset", presetId)
 
   return (
     <div className="flex items-center gap-2">
@@ -57,7 +61,11 @@ export function AgentPresetChatToggle({
         id={id}
         checked={preset?.use_in_chat === true}
         disabled={
-          disabled || !canUpdateAgent || !preset || updateAgentPresetIsPending
+          disabled ||
+          presetIsManaged ||
+          !canUpdateAgent ||
+          !preset ||
+          updateAgentPresetIsPending
         }
         onCheckedChange={(checked) => {
           void updateAgentPreset({

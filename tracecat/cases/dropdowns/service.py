@@ -28,8 +28,10 @@ from tracecat.db.models import (
     CaseDropdownValue,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class CaseDropdownDefinitionsService(BaseWorkspaceService):
@@ -110,6 +112,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         self, params: CaseDropdownDefinitionCreate
     ) -> CaseDropdownDefinition:
         """Create a dropdown definition with initial options."""
+        await hold_for_customer_write(self.session, self.workspace_id)
         definition = CaseDropdownDefinition(
             workspace_id=self.workspace_id,
             name=params.name,
@@ -155,6 +158,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         params: CaseDropdownDefinitionUpdate,
     ) -> CaseDropdownDefinition:
         """Update an existing dropdown definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_DROPDOWN,
+            local_id=definition.id,
+        )
         update_data = params.model_dump(exclude_unset=True)
 
         # Keep name/ref aligned when only the name is edited.
@@ -199,6 +208,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_definition(self, definition: CaseDropdownDefinition) -> None:
         """Delete a dropdown definition and all associated options/values."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_DROPDOWN,
+            local_id=definition.id,
+        )
         await self.session.delete(definition)
         await self.session.commit()
 
@@ -236,6 +251,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         params: CaseDropdownOptionCreate,
     ) -> CaseDropdownOption:
         """Add an option to a dropdown definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_DROPDOWN,
+            local_id=definition_id,
+        )
         option = CaseDropdownOption(
             definition_id=definition_id,
             label=params.label,
@@ -266,6 +287,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         params: CaseDropdownOptionUpdate,
     ) -> CaseDropdownOption:
         """Update a dropdown option belonging to the given definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_DROPDOWN,
+            local_id=definition_id,
+        )
         option = await self._get_option(definition_id, option_id)
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(option, key, value)
@@ -287,6 +314,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         self, definition_id: uuid.UUID, option_id: uuid.UUID
     ) -> None:
         """Delete a dropdown option belonging to the given definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_DROPDOWN,
+            local_id=definition_id,
+        )
         option = await self._get_option(definition_id, option_id)
         await self.session.delete(option)
         await self.session.commit()
@@ -297,6 +330,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         self, definition_id: uuid.UUID, option_ids: list[uuid.UUID]
     ) -> None:
         """Reorder options by setting positions according to the given ID list."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_DROPDOWN,
+            local_id=definition_id,
+        )
         for position, oid in enumerate(option_ids):
             stmt = select(CaseDropdownOption).where(
                 CaseDropdownOption.definition_id == definition_id,

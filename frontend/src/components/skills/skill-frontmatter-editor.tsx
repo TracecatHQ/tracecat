@@ -7,14 +7,17 @@ import { skillToolsExtension } from "@/components/editor/codemirror/skill-tools-
 export function SkillFrontmatterEditor({
   value,
   onChange,
+  readOnly = false,
 }: {
   value: string
   onChange: (value: string) => void
+  readOnly?: boolean
 }) {
   return (
     <CodeEditor
       value={value}
       onChange={onChange}
+      readOnly={readOnly}
       language="yaml"
       wrapLongLines
       extensions={skillToolsExtension}

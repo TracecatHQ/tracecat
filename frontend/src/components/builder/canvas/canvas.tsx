@@ -170,7 +170,7 @@ export const WorkflowCanvas = React.forwardRef<
     useState<ReactFlowInstance | null>(null)
   const { setViewport, getNode, screenToFlowPosition } = useReactFlow()
   const { toast } = useToast()
-  const { workspaceId, workflowId } = useWorkflow()
+  const { workspaceId, workflowId, isReadOnly } = useWorkflow()
   const { selectedNodeId, setSelectedNodeId } = useWorkflowBuilder()
   const { resolvedTheme } = useTheme()
   const backgroundPatternColor =
@@ -1036,12 +1036,16 @@ export const WorkflowCanvas = React.forwardRef<
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onNodeDragStop={onNodesDragStop}
-        onMoveEnd={onMoveEnd}
+        nodesDraggable={!isReadOnly}
+        nodesConnectable={!isReadOnly}
+        edgesReconnectable={!isReadOnly}
+        // Managed workflows cannot write the graph, viewport included.
+        onMoveEnd={isReadOnly ? undefined : onMoveEnd}
         onPaneClick={onPaneClick}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
         proOptions={{ hideAttribution: true }}
-        deleteKeyCode={["Backspace", "Delete"]}
+        deleteKeyCode={isReadOnly ? null : ["Backspace", "Delete"]}
         fitView
         fitViewOptions={activeFitViewOptions}
         nodeDragThreshold={4}
@@ -1049,7 +1053,7 @@ export const WorkflowCanvas = React.forwardRef<
         minZoom={0.25}
         panOnScroll
         connectionLineType={ConnectionLineType.SmoothStep}
-        onPaneContextMenu={onPaneContextMenu}
+        onPaneContextMenu={isReadOnly ? undefined : onPaneContextMenu}
       >
         <Background
           bgColor="hsl(var(--background))"
@@ -1059,28 +1063,34 @@ export const WorkflowCanvas = React.forwardRef<
           className="rounded-sm"
           fitViewOptions={activeFitViewOptions}
         />
-        <Panel position="bottom-right" className="flex items-center gap-1">
-          <Badge
-            variant="outline"
-            className="select-none bg-background text-xs font-normal hover:cursor-default"
-          >
-            Layout
-          </Badge>
-          <Button
-            variant="outline"
-            className="m-0 size-6 p-0 text-xs"
-            onClick={onLayout}
-          >
-            <MoveVerticalIcon className="size-3" strokeWidth={2} />
-          </Button>
-        </Panel>
+        {!isReadOnly && (
+          <Panel position="bottom-right" className="flex items-center gap-1">
+            <Badge
+              variant="outline"
+              className="select-none bg-background text-xs font-normal hover:cursor-default"
+            >
+              Layout
+            </Badge>
+            <Button
+              variant="outline"
+              className="m-0 size-6 p-0 text-xs"
+              onClick={onLayout}
+            >
+              <MoveVerticalIcon className="size-3" strokeWidth={2} />
+            </Button>
+          </Panel>
+        )}
         <Panel position="bottom-center" className="mb-4">
-          <CanvasToolbar
-            onAddAction={handleToolbarAddAction}
-            onAddActions={handleToolbarAddActions}
-            embedded={embedded}
-            trailing={<ToggleConditionsButton />}
-          />
+          {isReadOnly ? (
+            <ToggleConditionsButton />
+          ) : (
+            <CanvasToolbar
+              onAddAction={handleToolbarAddAction}
+              onAddActions={handleToolbarAddActions}
+              embedded={embedded}
+              trailing={<ToggleConditionsButton />}
+            />
+          )}
         </Panel>
         <NodeSilhouette
           position={silhouettePosition}

@@ -11,9 +11,11 @@ from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinitio
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class CaseTriggersService(BaseWorkspaceService):
@@ -181,6 +183,12 @@ class CaseTriggersService(BaseWorkspaceService):
         create_missing_tags: bool = False,
         commit: bool = True,
     ) -> CaseTrigger:
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
         return await self._upsert_case_trigger(
             workflow_id,
             params,
@@ -261,6 +269,12 @@ class CaseTriggersService(BaseWorkspaceService):
         create_missing_tags: bool = False,
         commit: bool = True,
     ) -> CaseTrigger:
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
         return await self._update_case_trigger(
             workflow_id,
             params,

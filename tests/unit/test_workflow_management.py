@@ -17,6 +17,15 @@ from tracecat.workflow.management import management
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a fake session that cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.ensure_unmanaged",
+        AsyncMock(return_value=None),
+    )
+
+
 class _ScalarResult:
     def __init__(self, value: Any):
         self.value = value

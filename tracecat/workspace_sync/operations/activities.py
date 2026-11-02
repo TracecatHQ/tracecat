@@ -190,7 +190,9 @@ async def workspace_sync_prepare(ref: SyncOperationRef) -> None:
                 return
             if (
                 await sync.repository_fingerprint() != prepared.repository_fingerprint
-                or await sync.local_fingerprint(inputs)
+                or await sync.local_fingerprint(
+                    inputs, package_include=prepared.package_include
+                )
                 != prepared.workspace_fingerprint
             ):
                 raise StaleSyncPreviewError("Workspace changed during preparation")

@@ -183,7 +183,10 @@ def workspace_sync_service() -> WorkspaceSyncService:
         organization_id=uuid.uuid4(),
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
     )
-    return WorkspaceSyncService(session=session, role=role)
+    service = WorkspaceSyncService(session=session, role=role)
+    # The mocked session cannot answer the managed resource lookup.
+    service._managed_ids_by_type = AsyncMock(return_value={})
+    return service
 
 
 def test_every_sync_resource_type_is_adapter_backed() -> None:

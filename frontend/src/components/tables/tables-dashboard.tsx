@@ -8,6 +8,7 @@ import type { TableReadMinimal } from "@/client"
 import { CatalogHeader } from "@/components/catalog/catalog-header"
 import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { AlertNotification } from "@/components/notifications"
 import { TableActions } from "@/components/tables/table-actions"
 import { DeleteTableDialog } from "@/components/tables/table-delete-dialog"
@@ -233,6 +234,11 @@ export function TablesDashboard() {
                                   {table.name}
                                 </ItemTitle>
                               </ItemContent>
+                              <ManagedResourceStatus
+                                resourceType="table"
+                                id={table.id}
+                                name={table.name}
+                              />
                             </Item>
 
                             <RowTimestamps

@@ -62,6 +62,7 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
     exec_id_to_parts,
 )
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -116,6 +117,7 @@ from tracecat.workflow.management.types import (
 )
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class _ModelKey(NamedTuple):
@@ -803,6 +805,12 @@ class WorkflowsManagementService(BaseWorkspaceService):
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
         workflow_uuid = WorkflowUUID.new(workflow_id)
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_uuid,
+        )
         set_fields = params.model_dump(exclude_unset=True)
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,
@@ -836,6 +844,12 @@ class WorkflowsManagementService(BaseWorkspaceService):
         before the database cascade deletion occurs.
         """
         workflow_uuid = WorkflowUUID.new(workflow_id)
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_uuid,
+        )
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,
             Workflow.id == workflow_uuid,
@@ -880,6 +894,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
     @audit_log(resource_type="workflow", action="create", resource_id_attr="id")
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
+        await hold_for_customer_write(self.session, self.workspace_id)
         now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
         title = params.title or now
         description = params.description or f"New workflow created {now}"
@@ -989,8 +1004,14 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
         Raises:
             TracecatNotFoundError: If the workflow does not exist.
+            ManagedResourceLockedError: The workflow is managed.
         """
-
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
         workflow = await self.get_workflow(workflow_id)
         if workflow is None:
             raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
@@ -1387,6 +1408,12 @@ class WorkflowsManagementService(BaseWorkspaceService):
         self, workflow: Workflow, definition: WorkflowDefinition
     ) -> Workflow:
         """Restore a workflow definition as the current mutable draft."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow.id,
+        )
         if definition.workflow_id != workflow.id:
             raise TracecatValidationError(
                 "Workflow definition does not belong to the selected workflow"
@@ -1712,6 +1739,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         commit: bool = True,
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
+        await hold_for_customer_write(self.session, self.workspace_id)
         self.logger.info("Creating workflow from DSL", dsl=dsl)
 
         # Resolve registry_lock with action bindings from the DSL

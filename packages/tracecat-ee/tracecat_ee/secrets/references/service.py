@@ -18,6 +18,11 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.managed_resources.guard import hold_for_customer_write
+from tracecat.managed_resources.values import (
+    changed_fields,
+    ensure_values_only_update,
+)
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.enums import (
     AwsSecretResolutionErrorCode,
@@ -34,6 +39,7 @@ from tracecat.secrets.service import (
     build_external_secret_reference,
     is_external_reference,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
 
 
@@ -143,6 +149,10 @@ class SecretReferencesService(SecretsService):
         encrypted empty key list so the column contract is unchanged.
         """
         workspace_id = self._require_workspace_id()
+        # Before the store lock, as rollouts order it: a rollout adopts a
+        # secret by (environment, name), so this create must not land between
+        # its conflict check and its import.
+        await hold_for_customer_write(self.session, workspace_id)
         store = await self._get_authorized_store(params.store_id)
         self.validate_reference(store, params.remote_reference)
         secret = Secret(
@@ -182,6 +192,26 @@ class SecretReferencesService(SecretsService):
         self, secret: Secret, params: AwsSecretReferenceUpdate
     ) -> None:
         """Update the reference or mapping of an AWS-backed workspace secret."""
+        # On a managed secret the FDE matches the store; the customer only
+        # points it at their own ARN or secret name.
+        await ensure_values_only_update(
+            self.session,
+            workspace_id=self.role.workspace_id,
+            resource_type=SyncResourceType.SECRET_METADATA,
+            local_id=secret.id,
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True),
+                {
+                    "name": secret.name,
+                    "description": secret.description,
+                    "environment": secret.environment,
+                    "tags": secret.tags,
+                    "store_id": secret.store_id,
+                    "key_mapping": secret.remote_key_mapping,
+                },
+            ),
+            allowed_fields={"remote_reference"},
+        )
         if not is_external_reference(secret):
             raise ValueError("Secret is not backed by AWS Secrets Manager.")
         set_fields = params.model_dump(exclude_unset=True)

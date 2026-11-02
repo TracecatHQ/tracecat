@@ -32,6 +32,7 @@ from tracecat.workflow.store.service import WorkflowStoreService
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
 from tracecat.workspace_sync.export_diagnostics import WorkflowExportDiagnosticsService
 from tracecat.workspace_sync.schemas import (
+    WorkspacePackageRead,
     WorkspaceSyncExportError,
     WorkspaceSyncExportPreview,
     WorkspaceSyncExportPreviewRequest,
@@ -283,6 +284,46 @@ async def export_workspace_sync(
             session=session, role=role
         )
         return await sync_service.export_workspace(params)
+    except WorkflowExportValidationError as e:
+        return _export_validation_response(e)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except (
+        TracecatSettingsError,
+        TracecatValidationError,
+        VcsProviderError,
+    ) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.get(
+    "/sync/package",
+    response_model=WorkspacePackageRead,
+    responses={400: {"model": WorkspaceSyncExportError}},
+)
+@require_scope("workspace_sync:sync")
+async def get_workspace_sync_package(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    ref: str | None = Query(default=None, max_length=255),
+) -> WorkspacePackageRead | JSONResponse:
+    """Read the managed resources package selection of the source workspace."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    try:
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
+        return await sync_service.read_package(ref=ref)
     except WorkflowExportValidationError as e:
         return _export_validation_response(e)
     except TracecatNotFoundError as e:

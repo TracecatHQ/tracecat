@@ -33,6 +33,13 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import WorkspaceManifestResources, WorkspaceSpec
 
+MANAGED_MAPPING_NAMESPACE = "managed"
+"""Sync mapping namespace of managed rollouts in a target workspace.
+
+It is not a VCS provider value, so a rollout's source-to-local identities can
+never be read or adopted by the workspace's own Git sync.
+"""
+
 # Attribute on ``WorkspaceSpec`` and ``WorkspaceManifestResources`` that holds a
 # given resource type's specs/root. Each adapter binds to exactly one of these
 # via its ``spec_attr`` class variable.
@@ -187,15 +194,27 @@ class SyncMappingService(BaseWorkspaceService):
         role: Role | None = None,
         *,
         mapping_provider: VcsProvider = VcsProvider.GITHUB,
+        mapping_namespace: str | None = None,
     ) -> None:
-        """Initialize with the provider namespace for sync resource mappings."""
+        """Initialize with the provider namespace for sync resource mappings.
+
+        ``mapping_namespace`` replaces the provider as the mapping namespace.
+        Managed rollouts pass :data:`MANAGED_MAPPING_NAMESPACE` so their
+        identities never mix with the workspace's own Git sync mappings.
+        """
         super().__init__(session=session, role=role)
         self._mapping_provider = mapping_provider
+        self._mapping_namespace = mapping_namespace
 
     @property
     def _mapping_provider_value(self) -> str:
-        """Provider value used for workspace sync resource mappings."""
-        return self._mapping_provider.value
+        """Namespace value used for workspace sync resource mappings."""
+        return self._mapping_namespace or self._mapping_provider.value
+
+    @property
+    def is_managed_rollout(self) -> bool:
+        """Whether this service applies a managed rollout, not a Git sync."""
+        return self._mapping_namespace == MANAGED_MAPPING_NAMESPACE
 
 
 def find_duplicates(values: Iterable[str]) -> list[str]:

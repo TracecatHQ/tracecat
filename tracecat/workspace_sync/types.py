@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         McpIntegrationHint,
         SecretMetadataResourceSpec,
         WorkflowResourceSpec,
+        WorkspaceProjection,
         WorkspaceRemoteSnapshot,
     )
 
@@ -140,6 +141,16 @@ class PreparedPullPreview:
 
     snapshot: WorkspaceRemoteSnapshot
     preview: PullResult
+
+
+@dataclass(frozen=True, slots=True)
+class PushProjection:
+    """What one push writes, and the remote roots it may delete stale files in."""
+
+    projection: WorkspaceProjection
+    delete_roots: tuple[str, ...]
+    package_include: str | None = None
+    """Include file text when the push is a managed resources package export."""
 
 
 @dataclass(frozen=True, slots=True)

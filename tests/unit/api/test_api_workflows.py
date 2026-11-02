@@ -42,6 +42,15 @@ from tracecat.workflow.management.types import (
 )
 
 
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.managed_resources.guard.is_managed",
+        AsyncMock(return_value=False),
+    )
+
+
 @pytest.fixture
 def mock_workflow(test_workspace: Workspace) -> Workflow:
     """Create a mock workflow DB object."""
@@ -964,3 +973,37 @@ async def test_replace_workflow_draft_rejects_unknown_fields(
         )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.anyio
+async def test_replace_workflow_draft_of_managed_workflow_returns_403(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The router-level guard refuses edits to a managed workflow before the
+    route body runs, so nothing is persisted."""
+    monkeypatch.setattr(
+        "tracecat.managed_resources.guard.is_managed",
+        AsyncMock(return_value=True),
+    )
+    workflow = _draft_workflow(mock_workflow)
+    current = draft.build_workflow_edit_document(workflow)
+
+    with patch(
+        "tracecat.workflow.management.router.persist_workflow_edit_document",
+        new_callable=AsyncMock,
+    ) as mock_persist:
+        response = client.put(
+            f"/workflows/{workflow.id}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "document": current.model_dump(mode="json"),
+                "base_revision": draft.compute_workflow_edit_revision(current),
+            },
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert "Managed by Tracecat" in response.text
+    mock_persist.assert_not_awaited()

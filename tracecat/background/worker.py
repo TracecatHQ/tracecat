@@ -11,6 +11,11 @@ from tracecat import config
 from tracecat.background.sandbox import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
+from tracecat.managed_resources.workflows import (
+    ManagedRolloutWorkflow,
+    managed_rollout_fail,
+    managed_rollout_run,
+)
 from tracecat.observability.otel import (
     initialize_platform_tracing,
     shutdown_platform_tracing,
@@ -47,7 +52,11 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         async with Worker(
             client,
             task_queue=config.TRACECAT__BACKGROUND_QUEUE,
-            workflows=[WorkspaceSyncWorkflow, WorkspaceSyncLifecycleWorkflow],
+            workflows=[
+                WorkspaceSyncWorkflow,
+                WorkspaceSyncLifecycleWorkflow,
+                ManagedRolloutWorkflow,
+            ],
             workflow_runner=new_sandbox_runner(),
             activities=[
                 workspace_sync_prepare,
@@ -59,6 +68,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 workspace_sync_committed_lifecycle,
                 workspace_sync_finish_lifecycle,
                 workspace_sync_project,
+                managed_rollout_run,
+                managed_rollout_fail,
             ],
             max_concurrent_activities=config.TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES,
             disable_eager_activity_execution=True,

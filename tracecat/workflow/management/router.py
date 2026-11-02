@@ -49,6 +49,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.managed_resources.dependencies import ManagedWorkflowWriteGuard
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
@@ -469,7 +470,11 @@ async def delete_workflow(
         ) from e
 
 
-@router.post("/{workflow_id}/commit", tags=["workflows"])
+@router.post(
+    "/{workflow_id}/commit",
+    tags=["workflows"],
+    dependencies=[ManagedWorkflowWriteGuard],
+)
 @require_scope("workflow:update")
 async def commit_workflow(
     role: WorkspaceActorRouteRole,
@@ -644,6 +649,7 @@ async def list_workflow_definitions(
 @router.post(
     "/{workflow_id}/definitions/{version}/restore",
     tags=["workflows"],
+    dependencies=[ManagedWorkflowWriteGuard],
     response_model=WorkflowRead,
 )
 @require_scope("workflow:update")
@@ -763,7 +769,11 @@ async def get_workflow_draft(
         raise _workflow_edit_error_to_http(e) from e
 
 
-@router.put("/{workflow_id}/draft", tags=["workflows"])
+@router.put(
+    "/{workflow_id}/draft",
+    tags=["workflows"],
+    dependencies=[ManagedWorkflowWriteGuard],
+)
 @require_scope("workflow:update")
 async def replace_workflow_draft(
     role: WorkspaceActorRouteRole,
@@ -903,6 +913,7 @@ async def _webhook_key_audit_result(
     "/{workflow_id}/webhook",
     status_code=status.HTTP_201_CREATED,
     tags=["triggers"],
+    dependencies=[ManagedWorkflowWriteGuard],
 )
 @require_scope("workflow:update")
 async def create_webhook(

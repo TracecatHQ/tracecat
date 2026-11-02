@@ -9,10 +9,10 @@ credentials on behalf of a platform superuser.
 
 from __future__ import annotations
 
-import uuid
+import re
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,17 +24,29 @@ from tracecat.exceptions import (
     TracecatSettingsError,
     TracecatValidationError,
 )
+from tracecat.git.types import GitUrl
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.registry.repositories.schemas import GitTagInfo
+from tracecat.managed_resources.source_setting import (
+    MANAGED_RESOURCES_SOURCE_KEY,
+    ManagedSourceSetting,
+)
+from tracecat.registry.repositories.schemas import GitCommitInfo, GitTagInfo
 from tracecat.workspace_sync.enums import VcsProvider
+from tracecat.workspace_sync.schemas import (
+    MANIFEST_FILENAME,
+    WorkspacePackageManifest,
+    workspace_manifest_from_json,
+)
 from tracecat.workspace_sync.service import (
     WorkspaceSyncService,
     parse_workspace_git_url,
 )
-
-MANAGED_RESOURCES_SOURCE_KEY = "managed_resources_source"
-"""Platform setting key holding a :class:`ManagedSourceSetting` JSON object."""
+from tracecat.workspace_sync.transport import (
+    VcsSyncTransport,
+    VcsTransportFactory,
+    VcsTreeSnapshot,
+)
 
 SOURCE_REPOSITORY_SCOPES: frozenset[str] = frozenset({"workspace_sync:sync"})
 """The only scope granted when reading the source repository.
@@ -64,28 +76,13 @@ class ManagedSource:
     git_repo_url: str
 
 
-class ManagedSourceSetting(BaseModel):
-    """The stored source: the workspace and the Git binding pinned with it.
-
-    Pinning the binding means someone with ``workspace:update`` in the source
-    organization cannot repoint the managed repository without a platform
-    admin; any change to the live binding makes the source invalid instead.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    workspace_id: uuid.UUID
-    git_provider: VcsProvider
-    git_repo_url: str = Field(min_length=1)
-
-    @classmethod
-    def pin(cls, source: ManagedSource) -> ManagedSourceSetting:
-        """Snapshot a validated source for storage."""
-        return cls(
-            workspace_id=source.workspace_id,
-            git_provider=source.git_provider,
-            git_repo_url=source.git_repo_url,
-        )
+def pin_source(source: ManagedSource) -> ManagedSourceSetting:
+    """Snapshot a validated source for storage."""
+    return ManagedSourceSetting(
+        workspace_id=source.workspace_id,
+        git_provider=source.git_provider,
+        git_repo_url=source.git_repo_url,
+    )
 
 
 class _GitBinding(BaseModel):
@@ -165,7 +162,7 @@ async def get_managed_source(session: AsyncSession) -> ManagedSource | None:
         raise ManagedSourceUnavailableError(
             f"The managed resources source workspace is no longer valid: {e}"
         ) from e
-    if ManagedSourceSetting.pin(source) != pinned:
+    if pin_source(source) != pinned:
         raise ManagedSourceUnavailableError(
             "The managed resources source workspace's Git binding changed after "
             "it was set. A platform admin must set the source again."
@@ -229,8 +226,204 @@ async def list_source_tags(
         source_workspace_id=source.workspace_id,
         source_organization_id=source.organization_id,
     )
-    service = WorkspaceSyncService(
-        session, source_repository_role(source), provider=source.git_provider
-    )
-    url = parse_workspace_git_url(source.git_provider, source.git_repo_url)
+    service, url = source_sync_service(session, source)
     return await service.list_tags(limit=limit, cursor=cursor, url=url)
+
+
+def source_sync_service(
+    session: AsyncSession,
+    source: ManagedSource,
+    *,
+    transport_factory: VcsTransportFactory | None = None,
+) -> tuple[WorkspaceSyncService, GitUrl]:
+    """Return a sync service and URL that read the pinned source repository."""
+    service = WorkspaceSyncService(
+        session,
+        source_repository_role(source),
+        provider=source.git_provider,
+        transport_factory=transport_factory,
+    )
+    try:
+        url = parse_workspace_git_url(source.git_provider, source.git_repo_url)
+    except TracecatSettingsError as e:
+        raise ManagedSourceUnavailableError(
+            f"The managed resources source repository URL is invalid: {e}"
+        ) from e
+    return service, url
+
+
+async def require_managed_source(session: AsyncSession) -> ManagedSource:
+    """Return the configured source, or raise if none is configured.
+
+    Raises:
+        ManagedSourceUnavailableError: No usable source is configured.
+    """
+    source = await get_managed_source(session)
+    if source is None:
+        raise ManagedSourceUnavailableError(
+            "Managed resources source workspace is not configured"
+        )
+    return source
+
+
+async def resolve_source_tag(
+    session: AsyncSession,
+    source: ManagedSource,
+    tag: str,
+    *,
+    transport_factory: VcsTransportFactory | None = None,
+) -> GitTagInfo | None:
+    """Find ``tag`` in the source repository by paging through its tags."""
+    service, url = source_sync_service(
+        session, source, transport_factory=transport_factory
+    )
+    cursor: str | None = None
+    while True:
+        tags, cursor = await service.list_tags(limit=100, cursor=cursor, url=url)
+        if found := next((info for info in tags if info.name == tag), None):
+            return found
+        if cursor is None:
+            return None
+
+
+async def read_source_commit(
+    session: AsyncSession,
+    source: ManagedSource,
+    commit_sha: str,
+    *,
+    transport_factory: VcsTransportFactory | None = None,
+) -> VcsTreeSnapshot:
+    """Read the source repository's sync files at one commit."""
+    service, url = source_sync_service(
+        session, source, transport_factory=transport_factory
+    )
+    transport = service.transport()
+    return await transport.read_files(url=url, ref=commit_sha, ref_kind="commit")
+
+
+RELEASE_TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+$")
+"""Release tags cut from ``/admin`` are ``vMAJOR.MINOR.PATCH``."""
+
+
+async def cut_source_release(
+    session: AsyncSession,
+    source: ManagedSource,
+    tag: str,
+    *,
+    expected_commit_sha: str | None = None,
+    transport_factory: VcsTransportFactory | None = None,
+) -> GitTagInfo:
+    """Tag the HEAD of the source repository's base branch as ``tag``.
+
+    The base branch is the one the source binding names, or the
+    repository's default branch.
+
+    Args:
+        expected_commit_sha: The commit the caller reviewed. If the branch
+            moved past it, nothing is tagged, so a push that lands while an
+            admin reads the candidate cannot slip into the release.
+
+    Raises:
+        TracecatValidationError: ``tag`` is not ``vX.Y.Z`` or already exists,
+            or the branch is no longer at ``expected_commit_sha``.
+        VcsProviderError: The provider refused the request.
+    """
+    if not RELEASE_TAG_PATTERN.fullmatch(tag):
+        raise TracecatValidationError("Release tags must look like v1.2.3")
+    if await resolve_source_tag(
+        session, source, tag, transport_factory=transport_factory
+    ):
+        raise TracecatValidationError(f"Tag {tag!r} already exists")
+    service, url = source_sync_service(
+        session, source, transport_factory=transport_factory
+    )
+    transport = service.transport()
+    branch, head = await _base_branch_head(transport, url)
+    if expected_commit_sha is not None and head.sha != expected_commit_sha:
+        raise TracecatValidationError(
+            f"{branch} moved to {head.sha[:7]} since you reviewed "
+            f"{expected_commit_sha[:7]}. Review the new commit and try again."
+        )
+    await transport.create_tag(url=url, tag=tag, sha=head.sha)
+    logger.info(
+        "Cut managed resources release",
+        tag=tag,
+        commit_sha=head.sha,
+        source_workspace_id=source.workspace_id,
+    )
+    return GitTagInfo(name=tag, commit_sha=head.sha, date=head.date)
+
+
+async def _base_branch_head(
+    transport: VcsSyncTransport, url: GitUrl
+) -> tuple[str, GitCommitInfo]:
+    """Return the source repository's base branch and its latest commit.
+
+    The base branch is the one the source binding names, or the
+    repository's default branch.
+
+    Raises:
+        TracecatValidationError: There is no default branch, or it is empty.
+    """
+    branch = url.ref
+    if not branch:
+        branches = await transport.list_branches(url=url, limit=10000)
+        branch = next((b.name for b in branches if b.is_default), None)
+    if not branch:
+        raise TracecatValidationError("The source repository has no default branch")
+    commits = await transport.list_commits(url=url, branch=branch, limit=1)
+    if not commits:
+        raise TracecatValidationError(f"Branch {branch!r} has no commits")
+    return branch, commits[0]
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseCandidate:
+    """What cutting a release now would tag."""
+
+    branch: str
+    commit: GitCommitInfo
+    existing_tags: list[str]
+    """Tags that already point at this commit."""
+    package: WorkspacePackageManifest | None
+    """The package metadata at this commit, if a package was published."""
+
+
+async def source_release_candidate(
+    session: AsyncSession,
+    source: ManagedSource,
+    *,
+    transport_factory: VcsTransportFactory | None = None,
+) -> ReleaseCandidate:
+    """Describe the commit a new release would tag, and the package in it.
+
+    Raises:
+        TracecatValidationError: The base branch is missing or empty.
+        VcsProviderError: The provider refused the request.
+    """
+    service, url = source_sync_service(
+        session, source, transport_factory=transport_factory
+    )
+    transport = service.transport()
+    branch, head = await _base_branch_head(transport, url)
+    existing: list[str] = []
+    cursor: str | None = None
+    while True:
+        tags, cursor = await service.list_tags(limit=100, cursor=cursor, url=url)
+        existing.extend(info.name for info in tags if info.commit_sha == head.sha)
+        if cursor is None:
+            break
+    tree = await transport.read_files(url=url, ref=head.sha, ref_kind="commit")
+    package: WorkspacePackageManifest | None = None
+    if manifest := tree.files.get(MANIFEST_FILENAME):
+        try:
+            package = workspace_manifest_from_json(manifest).package
+        except ValueError as e:
+            # A rollout could not read this commit either, so say so now
+            # rather than show it as a commit with no package.
+            raise TracecatValidationError(
+                f"{MANIFEST_FILENAME} at {head.sha[:7]} is malformed: {e}"
+            ) from e
+    return ReleaseCandidate(
+        branch=branch, commit=head, existing_tags=existing, package=package
+    )

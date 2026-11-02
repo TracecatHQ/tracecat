@@ -23,7 +23,9 @@ jest.mock("@/providers/builder", () => ({
     setTriggerPanelTab: jest.fn(),
   }),
 }))
-jest.mock("@/providers/workflow", () => ({ useWorkflow: jest.fn() }))
+jest.mock("@/providers/workflow", () => ({
+  useWorkflow: () => ({ isReadOnly: false }),
+}))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))

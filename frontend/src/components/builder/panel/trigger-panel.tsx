@@ -42,6 +42,7 @@ import { CopyButton } from "@/components/copy-button"
 import { FormTriggerControls } from "@/components/forms/form-trigger-controls"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import { AlertNotification } from "@/components/notifications"
 import {
   CustomTagInput,
@@ -263,6 +264,8 @@ const formatScheduleDate = (value?: string | null) => {
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   const { triggerPanelTab, setTriggerPanelTab } = useWorkflowBuilder()
+  // Managed workflows keep the webhook switch, schedules and form switch.
+  const { isReadOnly } = useWorkflow()
   const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
   // The Form tab needs Forms on (flag and entitlement) and `form:read`.
@@ -348,6 +351,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
               <WebhookControls
                 webhook={workflow.webhook}
                 workflowId={workflow.id}
+                readOnly={isReadOnly}
               />
             </div>
           </TabsContent>
@@ -359,7 +363,10 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
           {caseAddonsEnabled && (
             <TabsContent value={TriggerPanelTabs.caseTriggers} className="pb-8">
               <div className="px-4 my-4 space-y-2">
-                <CaseTriggerControls workflowId={workflow.id} />
+                <CaseTriggerControls
+                  workflowId={workflow.id}
+                  readOnly={isReadOnly}
+                />
               </div>
             </TabsContent>
           )}
@@ -379,9 +386,12 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
 export function WebhookControls({
   webhook,
   workflowId,
+  readOnly = false,
 }: {
   webhook: WebhookRead
   workflowId: string
+  /** Lock every webhook setting except the on/off switch. */
+  readOnly?: boolean
 }) {
   const hasActiveApiKey = webhook.api_key?.is_active ?? false
   const hasRevokedApiKey = Boolean(webhook.api_key && !hasActiveApiKey)
@@ -671,125 +681,127 @@ export function WebhookControls({
           )}
         />
 
-        <FormField
-          control={form.control}
-          name="include_headers"
-          render={({ field }) => (
-            <FormItem>
-              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold">
-                    Include request headers
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Pass request headers and metadata to TRIGGER as{" "}
-                    <code>{"{ status_code, headers, data }"}</code> instead of
-                    just the body
-                  </p>
+        <ReadOnlyFieldset readOnly={readOnly} className="space-y-4">
+          <FormField
+            control={form.control}
+            name="include_headers"
+            render={({ field }) => (
+              <FormItem>
+                <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold">
+                      Include request headers
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Pass request headers and metadata to TRIGGER as{" "}
+                      <code>{"{ status_code, headers, data }"}</code> instead of
+                      just the body
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={handleIncludeHeadersChange}
+                      className="data-[state=checked]:bg-emerald-500"
+                      disabled={isUpdatingWebhook}
+                    />
+                  </FormControl>
                 </div>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="methods"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex gap-2 items-center text-xs font-medium">
+                  <span>Allowed HTTP methods</span>
+                </FormLabel>
                 <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={handleIncludeHeadersChange}
-                    className="data-[state=checked]:bg-emerald-500"
-                    disabled={isUpdatingWebhook}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="justify-between w-full text-xs"
+                        disabled={isUpdatingWebhook}
+                      >
+                        {field.value.length > 0
+                          ? field.value.sort().join(", ")
+                          : "Select HTTP methods"}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      style={{
+                        width: "var(--radix-dropdown-menu-trigger-width)",
+                      }}
+                      align="start"
+                      sideOffset={4}
+                    >
+                      {HTTP_METHODS.map((method) => (
+                        <DropdownMenuItem
+                          key={method}
+                          onClick={() => {
+                            const newMethods = field.value.includes(method)
+                              ? field.value.filter((m) => m !== method)
+                              : [...field.value, method]
+
+                            handleMethodsChange(newMethods)
+                          }}
+                          className="w-full text-xs"
+                        >
+                          <CheckIcon
+                            className={cn(
+                              "mr-2 size-4",
+                              field.value.includes(method)
+                                ? "opacity-100"
+                                : "opacity-0"
+                            )}
+                          />
+                          <span>{method}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </FormControl>
+                <FormMessage className="text-xs" />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="allowlisted_cidrs"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-xs font-medium">
+                  <span>IP allowlist</span>
+                </FormLabel>
+                <FormControl>
+                  <CustomTagInput
+                    {...field}
+                    placeholder="Enter an IP address or CIDR. Allow all IPs by default."
+                    tags={field.value}
+                    setTags={(newTags) =>
+                      handleAllowlistedCidrsChange(
+                        Array.isArray(newTags) ? newTags : []
+                      )
+                    }
                   />
                 </FormControl>
-              </div>
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="methods"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel className="flex gap-2 items-center text-xs font-medium">
-                <span>Allowed HTTP methods</span>
-              </FormLabel>
-              <FormControl>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="justify-between w-full text-xs"
-                      disabled={isUpdatingWebhook}
-                    >
-                      {field.value.length > 0
-                        ? field.value.sort().join(", ")
-                        : "Select HTTP methods"}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    style={{
-                      width: "var(--radix-dropdown-menu-trigger-width)",
-                    }}
-                    align="start"
-                    sideOffset={4}
-                  >
-                    {HTTP_METHODS.map((method) => (
-                      <DropdownMenuItem
-                        key={method}
-                        onClick={() => {
-                          const newMethods = field.value.includes(method)
-                            ? field.value.filter((m) => m !== method)
-                            : [...field.value, method]
-
-                          handleMethodsChange(newMethods)
-                        }}
-                        className="w-full text-xs"
-                      >
-                        <CheckIcon
-                          className={cn(
-                            "mr-2 size-4",
-                            field.value.includes(method)
-                              ? "opacity-100"
-                              : "opacity-0"
-                          )}
-                        />
-                        <span>{method}</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </FormControl>
-              <FormMessage className="text-xs" />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="allowlisted_cidrs"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel className="text-xs font-medium">
-                <span>IP allowlist</span>
-              </FormLabel>
-              <FormControl>
-                <CustomTagInput
-                  {...field}
-                  placeholder="Enter an IP address or CIDR. Allow all IPs by default."
-                  tags={field.value}
-                  setTags={(newTags) =>
-                    handleAllowlistedCidrsChange(
-                      Array.isArray(newTags) ? newTags : []
-                    )
-                  }
-                />
-              </FormControl>
-              <FormMessage className="text-xs" />
-              <FormDescription className="text-xs">
-                Press{" "}
-                <kbd className="px-1 py-0.5 text-[10px] font-semibold bg-muted border rounded tracking-tighter">
-                  Enter ↵
-                </kbd>{" "}
-                to add a new entry.
-              </FormDescription>
-            </FormItem>
-          )}
-        />
+                <FormMessage className="text-xs" />
+                <FormDescription className="text-xs">
+                  Press{" "}
+                  <kbd className="px-1 py-0.5 text-[10px] font-semibold bg-muted border rounded tracking-tighter">
+                    Enter ↵
+                  </kbd>{" "}
+                  to add a new entry.
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+        </ReadOnlyFieldset>
       </Form>
 
       <div className="space-y-3">
@@ -1134,7 +1146,14 @@ export function WebhookControls({
   )
 }
 
-export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
+export function CaseTriggerControls({
+  workflowId,
+  readOnly = false,
+}: {
+  workflowId: string
+  /** Lock case trigger settings on managed workflows. */
+  readOnly?: boolean
+}) {
   const workspaceId = useWorkspaceId()
   const {
     data: caseTrigger,
@@ -1274,7 +1293,7 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <ReadOnlyFieldset readOnly={readOnly} className="space-y-4">
       <div className="flex items-center justify-between gap-4 rounded-md border p-3">
         <div className="space-y-1">
           <Label className="text-xs font-semibold">Enable case triggers</Label>
@@ -1325,7 +1344,7 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
           Uses current case tags; workflow-originated events are ignored.
         </p>
       </div>
-    </div>
+    </ReadOnlyFieldset>
   )
 }
 

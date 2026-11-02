@@ -47,6 +47,7 @@ import {
   type WorkflowWebhookFilterValue,
 } from "@/components/dashboard/workflows-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { RowTimestamps } from "@/components/timestamps"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -141,6 +142,11 @@ function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
 
   return (
     <div className="flex shrink-0 items-center gap-1">
+      <ManagedResourceStatus
+        resourceType="workflow"
+        id={item.id}
+        name={item.alias ?? item.title}
+      />
       {item.alias && (
         <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
           <AtSignIcon className="mr-1 size-3" />

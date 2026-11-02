@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -55,6 +56,9 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
   const canDeleteColumn = useScopeCheck("table:delete")
   const params = useParams<{ tableId?: string }>()
   const tableId = params?.tableId
+  // A managed table's schema is locked; its rows stay editable.
+  const { isManaged } = useManagedResources()
+  const schemaLocked = isManaged("table", tableId)
   const [activeType, setActiveType] = useState<TableViewColumnMenuType>(null)
   const onOpenChange = () => setActiveType(null)
 
@@ -89,6 +93,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
             Copy name
           </DropdownMenuItem>
           {canUpdateTable &&
+            !schemaLocked &&
             (column.is_index ? (
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
@@ -112,15 +117,17 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 Create unique index
               </DropdownMenuItem>
             ))}
-          <TableSearchColumnMenuItem
-            column={column}
-            onSelectAction={(enabled) =>
-              setActiveType(
-                enabled ? "enable-vector-search" : "disable-vector-search"
-              )
-            }
-          />
-          {canDeleteColumn && (
+          {!schemaLocked && (
+            <TableSearchColumnMenuItem
+              column={column}
+              onSelectAction={(enabled) =>
+                setActiveType(
+                  enabled ? "enable-vector-search" : "disable-vector-search"
+                )
+              }
+            />
+          )}
+          {canDeleteColumn && !schemaLocked && (
             <DropdownMenuItem
               className="py-1 text-xs text-destructive"
               onClick={(e) => {

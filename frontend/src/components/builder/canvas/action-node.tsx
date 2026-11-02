@@ -136,7 +136,7 @@ export default React.memo(function ActionNode({
     setSelectedActionEventRef,
     setRerunRequest,
   } = useWorkflowBuilder()
-  const { validationErrors } = useWorkflow()
+  const { validationErrors, isReadOnly } = useWorkflow()
 
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -465,7 +465,13 @@ export default React.memo(function ActionNode({
   return (
     <TooltipProvider>
       <FormProvider {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
+        <form
+          onSubmit={
+            isReadOnly
+              ? (event) => event.preventDefault()
+              : form.handleSubmit(onSubmit)
+          }
+        >
           <ContextMenu onOpenChange={setContextMenuOpen}>
             <ContextMenuTrigger asChild>
               <Card
@@ -485,7 +491,10 @@ export default React.memo(function ActionNode({
                   actionType={action?.type}
                   actionInputs={actionInputsObj}
                   actionIsLoading={actionIsLoading}
-                  submitHandler={form.handleSubmit(onSubmit)}
+                  submitHandler={
+                    isReadOnly ? () => {} : form.handleSubmit(onSubmit)
+                  }
+                  readOnly={isReadOnly}
                   style={style}
                   breakpoint={breakpoint}
                   Icon={Icon}
@@ -494,40 +503,42 @@ export default React.memo(function ActionNode({
                   error={error}
                   validationErrors={actionValidationErrors}
                 />
-                {action && (lockedExecutionId || isMouseOverNode) && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={
-                          lockedExecutionId ? "Unlock action" : "Lock action"
-                        }
-                        className={cn(
-                          "absolute right-2 top-2 rounded p-1 transition-colors hover:bg-muted",
-                          lockedExecutionId
-                            ? "text-amber-600 dark:text-amber-400"
-                            : "text-muted-foreground"
-                        )}
-                        onClick={handleLockClick}
-                      >
-                        {lockStale ? (
-                          <AlertTriangleIcon className="size-3.5" />
-                        ) : lockedExecutionId ? (
-                          <LockIcon className="size-3.5" />
-                        ) : (
-                          <LockOpenIcon className="size-3.5" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      {lockStale
-                        ? "The locked run is no longer in run history, so draft runs run this action fresh. Click to unlock."
-                        : lockedExecutionId
-                          ? "Draft runs reuse this action's result from a past run. Click to unlock."
-                          : "Lock to a past run's result"}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
+                {action &&
+                  !isReadOnly &&
+                  (lockedExecutionId || isMouseOverNode) && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={
+                            lockedExecutionId ? "Unlock action" : "Lock action"
+                          }
+                          className={cn(
+                            "absolute right-2 top-2 rounded p-1 transition-colors hover:bg-muted",
+                            lockedExecutionId
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-muted-foreground"
+                          )}
+                          onClick={handleLockClick}
+                        >
+                          {lockStale ? (
+                            <AlertTriangleIcon className="size-3.5" />
+                          ) : lockedExecutionId ? (
+                            <LockIcon className="size-3.5" />
+                          ) : (
+                            <LockOpenIcon className="size-3.5" />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {lockStale
+                          ? "The locked run is no longer in run history, so draft runs run this action fresh. Click to unlock."
+                          : lockedExecutionId
+                            ? "Draft runs reuse this action's result from a past run. Click to unlock."
+                            : "Lock to a past run's result"}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 <ActionTargetHandle
                   action={action}
                   indegree={incomingEdges.length}
@@ -549,6 +560,7 @@ export default React.memo(function ActionNode({
                     handleDuplicateNode={handleDuplicateNode}
                     locked={!!lockedExecutionId}
                     onToggleLock={handleLockClick}
+                    readOnly={isReadOnly}
                   />
                 )}
               </Card>
@@ -567,7 +579,7 @@ export default React.memo(function ActionNode({
               </ContextMenuItem>
               <ContextMenuItem
                 className="gap-2 text-xs"
-                disabled={!action}
+                disabled={!action || isReadOnly}
                 onSelect={handleLockClick}
               >
                 {lockedExecutionId ? (
@@ -602,6 +614,7 @@ function ActionNodeContent({
   tableLinkInfo,
   error,
   validationErrors,
+  readOnly = false,
 }: {
   actionType?: string
   actionInputs?: Record<string, unknown>
@@ -615,6 +628,7 @@ function ActionNodeContent({
   tableLinkInfo: TableLinkInfo | null
   error: ActionConfigError | null
   validationErrors: ValidationResult[]
+  readOnly?: boolean
 }) {
   const form = useFormContext()
 
@@ -676,6 +690,7 @@ function ActionNodeContent({
                         <Input
                           type="text"
                           {...field}
+                          readOnly={readOnly}
                           className={cn(
                             "m-0 h-5 shrink-0 border-none bg-transparent p-0",
                             "font-medium leading-none",
@@ -770,6 +785,7 @@ export function ActionNodeToolbar({
   handleDuplicateNode,
   locked,
   onToggleLock,
+  readOnly = false,
 }: {
   action: ActionRead
   childWorkflowInfo: ChildWorkflowInfo
@@ -783,6 +799,8 @@ export function ActionNodeToolbar({
   handleDuplicateNode: () => void
   locked: boolean
   onToggleLock: () => void
+  /** Hide rename, duplicate, lock and delete on managed workflows. */
+  readOnly?: boolean
 }) {
   const form = useFormContext()
   const { workspaceId, setRerunRequest } = useWorkflowBuilder()
@@ -865,14 +883,18 @@ export function ActionNodeToolbar({
               <CopyIcon className="mr-2 size-3" />
               <span>Copy reference</span>
             </CommandItem>
-            <CommandItem onSelect={() => form.setFocus("title")}>
-              <PencilIcon className="mr-2 size-3" />
-              <span>Rename</span>
-            </CommandItem>
-            <CommandItem onSelect={handleDuplicateNode}>
-              <CopyPlusIcon className="mr-2 size-3" />
-              <span>Duplicate</span>
-            </CommandItem>
+            {!readOnly && (
+              <CommandItem onSelect={() => form.setFocus("title")}>
+                <PencilIcon className="mr-2 size-3" />
+                <span>Rename</span>
+              </CommandItem>
+            )}
+            {!readOnly && (
+              <CommandItem onSelect={handleDuplicateNode}>
+                <CopyPlusIcon className="mr-2 size-3" />
+                <span>Duplicate</span>
+              </CommandItem>
+            )}
             <CommandItem
               onSelect={() => {
                 sidebarRef.current?.setOpen(true)
@@ -901,22 +923,26 @@ export function ActionNodeToolbar({
               <RotateCcwIcon className="mr-2 size-3" />
               <span>Rerun from here</span>
             </CommandItem>
-            <CommandItem onSelect={onToggleLock}>
-              {locked ? (
-                <LockOpenIcon className="mr-2 size-3" />
-              ) : (
-                <LockIcon className="mr-2 size-3" />
-              )}
-              <span>{locked ? "Unlock" : "Lock to a run"}</span>
-            </CommandItem>
+            {!readOnly && (
+              <CommandItem onSelect={onToggleLock}>
+                {locked ? (
+                  <LockOpenIcon className="mr-2 size-3" />
+                ) : (
+                  <LockIcon className="mr-2 size-3" />
+                )}
+                <span>{locked ? "Unlock" : "Lock to a run"}</span>
+              </CommandItem>
+            )}
 
-            <CommandItem
-              className="group !text-red-600"
-              onSelect={() => handleDeleteNode()}
-            >
-              <Trash2Icon className="mr-2 size-3 group-hover:text-red-600" />
-              <span className="group-hover:text-red-600">Delete</span>
-            </CommandItem>
+            {!readOnly && (
+              <CommandItem
+                className="group !text-red-600"
+                onSelect={() => handleDeleteNode()}
+              >
+                <Trash2Icon className="mr-2 size-3 group-hover:text-red-600" />
+                <span className="group-hover:text-red-600">Delete</span>
+              </CommandItem>
+            )}
           </CommandGroup>
         </CommandList>
       </Command>

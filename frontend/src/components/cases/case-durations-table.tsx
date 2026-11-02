@@ -23,6 +23,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,6 +49,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { createCaseFieldDisplayNameMap } from "@/lib/case-field-display"
 import { useCaseFields, useCaseTagCatalog } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -107,6 +109,8 @@ export function CaseDurationsTable({
   const [editingDuration, setEditingDuration] =
     useState<CaseDurationDefinitionRead | null>(null)
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false)
+  // Managed durations keep their definition.
+  const { isManaged } = useManagedResources()
 
   const workspaceId = useWorkspaceId()
   const { caseTags } = useCaseTagCatalog(workspaceId ?? "", {
@@ -239,6 +243,12 @@ export function CaseDurationsTable({
                   <span>
                     {row.getValue<CaseDurationDefinitionRead["name"]>("name")}
                   </span>
+                  <ManagedResourceStatus
+                    resourceType="case_duration"
+                    id={row.original.id}
+                    name={row.original.name}
+                    showDetach
+                  />
                   {row.original.description ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -304,6 +314,7 @@ export function CaseDurationsTable({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
+                        disabled={isManaged("case_duration", row.original.id)}
                         onClick={() => {
                           setEditingDuration(row.original)
                           setIsUpdateDialogOpen(true)
@@ -312,9 +323,13 @@ export function CaseDurationsTable({
                         Update duration
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <AlertDialogTrigger asChild>
+                      <AlertDialogTrigger
+                        asChild
+                        disabled={isManaged("case_duration", row.original.id)}
+                      >
                         <DropdownMenuItem
                           className="text-rose-500 focus:text-rose-600"
+                          disabled={isManaged("case_duration", row.original.id)}
                           onClick={() => setSelectedDuration(row.original)}
                         >
                           Delete
