@@ -491,11 +491,13 @@ function PackageResourceGroup({
   onChecked: (items: WorkspacePackageResource[], checked: boolean) => void
 }) {
   const label = getWorkspaceSyncResourceLabel(group.type)
-  // Implied resources follow their users, so the group checkbox leaves them
-  // alone. Checking them here would give each one its own include line.
-  const selectable = group.resources.filter(
-    (resource) =>
-      resource.status !== "implied" && lockedReason(resource) === undefined
+  // Implied resources follow their users, so checking a group never adds them.
+  // That would give each one its own include line.
+  const addable = group.resources.filter(
+    (resource) => resource.status !== "implied" && !isInPackage(resource)
+  )
+  const hasRemovable = group.resources.some(
+    (resource) => isInPackage(resource) && lockedReason(resource) === undefined
   )
   const count = group.resources.filter(isInPackage).length
   let groupChecked: boolean | "indeterminate" = "indeterminate"
@@ -511,10 +513,14 @@ function PackageResourceGroup({
         <Checkbox
           aria-label={`Select all ${label}`}
           checked={groupChecked}
-          disabled={selectable.length === 0}
-          onCheckedChange={() =>
-            onChecked(selectable, !selectable.every(isInPackage))
-          }
+          disabled={addable.length === 0 && !hasRemovable}
+          onCheckedChange={() => {
+            if (addable.length > 0) {
+              onChecked(addable, true)
+            } else {
+              onChecked(group.resources, false)
+            }
+          }}
         />
         <button
           type="button"

@@ -252,6 +252,37 @@ describe("PackageResourcesDialog", () => {
     expect(onApply).toHaveBeenCalledWith(new Set(["workflow:parent"]))
   })
 
+  it("clears a dependency selected by its own row with its group", () => {
+    const onApply = renderDialog(
+      new Set(["workflow:parent", "workflow:child"]),
+      SAME_GROUP_PACKAGE
+    )
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Select all Workflows/i })
+    )
+    expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
+    expect(onApply).toHaveBeenCalledWith(new Set())
+  })
+
+  it("keeps the group checkbox usable for a former dependency", () => {
+    const onApply = renderDialog(USES_SETTINGS)
+    expandGroups()
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /^triage/ }))
+    fireEvent.click(screen.getByRole("checkbox", { name: /^settings/ }))
+    const group = screen.getByRole("checkbox", {
+      name: /Select all Variables/i,
+    })
+    expect(group).toBeEnabled()
+
+    fireEvent.click(group)
+    fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
+    expect(onApply).toHaveBeenCalledWith(new Set())
+  })
+
   it("marks a partly selected group", () => {
     renderDialog(new Set(), {
       ...SAME_GROUP_PACKAGE,
