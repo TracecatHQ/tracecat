@@ -374,7 +374,13 @@ function PackageResourcesForm({
   selected: Set<string>
   onApply: (selected: Set<string>) => void
 }) {
-  const [draft, setDraft] = useState(selected)
+  // A draft only applies to the package it was edited against, so a refetch
+  // that changes the package restarts it from the current selection.
+  const [edit, setEdit] = useState<{
+    source: WorkspacePackageRead
+    draft: Set<string>
+  }>()
+  const draft = edit && edit.source === workspacePackage ? edit.draft : selected
   const [search, setSearch] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const resources = workspacePackage.resources ?? []
@@ -397,7 +403,7 @@ function PackageResourcesForm({
         next.delete(key)
       }
     }
-    setDraft(next)
+    setEdit({ source: workspacePackage, draft: next })
   }
 
   function toggleExpanded(type: string) {

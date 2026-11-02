@@ -107,6 +107,31 @@ describe("PackageResourcesDialog", () => {
     expect(onApply).toHaveBeenCalledWith(new Set())
   })
 
+  it("restarts the draft when the package changes while open", () => {
+    const onApply = jest.fn()
+    function dialog(workspacePackage: WorkspacePackageRead) {
+      return (
+        <PackageResourcesDialog
+          open
+          onOpenChange={jest.fn()}
+          workspacePackage={workspacePackage}
+          selected={USES_SETTINGS}
+          onApply={onApply}
+        />
+      )
+    }
+    const { rerender } = render(dialog(PACKAGE))
+    expandGroups()
+    fireEvent.click(screen.getByRole("checkbox", { name: /^triage/ }))
+    expect(screen.getByText(/0 of 2 in the package/)).toBeInTheDocument()
+
+    rerender(dialog({ ...PACKAGE }))
+
+    expect(screen.getByText(/2 of 2 in the package/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
+    expect(onApply).toHaveBeenCalledWith(USES_SETTINGS)
+  })
+
   it("checks a whole group at once, leaving locked resources alone", () => {
     const onApply = renderDialog(new Set())
 
