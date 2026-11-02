@@ -7,12 +7,13 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.db.engine import SupportsExecute
 from tracecat.identifiers import OrganizationID
 
-# Surfaces that take the configured backend. The preset builder's tools and
-# workflow agent actions exist only in the built-in backend's workflow.
+# Surfaces that take the configured backend. Workflow agent actions exist only
+# in the built-in backend's workflow.
 SELECTABLE_ENTITIES = frozenset(
     {
         AgentSessionEntity.WORKSPACE_CHAT,
         AgentSessionEntity.AGENT_PRESET,
+        AgentSessionEntity.AGENT_PRESET_BUILDER,
         AgentSessionEntity.CASE,
         AgentSessionEntity.EXTERNAL_CHANNEL,
     }
