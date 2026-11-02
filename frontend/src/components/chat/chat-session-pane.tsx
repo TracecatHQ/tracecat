@@ -270,6 +270,11 @@ export interface ChatSessionPaneProps {
    */
   inputDisabledPlaceholder?: string
   /**
+   * Hide approval decisions while the composer stays as `inputDisabled` sets
+   * it. Unlike a read-only chat, the running turn can still be stopped.
+   */
+  approvalsDisabled?: boolean
+  /**
    * Optional preset selector rendered in the prompt footer.
    */
   presetSelector?: ChatPresetSelector
@@ -309,6 +314,7 @@ export function ChatSessionPane({
   onPendingMessageSent,
   inputDisabled = false,
   inputDisabledPlaceholder,
+  approvalsDisabled = false,
   presetSelector,
   surface = "regular",
   centered,
@@ -370,6 +376,7 @@ export function ChatSessionPane({
 
   // Read-only state includes ownership, backend availability, and entitlements.
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
+  const cannotDecideApprovals = isReadonly || approvalsDisabled
   // Sending, retrying and approving all run the agent. `undefined` means the
   // scopes are still loading, which must not disable anything.
   const cannotExecuteAgents = useScopeCheck("agent:execute") === false
@@ -715,7 +722,7 @@ export function ChatSessionPane({
   const [sentDecisions, setSentDecisions] = useState<ApprovalDecision[]>([])
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
-      if (isReadonly || !decisionPayload.length) return []
+      if (cannotDecideApprovals || !decisionPayload.length) return []
       // Another tab or the Inbox may have decided these since this pane last
       // refreshed, so submit only the decisions the session still waits on.
       const pendingIds = await fetchPendingApprovalIds()
@@ -748,7 +755,7 @@ export function ChatSessionPane({
         throw error
       }
     },
-    [clearError, fetchPendingApprovalIds, isReadonly, sendMessage]
+    [cannotDecideApprovals, clearError, fetchPendingApprovalIds, sendMessage]
   )
 
   const [sentApprovalIds, setSentApprovalIds] = useState<ReadonlySet<string>>(
@@ -1081,7 +1088,7 @@ export function ChatSessionPane({
   // The latest turn's undecided calls, answered from the prompt box.
   const composerApprovals = useMemo(() => {
     const lastBlock = threadBlocks.at(-1)
-    if (isReadonly || lastBlock?.kind !== "turn") return []
+    if (cannotDecideApprovals || lastBlock?.kind !== "turn") return []
     return lastBlock.messages
       .flatMap((message) => message.parts)
       .flatMap((part) =>
@@ -1094,10 +1101,10 @@ export function ChatSessionPane({
           (!approval.status || approval.status === "pending") &&
           !sentApprovalIds.has(approval.tool_call_id)
       )
-  }, [isReadonly, sentApprovalIds, threadBlocks])
+  }, [cannotDecideApprovals, sentApprovalIds, threadBlocks])
   const approvalComposerContext = useMemo(
     () =>
-      isReadonly
+      cannotDecideApprovals
         ? null
         : {
             composerIds: new Set(
@@ -1106,7 +1113,12 @@ export function ChatSessionPane({
             sentIds: sentApprovalIds,
             deniedIds: deniedApprovalIds,
           },
-    [composerApprovals, deniedApprovalIds, isReadonly, sentApprovalIds]
+    [
+      cannotDecideApprovals,
+      composerApprovals,
+      deniedApprovalIds,
+      sentApprovalIds,
+    ]
   )
   const lastMessageId = messages.at(-1)?.id
 
@@ -1642,7 +1654,9 @@ export function ChatSessionPane({
                       cancelledMessageIds={cancelledTurnMessageIds}
                       interruptedToolCallIds={interruptedToolCallIds}
                       onSubmitApprovals={
-                        isReadonly ? undefined : handleSubmitApprovals
+                        cannotDecideApprovals
+                          ? undefined
+                          : handleSubmitApprovals
                       }
                     />
                     {/* A failed turn's Retry sits with its error below. */}

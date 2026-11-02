@@ -51,7 +51,7 @@ from tracecat.agent.stream.events import StreamFormat
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import ArtifactType
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import check_scopes, require_scope
 from tracecat.chat.schemas import (
     ChatRead,
     ChatReadMinimal,
@@ -64,6 +64,7 @@ from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
+    ScopeDeniedError,
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -118,6 +119,15 @@ def _require_session_write_access(
             "message": "Teammate sessions are read-only.",
         },
     )
+
+
+def _require_builder_edit_access(
+    role: WorkspaceActorRouteRole, entity_type: AgentSessionEntity | str
+) -> None:
+    """A preset builder chat edits its preset, so creating or running one needs
+    ``agent:update`` as well as ``agent:execute``."""
+    if entity_type == AgentSessionEntity.AGENT_PRESET_BUILDER:
+        check_scopes(role, "agent:update")
 
 
 async def _require_workspace_chat_entitlement_for_session_tree(
@@ -207,6 +217,7 @@ async def create_session(
     session: AsyncDBSession,
 ) -> AgentSessionRead:
     """Create a new agent session associated with an entity."""
+    _require_builder_edit_access(role, request.entity_type)
     await require_workspace_chat_entitlement_for_entity(
         session=session,
         role=role,
@@ -449,6 +460,7 @@ async def update_session(
         )
 
     _require_session_write_access(role, agent_session)
+    _require_builder_edit_access(role, agent_session.entity_type)
 
     await _require_workspace_chat_entitlement_for_session_tree(
         session=session,
@@ -590,6 +602,7 @@ async def send_message(
                 request=request,
             )
             _require_session_write_access(role, agent_session)
+            _require_builder_edit_access(role, agent_session.entity_type)
             await _require_workspace_chat_entitlement_for_session_tree(
                 svc=svc,
                 session=svc.session,
@@ -736,7 +749,7 @@ async def send_message(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except EntitlementRequired:
+    except (EntitlementRequired, ScopeDeniedError):
         raise
     except HTTPException:
         raise
@@ -922,6 +935,7 @@ async def fork_session(
         entity_type = request.entity_type if request else None
         if entity_type is None:
             entity_type = AgentSessionEntity(parent_session.entity_type)
+        _require_builder_edit_access(role, entity_type)
         await require_workspace_chat_entitlement_for_entity(
             session=session,
             role=role,
@@ -1013,6 +1027,9 @@ async def control_session(
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
         _require_session_write_access(role, agent_session)
+        # Cancelling stays open to the owner, so a revoked scope can still stop a run.
+        if request.type != "cancel":
+            _require_builder_edit_access(role, agent_session.entity_type)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,
