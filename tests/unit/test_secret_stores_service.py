@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.secrets.providers.aws_secrets_manager import generate_store_external_id
@@ -13,6 +13,7 @@ from tracecat_ee.secrets.references.service import SecretReferencesService
 from tracecat_ee.secrets.stores.backends import parse_store_config
 from tracecat_ee.secrets.stores.service import SecretStoresService
 
+from tests.support.managed_resources import mark_managed
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import (
@@ -30,6 +31,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.pagination import PageParams
 from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
 from tracecat.secrets.schemas import (
@@ -46,6 +48,7 @@ from tracecat.secrets.schemas import (
     SecretUpdate,
 )
 from tracecat.secrets.service import build_external_secret_reference
+from tracecat.workspace_sync.enums import SyncResourceType
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -385,6 +388,47 @@ async def test_name_uniqueness_spans_local_and_aws_rows(
             reference_params(store.id, name="shared")
         )
     await secrets.session.rollback()
+
+
+@pytest.mark.anyio
+async def test_managed_aws_reference_compares_the_mapping_a_rollout_wrote(
+    stores: SecretStoresService,
+    secrets: SecretReferencesService,
+    svc_workspace: Workspace,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
+    )
+    await stores.authorize_workspace(store, svc_workspace.id)
+    created = await secrets.create_aws_secret_reference(reference_params(store.id))
+    await mark_managed(
+        secrets.session,
+        secrets.role,
+        SyncResourceType.SECRET_METADATA,
+        created.id,
+    )
+    loaded_mapping = AwsSecretKeyMapping.model_validate(created.remote_key_mapping)
+    # A rollout commits a new mapping after this caller loaded the secret.
+    await secrets.session.execute(
+        update(Secret)
+        .where(Secret.id == created.id)
+        .values(
+            remote_key_mapping=AwsSecretKeyMapping(
+                mode=AwsSecretMappingMode.JSON,
+                fields=[AwsSecretJsonField(key="USER", field="username")],
+            ).model_dump(mode="json")
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await secrets.session.commit()
+
+    with pytest.raises(ManagedResourceLockedError):
+        await secrets.update_aws_secret_reference(
+            created, AwsSecretReferenceUpdate(key_mapping=loaded_mapping)
+        )
 
 
 @pytest.mark.anyio

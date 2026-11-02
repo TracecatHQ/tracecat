@@ -800,11 +800,17 @@ class AgentPresetService(BaseWorkspaceService):
             # The agent builder sends the whole form back on save, so only
             # fields whose value changed count against a managed preset.
             fields_set = changed_fields(
-                params.model_dump(exclude_unset=True, exclude={"skills"}),
+                params.model_dump(exclude_unset=True, exclude={"skills", "agents"}),
                 await self._effective_values(
-                    preset, params.model_fields_set - {"skills"}
+                    preset, params.model_fields_set - {"skills", "agents"}
                 ),
             ) | ({"skills"} & params.model_fields_set)
+            # Stored subagents carry derived version details the form omits.
+            if "agents" in params.model_fields_set and (
+                self._subagent_declarations(params.agents)
+                != self._subagent_declarations(preset.agents)
+            ):
+                fields_set.add("agents")
         await ensure_preset_update_allowed(
             self.session,
             workspace_id=self.workspace_id,

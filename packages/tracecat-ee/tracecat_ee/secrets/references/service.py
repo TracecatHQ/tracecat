@@ -18,7 +18,10 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.managed_resources.guard import hold_for_customer_write
+from tracecat.managed_resources.guard import (
+    hold_for_customer_write,
+    refresh_for_customer_write,
+)
 from tracecat.managed_resources.values import (
     changed_fields,
     ensure_values_only_update,
@@ -192,6 +195,7 @@ class SecretReferencesService(SecretsService):
         self, secret: Secret, params: AwsSecretReferenceUpdate
     ) -> None:
         """Update the reference or mapping of an AWS-backed workspace secret."""
+        await refresh_for_customer_write(self.session, self.role.workspace_id, secret)
         # On a managed secret the FDE matches the store; the customer only
         # points it at their own ARN or secret name.
         await ensure_values_only_update(

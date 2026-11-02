@@ -29,6 +29,10 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.schemas import SkillCreate
 from tracecat.agent.skill.service import SkillService
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.auth.types import Role
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownDefinitionUpdate,
@@ -311,6 +315,53 @@ async def test_managed_preset_save_may_resend_unchanged_fields_with_skills(
         )
     )
     assert customer_skill in bound
+
+
+@pytest.mark.anyio
+async def test_managed_preset_save_may_resend_its_subagents_with_skills(
+    session: AsyncSession, seeded: Role
+) -> None:
+    preset, package_skills = await _managed_preset(session, seeded)
+    customer_skill = await _customer_skill(session, seeded)
+    [child] = AgentSubagentsConfig.model_validate(preset.agents).subagents
+    assert isinstance(child, ResolvedAttachedSubagentRef)
+    # The agent builder sends the ids but not the stored version number.
+    resent = {
+        "preset": child.preset,
+        "preset_id": str(child.preset_id),
+        "preset_version_id": str(child.preset_version_id),
+    }
+    skills = [
+        AgentPresetSkillBindingBase(skill_id=skill_id)
+        for skill_id in [*package_skills, customer_skill]
+    ]
+    service = AgentPresetService(session, role=seeded)
+
+    await service.update_preset(
+        preset,
+        AgentPresetUpdate(
+            agents=AgentSubagentsConfig.model_validate({"subagents": [resent]}),
+            skills=skills,
+        ),
+    )
+
+    bound = set(
+        await session.scalars(
+            select(AgentPresetSkill.skill_id).where(
+                AgentPresetSkill.preset_id == preset.id
+            )
+        )
+    )
+    assert customer_skill in bound
+    with pytest.raises(ManagedResourceLockedError):
+        await service.update_preset(
+            preset,
+            AgentPresetUpdate(
+                agents=AgentSubagentsConfig.model_validate(
+                    {"subagents": [{**resent, "max_turns": 99}]}
+                ),
+            ),
+        )
 
 
 @pytest.mark.anyio

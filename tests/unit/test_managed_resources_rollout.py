@@ -894,6 +894,7 @@ async def test_retry_after_the_import_commits_finishes_the_deletes(
             ManagedRolloutApplyRequest(rollout_ids=[preview.id])
         )
     await harness.session.rollback()
+    await harness.session.refresh(customer)
 
     engine = ManagedRolloutEngine(
         harness.session, transport_factory=harness.fake_vcs.transport_factory
@@ -931,6 +932,7 @@ async def test_retry_finishes_a_partly_deleted_unassign(
             ManagedRolloutApplyRequest(rollout_ids=[unassign.id])
         )
     await harness.session.rollback()
+    await harness.session.refresh(customer)
 
     retried = await ManagedRolloutEngine(harness.session).apply(unassign.id)
 
