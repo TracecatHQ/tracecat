@@ -310,7 +310,7 @@ describe("PackageResourcesDialog", () => {
     expect(onApply).toHaveBeenCalledWith(new Set())
   })
 
-  it("keeps a selected dependency uncheckable when a user shares its name", () => {
+  it("lets a selected dependency be unchecked when a user shares its name", () => {
     renderDialog(new Set(["workflow:parent"]), SAME_NAME_PACKAGE)
     expandGroups()
     const [workflow, preset] = screen.getAllByRole("checkbox", {
