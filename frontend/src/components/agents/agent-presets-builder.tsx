@@ -633,12 +633,20 @@ export function AgentPresetArtifactView({
   )
 }
 
-/** Shown in place of a chat when the user's role lacks `agent:execute`. */
-function AgentExecuteRequiredNotice() {
+// The builder edits its preset, so it needs agent:update as well as agent:execute.
+const BUILDER_SCOPES_REQUIRED_MESSAGE =
+  "Your role cannot edit agents. Ask an admin for the agent:execute and agent:update scopes."
+
+/** Shown in place of a chat when the user's role lacks the scopes to run it. */
+function AgentExecuteRequiredNotice({
+  message = AGENT_EXECUTE_REQUIRED_MESSAGE,
+}: {
+  message?: string
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
       <AlertCircle className="size-5 text-amber-500" />
-      <p className="max-w-xs text-pretty">{AGENT_EXECUTE_REQUIRED_MESSAGE}</p>
+      <p className="max-w-xs text-pretty">{message}</p>
     </div>
   )
 }
@@ -1009,7 +1017,11 @@ function AgentPresetBuilderChatPane({
   trailing: ReactNode
 }) {
   const { user } = useAuth()
-  const canExecuteAgents = useScopeCheck("agent:execute")
+  const canUseBuilder = useScopeCheck(
+    undefined,
+    ["agent:execute", "agent:update"],
+    { all: true }
+  )
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
   const {
@@ -1049,7 +1061,7 @@ function AgentPresetBuilderChatPane({
   })
 
   const canStartChat = Boolean(
-    canExecuteAgents === true && preset && chatReady && modelInfo
+    canUseBuilder === true && preset && chatReady && modelInfo
   )
   const shouldAutoCreateChat =
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
@@ -1099,12 +1111,14 @@ function AgentPresetBuilderChatPane({
     }
 
     if (
-      canExecuteAgents === false &&
+      canUseBuilder === false &&
       !activeChatId &&
       !chatsLoading &&
       !chatsError
     ) {
-      return <AgentExecuteRequiredNotice />
+      return (
+        <AgentExecuteRequiredNotice message={BUILDER_SCOPES_REQUIRED_MESSAGE} />
+      )
     }
 
     if (chatReadyLoading) {
@@ -1183,6 +1197,11 @@ function AgentPresetBuilderChatPane({
         placeholder="Ask the builder to refine this agent's instructions, tools, or approvals..."
         modelInfo={modelInfo ?? undefined}
         emptyState={<BuilderEmptyState />}
+        // Without both scopes the server refuses new turns and approvals, but
+        // the owner can still stop a running turn.
+        inputDisabled={canUseBuilder === false}
+        inputDisabledPlaceholder={BUILDER_SCOPES_REQUIRED_MESSAGE}
+        approvalsDisabled={canUseBuilder === false}
         toolsEnabled={false}
         centered
       />
