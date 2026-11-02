@@ -1180,9 +1180,7 @@ function AgentPresetBuilderChatPane({
 
     return (
       <ChatSessionPane
-        // Without both scopes the server refuses every turn, approval and
-        // cancel, so the chat is read-only here too.
-        chat={canUseBuilder === false ? { ...chat, is_readonly: true } : chat}
+        chat={chat}
         workspaceId={workspaceId}
         entityType="agent_preset_builder"
         entityId={preset.id}
@@ -1190,6 +1188,11 @@ function AgentPresetBuilderChatPane({
         placeholder="Ask the builder to refine this agent's instructions, tools, or approvals..."
         modelInfo={modelInfo ?? undefined}
         emptyState={<BuilderEmptyState />}
+        // Without both scopes the server refuses new turns and approvals, but
+        // the owner can still stop a running turn.
+        inputDisabled={canUseBuilder === false}
+        inputDisabledPlaceholder={BUILDER_SCOPES_REQUIRED_MESSAGE}
+        approvalsDisabled={canUseBuilder === false}
         toolsEnabled={false}
         centered
       />

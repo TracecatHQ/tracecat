@@ -2279,7 +2279,15 @@ async def test_a_builder_session_owner_can_always_cancel(surface: str) -> None:
         entity_type=AgentSessionEntity.AGENT_PRESET_BUILDER,
         curr_run_id=uuid.uuid4(),
     )
-    role = _scoped_role(builder.workspace_id, EXECUTE_ONLY)
+    # The session's owner: a user role, which only writes its own sessions.
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=builder.created_by,
+        workspace_id=builder.workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=EXECUTE_ONLY,
+    )
     cancel = AgentCancelControl(type="cancel", id=uuid.uuid4())
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=builder),
