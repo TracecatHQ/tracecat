@@ -987,7 +987,6 @@ async def cancel_session(
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
         _require_session_write_access(role, agent_session)
-        _require_builder_edit_access(role, agent_session.entity_type)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,
@@ -1028,7 +1027,9 @@ async def control_session(
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
         _require_session_write_access(role, agent_session)
-        _require_builder_edit_access(role, agent_session.entity_type)
+        # Cancelling stays open to the owner, so a revoked scope can still stop a run.
+        if request.type != "cancel":
+            _require_builder_edit_access(role, agent_session.entity_type)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,

@@ -2215,12 +2215,11 @@ def test_messaging_a_builder_session_requires_agent_update(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("surface", ["update", "fork", "cancel", "control"])
+@pytest.mark.parametrize("surface", ["update", "fork", "steer"])
 async def test_other_builder_session_writes_require_agent_update(
     surface: str,
 ) -> None:
-    """Configuring, forking into, cancelling or steering a builder session needs
-    agent:update; reads stay agent:read."""
+    """Configuring, forking or steering a builder session needs agent:update."""
     builder = _agent_session_stub(
         entity_type=AgentSessionEntity.AGENT_PRESET_BUILDER,
         curr_run_id=uuid.uuid4(),
@@ -2256,21 +2255,63 @@ async def test_other_builder_session_writes_require_agent_update(
                 await cast(Any, fork_session).__wrapped__(
                     session_id=builder.id, role=role, session=AsyncMock()
                 )
-            case "cancel":
-                await cast(Any, cancel_session).__wrapped__(
-                    session_id=builder.id, role=role, session=AsyncMock()
-                )
-            case "control":
+            case "steer":
                 await cast(Any, control_session).__wrapped__(
                     session_id=builder.id,
-                    request=AgentCancelControl(type="cancel", id=uuid.uuid4()),
+                    request=AgentSteerControl(
+                        type="steer", id=uuid.uuid4(), text="Also add approvals"
+                    ),
                     role=role,
                     session=AsyncMock(),
                 )
 
     assert exc_info.value.missing_scopes == ["agent:update"]
-    for method in ("update_session", "fork_session", "request_cancel", "control"):
+    for method in ("update_session", "fork_session", "control"):
         getattr(fake_svc, method).assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("surface", ["cancel", "control"])
+async def test_a_builder_session_owner_can_always_cancel(surface: str) -> None:
+    """Revoking agent:update must not strand a running builder turn: its owner can
+    still cancel it, through either route."""
+    builder = _agent_session_stub(
+        entity_type=AgentSessionEntity.AGENT_PRESET_BUILDER,
+        curr_run_id=uuid.uuid4(),
+    )
+    role = _scoped_role(builder.workspace_id, EXECUTE_ONLY)
+    cancel = AgentCancelControl(type="cancel", id=uuid.uuid4())
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=builder),
+        request_cancel=AsyncMock(),
+        control=AsyncMock(
+            return_value=AgentControlReceipt(
+                id=cancel.id,
+                type="cancel",
+                run_id=builder.curr_run_id,
+                status="accepted",
+            )
+        ),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        if surface == "cancel":
+            await cast(Any, cancel_session).__wrapped__(
+                session_id=builder.id, role=role, session=AsyncMock()
+            )
+            fake_svc.request_cancel.assert_awaited_once()
+        else:
+            await cast(Any, control_session).__wrapped__(
+                session_id=builder.id, request=cancel, role=role, session=AsyncMock()
+            )
+            fake_svc.control.assert_awaited_once_with(builder.id, cancel)
 
 
 @pytest.mark.anyio
