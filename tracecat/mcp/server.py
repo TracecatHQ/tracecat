@@ -2856,7 +2856,7 @@ Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assi
 `core.cases.list_comment_threads`, `core.cases.list_comments`,
 `core.cases.list_tasks`,
 `core.cases.remove_case_tag`, `core.cases.reply_to_comment`,
-`core.cases.search_cases`, `core.cases.unlink_row`,
+`core.cases.run_task`, `core.cases.search_cases`, `core.cases.unlink_row`,
 `core.cases.update_case`, `core.cases.update_comment`,
 `core.cases.update_task`, `core.cases.upload_attachment`,
 `core.cases.upload_attachment_from_url`

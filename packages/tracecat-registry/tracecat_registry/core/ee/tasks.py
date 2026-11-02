@@ -176,6 +176,35 @@ async def update_task(
 
 
 @registry.register(
+    default_title="Run case task",
+    display_group="Cases",
+    description=(
+        "Run the workflow linked to a case task. The run uses the task's default "
+        "trigger values, gets `case_id` and `task_id` as inputs, and shows on the "
+        "task like a run started from the case."
+    ),
+    namespace="core.cases",
+    required_entitlements=["case_addons"],
+)
+async def run_task(
+    case_id: Annotated[
+        str,
+        Doc("The ID or short ID (e.g. CASE-0042) of the case the task belongs to."),
+    ],
+    task_id: Annotated[
+        str,
+        Doc("The ID of the task to run."),
+    ],
+    inputs: Annotated[
+        dict[str, Any] | None,
+        Doc("Trigger inputs that override the task's default trigger values."),
+    ] = None,
+) -> types.CaseTaskRunRead:
+    """Run the workflow linked to a case task."""
+    return await ctx.cases.aio.run_task(case_id, task_id, inputs=inputs)
+
+
+@registry.register(
     default_title="Delete case task",
     display_group="Cases",
     description="Delete a case task.",
