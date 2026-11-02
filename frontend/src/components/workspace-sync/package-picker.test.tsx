@@ -190,7 +190,7 @@ describe("PackageResourcesDialog", () => {
     expect(onApply).toHaveBeenCalledWith(USES_SETTINGS)
   })
 
-  it("checks a whole group at once, leaving locked resources alone", () => {
+  it("checks a whole group at once", () => {
     const onApply = renderDialog(new Set())
 
     fireEvent.click(
@@ -199,6 +199,24 @@ describe("PackageResourcesDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
 
     expect(onApply).toHaveBeenCalledWith(new Set(["workflow:triage"]))
+  })
+
+  it("leaves a resource selected by a glob out of the group checkbox", () => {
+    const onApply = renderDialog(new Set(), {
+      ...SAME_GROUP_PACKAGE,
+      patterns: ["workflows/parent*/**"],
+      resources: SAME_GROUP_PACKAGE.resources?.map((resource) => ({
+        ...resource,
+        status: resource.name === "parent" ? "explicit" : "excluded",
+      })),
+    })
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Select all Workflows/i })
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
+
+    expect(onApply).toHaveBeenCalledWith(new Set(["workflow:child"]))
   })
 
   it("filters resources by name across groups", () => {
@@ -276,6 +294,22 @@ describe("PackageSummary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply selection" }))
 
     await waitFor(() => expect(opener).toHaveFocus())
+  })
+
+  it("cannot open the dialog while disabled", () => {
+    render(
+      <PackageSummary
+        workspacePackage={PACKAGE}
+        selected={USES_SETTINGS}
+        isChanged={false}
+        disabled
+        onApply={jest.fn()}
+      />
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Edit resources" })
+    ).toBeDisabled()
   })
 
   it("names the admin page without linking it for other users", () => {
