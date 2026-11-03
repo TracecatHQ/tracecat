@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from time import monotonic
 from typing import Literal
@@ -57,6 +57,9 @@ class SessionFeedSnapshot:
     stream_id: uuid.UUID | None
     paused: bool
     type: Literal["snapshot"] = "snapshot"
+    # Newest feed entry id: a reconnecting client compares it with the last id
+    # it saw to detect runs that started and finished while it was away.
+    feed_id: str | None = None
 
 
 def session_feed_key(workspace_id: uuid.UUID, session_id: uuid.UUID) -> str:
@@ -116,7 +119,8 @@ class SessionFeed:
 
         Ends after ``FEED_MAX_CONNECTION_SECONDS``; the client reconnects.
         """
-        yield f"retry: {FEED_RECONNECT_DELAY_MS}\n" + _sse_data(_dumps(snapshot))
+        positioned = replace(snapshot, feed_id=after_id)
+        yield f"retry: {FEED_RECONNECT_DELAY_MS}\n" + _sse_data(_dumps(positioned))
         current_id = after_id
         opened_at = last_sent_at = monotonic()
         while not await stop_condition():
@@ -135,7 +139,7 @@ class SessionFeed:
                     current_id = entry_id
                     if (data := fields.get(tokens.DATA_KEY)) is not None:
                         last_sent_at = monotonic()
-                        yield _sse_data(data)
+                        yield f"id: {entry_id}\n" + _sse_data(data)
             if monotonic() - last_sent_at >= AgentStream.KEEPALIVE_INTERVAL_SECONDS:
                 last_sent_at = monotonic()
                 yield StreamKeepAlive.sse()

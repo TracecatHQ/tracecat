@@ -13,6 +13,8 @@ const snapshotSchema = z.object({
   run_id: z.string().nullable(),
   stream_id: z.string().nullable(),
   paused: z.boolean(),
+  /** The newest feed entry id when this connection opened. */
+  feed_id: z.string().nullable().optional(),
 })
 
 const feedEventSchema = z.discriminatedUnion("type", [
@@ -33,7 +35,12 @@ export type FeedState = {
   /** The segment this tab last attached to through the feed. */
   attachedStreamId: string | null
   /** The run state from the latest event, or null before the first snapshot. */
-  known: { runId: string | null; paused: boolean } | null
+  known: {
+    runId: string | null
+    paused: boolean
+    /** The feed entry id last seen; a newer one means events were missed. */
+    feedId: string | null
+  } | null
 }
 
 /** Parse one feed message, or null when it is not a known event. */
@@ -48,7 +55,8 @@ export function parseSessionFeedEvent(data: string): SessionFeedEvent | null {
 
 /**
  * Decide what a feed event asks of the tab. A segment the tab already attached
- * to is not attached again; a reconnect snapshot refreshes only on a change.
+ * to is not attached again; a reconnect snapshot refreshes only when the run
+ * state changed or the feed moved on while this tab was away.
  */
 export function feedActionFor(
   event: SessionFeedEvent,
@@ -62,7 +70,9 @@ export function feedActionFor(
       const known = state.known
       const changed =
         known !== null &&
-        (known.runId !== event.run_id || known.paused !== event.paused)
+        (known.runId !== event.run_id ||
+          known.paused !== event.paused ||
+          known.feedId !== (event.feed_id ?? null))
       return changed ? { kind: "refresh" } : null
     }
     case "run.started":
@@ -82,17 +92,25 @@ function attachUnlessHeld(
   return { kind: "attach", streamId }
 }
 
-function knownStateAfter(event: SessionFeedEvent): FeedState["known"] {
+/** The run state after `event`; `entryId` is the SSE id a run event carried. */
+export function knownStateAfter(
+  event: SessionFeedEvent,
+  entryId: string | null
+): FeedState["known"] {
   switch (event.type) {
     case "snapshot":
-      return { runId: event.run_id, paused: event.paused }
+      return {
+        runId: event.run_id,
+        paused: event.paused,
+        feedId: event.feed_id ?? null,
+      }
     case "run.started":
     case "run.resumed":
-      return { runId: event.run_id, paused: false }
+      return { runId: event.run_id, paused: false, feedId: entryId }
     case "run.paused":
-      return { runId: event.run_id, paused: true }
+      return { runId: event.run_id, paused: true, feedId: entryId }
     case "run.finished":
-      return { runId: null, paused: false }
+      return { runId: null, paused: false, feedId: entryId }
   }
 }
 
@@ -157,7 +175,10 @@ export function useSessionFeed({
         const event = parseSessionFeedEvent(message.data)
         if (!event) return
         const action = feedActionFor(event, stateRef.current)
-        stateRef.current.known = knownStateAfter(event)
+        stateRef.current.known = knownStateAfter(
+          event,
+          message.lastEventId || null
+        )
         if (action) runRef.current(action)
       }
     }

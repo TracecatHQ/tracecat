@@ -5,6 +5,7 @@ import { useVercelChat } from "@/hooks/use-chat"
 import {
   type FeedState,
   feedActionFor,
+  knownStateAfter,
   parseSessionFeedEvent,
   useSessionFeed,
 } from "@/hooks/use-session-feed"
@@ -46,12 +47,15 @@ class FakeEventSource {
   }
 
   /** Open the connection and deliver one feed message. */
-  deliver(payload: object) {
+  deliver(payload: object, lastEventId = "") {
     if (this.readyState !== FakeEventSource.OPEN) {
       this.readyState = FakeEventSource.OPEN
       this.onopen?.()
     }
-    this.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent<string>)
+    this.onmessage?.({
+      data: JSON.stringify(payload),
+      lastEventId,
+    } as MessageEvent<string>)
   }
 
   close() {
@@ -139,15 +143,35 @@ describe("feedActionFor", () => {
     expect(
       feedActionFor(idleSnapshot, {
         attachedStreamId: null,
-        known: { runId: null, paused: false },
+        known: { runId: null, paused: false, feedId: null },
       })
     ).toBeNull()
     expect(
       feedActionFor(idleSnapshot, {
         attachedStreamId: "s0",
-        known: { runId: "r1", paused: true },
+        known: { runId: "r1", paused: true, feedId: null },
       })
     ).toEqual({ kind: "refresh" })
+  })
+
+  it("refreshes when a run started and finished while the feed was down", () => {
+    const idleAt = (feedId: string) =>
+      ({
+        type: "snapshot",
+        run_id: null,
+        stream_id: null,
+        paused: false,
+        feed_id: feedId,
+      }) as const
+    const seen: FeedState = {
+      attachedStreamId: null,
+      known: knownStateAfter(
+        { type: "run.finished", run_id: "r1", stream_id: null },
+        "7-0"
+      ),
+    }
+    expect(feedActionFor(idleAt("7-0"), seen)).toBeNull()
+    expect(feedActionFor(idleAt("9-0"), seen)).toEqual({ kind: "refresh" })
   })
 })
 

@@ -136,10 +136,13 @@ async def test_sse_sends_snapshot_then_entries_in_order() -> None:
             "run_id": str(run_id),
             "stream_id": str(stream_id),
             "paused": True,
+            "feed_id": "1-0",
         },
         started,
         finished,
     ]
+    # Entry ids let a reconnecting client tell whether it missed anything.
+    assert [frame.splitlines()[0] for frame in frames[1:]] == ["id: 2-0", "id: 4-0"]
     # The cursor advances past skipped entries, and reads never block.
     calls = [call.kwargs for call in client.xread.await_args_list]
     assert calls == [
