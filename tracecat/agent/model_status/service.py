@@ -93,6 +93,11 @@ _REQUIRED_KEYS: dict[str, str] = {
 }
 
 
+def _is_passthrough(provider: str, credentials: dict[str, str]) -> bool:
+    runtime = resolve_gateway_provider_config(provider, credentials)
+    return runtime is not None and runtime.passthrough
+
+
 def credentials_incomplete(provider: str, credentials: dict[str, str]) -> bool:
     """Whether stored credentials lack what every model request needs.
 
@@ -211,10 +216,17 @@ def _error_strings(body: bytes) -> tuple[str | None, str | None]:
 
 
 async def _bounded_body(response: httpx.Response, limit: int) -> bytes:
-    """Read at most ``limit + 1`` decoded bytes, so an oversized body is
-    detectable but never held, even when one decompressed chunk is huge."""
+    """Read at most ``limit + 1`` raw bytes, so an oversized body is detectable
+    but never held.
+
+    The probe asks for an unencoded body and never decompresses one: a
+    decompression bomb could allocate far past the limit before any check. An
+    encoded body is ignored, which the callers read as "proves nothing".
+    """
+    if response.headers.get("content-encoding", "identity").lower() != "identity":
+        return b""
     body = bytearray()
-    async for chunk in response.aiter_bytes():
+    async for chunk in response.aiter_raw():
         body.extend(chunk[: limit + 1 - len(body)])
         if len(body) > limit:
             break
@@ -227,7 +239,7 @@ def _lists_model(body: bytes, model_id: str) -> bool:
     A listing that is truncated or not the OpenAI shape proves nothing, so it
     counts as listed: the key itself was accepted.
     """
-    if len(body) > _MAX_MODEL_LIST_BYTES:
+    if not body or len(body) > _MAX_MODEL_LIST_BYTES:
         return True
     try:
         payload = orjson.loads(body)
@@ -240,8 +252,7 @@ def _lists_model(body: bytes, model_id: str) -> bool:
             pass
         case _:
             return True
-    ids = {item.get("id") for item in items if isinstance(item, dict)}
-    return model_id in ids
+    return any(isinstance(item, dict) and item.get("id") == model_id for item in items)
 
 
 def _request_id(headers: httpx.Headers) -> str | None:
@@ -261,14 +272,18 @@ async def probe_model(
             create_outbound_http_client(
                 origin_url=target.url, timeout=PROBE_TIMEOUT_SECONDS
             ) as client,
-            client.stream("GET", target.url, headers=target.headers) as response,
+            client.stream(
+                "GET",
+                target.url,
+                headers=target.headers | {"Accept-Encoding": "identity"},
+            ) as response,
         ):
             body = b""
             if not response.is_success:
                 body = await _bounded_body(response, MAX_LLM_ERROR_BODY_BYTES)
             elif target.listed_model is not None:
                 body = await _bounded_body(response, _MAX_MODEL_LIST_BYTES)
-    except (httpx.RequestError, DisallowedUrlError) as exc:
+    except (httpx.RequestError, httpx.InvalidURL, DisallowedUrlError) as exc:
         logger.info(
             "Model status probe could not reach the provider",
             provider=provider,
@@ -400,8 +415,14 @@ class ModelStatusService(BaseWorkspaceService):
             preset=preset,
             catalog_linked=catalog_id is not None,
         )
-        if credentials and base_url and (key := _BASE_URL_OVERRIDE_KEYS.get(provider)):
-            # As the LLM gateway applies a preset's base URL.
+        if (
+            credentials
+            and base_url
+            and (key := _BASE_URL_OVERRIDE_KEYS.get(provider))
+            and not _is_passthrough(provider, credentials)
+        ):
+            # As the managed LLM gateway applies a preset's base URL. A
+            # passthrough route keeps the provider's own URL, so does this.
             credentials = credentials | {key: base_url}
         if not credentials or credentials_incomplete(provider, credentials):
             return problem(ModelErrorCode.CREDENTIALS_MISSING)

@@ -747,8 +747,10 @@ function AgentPresetChatPane({
       provider,
       baseUrl: selectedModel?.baseUrl ?? effectiveModelConfig.base_url ?? null,
       iconId: selectedModel?.iconId ?? getModelProviderIconId(provider),
+      // The playground runs the saved preset, so the status check loads it.
+      presetId: preset?.id ?? null,
     }
-  }, [effectiveModelConfig, selectedModel])
+  }, [effectiveModelConfig, selectedModel, preset?.id])
 
   const canStartChat = Boolean(
     canExecuteAgents === true &&

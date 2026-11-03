@@ -303,6 +303,16 @@ class TestProbeTarget:
         assert credentials_incomplete(provider, credentials) is incomplete
 
 
+class _NetworkStream(httpx.AsyncByteStream):
+    """A body that arrives unread, as from a socket, so raw reads work."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._data
+
+
 def _mock_outbound(
     monkeypatch: pytest.MonkeyPatch, handler: httpx.MockTransport
 ) -> list[httpx.Request]:
@@ -313,7 +323,15 @@ def _mock_outbound(
 
         def record(request: httpx.Request) -> httpx.Response:
             seen.append(request)
-            return handler.handle_request(request)
+            canned = handler.handle_request(request)
+            if not isinstance(canned.stream, httpx.ByteStream):
+                return canned
+            # A canned body arrives pre-read; replay it unread, as a socket would.
+            return httpx.Response(
+                canned.status_code,
+                headers=canned.headers,
+                stream=_NetworkStream(b"".join(canned.stream)),
+            )
 
         return httpx.AsyncClient(
             transport=httpx.MockTransport(record), timeout=kwargs["timeout"]
@@ -416,7 +434,8 @@ class TestProbeModel:
     async def test_compressed_error_body_is_cut_at_the_bound(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """One large decompressed chunk is still cut at the bound."""
+        """An encoded body is never decompressed, so a bomb allocates nothing;
+        the failure is still classified by its status."""
         seen: list[int] = []
         original = status_module._bounded_body
 
@@ -437,23 +456,72 @@ class TestProbeModel:
         )
         detail = await probe_model(self.TARGET, provider="openai", model="m")
         assert detail is not None
+        assert detail.code is ModelErrorCode.PROVIDER_AUTH_FAILED
+        assert seen == [0]
+
+    @pytest.mark.anyio
+    async def test_probe_asks_for_an_unencoded_body(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = _mock_outbound(
+            monkeypatch, httpx.MockTransport(lambda _: httpx.Response(200))
+        )
+        await probe_model(self.TARGET, provider="openai", model="m")
+        assert seen[0].headers["accept-encoding"] == "identity"
+
+    @pytest.mark.anyio
+    async def test_raw_error_body_is_cut_at_the_bound(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[int] = []
+        original = status_module._bounded_body
+
+        async def spy(response: httpx.Response, limit: int) -> bytes:
+            body = await original(response, limit)
+            seen.append(len(body))
+            return body
+
+        monkeypatch.setattr(status_module, "_bounded_body", spy)
+        _mock_outbound(
+            monkeypatch,
+            httpx.MockTransport(
+                lambda _: httpx.Response(401, content=b"x" * (1024 * 1024))
+            ),
+        )
+        await probe_model(self.TARGET, provider="openai", model="m")
         assert seen == [MAX_LLM_ERROR_BODY_BYTES + 1]
 
     @pytest.mark.anyio
-    async def test_corrupt_encoding_is_unreachable_not_a_crash(
+    async def test_corrupt_encoding_is_classified_not_a_crash(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _mock_outbound(
             monkeypatch,
             httpx.MockTransport(
                 lambda _: httpx.Response(
-                    401, content=b"not gzip", headers={"content-encoding": "gzip"}
+                    401,
+                    headers={"content-encoding": "gzip"},
+                    stream=_NetworkStream(b"not gzip"),
                 )
             ),
         )
         detail = await probe_model(self.TARGET, provider="openai", model="m")
         assert detail is not None
-        assert detail.code is ModelErrorCode.PROVIDER_UNREACHABLE
+        assert detail.code is ModelErrorCode.PROVIDER_AUTH_FAILED
+
+    @pytest.mark.anyio
+    async def test_odd_listing_ids_never_crash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A gateway listing with unhashable IDs is read, not a 500."""
+        listing = {"data": [{"id": {"x": 1}}, {"id": ["llama"]}]}
+        _mock_outbound(
+            monkeypatch,
+            httpx.MockTransport(lambda _: httpx.Response(200, json=listing)),
+        )
+        detail = await probe_model(self.LIST_TARGET, provider="vllm", model="llama")
+        assert detail is not None
+        assert detail.code is ModelErrorCode.MODEL_UNAVAILABLE
 
     @pytest.mark.anyio
     async def test_list_probe_404_means_wrong_base_url(
@@ -708,6 +776,32 @@ class TestModelStatusService:
         )
         await self._service(role).get_status(preset_id=uuid.uuid4())
         assert probed == ["https://gateway.example.com/v1/models/gpt-test"]
+
+    @pytest.mark.anyio
+    async def test_passthrough_provider_keeps_its_own_url(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """A passthrough custom provider runs on its own URL, so a preset's
+        base URL never receives its key."""
+        state = self._stub(monkeypatch, provider="custom-model-provider")
+        state["credentials"] = {
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "k",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://provider.example.com/v1",
+            "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
+        }
+        probed: list[str] = []
+
+        async def probe(target: ProbeTarget, **_: Any) -> None:
+            probed.append(target.url)
+
+        monkeypatch.setattr(status_module, "probe_model", probe)
+        self._stub_preset(
+            monkeypatch,
+            catalog_id=uuid.uuid4(),
+            base_url="https://elsewhere.example.com/v1",
+        )
+        await self._service(role).get_status(preset_id=uuid.uuid4())
+        assert probed == ["https://provider.example.com/v1/models"]
 
     @pytest.mark.anyio
     async def test_probe_problem_is_reported(
