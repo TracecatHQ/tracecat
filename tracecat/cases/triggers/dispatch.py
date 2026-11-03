@@ -313,7 +313,10 @@ class CaseTriggerOutboxDispatcher:
                 if failures:
                     await session.rollback()
                     raise failures[0]
-            if delete_row:
+            # An overlapping attempt may still hold or have rolled back the
+            # picked workflow, so the row goes only once that is settled.
+            comment_workflow = _parse_comment_workflow(row)
+            if delete_row and (comment_workflow is None or comment_workflow.settled):
                 await session.delete(row)
             await session.commit()
 
@@ -525,18 +528,9 @@ class CaseTriggerOutboxDispatcher:
                 workflow_id=str(trigger.workflow_id),
                 event_id=str(event.id),
             )
-            # An earlier attempt of this row may have started the run before
-            # the definition changed. Settling the ID tells the two apart and
-            # makes sure a run that never started cannot start later.
-            match await service.settle_lost_start(trigger.wf_exec_id):
-                case "started":
-                    return
-                case "unknown":
-                    raise CaseTriggerStartUnknownError(trigger.wf_exec_id)
-                case "not_started":
-                    await self._fail_comment_workflow(
-                        session, audit_role=audit_role, case=case, trigger=trigger
-                    )
+            await self._fail_comment_workflow_unless_started(
+                session, service, audit_role=audit_role, case=case, trigger=trigger
+            )
             return
 
         try:
@@ -568,8 +562,8 @@ class CaseTriggerOutboxDispatcher:
                 error_type=type(e).__name__,
                 error=str(e),
             )
-            await self._fail_comment_workflow(
-                session, audit_role=audit_role, case=case, trigger=trigger
+            await self._fail_comment_workflow_unless_started(
+                session, service, audit_role=audit_role, case=case, trigger=trigger
             )
             return
         await self._audit_comment_workflow(
@@ -579,6 +573,31 @@ class CaseTriggerOutboxDispatcher:
             case=case,
             trigger=trigger,
         )
+
+    async def _fail_comment_workflow_unless_started(
+        self,
+        session: AsyncSession,
+        service: WorkflowExecutionsService,
+        *,
+        audit_role: Role | None,
+        case: Case,
+        trigger: CaseCommentWorkflowTrigger,
+    ) -> None:
+        """Mark a picked workflow failed, unless an earlier attempt started it.
+
+        An earlier attempt of this row may have started the run and then lost
+        its commit. Settling the ID tells the two apart, and makes sure a run
+        that never started cannot start later.
+        """
+        match await service.settle_lost_start(trigger.wf_exec_id):
+            case "started":
+                return
+            case "unknown":
+                raise CaseTriggerStartUnknownError(trigger.wf_exec_id)
+            case "not_started":
+                await self._fail_comment_workflow(
+                    session, audit_role=audit_role, case=case, trigger=trigger
+                )
 
     async def _fail_comment_workflow(
         self,

@@ -41,6 +41,7 @@ from tracecat.db.models import (
     Workflow,
 )
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
+from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -464,6 +465,96 @@ class TestOutboxDispatch:
         assert saved == CaseCommentWorkflowStatus.RUNNING.value
         assert await _outbox_rows(session, case_id) == []
 
+    async def test_unsettled_comment_workflow_keeps_the_row(
+        self, session: AsyncSession, svc_role: Role, test_case: Case
+    ) -> None:
+        """An overlapping attempt cannot delete a row whose picked workflow is pending."""
+        picked = await _add_trigger(
+            session, svc_role, event_types=["comment_created"], status="offline"
+        )
+        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
+        comment = CaseComment(
+            workspace_id=test_case.workspace_id,
+            case_id=test_case.id,
+            content="Run this",
+            workflow_id=picked.workflow_id,
+            workflow_wf_exec_id=exec_id,
+            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+        )
+        session.add(comment)
+        await session.flush()
+        events = CaseEventsService(session=session, role=svc_role)
+        await events.create_event(
+            test_case,
+            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
+            comment_workflow=CaseCommentWorkflowTrigger(
+                workflow_id=picked.workflow_id,
+                wf_exec_id=exec_id,
+                comment_id=comment.id,
+                comment="Run this",
+                triggered_by_type="service",
+            ),
+        )
+        await session.commit()
+        case_id = test_case.id
+
+        # The attempt holding the comment step skipped it here, so only the
+        # configured-trigger step runs, as for an overlapping attempt.
+        with _dispatch_mocks(AsyncMock()):
+            (row_id,) = await list_outbox_row_ids()
+            await CaseTriggerOutboxDispatcher()._dispatch_configured_triggers(
+                row_id, delete_row=True
+            )
+
+        assert len(await _outbox_rows(session, case_id)) == 1
+
+    async def test_permanent_comment_start_error_keeps_a_started_run(
+        self, session: AsyncSession, svc_role: Role, test_case: Case
+    ) -> None:
+        """A pre-start error on a retry does not fail a run an earlier attempt started."""
+        picked = await _add_trigger(
+            session, svc_role, event_types=["comment_created"], status="offline"
+        )
+        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
+        comment = CaseComment(
+            workspace_id=test_case.workspace_id,
+            case_id=test_case.id,
+            content="Run this",
+            workflow_id=picked.workflow_id,
+            workflow_wf_exec_id=exec_id,
+            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+        )
+        session.add(comment)
+        await session.flush()
+        events = CaseEventsService(session=session, role=svc_role)
+        await events.create_event(
+            test_case,
+            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
+            comment_workflow=CaseCommentWorkflowTrigger(
+                workflow_id=picked.workflow_id,
+                wf_exec_id=exec_id,
+                comment_id=comment.id,
+                comment="Run this",
+                triggered_by_type="service",
+            ),
+        )
+        await session.commit()
+        case_id = test_case.id
+        comment_id = comment.id
+
+        start = AsyncMock(side_effect=OverflowError("timeout too large"))
+        with _dispatch_mocks(start) as service:
+            service.settle_lost_start = AsyncMock(return_value="started")
+            (row_id,) = await list_outbox_row_ids()
+            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+
+        service.settle_lost_start.assert_awaited_once_with(exec_id)
+        saved = await session.scalar(
+            select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
+        )
+        assert saved == CaseCommentWorkflowStatus.RUNNING.value
+        assert await _outbox_rows(session, case_id) == []
+
     async def test_comment_workflow_uses_preassigned_exec_id(
         self, session: AsyncSession, svc_role: Role, test_case: Case
     ) -> None:
@@ -701,3 +792,34 @@ def test_comment_workflow_exec_id_must_belong_to_the_workflow() -> None:
         CaseCommentWorkflowTrigger(
             **fields, wf_exec_id=generate_exec_id(WorkflowUUID.new(uuid.uuid4()))
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("workflow_type", "describe_error", "expected"),
+    [
+        ("WorkflowStartTombstone", None, "not_started"),
+        ("DSLWorkflow", None, "started"),
+        (None, RuntimeError("temporal unavailable"), "unknown"),
+    ],
+)
+async def test_settling_an_id_again_recognizes_its_own_tombstone(
+    workflow_type: str | None,
+    describe_error: Exception | None,
+    expected: str,
+) -> None:
+    """A second settle of the same ID must not mistake the tombstone for a run."""
+    wf_exec_id = generate_exec_id(WorkflowUUID.new(uuid.uuid4()))
+    client = MagicMock()
+    client.start_workflow = AsyncMock(
+        side_effect=WorkflowAlreadyStartedError(wf_exec_id, "WorkflowStartTombstone")
+    )
+    handle = MagicMock()
+    handle.describe = AsyncMock(
+        side_effect=describe_error,
+        return_value=SimpleNamespace(workflow_type=workflow_type),
+    )
+    client.get_workflow_handle = MagicMock(return_value=handle)
+    service = WorkflowExecutionsService(client, role=None)
+
+    assert await service.settle_lost_start(wf_exec_id) == expected

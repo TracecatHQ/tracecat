@@ -646,6 +646,10 @@ async def test_a_lost_start_is_settled_by_claiming_the_runs_id(
     client.start_workflow = AsyncMock(
         side_effect=tombstone_start, return_value=tombstone
     )
+    # A taken ID is described to tell a real run from an earlier tombstone.
+    existing = Mock()
+    existing.describe = AsyncMock(return_value=Mock(workflow_type="DSLWorkflow"))
+    client.get_workflow_handle = Mock(return_value=existing)
     executions = WorkflowExecutionsService(client=client, role=intake_role)
 
     assert await executions.settle_lost_start("wf_x/exec_y") == outcome
