@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from opentelemetry import context as otel_context
@@ -2227,7 +2227,7 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.error == error
         assert result.classification == classification
         assert result.terminal_stream_error_emitted is True
-        stream.error.assert_awaited_once_with(error)
+        stream.error.assert_awaited_once_with(error, detail=ANY)
         stream.done.assert_not_awaited()
         capture.assert_not_called()
 

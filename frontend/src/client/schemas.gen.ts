@@ -25675,6 +25675,117 @@ export const $ModelCredentialUpdate = {
   description: "Model for updating model credentials.",
 } as const
 
+export const $ModelErrorCode = {
+  type: "string",
+  enum: [
+    "credentials_missing",
+    "provider_auth_failed",
+    "model_not_enabled",
+    "model_unavailable",
+    "rate_limited",
+    "budget_exceeded",
+    "context_too_long",
+    "provider_unreachable",
+    "request_rejected",
+    "unknown",
+  ],
+  title: "ModelErrorCode",
+  description: `Why a model request failed, phrased for the person in the chat.
+
+Backends map their own failures to one of these; the UI maps each one to
+an actionable message. \`\`UNKNOWN\`\` is the fallback for anything else.`,
+} as const
+
+export const $ModelErrorDetail = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/ModelErrorCode",
+    },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RuntimeErrorKind",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "The runtime classification, when the backend has one.",
+    },
+    provider: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 128,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider",
+    },
+    model: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 256,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model",
+    },
+    status_code: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 599,
+          minimum: 100,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status Code",
+    },
+    request_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 128,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Id",
+      description: "Provider or Tracecat request ID, for support.",
+    },
+    provider_error_code: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 128,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Error Code",
+      description: "The provider's machine-readable error code or type.",
+    },
+  },
+  type: "object",
+  required: ["code"],
+  title: "ModelErrorDetail",
+  description: `Structured detail for a failed model request.
+
+Carried on the chat stream's error entry (\`\`{"kind": "error", "error":
+<message>, "detail": <this>}\`\`) by any backend, and returned by the model
+status check. Never holds secrets, provider messages, or request payloads.`,
+} as const
+
 export const $ModelSecretConfig = {
   properties: {
     required: {
@@ -25694,6 +25805,46 @@ export const $ModelSecretConfig = {
   },
   type: "object",
   title: "ModelSecretConfig",
+} as const
+
+export const $ModelStatusRead = {
+  properties: {
+    state: {
+      $ref: "#/components/schemas/ModelStatusState",
+    },
+    provider: {
+      type: "string",
+      title: "Provider",
+    },
+    model: {
+      type: "string",
+      title: "Model",
+    },
+    problem: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelErrorDetail",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    checked_at: {
+      type: "string",
+      format: "date-time",
+      title: "Checked At",
+    },
+  },
+  type: "object",
+  required: ["state", "provider", "model", "checked_at"],
+  title: "ModelStatusRead",
+  description: "Whether the selected model can currently be reached.",
+} as const
+
+export const $ModelStatusState = {
+  type: "string",
+  enum: ["ready", "unverified", "problem"],
 } as const
 
 export const $ModelUsage = {

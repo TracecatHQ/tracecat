@@ -111,7 +111,7 @@ type PendingFirstMessage = {
 
 type PresetConfigLike = Pick<
   AgentPresetRead,
-  "model_name" | "model_provider" | "base_url"
+  "model_name" | "model_provider" | "base_url" | "catalog_id"
 >
 
 const NOOP = () => {}
@@ -745,6 +745,7 @@ function ChatBody({
             name: selectedPreset.model_name,
             provider: selectedPreset.model_provider,
             baseUrl: selectedPreset.base_url ?? null,
+            catalogId: selectedPreset.catalog_id ?? null,
           },
         }
       : undefined

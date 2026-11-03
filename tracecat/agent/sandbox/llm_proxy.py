@@ -267,6 +267,14 @@ class LLMProxyError:
     classification: RuntimeErrorClassification
     diagnostic: LLMErrorDiagnostics | None = None
     sentry_capture: PlatformErrorCapture | None = None
+    # Safe upstream facts for the chat's model error detail. Error type and
+    # code are the body's machine-readable fields, never its message.
+    status_code: int | None = None
+    request_id: str | None = None
+    error_type: str | None = None
+    error_code: str | None = None
+    # A direct route never reached the provider (connect, DNS, or TLS failure).
+    provider_unreachable: bool = False
 
 
 def _error_object_strings(body: bytes) -> tuple[str | None, str | None]:
@@ -315,6 +323,14 @@ def _managed_unclassified(status_code: int, body: bytes) -> RuntimeErrorClassifi
 def _safe_error_token(value: str | None) -> str | None:
     if value is not None and _SAFE_ERROR_TOKEN_RE.fullmatch(value):
         return value
+    return None
+
+
+def _upstream_request_id(headers: httpx.Headers) -> str | None:
+    """The provider's request ID, when it is a safe token."""
+    for name in ("x-request-id", "request-id"):
+        if request_id := _safe_error_token(headers.get(name)):
+            return request_id
     return None
 
 
@@ -481,6 +497,7 @@ def _transport_proxy_error(
         ),
         classification=classification,
         diagnostic=diagnostic,
+        provider_unreachable=route_is_direct,
     )
 
 
@@ -1379,13 +1396,20 @@ class LLMSocketProxy:
         diagnostic: LLMErrorDiagnostics | None = None,
         error: Exception | None = None,
         context: ProxyFailureContext | None = None,
+        request_id: str | None = None,
+        error_body: bytes = b"",
     ) -> None:
         """Emit error via callback (only once)."""
+        error_type, error_code = _error_object_strings(error_body)
         self._emit_proxy_error(
             LLMProxyError(
                 message=message,
                 classification=classification,
                 diagnostic=diagnostic,
+                status_code=context.status_code if context is not None else None,
+                request_id=request_id,
+                error_type=_safe_error_token(error_type),
+                error_code=_safe_error_token(error_code),
             ),
             source_error=error,
             context=context,
@@ -1799,6 +1823,11 @@ class LLMSocketProxy:
                                             else "managed",
                                             status_code=response.status_code,
                                         ),
+                                        request_id=_upstream_request_id(
+                                            response.headers
+                                        )
+                                        or trace_request_id,
+                                        error_body=error_body,
                                     )
                                 body_chunks = [error_body]
                                 response_headers = dict(response.headers)
@@ -2149,6 +2178,9 @@ class LLMSocketProxy:
                             route="direct" if route_is_direct else "managed",
                             status_code=status_code,
                         ),
+                        error_body=exc.body
+                        if isinstance(exc, _UpstreamStreamError)
+                        else b"",
                     )
                 if isinstance(exc, _UpstreamStreamError):
                     return

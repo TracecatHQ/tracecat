@@ -1,7 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat.agent.model_status.schemas import ModelStatusRead
+from tracecat.agent.model_status.service import ModelStatusService
 from tracecat.agent.schemas import (
     BedrockSubscriptionRead,
     DefaultModelSelection,
@@ -282,3 +284,39 @@ async def get_workspace_providers_status(
     """Get workspace credential status for all providers."""
     service = AgentManagementService(session, role=role)
     return await service.get_workspace_providers_status()
+
+
+@workspace_router.get("/workspace/models/status")
+@require_scope("agent:read")
+async def get_workspace_model_status(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    catalog_id: uuid.UUID | None = Query(default=None),
+    model_provider: str | None = Query(default=None, max_length=128),
+    model_name: str | None = Query(default=None, max_length=256),
+    refresh: bool = Query(default=False),
+) -> ModelStatusRead:
+    """Check whether this workspace can reach a model with its credentials.
+
+    Identify the model by catalog ID, or by provider and name. The result is
+    cached briefly per credential set; ``refresh`` re-checks now.
+    """
+    if catalog_id is None and not (model_provider and model_name):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Pass catalog_id, or model_provider and model_name",
+        )
+    service = ModelStatusService(session, role=role)
+    try:
+        return await service.get_status(
+            catalog_id=catalog_id,
+            model_provider=model_provider,
+            model_name=model_name,
+            refresh=refresh,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model not found",
+        ) from e

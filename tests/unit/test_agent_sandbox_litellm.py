@@ -1004,7 +1004,7 @@ class _InMemoryStreamSink:
     async def append(self, event: UnifiedStreamEvent) -> None:
         self.events.append(event)
 
-    async def error(self, error: str) -> None:
+    async def error(self, error: str, *, detail: object = None) -> None:
         self.errors.append(error)
 
     async def done(self) -> None:

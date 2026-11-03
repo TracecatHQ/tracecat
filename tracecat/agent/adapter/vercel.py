@@ -62,6 +62,7 @@ from tracecat.chat.constants import (
     APPROVAL_REQUEST_HEADER,
     CANCELLED_DATA_PART_TYPE,
     COMPACTION_DATA_PART_TYPE,
+    MODEL_ERROR_DATA_PART_TYPE,
     USER_MESSAGE_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
@@ -566,6 +567,19 @@ class ErrorEventPayload:
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
+class ModelErrorEventPayload:
+    """Transient data part with a failed model request's structured detail.
+
+    Sent just before the ``error`` chunk it explains, so the client can show an
+    actionable message instead of the raw error text.
+    """
+
+    type: str = dataclasses.field(init=False, default=MODEL_ERROR_DATA_PART_TYPE)
+    transient: Literal[True] = dataclasses.field(init=False, default=True)
+    data: dict[str, Any]
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
 class AgentChunkData:
     """One child-session UI chunk, addressed for client-side routing."""
 
@@ -605,6 +619,7 @@ VercelSSEPayload = (
     | PreliminaryToolOutputAvailableEventPayload
     | DataEventPayload
     | ErrorEventPayload
+    | ModelErrorEventPayload
     | AgentChunkEventPayload
 )
 
@@ -1631,7 +1646,13 @@ async def sse_vercel(
                             yield frame
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()
-                case StreamError(error=error):
+                case StreamError(error=error, detail=detail):
+                    if detail is not None:
+                        yield format_sse(
+                            ModelErrorEventPayload(
+                                data=detail.model_dump(mode="json", exclude_none=True)
+                            )
+                        )
                     # Stream error - emit as text component
                     error_part_id = f"msg_{uuid.uuid4().hex}"
                     msg = StreamError.format(error)

@@ -17,3 +17,6 @@ USER_MESSAGE_DATA_PART_TYPE = "data-user-message"
 
 AGENT_CHUNK_DATA_PART_TYPE = "data-agent-chunk"
 """UI data part identifier for transient child-session UI chunks."""
+
+MODEL_ERROR_DATA_PART_TYPE = "data-model-error"
+"""UI data part identifier for a failed model request's structured detail."""

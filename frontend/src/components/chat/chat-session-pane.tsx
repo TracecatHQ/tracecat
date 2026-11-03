@@ -67,6 +67,7 @@ import {
   MessageParts,
   RunningLine,
 } from "@/components/chat/message-part"
+import { ModelStatusDot } from "@/components/chat/model-status-dot"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { MentionHint } from "@/components/mentions/mention-hint"
 import { MentionPopover } from "@/components/mentions/mention-popover"
@@ -420,6 +421,7 @@ export function ChatSessionPane({
     setMessages,
     status,
     lastError,
+    lastModelError,
     lastErrorDisconnected,
     clearError,
     retryTurn,
@@ -1503,7 +1505,10 @@ export function ChatSessionPane({
                 />
               )}
               {!isReadonly && modelInfo ? (
-                <PromptModelIndicator modelInfo={modelInfo} />
+                <PromptModelIndicator
+                  modelInfo={modelInfo}
+                  workspaceId={workspaceId}
+                />
               ) : null}
             </PromptInputTools>
             <div className="flex items-center gap-2">
@@ -1669,6 +1674,7 @@ export function ChatSessionPane({
               {displayedError && (
                 <TurnErrorLine
                   error={displayedError}
+                  modelError={lastError ? lastModelError : null}
                   dropped={lastErrorDisconnected}
                   // A drop reconnects, so it needs no message to resend.
                   onRetry={
@@ -1912,12 +1918,19 @@ function getProviderIconId(provider: string): string {
   }
 }
 
-function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
+function PromptModelIndicator({
+  modelInfo,
+  workspaceId,
+}: {
+  modelInfo: ModelInfo
+  workspaceId: string
+}) {
   return (
     <Badge
       variant="outline"
       className="h-7 min-w-0 max-w-[26rem] gap-1.5 px-2.5 text-xs font-normal"
     >
+      <ModelStatusDot workspaceId={workspaceId} modelInfo={modelInfo} />
       <ProviderIcon
         className="size-4 rounded-none bg-transparent p-0"
         providerId={modelInfo.iconId ?? getProviderIconId(modelInfo.provider)}

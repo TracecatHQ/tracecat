@@ -43,6 +43,7 @@ from tracecat.agent.error_policy import (
     agent_executor_unclassified,
 )
 from tracecat.agent.metrics import FIRST_TOKEN_EVENT_TYPES
+from tracecat.agent.model_status.schemas import ModelErrorDetail
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -281,9 +282,11 @@ class LoopbackHandler:
         self,
         stream_sink: SessionEventSink,
         error: str,
+        *,
+        detail: ModelErrorDetail | None = None,
     ) -> None:
         await self._emit_failed_compaction_if_pending()
-        await stream_sink.error(error)
+        await stream_sink.error(error, detail=detail)
         await self._close_external_stream()
         self._result.terminal_stream_error_emitted = True
 
@@ -363,6 +366,7 @@ class LoopbackHandler:
         error: str,
         *,
         classification: RuntimeErrorClassification,
+        detail: ModelErrorDetail | None = None,
     ) -> bool:
         """Emit a terminal error through the resolved stream sink.
 
@@ -386,7 +390,9 @@ class LoopbackHandler:
                         return True
                     if self._stream_sink is None:
                         self._stream_sink = await self._initialize_stream_sink()
-                    await self._emit_terminal_stream_error(self._stream_sink, error)
+                    await self._emit_terminal_stream_error(
+                        self._stream_sink, error, detail=detail
+                    )
                     return self._result.terminal_stream_error_emitted
         except TimeoutError:
             logger.warning(

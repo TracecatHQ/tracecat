@@ -140,7 +140,9 @@ async def test_terminal_error_falls_back_to_redis_on_external_lookup_error(
         workspace_id=loopback_input.workspace_id,
         stream_id=loopback_input.active_stream_id,
     )
-    fake_stream.error.assert_awaited_once_with("runtime exited before connect")
+    fake_stream.error.assert_awaited_once_with(
+        "runtime exited before connect", detail=None
+    )
     fake_stream.done.assert_not_awaited()
 
 
@@ -175,7 +177,9 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
     failed_event = await_args.args[0]
     assert failed_event.type == StreamEventType.COMPACTION
     assert failed_event.metadata == {"phase": "failed"}
-    fake_stream.error.assert_awaited_once_with("runtime exited before connect")
+    fake_stream.error.assert_awaited_once_with(
+        "runtime exited before connect", detail=None
+    )
     fake_stream.done.assert_not_awaited()
 
 
@@ -183,7 +187,7 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
 async def test_emit_terminal_error_bounds_stalled_stream_sink(
     monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
 ) -> None:
-    async def stalled_error(_error: str) -> None:
+    async def stalled_error(_error: str, *, detail: object = None) -> None:
         await asyncio.Event().wait()
 
     monkeypatch.setattr(
@@ -208,7 +212,7 @@ async def test_emit_terminal_error_bounds_stalled_stream_sink(
     assert result.error == "provider request failed"
     assert result.classification == classification
     assert result.terminal_stream_error_emitted is False
-    fake_stream.error.assert_awaited_once_with("provider request failed")
+    fake_stream.error.assert_awaited_once_with("provider request failed", detail=None)
 
 
 @pytest.mark.anyio
@@ -232,7 +236,7 @@ async def test_emit_terminal_error_retains_state_when_stream_sink_fails(
     assert result.error == "provider request failed"
     assert result.classification == classification
     assert result.terminal_stream_error_emitted is False
-    fake_stream.error.assert_awaited_once_with("provider request failed")
+    fake_stream.error.assert_awaited_once_with("provider request failed", detail=None)
 
 
 @pytest.mark.anyio
@@ -597,8 +601,8 @@ async def test_terminal_error_streams_error_and_closes_only_external_sink() -> N
 
     await handler.send_error("runtime failed")
 
-    redis_stream.error.assert_awaited_once_with("runtime failed")
-    external_stream.error.assert_awaited_once_with("runtime failed")
+    redis_stream.error.assert_awaited_once_with("runtime failed", detail=None)
+    external_stream.error.assert_awaited_once_with("runtime failed", detail=None)
     redis_stream.done.assert_not_awaited()
     external_stream.done.assert_awaited_once()
     assert handler._external_stream_done_emitted is True
@@ -624,7 +628,7 @@ async def test_runtime_cleanup_does_not_close_slack_before_executor_error(
     redis_entered = asyncio.Event()
     release_redis = asyncio.Event()
 
-    async def stalled_error(_error: str) -> None:
+    async def stalled_error(_error: str, *, detail: object = None) -> None:
         redis_entered.set()
         await release_redis.wait()
 
@@ -676,7 +680,7 @@ async def test_runtime_cleanup_does_not_close_slack_before_executor_error(
     assert result.classification == classification
     assert terminal_task.result() is (not delivery_times_out)
     assert result.terminal_stream_error_emitted is (not delivery_times_out)
-    redis_stream.error.assert_awaited_once_with(error)
+    redis_stream.error.assert_awaited_once_with(error, detail=None)
     redis_stream.done.assert_not_awaited()
     if delivery_times_out:
         append_stream_text.assert_not_awaited()
@@ -739,7 +743,9 @@ async def test_process_runtime_events_emits_failed_compaction_on_runtime_error()
         {"phase": "started"},
         {"phase": "failed"},
     ]
-    stream.error.assert_awaited_once_with("request_timeout: LLM gateway timed out")
+    stream.error.assert_awaited_once_with(
+        "request_timeout: LLM gateway timed out", detail=None
+    )
     stream.done.assert_not_awaited()
     assert handler._result.classification is not None
     assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
@@ -801,7 +807,9 @@ async def test_process_runtime_events_fails_when_done_arrives_without_result() -
         handler._result.classification.kind
         is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
     )
-    stream.error.assert_awaited_once_with("Runtime completed without final result")
+    stream.error.assert_awaited_once_with(
+        "Runtime completed without final result", detail=None
+    )
     assert handler._result.terminal_stream_error_emitted is True
     stream.done.assert_not_awaited()
 
@@ -836,7 +844,7 @@ async def test_process_runtime_events_fails_zero_work_completion() -> None:
         is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
     )
     stream.error.assert_awaited_once_with(
-        "Runtime completed without assistant output or model usage"
+        "Runtime completed without assistant output or model usage", detail=None
     )
     assert handler._result.terminal_stream_error_emitted is True
 
@@ -868,7 +876,9 @@ async def test_process_runtime_events_classifies_disconnect_and_marks_streamed(
         is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     )
     assert handler._result.terminal_stream_error_emitted is True
-    stream.error.assert_awaited_once_with("Runtime disconnected during execution")
+    stream.error.assert_awaited_once_with(
+        "Runtime disconnected during execution", detail=None
+    )
 
 
 @pytest.mark.anyio
@@ -921,7 +931,9 @@ async def test_handle_connection_classifies_invalid_runtime_envelope_as_protocol
     assert result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
-    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    stream.error.assert_awaited_once_with(
+        "Runtime sent an invalid event envelope", detail=None
+    )
     assert result.terminal_stream_error_emitted is True
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
@@ -958,7 +970,9 @@ async def test_handle_connection_classifies_invalid_runtime_frame_as_protocol_fa
     assert result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
-    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    stream.error.assert_awaited_once_with(
+        "Runtime sent an invalid event envelope", detail=None
+    )
     assert result.terminal_stream_error_emitted is True
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
@@ -968,7 +982,7 @@ async def test_handle_connection_classifies_invalid_runtime_frame_as_protocol_fa
 async def test_handle_connection_bounds_protocol_error_stream_emission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def stalled_error(_error: str) -> None:
+    async def stalled_error(_error: str, *, detail: object = None) -> None:
         await asyncio.Event().wait()
 
     monkeypatch.setattr(
@@ -995,7 +1009,9 @@ async def test_handle_connection_bounds_protocol_error_stream_emission(
     assert result.classification is not None
     assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
     assert result.terminal_stream_error_emitted is False
-    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    stream.error.assert_awaited_once_with(
+        "Runtime sent an invalid event envelope", detail=None
+    )
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
 
@@ -1025,7 +1041,9 @@ async def test_handle_connection_preserves_protocol_error_when_stream_sink_fails
     assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
     assert result.terminal_stream_error_emitted is False
-    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    stream.error.assert_awaited_once_with(
+        "Runtime sent an invalid event envelope", detail=None
+    )
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
 
@@ -1250,7 +1268,9 @@ async def test_handle_connection_classifies_malformed_session_line_as_protocol_f
     assert result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_PROTOCOL_FAILED
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
-    stream.error.assert_awaited_once_with("Runtime sent an invalid event envelope")
+    stream.error.assert_awaited_once_with(
+        "Runtime sent an invalid event envelope", detail=None
+    )
     assert result.terminal_stream_error_emitted is True
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
@@ -1296,7 +1316,7 @@ async def test_emit_terminal_error_preserves_state_when_runtime_sends_done(
     assert result.error == error
     assert result.classification == classification
     assert result.terminal_stream_error_emitted is True
-    stream.error.assert_awaited_once_with(error)
+    stream.error.assert_awaited_once_with(error, detail=None)
     stream.done.assert_not_awaited()
     capture.assert_not_called()
 
@@ -1319,7 +1339,7 @@ async def test_executor_error_survives_concurrent_runtime_error(
     error = "provider request failed"
     classification = user_agent_execution_failed()
 
-    async def stalled_error(message: str) -> None:
+    async def stalled_error(message: str, *, detail: object = None) -> None:
         if message == error:
             stream_entered.set()
             await release_stream.wait()
@@ -1368,7 +1388,7 @@ async def test_executor_error_survives_concurrent_runtime_error(
     assert result.success is False
     assert result.error == error
     assert result.classification == classification
-    stream.error.assert_awaited_once_with(error)
+    stream.error.assert_awaited_once_with(error, detail=None)
     capture.assert_not_called()
 
 
@@ -1388,7 +1408,7 @@ async def test_executor_error_overrides_in_flight_runtime_error(
     error = "provider request failed"
     classification = user_agent_execution_failed()
 
-    async def stalled_error(message: str) -> None:
+    async def stalled_error(message: str, *, detail: object = None) -> None:
         if message == runtime_error:
             stream_entered.set()
             await release_stream.wait()
@@ -1417,7 +1437,7 @@ async def test_executor_error_overrides_in_flight_runtime_error(
     assert result.error == error
     assert result.classification == classification
     assert result.terminal_stream_error_emitted is True
-    stream.error.assert_awaited_once_with(runtime_error)
+    stream.error.assert_awaited_once_with(runtime_error, detail=None)
     capture.assert_not_called()
 
 

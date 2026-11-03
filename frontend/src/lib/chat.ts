@@ -525,6 +525,8 @@ export type ModelInfo = {
   provider: string
   baseUrl?: string | null
   iconId?: string
+  /** The model's catalog row, when known; the status check prefers it. */
+  catalogId?: string | null
 }
 
 /**

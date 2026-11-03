@@ -8,6 +8,7 @@ import orjson
 from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.model_status.schemas import ModelErrorDetail
 
 UnifiedStreamEventTA: TypeAdapter[UnifiedStreamEvent] = TypeAdapter(UnifiedStreamEvent)
 
@@ -79,9 +80,13 @@ class StreamError:
 
     kind: Literal["error"] = "error"
     error: str
+    detail: ModelErrorDetail | None = None
 
     def sse(self) -> str:
-        payload = orjson.dumps({"error": self.error}).decode()
+        body: dict[str, object] = {"error": self.error}
+        if self.detail is not None:
+            body["detail"] = self.detail.model_dump(mode="json", exclude_none=True)
+        payload = orjson.dumps(body).decode()
         return f"event: error\ndata: {payload}\n\n"
 
     @staticmethod

@@ -75,6 +75,8 @@ from tracecat.agent.metrics import (
     backend_label,
     record_turn,
 )
+from tracecat.agent.model_status.errors import model_error_detail
+from tracecat.agent.model_status.schemas import ModelErrorDetail
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
     ResolvedAgentOtelConfig,
@@ -534,6 +536,23 @@ class SandboxedAgentExecutor:
             **extra,
         )
 
+    def _model_error_detail(self, error: LLMProxyError) -> ModelErrorDetail:
+        """The chat's structured detail for a terminal model request failure.
+
+        Attributed to the turn's own model: the proxy does not say which
+        route, so a subagent's failure names the parent's model.
+        """
+        return model_error_detail(
+            error.classification,
+            provider=self.input.config.model_provider,
+            model=self.input.config.model_name,
+            status_code=error.status_code,
+            request_id=error.request_id,
+            provider_error_code=error.error_code,
+            provider_error_type=error.error_type,
+            provider_unreachable=error.provider_unreachable,
+        )
+
     async def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
         """Create the host-side LiteLLM transport proxy for this execution."""
 
@@ -943,6 +962,7 @@ class SandboxedAgentExecutor:
                             await handler.emit_terminal_error(
                                 proxy_error.message,
                                 classification=proxy_error.classification,
+                                detail=self._model_error_detail(proxy_error),
                             )
                         )
                         await broker.cancel_turn(str(self.input.session_id))

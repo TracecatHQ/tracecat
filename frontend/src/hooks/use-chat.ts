@@ -30,6 +30,7 @@ import {
   agentSessionsUpdateSession,
   type ChatPageContext,
   type ContinueRunRequest,
+  type ModelErrorDetail,
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -49,6 +50,11 @@ import {
   serverTookPrompt,
 } from "@/lib/chat-dropped-prompt"
 import type { WithdrawPendingRequest } from "@/lib/extensions"
+import {
+  describeModelError,
+  MODEL_ERROR_DATA_PART_TYPE,
+  parseModelErrorDetail,
+} from "@/lib/model-errors"
 import {
   type QueryClient,
   type UseQueryResult,
@@ -722,6 +728,8 @@ export function useVercelChat({
   const [lastError, setLastError] = useState<{
     chatKey: string | undefined
     message: string
+    /** Structured detail when a model request failed. */
+    modelError?: ModelErrorDetail | null
     disconnected: boolean
     /** The drop cut a reconnect replay, which never shows its turn's prompt. */
     replay?: boolean
@@ -752,6 +760,8 @@ export function useVercelChat({
   }, [chatKey])
   // Whether the request in flight is this tab's send or a reconnect replay.
   const requestKindRef = useRef<"send" | "resume">("send")
+  // A failed model request's detail, held until its error chunk arrives.
+  const modelErrorRef = useRef<ModelErrorDetail | null>(null)
   // A replay's prompt is off screen, so its turn is never resent. A Retry
   // reconnect means the server took the turn; a restored prompt is on screen.
   function isReplay(): boolean {
@@ -834,6 +844,9 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
+      // The server sends a model failure's detail just before its error.
+      const modelError = modelErrorRef.current
+      modelErrorRef.current = null
       // A reconnect that fails before its stream opens gets no onFinish and
       // leaves status untouched; the turn is unknown, so mark it dropped.
       const streamOpened =
@@ -844,13 +857,16 @@ export function useVercelChat({
       setLastError({
         chatKey,
         message: friendlyMessage,
+        modelError: reconnectDropped ? null : modelError,
         disconnected: reconnectDropped,
         replay: reconnectDropped && isReplay(),
       })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
-        description: friendlyMessage,
+        description: modelError
+          ? describeModelError(modelError).title
+          : friendlyMessage,
       })
     },
     onFinish: ({ messages: turnMessages, isAbort, isDisconnect, isError }) => {
@@ -888,6 +904,10 @@ export function useVercelChat({
       }
     },
     onData: (dataPart) => {
+      if (dataPart.type === MODEL_ERROR_DATA_PART_TYPE) {
+        modelErrorRef.current = parseModelErrorDetail(dataPart.data)
+        return
+      }
       if (dataPart.type === AGENT_CHUNK_DATA_PART_TYPE) {
         const chunkData = parseAgentChunkData(dataPart.data)
         if (chunkData) {
@@ -1007,6 +1027,8 @@ export function useVercelChat({
     retryTurn,
     subagentStore,
     lastError: currentError?.message ?? null,
+    /** Structured detail for the last error, when a model request failed. */
+    lastModelError: currentError?.modelError ?? null,
     /** The last error cut the connection; the server-side turn may still run. */
     lastErrorDisconnected: currentError?.disconnected ?? false,
     clearError: useCallback(() => setLastError(null), []),

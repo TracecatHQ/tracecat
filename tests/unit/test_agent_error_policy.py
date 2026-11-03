@@ -287,7 +287,7 @@ class _StreamSink:
     def __init__(self) -> None:
         self.errors: list[str] = []
 
-    async def error(self, error: str) -> None:
+    async def error(self, error: str, *, detail: object = None) -> None:
         self.errors.append(error)
 
 

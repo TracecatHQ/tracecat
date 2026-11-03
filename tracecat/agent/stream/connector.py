@@ -15,9 +15,11 @@ from time import monotonic
 from typing import Any
 
 import orjson
+from pydantic import ValidationError
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.common.stream_types import parse_vercel_frame_cursor
+from tracecat.agent.model_status.schemas import ModelErrorDetail
 from tracecat.agent.stream.events import (
     StreamConnected,
     StreamDelta,
@@ -39,6 +41,17 @@ from tracecat.redis.client import RedisClient, get_redis_client
 class ApprovalContinuationMarker:
     submission_key: str | None
     previous_stream_id: uuid.UUID | None
+
+
+def _parse_error_detail(raw: object) -> ModelErrorDetail | None:
+    """Read an error entry's optional detail; a malformed one is dropped."""
+    if raw is None:
+        return None
+    try:
+        return ModelErrorDetail.model_validate(raw)
+    except ValidationError:
+        logger.warning("Dropping malformed stream error detail")
+        return None
 
 
 class AgentStream:
@@ -96,9 +109,20 @@ class AgentStream:
             approximate=True,
         )
 
-    async def error(self, error: str) -> None:
-        """Emit an error marker."""
-        await self.append({"kind": "error", "error": error})
+    async def error(
+        self, error: str, *, detail: ModelErrorDetail | None = None
+    ) -> None:
+        """Emit an error marker.
+
+        Args:
+            error: Human-readable failure message.
+            detail: Structured detail for a failed model request. Any backend
+                can send it; the chat UI turns it into an actionable message.
+        """
+        entry: dict[str, object] = {"kind": "error", "error": error}
+        if detail is not None:
+            entry["detail"] = detail.model_dump(mode="json", exclude_none=True)
+        await self.append(entry)
 
     async def done(self) -> None:
         """Emit an end-of-turn marker."""
@@ -280,7 +304,10 @@ class AgentStream:
                             error=error_message,
                             message_id=msg_id,
                         )
-                        yield StreamError(error=error_message)
+                        yield StreamError(
+                            error=error_message,
+                            detail=_parse_error_detail(data.get("detail")),
+                        )
                     case _:
                         logger.warning(
                             "Invalid stream message",

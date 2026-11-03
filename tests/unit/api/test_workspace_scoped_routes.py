@@ -14,6 +14,7 @@ WORKSPACE_ROUTE_PREFIXES = [
     "/agent/presets",
     "/agent/sessions",
     "/agent/skills",
+    "/agent/workspace/models/status",
     "/agent/workspace/providers/status",
     "/approvals",
     "/case-dropdowns",

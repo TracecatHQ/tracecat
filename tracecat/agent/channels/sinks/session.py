@@ -20,6 +20,7 @@ from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChanne
 from tracecat.agent.channels.sinks.base import ExternalChannelSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.model_status.schemas import ModelErrorDetail
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.db.engine import get_async_session_context_manager
@@ -76,8 +77,10 @@ class SessionEventSink(Protocol):
     async def append(self, event: UnifiedStreamEvent) -> None:
         """Append a runtime stream event."""
 
-    async def error(self, error: str) -> None:
-        """Emit a terminal error."""
+    async def error(
+        self, error: str, *, detail: ModelErrorDetail | None = None
+    ) -> None:
+        """Emit a terminal error, with structured detail for model failures."""
 
     async def done(self) -> None:
         """Emit a terminal completion signal."""
@@ -92,8 +95,10 @@ class AgentStreamSink:
     async def append(self, event: UnifiedStreamEvent) -> None:
         await self.stream.append(event)
 
-    async def error(self, error: str) -> None:
-        await self.stream.error(error)
+    async def error(
+        self, error: str, *, detail: ModelErrorDetail | None = None
+    ) -> None:
+        await self.stream.error(error, detail=detail)
 
     async def done(self) -> None:
         await self.stream.done()
@@ -134,8 +139,10 @@ class FanoutStreamSink:
     async def append(self, event: UnifiedStreamEvent) -> None:
         await self._broadcast("append", lambda sink: sink.append(event))
 
-    async def error(self, error: str) -> None:
-        await self._broadcast("error", lambda sink: sink.error(error))
+    async def error(
+        self, error: str, *, detail: ModelErrorDetail | None = None
+    ) -> None:
+        await self._broadcast("error", lambda sink: sink.error(error, detail=detail))
 
     async def done(self) -> None:
         await self._broadcast("done", lambda sink: sink.done())

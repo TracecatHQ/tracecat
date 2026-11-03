@@ -185,6 +185,8 @@ import type {
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
+  AgentGetWorkspaceModelStatusData,
+  AgentGetWorkspaceModelStatusResponse,
   AgentGetWorkspaceProvidersStatusData,
   AgentGetWorkspaceProvidersStatusResponse,
   AgentListModelsResponse,
@@ -6471,6 +6473,42 @@ export const agentGetWorkspaceProvidersStatus = (
     url: "/workspaces/{workspace_id}/agent/workspace/providers/status",
     path: {
       workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Model Status
+ * Check whether this workspace can reach a model with its credentials.
+ *
+ * Identify the model by catalog ID, or by provider and name. The result is
+ * cached briefly per credential set; ``refresh`` re-checks now.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.catalogId
+ * @param data.modelProvider
+ * @param data.modelName
+ * @param data.refresh
+ * @returns ModelStatusRead Successful Response
+ * @throws ApiError
+ */
+export const agentGetWorkspaceModelStatus = (
+  data: AgentGetWorkspaceModelStatusData
+): CancelablePromise<AgentGetWorkspaceModelStatusResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/workspace/models/status",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      catalog_id: data.catalogId,
+      model_provider: data.modelProvider,
+      model_name: data.modelName,
+      refresh: data.refresh,
     },
     errors: {
       422: "Validation Error",
