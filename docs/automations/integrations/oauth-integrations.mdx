@@ -32,6 +32,8 @@ Most providers require these fields:
 
 After you save a custom provider, connect it (complete the OAuth flow) when using delegated access so Tracecat can issue tokens.
 
+Custom delegated access providers always use PKCE (`S256`), which some providers require. Providers that do not support PKCE ignore it.
+
 ## Redirect URI
 
 Delegated access (`authorization_code`) requires a redirect URI registered in the provider's OAuth app. Tracecat uses one redirect URI for every OAuth provider, built-in or custom:
