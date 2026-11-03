@@ -40,7 +40,7 @@ from tracecat.db.models import (
     CaseTriggerOutbox,
     Workflow,
 )
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -385,24 +385,104 @@ class TestOutboxDispatch:
             WorkflowUUID.new(matching.workflow_id)
         ]
 
+    async def test_settled_comment_workflow_is_not_handled_again_on_retry(
+        self, session: AsyncSession, svc_role: Role, test_case: Case
+    ) -> None:
+        """A sibling's retry never re-handles a picked workflow that already started.
+
+        Re-handling it could find its definition gone and mark a running
+        workflow failed.
+        """
+        picked = await _add_trigger(
+            session, svc_role, event_types=["comment_created"], status="offline"
+        )
+        sibling = await _add_trigger(session, svc_role, event_types=["comment_created"])
+        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
+        comment = CaseComment(
+            workspace_id=test_case.workspace_id,
+            case_id=test_case.id,
+            content="Run this",
+            workflow_id=picked.workflow_id,
+            workflow_wf_exec_id=exec_id,
+            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+        )
+        session.add(comment)
+        await session.flush()
+        events = CaseEventsService(session=session, role=svc_role)
+        await events.create_event(
+            test_case,
+            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
+            comment_workflow=CaseCommentWorkflowTrigger(
+                workflow_id=picked.workflow_id,
+                wf_exec_id=exec_id,
+                comment_id=comment.id,
+                comment="Run this",
+                triggered_by_type="service",
+            ),
+        )
+        await session.commit()
+        case_id = test_case.id
+        comment_id = comment.id
+        picked_id = picked.workflow_id
+        sibling_id = sibling.workflow_id
+
+        # The picked workflow starts; the sibling fails and keeps the row.
+        (row_id,) = await list_outbox_row_ids()
+        first = AsyncMock(side_effect=[None, RuntimeError("temporal unavailable")])
+        with _dispatch_mocks(first), pytest.raises(RuntimeError):
+            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+        assert [c.kwargs["wf_exec_id"] for c in first.await_args_list] == [
+            exec_id,
+            case_trigger_exec_id(
+                (await _outbox_rows(session, case_id))[0].event_id,
+                sibling_id,
+            ),
+        ]
+
+        # The picked workflow's definition is gone by the retry.
+        retry = AsyncMock()
+        with (
+            _dispatch_mocks(retry) as service,
+            patch(
+                "tracecat.cases.triggers.dispatch.WorkflowDefinitionsService.get_definition_by_workflow_id",
+                new=AsyncMock(
+                    side_effect=lambda wf_id, **_: (
+                        None if wf_id == WorkflowUUID.new(picked_id) else _definition()
+                    )
+                ),
+            ),
+        ):
+            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+
+        service.settle_lost_start.assert_not_awaited()
+        assert [c.kwargs["wf_id"] for c in retry.await_args_list] == [
+            WorkflowUUID.new(sibling_id)
+        ]
+        saved = await session.scalar(
+            select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
+        )
+        assert saved == CaseCommentWorkflowStatus.RUNNING.value
+        assert await _outbox_rows(session, case_id) == []
+
     async def test_comment_workflow_uses_preassigned_exec_id(
         self, session: AsyncSession, svc_role: Role, test_case: Case
     ) -> None:
         """The picked workflow starts once with its ID; a same-workflow trigger is skipped."""
         trigger = await _add_trigger(session, svc_role, event_types=["comment_created"])
+        exec_id = generate_exec_id(WorkflowUUID.new(trigger.workflow_id))
         comment = CaseComment(
             workspace_id=test_case.workspace_id,
             case_id=test_case.id,
             content="Run this",
             workflow_id=trigger.workflow_id,
-            workflow_wf_exec_id="wf_abc/exec_def",
+            workflow_wf_exec_id=exec_id,
             workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
         )
         session.add(comment)
         await session.flush()
         comment_workflow = CaseCommentWorkflowTrigger(
             workflow_id=trigger.workflow_id,
-            wf_exec_id="wf_abc/exec_def",
+            wf_exec_id=exec_id,
             comment_id=comment.id,
             comment="Run this",
             triggered_by_type="service",
@@ -422,7 +502,7 @@ class TestOutboxDispatch:
 
         assert start.await_count == 1
         assert start.await_args is not None
-        assert start.await_args.kwargs["wf_exec_id"] == "wf_abc/exec_def"
+        assert start.await_args.kwargs["wf_exec_id"] == exec_id
         assert start.await_args.kwargs["payload"]["comment"] == "Run this"
         assert await _outbox_rows(session, test_case) == []
 
@@ -440,12 +520,13 @@ class TestOutboxDispatch:
         await _add_trigger(
             session, svc_role, event_types=["comment_created", "case_updated"]
         )
+        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
         comment = CaseComment(
             workspace_id=test_case.workspace_id,
             case_id=test_case.id,
             content="Run this",
             workflow_id=picked.workflow_id,
-            workflow_wf_exec_id="wf_abc/exec_def",
+            workflow_wf_exec_id=exec_id,
             workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
         )
         session.add(comment)
@@ -460,7 +541,7 @@ class TestOutboxDispatch:
             CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
             comment_workflow=CaseCommentWorkflowTrigger(
                 workflow_id=picked.workflow_id,
-                wf_exec_id="wf_abc/exec_def",
+                wf_exec_id=exec_id,
                 comment_id=comment.id,
                 comment="Run this",
                 triggered_by_type="service",
@@ -493,12 +574,13 @@ class TestOutboxDispatch:
     ) -> None:
         """A missing definition fails the comment only if its run never started."""
         trigger = await _add_trigger(session, svc_role, event_types=["case_closed"])
+        exec_id = generate_exec_id(WorkflowUUID.new(trigger.workflow_id))
         comment = CaseComment(
             workspace_id=test_case.workspace_id,
             case_id=test_case.id,
             content="Run this",
             workflow_id=trigger.workflow_id,
-            workflow_wf_exec_id="wf_abc/exec_def",
+            workflow_wf_exec_id=exec_id,
             workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
         )
         session.add(comment)
@@ -509,7 +591,7 @@ class TestOutboxDispatch:
             CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
             comment_workflow=CaseCommentWorkflowTrigger(
                 workflow_id=trigger.workflow_id,
-                wf_exec_id="wf_abc/exec_def",
+                wf_exec_id=exec_id,
                 comment_id=comment.id,
                 comment="Run this",
                 triggered_by_type="service",
@@ -536,7 +618,7 @@ class TestOutboxDispatch:
                 await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
 
         start.assert_not_awaited()
-        service.settle_lost_start.assert_awaited_once_with("wf_abc/exec_def")
+        service.settle_lost_start.assert_awaited_once_with(exec_id)
         saved = await session.scalar(
             select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
         )
@@ -602,3 +684,20 @@ async def test_disabled_case_triggers_leave_queued_rows_in_place(
     assert await dispatch_case_trigger_outbox_batch() == 0
     has_rows.assert_not_awaited()
     list_rows.assert_not_awaited()
+
+
+def test_comment_workflow_exec_id_must_belong_to_the_workflow() -> None:
+    workflow_id = uuid.uuid4()
+    fields = {
+        "workflow_id": workflow_id,
+        "comment_id": uuid.uuid4(),
+        "comment": "Run this",
+        "triggered_by_type": "service",
+    }
+    CaseCommentWorkflowTrigger(
+        **fields, wf_exec_id=generate_exec_id(WorkflowUUID.new(workflow_id))
+    )
+    with pytest.raises(ValueError, match="does not belong"):
+        CaseCommentWorkflowTrigger(
+            **fields, wf_exec_id=generate_exec_id(WorkflowUUID.new(uuid.uuid4()))
+        )

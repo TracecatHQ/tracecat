@@ -197,9 +197,37 @@ class CaseTriggerStartUnknownError(Exception):
         self.wf_exec_id = wf_exec_id
 
 
-def _raise_first(failures: list[Exception]) -> None:
-    if failures:
-        raise failures[0]
+async def _lock_outbox_row(
+    session: AsyncSession, row_id: int
+) -> CaseTriggerOutbox | None:
+    """Lock a row, or return None if it is gone or another dispatcher holds it."""
+    return await session.scalar(
+        select(CaseTriggerOutbox)
+        .where(CaseTriggerOutbox.surrogate_id == row_id)
+        .with_for_update(skip_locked=True)
+    )
+
+
+async def _load_event_and_case(
+    session: AsyncSession, row: CaseTriggerOutbox
+) -> tuple[CaseEvent, Case] | None:
+    event = await session.scalar(
+        select(CaseEvent).where(
+            CaseEvent.id == row.event_id,
+            CaseEvent.case_id == row.case_id,
+            CaseEvent.workspace_id == row.workspace_id,
+        )
+    )
+    if event is None:
+        return None
+    case = await session.scalar(
+        select(Case)
+        .options(selectinload(Case.tags))
+        .where(Case.id == row.case_id, Case.workspace_id == row.workspace_id)
+    )
+    if case is None:
+        return None
+    return event, case
 
 
 class CaseTriggerOutboxDispatcher:
@@ -212,65 +240,82 @@ class CaseTriggerOutboxDispatcher:
     async def dispatch_row(self, row_id: int) -> None:
         """Start every run for one outbox row, then delete the row.
 
+        A picked comment workflow is settled in its own transaction first, and
+        the row records that, so a retry for the sake of another run never
+        handles it again. Configured triggers follow in a second transaction
+        that deletes the row once every start was accepted.
+
         Another dispatcher holding the row's lock means it is already being
         handled, so the row is skipped. Transient failures raise and leave the
         row in place, moved to the back of the queue, for the next attempt.
         """
         try:
-            async with get_async_session_bypass_rls_context_manager() as session:
-                row = await session.scalar(
-                    select(CaseTriggerOutbox)
-                    .where(CaseTriggerOutbox.surrogate_id == row_id)
-                    .with_for_update(skip_locked=True)
-                )
-                if row is None:
-                    return
-                await self._dispatch(session, row)
-                await session.delete(row)
-                await session.commit()
+            comment_error = await self._dispatch_comment_workflow(row_id)
+            await self._dispatch_configured_triggers(
+                row_id, delete_row=comment_error is None
+            )
+            if comment_error is not None:
+                raise comment_error
         except Exception:
             await _touch_outbox_row(row_id)
             raise
 
-    async def _dispatch(self, session: AsyncSession, row: CaseTriggerOutbox) -> None:
-        event = await session.scalar(
-            select(CaseEvent).where(
-                CaseEvent.id == row.event_id,
-                CaseEvent.case_id == row.case_id,
-                CaseEvent.workspace_id == row.workspace_id,
-            )
-        )
-        if event is None:
-            return
-        case = await session.scalar(
-            select(Case)
-            .options(selectinload(Case.tags))
-            .where(Case.id == row.case_id, Case.workspace_id == row.workspace_id)
-        )
-        if case is None:
-            return
+    async def _dispatch_comment_workflow(self, row_id: int) -> Exception | None:
+        """Settle a row's picked comment workflow; return the error if it must retry."""
+        async with get_async_session_bypass_rls_context_manager() as session:
+            row = await _lock_outbox_row(session, row_id)
+            if row is None:
+                return None
+            comment_workflow = _parse_comment_workflow(row)
+            if comment_workflow is None or comment_workflow.settled:
+                return None
+            if loaded := await _load_event_and_case(session, row):
+                event, case = loaded
+                role = await self._get_service_role(session, row.workspace_id)
+                try:
+                    await self._start_comment_workflow(
+                        session,
+                        role=role,
+                        case=case,
+                        event=event,
+                        trigger=comment_workflow,
+                    )
+                except Exception as e:
+                    await session.rollback()
+                    return e
+            row.extras = comment_workflow.model_copy(
+                update={"settled": True}
+            ).model_dump(mode="json")
+            await session.commit()
+            return None
 
-        role = await self._get_service_role(session, row.workspace_id)
-        # Try every start before failing the row, so one run that cannot start
-        # does not hold back the event's other runs.
-        failures: list[Exception] = []
-        comment_workflow = _parse_comment_workflow(row)
-        if comment_workflow is not None:
-            try:
-                await self._start_comment_workflow(
-                    session, role=role, case=case, event=event, trigger=comment_workflow
+    async def _dispatch_configured_triggers(
+        self, row_id: int, *, delete_row: bool
+    ) -> None:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            row = await _lock_outbox_row(session, row_id)
+            if row is None:
+                return
+            if loaded := await _load_event_and_case(session, row):
+                event, case = loaded
+                role = await self._get_service_role(session, row.workspace_id)
+                # Try every start before failing the row, so one run that
+                # cannot start does not hold back the event's other runs.
+                failures: list[Exception] = []
+                await self._start_configured_triggers(
+                    session,
+                    role=role,
+                    case=case,
+                    event=event,
+                    comment_workflow=_parse_comment_workflow(row),
+                    failures=failures,
                 )
-            except Exception as e:
-                failures.append(e)
-        await self._start_configured_triggers(
-            session,
-            role=role,
-            case=case,
-            event=event,
-            comment_workflow=comment_workflow,
-            failures=failures,
-        )
-        _raise_first(failures)
+                if failures:
+                    await session.rollback()
+                    raise failures[0]
+            if delete_row:
+                await session.delete(row)
+            await session.commit()
 
     async def _start_configured_triggers(
         self,
