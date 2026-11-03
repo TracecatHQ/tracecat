@@ -539,13 +539,15 @@ class SandboxedAgentExecutor:
     def _model_error_detail(self, error: LLMProxyError) -> ModelErrorDetail:
         """The chat's structured detail for a terminal model request failure.
 
-        Attributed to the turn's own model: the proxy does not say which
-        route, so a subagent's failure names the parent's model.
+        The proxy doesn't say which route failed. With subagents that may run
+        on other providers, the detail names no provider or model rather than
+        blame the parent's credentials.
         """
+        config = None if self.input.subagents else self.input.config
         return model_error_detail(
             error.classification,
-            provider=self.input.config.model_provider,
-            model=self.input.config.model_name,
+            provider=config.model_provider if config else None,
+            model=config.model_name if config else None,
             status_code=error.status_code,
             request_id=error.request_id,
             provider_error_code=error.error_code,

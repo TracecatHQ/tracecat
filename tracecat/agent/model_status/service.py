@@ -194,8 +194,8 @@ def build_probe_target(
             return ProbeTarget(
                 url=f"{runtime.base_url}/{listing}",
                 headers=headers,
-                listed_model=runtime.model_name
-                or _bare_model_name(provider, model_name),
+                # Gateways list full model IDs, namespaces included.
+                listed_model=runtime.model_name or model_name,
             )
         case _:
             return None
@@ -400,29 +400,27 @@ class ModelStatusService(BaseWorkspaceService):
             return problem(ModelErrorCode.MODEL_NOT_ENABLED)
 
         management = AgentManagementService(self.session, role=self.role)
-        if provider in _UNPROBED_PROVIDERS:
-            if await management.check_provider_credentials(provider) or (
+
+        async def has_any_credentials() -> bool:
+            return await management.check_provider_credentials(provider) or (
                 preset
                 and await management.check_workspace_provider_credentials(provider)
-            ):
+            )
+
+        if provider in _UNPROBED_PROVIDERS or (preset and catalog_id is None):
+            # Unprobed providers need a token exchange. A preset without a
+            # catalog link resolves its key differently per route (workspace
+            # only when managed, organization first when passthrough), so the
+            # check reports what it can verify rather than guess a key.
+            if await has_any_credentials():
                 return status(None, verified=False)
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
 
-        catalog_linked = catalog_id is not None
-        credentials = await self._runtime_credentials(
-            management,
-            row.id,
-            provider,
-            preset=preset,
-            catalog_linked=catalog_linked,
-        )
-        if (
-            credentials
-            and preset
-            and not catalog_linked
-            and _is_passthrough(provider, credentials)
-        ):
-            credentials = await self._passthrough_key(management, provider, credentials)
+        credentials = await management.get_catalog_credentials(row.id)
+        if credentials is None and preset:
+            # A linked preset whose row has no credentials falls back to other
+            # keys at runtime; the check doesn't follow that fallback.
+            return status(None, verified=False)
         if (
             credentials
             and base_url
@@ -470,54 +468,6 @@ class ModelStatusService(BaseWorkspaceService):
             return False
         _refresh_counts[caller] = used + 1
         return True
-
-    async def _passthrough_key(
-        self,
-        management: AgentManagementService,
-        provider: str,
-        credentials: dict[str, str],
-    ) -> dict[str, str]:
-        """Swap in the API key an unlinked passthrough route actually sends.
-
-        The route's URL comes from the preset's resolved credentials, but the
-        direct route reads its key organization first, then workspace
-        (``tracecat/agent/sandbox/llm_proxy.py`` route ``api_key``).
-        """
-        spec = GATEWAY_PROVIDER_SPECS[provider]
-        source = await management.get_runtime_provider_credentials(
-            provider
-        ) or await management.get_workspace_provider_credentials(provider)
-        runtime = resolve_gateway_provider_config(provider, source or {})
-        api_key = runtime.api_key if runtime is not None else None
-        swapped = {k: v for k, v in credentials.items() if k != spec.api_key_key}
-        if api_key:
-            swapped[spec.api_key_key] = api_key
-        return swapped
-
-    async def _runtime_credentials(
-        self,
-        management: AgentManagementService,
-        catalog_id: uuid.UUID,
-        provider: str,
-        *,
-        preset: bool,
-        catalog_linked: bool,
-    ) -> dict[str, str] | None:
-        """The credentials a chat on this model runs with, mirroring
-        ``AgentManagementService.with_preset_config``.
-
-        The organization default uses its catalog row's credentials only. A
-        catalog-linked preset uses its row's credentials, then workspace, then
-        organization provider keys; a preset without a catalog link skips the
-        row and starts at the workspace keys.
-        """
-        if not preset or catalog_linked:
-            credentials = await management.get_catalog_credentials(catalog_id)
-            if credentials is not None or not preset:
-                return credentials
-        return await management.get_workspace_runtime_provider_credentials(
-            provider
-        ) or await management.get_runtime_provider_credentials(provider)
 
     async def _catalog_row(
         self,

@@ -275,6 +275,15 @@ class TestProbeTarget:
         assert target.listed_model == "llama"
         assert target.url == "https://vllm.example.com/v1/models"
 
+    def test_gateway_listing_keeps_namespaced_model_ids(self) -> None:
+        target = build_probe_target(
+            "litellm",
+            "litellm/team-model",
+            {"LITELLM_BASE_URL": "https://litellm.example.com/v1"},
+        )
+        assert target is not None
+        assert target.listed_model == "litellm/team-model"
+
     def test_openrouter_lists_only_models_the_key_may_call(self) -> None:
         target = build_probe_target(
             "openrouter", "openai/gpt-test", {"OPENROUTER_API_KEY": "k"}
@@ -708,54 +717,55 @@ class TestModelStatusService:
         assert result.problem is None
 
     @pytest.mark.anyio
-    async def test_preset_falls_back_to_workspace_credentials(
+    async def test_linked_preset_without_row_credentials_is_unverified(
         self, monkeypatch: pytest.MonkeyPatch, role: Role
     ) -> None:
-        """A preset runs on workspace keys when its catalog row has none."""
+        """A linked preset falls back to other keys at runtime; the check
+        doesn't guess which, but the organization default reports missing."""
         state = self._stub(monkeypatch)
         state["credentials"] = None
-
-        async def workspace_credentials(self: Any, _provider: str) -> Any:
-            return {"OPENAI_API_KEY": "sk-workspace"}
-
-        monkeypatch.setattr(
-            status_module.AgentManagementService,
-            "get_workspace_runtime_provider_credentials",
-            workspace_credentials,
-        )
         service = self._service(role)
         default = await service.get_status(catalog_id=uuid.uuid4())
         assert default.problem is not None
         assert default.problem.code is ModelErrorCode.CREDENTIALS_MISSING
         self._stub_preset(monkeypatch, catalog_id=uuid.uuid4())
         preset = await service.get_status(preset_id=uuid.uuid4())
-        assert preset.state == "ready"
+        assert preset.state == "unverified"
+        assert state["probes"] == 0
 
     @pytest.mark.anyio
-    async def test_unlinked_preset_uses_workspace_keys_first(
-        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    @pytest.mark.parametrize(
+        ("org_keys", "workspace_keys", "expected"),
+        [
+            (True, False, "unverified"),
+            (False, True, "unverified"),
+            (False, False, "problem"),
+        ],
+    )
+    async def test_unlinked_preset_is_never_probed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        role: Role,
+        org_keys: bool,
+        workspace_keys: bool,
+        expected: str,
     ) -> None:
-        """A preset with no catalog link runs on workspace keys even when the
-        matching catalog row has its own, so the check probes those."""
-        state = self._stub(monkeypatch)
-        state["credentials"] = {"OPENAI_API_KEY": "sk-org"}
-        probed: list[str] = []
+        """An unlinked preset's key depends on its route, so the check only
+        says whether any key exists."""
+        state = self._stub(monkeypatch, has_cloud_credentials=org_keys)
 
-        async def workspace_credentials(self: Any, _provider: str) -> Any:
-            return {"OPENAI_API_KEY": "sk-workspace"}
-
-        async def probe(target: ProbeTarget, **_: Any) -> None:
-            probed.append(target.headers["Authorization"])
+        async def workspace_check(self: Any, _provider: str) -> bool:
+            return workspace_keys
 
         monkeypatch.setattr(
             status_module.AgentManagementService,
-            "get_workspace_runtime_provider_credentials",
-            workspace_credentials,
+            "check_workspace_provider_credentials",
+            workspace_check,
         )
-        monkeypatch.setattr(status_module, "probe_model", probe)
         self._stub_preset(monkeypatch, catalog_id=None)
-        await self._service(role).get_status(preset_id=uuid.uuid4())
-        assert probed == ["Bearer sk-workspace"]
+        result = await self._service(role).get_status(preset_id=uuid.uuid4())
+        assert result.state == expected
+        assert state["probes"] == 0
 
     @pytest.mark.anyio
     async def test_preset_base_url_is_probed_like_the_gateway(
@@ -776,37 +786,6 @@ class TestModelStatusService:
         )
         await self._service(role).get_status(preset_id=uuid.uuid4())
         assert probed == ["https://gateway.example.com/v1/models/gpt-test"]
-
-    @pytest.mark.anyio
-    async def test_unlinked_passthrough_preset_probes_with_the_org_key(
-        self, monkeypatch: pytest.MonkeyPatch, role: Role
-    ) -> None:
-        """An unlinked passthrough route takes its URL from the preset's
-        credentials but its key organization first, so the probe does too."""
-        self._stub(monkeypatch, provider="litellm")
-        probed: list[tuple[str, str]] = []
-
-        async def workspace_runtime(self: Any, _provider: str) -> Any:
-            return {
-                "LITELLM_BASE_URL": "https://litellm.example.com/v1",
-                "LITELLM_API_KEY": "sk-workspace",
-            }
-
-        async def org_runtime(self: Any, _provider: str) -> Any:
-            return {"LITELLM_API_KEY": "sk-org"}
-
-        async def probe(target: ProbeTarget, **_: Any) -> None:
-            probed.append((target.url, target.headers["Authorization"]))
-
-        management = status_module.AgentManagementService
-        monkeypatch.setattr(
-            management, "get_workspace_runtime_provider_credentials", workspace_runtime
-        )
-        monkeypatch.setattr(management, "get_runtime_provider_credentials", org_runtime)
-        monkeypatch.setattr(status_module, "probe_model", probe)
-        self._stub_preset(monkeypatch, catalog_id=None)
-        await self._service(role).get_status(preset_id=uuid.uuid4())
-        assert probed == [("https://litellm.example.com/v1/models", "Bearer sk-org")]
 
     @pytest.mark.anyio
     async def test_passthrough_provider_keeps_its_own_url(
