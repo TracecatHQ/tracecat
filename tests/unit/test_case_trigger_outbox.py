@@ -555,6 +555,67 @@ class TestOutboxDispatch:
         assert saved == CaseCommentWorkflowStatus.RUNNING.value
         assert await _outbox_rows(session, case_id) == []
 
+    @pytest.mark.parametrize(
+        ("outcome", "status"),
+        [
+            ("started", CaseCommentWorkflowStatus.RUNNING),
+            # The ID is held by an earlier attempt's tombstone, not the run.
+            ("not_started", CaseCommentWorkflowStatus.FAILED),
+        ],
+    )
+    async def test_duplicate_comment_start_is_checked_against_a_tombstone(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+        outcome: str,
+        status: CaseCommentWorkflowStatus,
+    ) -> None:
+        picked = await _add_trigger(
+            session, svc_role, event_types=["comment_created"], status="offline"
+        )
+        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
+        comment = CaseComment(
+            workspace_id=test_case.workspace_id,
+            case_id=test_case.id,
+            content="Run this",
+            workflow_id=picked.workflow_id,
+            workflow_wf_exec_id=exec_id,
+            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+        )
+        session.add(comment)
+        await session.flush()
+        events = CaseEventsService(session=session, role=svc_role)
+        await events.create_event(
+            test_case,
+            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
+            comment_workflow=CaseCommentWorkflowTrigger(
+                workflow_id=picked.workflow_id,
+                wf_exec_id=exec_id,
+                comment_id=comment.id,
+                comment="Run this",
+                triggered_by_type="service",
+            ),
+        )
+        await session.commit()
+        case_id = test_case.id
+        comment_id = comment.id
+
+        start = AsyncMock(
+            side_effect=WorkflowAlreadyStartedError(exec_id, "DSLWorkflow")
+        )
+        with _dispatch_mocks(start) as service:
+            service.settle_lost_start = AsyncMock(return_value=outcome)
+            (row_id,) = await list_outbox_row_ids()
+            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+
+        service.settle_lost_start.assert_awaited_once_with(exec_id)
+        saved = await session.scalar(
+            select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
+        )
+        assert saved == status.value
+        assert await _outbox_rows(session, case_id) == []
+
     async def test_comment_workflow_uses_preassigned_exec_id(
         self, session: AsyncSession, svc_role: Role, test_case: Case
     ) -> None:
