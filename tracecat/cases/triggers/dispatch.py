@@ -189,6 +189,14 @@ def _parse_comment_workflow(
         return None
 
 
+class CaseTriggerStartUnknownError(Exception):
+    """Temporal could not say whether a run's start was accepted; retry later."""
+
+    def __init__(self, wf_exec_id: WorkflowExecutionID) -> None:
+        super().__init__(f"Could not settle the start of {wf_exec_id}")
+        self.wf_exec_id = wf_exec_id
+
+
 def _raise_first(failures: list[Exception]) -> None:
     if failures:
         raise failures[0]
@@ -465,18 +473,27 @@ class CaseTriggerOutboxDispatcher:
                 dsl = DSLInput.model_validate(defn.content)
             except (ValidationError, TracecatDSLError):
                 dsl = None
+        service = await WorkflowExecutionsService.connect(role=role)
         if defn is None or dsl is None:
             logger.warning(
                 "Comment workflow definition missing or invalid",
                 workflow_id=str(trigger.workflow_id),
                 event_id=str(event.id),
             )
-            await self._fail_comment_workflow(
-                session, audit_role=audit_role, case=case, trigger=trigger
-            )
+            # An earlier attempt of this row may have started the run before
+            # the definition changed. Settling the ID tells the two apart and
+            # makes sure a run that never started cannot start later.
+            match await service.settle_lost_start(trigger.wf_exec_id):
+                case "started":
+                    return
+                case "unknown":
+                    raise CaseTriggerStartUnknownError(trigger.wf_exec_id)
+                case "not_started":
+                    await self._fail_comment_workflow(
+                        session, audit_role=audit_role, case=case, trigger=trigger
+                    )
             return
 
-        service = await WorkflowExecutionsService.connect(role=role)
         try:
             await service.create_workflow_execution_wait_for_start(
                 dsl=dsl,

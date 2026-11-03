@@ -105,9 +105,11 @@ class CaseTriggerDispatcher:
                 retry_policy=_ACTIVITY_RETRY_POLICY,
             )
             if has_rows:
+                # Heartbeats before every start detect a dead worker; the long
+                # overall timeout only has to fit a batch of slow starts.
                 await workflow.execute_activity(
                     dispatch_case_trigger_outbox_batch,
-                    start_to_close_timeout=timedelta(minutes=10),
+                    start_to_close_timeout=timedelta(hours=1),
                     heartbeat_timeout=timedelta(seconds=60),
                     retry_policy=_ACTIVITY_RETRY_POLICY,
                 )

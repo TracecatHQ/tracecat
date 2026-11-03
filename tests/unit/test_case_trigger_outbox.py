@@ -24,6 +24,7 @@ from tracecat.cases.schemas import CaseCommentWorkflowStatus, CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.cases.triggers.dispatch import (
     CaseTriggerOutboxDispatcher,
+    CaseTriggerStartUnknownError,
     case_trigger_exec_id,
     list_outbox_row_ids,
 )
@@ -222,6 +223,7 @@ def _definition() -> SimpleNamespace:
 def _dispatch_mocks(start: AsyncMock) -> Iterator[MagicMock]:
     service = MagicMock()
     service.create_workflow_execution_wait_for_start = start
+    service.settle_lost_start = AsyncMock(return_value="not_started")
     with (
         patch(
             "tracecat.cases.triggers.dispatch.is_org_entitled",
@@ -471,10 +473,25 @@ class TestOutboxDispatch:
 
         assert await _outbox_rows(session, test_case) == []
 
-    async def test_missing_comment_workflow_definition_marks_comment_failed(
-        self, session: AsyncSession, svc_role: Role, test_case: Case
+    @pytest.mark.parametrize(
+        ("outcome", "status", "row_kept"),
+        [
+            ("not_started", CaseCommentWorkflowStatus.FAILED, False),
+            # An earlier attempt started the run before the definition went away.
+            ("started", CaseCommentWorkflowStatus.RUNNING, False),
+            ("unknown", CaseCommentWorkflowStatus.RUNNING, True),
+        ],
+    )
+    async def test_missing_comment_workflow_definition_settles_the_run(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+        outcome: str,
+        status: CaseCommentWorkflowStatus,
+        row_kept: bool,
     ) -> None:
-        """A permanent problem is recorded on the comment and the row is dropped."""
+        """A missing definition fails the comment only if its run never started."""
         trigger = await _add_trigger(session, svc_role, event_types=["case_closed"])
         comment = CaseComment(
             workspace_id=test_case.workspace_id,
@@ -501,20 +518,30 @@ class TestOutboxDispatch:
         await session.commit()
 
         start = AsyncMock()
+        case_id = test_case.id
+        comment_id = comment.id
         with (
-            _dispatch_mocks(start),
+            _dispatch_mocks(start) as service,
             patch(
                 "tracecat.cases.triggers.dispatch.WorkflowDefinitionsService.get_definition_by_workflow_id",
                 new=AsyncMock(return_value=None),
             ),
         ):
+            service.settle_lost_start = AsyncMock(return_value=outcome)
             (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+            if row_kept:
+                with pytest.raises(CaseTriggerStartUnknownError):
+                    await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+            else:
+                await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
 
         start.assert_not_awaited()
-        await session.refresh(comment)
-        assert comment.workflow_status == CaseCommentWorkflowStatus.FAILED.value
-        assert await _outbox_rows(session, test_case) == []
+        service.settle_lost_start.assert_awaited_once_with("wf_abc/exec_def")
+        saved = await session.scalar(
+            select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
+        )
+        assert saved == status.value
+        assert len(await _outbox_rows(session, case_id)) == int(row_kept)
 
     async def test_invalid_trigger_definition_disables_trigger(
         self, session: AsyncSession, svc_role: Role, test_case: Case
