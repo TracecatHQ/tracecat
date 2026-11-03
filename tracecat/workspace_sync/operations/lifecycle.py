@@ -18,6 +18,7 @@ with workflow.unsafe.imports_passed_through():
         SyncLifecycleState,
         SyncPreparedRef,
     )
+    from tracecat.workspace_sync.operations.types import VALIDATION_FAILED_MESSAGE
 
 _CONFIRMATION_WINDOW = timedelta(hours=24)
 _RETRY_WINDOW = timedelta(hours=24)
@@ -291,23 +292,22 @@ class WorkspaceSyncLifecycleWorkflow:
                         continue
                 cause = exc.cause
                 permanent = isinstance(cause, ApplicationError) and cause.non_retryable
-                stale = (
+                cause_type = cause.type if isinstance(cause, ApplicationError) else None
+                if cause_type == "StaleSyncPreviewError":
+                    error = "Workspace, repository, or preview validity changed. Start a fresh preview."
+                elif cause_type == "TracecatAuthorizationError":
+                    error = "Access changed. Restore access and start a fresh preview."
+                elif (
                     isinstance(cause, ApplicationError)
-                    and cause.type == "StaleSyncPreviewError"
-                )
-                authorization = (
-                    isinstance(cause, ApplicationError)
-                    and cause.type == "TracecatAuthorizationError"
-                )
-                error = (
-                    "Workspace, repository, or preview validity changed. Start a fresh preview."
-                    if stale
-                    else "Access changed. Restore access and start a fresh preview."
-                    if authorization
-                    else "Validation failed. Review the inputs and start a fresh preview."
-                    if permanent
-                    else "Sync failed at this stage. Retry to resume the operation."
-                )
+                    and cause_type == "SyncValidationError"
+                    and cause.message
+                ):
+                    # Activities only pass user-facing validation text through.
+                    error = cause.message
+                elif permanent:
+                    error = VALIDATION_FAILED_MESSAGE
+                else:
+                    error = "Sync failed at this stage. Retry to resume the operation."
                 self.state = replace(
                     self.state,
                     status="failed",

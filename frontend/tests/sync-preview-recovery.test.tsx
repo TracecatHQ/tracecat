@@ -148,7 +148,7 @@ it("resets the page and selection when a refreshed preview replaces the operatio
       />
     </QueryClientProvider>
   )
-  fireEvent.click(await screen.findByText("Next files"))
+  fireEvent.click(await screen.findByText("Show more files"))
   await waitFor(() =>
     expect(workflowsListSyncDiffs).toHaveBeenCalledWith({
       workspaceId: "workspace-example",
@@ -156,8 +156,13 @@ it("resets the page and selection when a refreshed preview replaces the operatio
       cursor: "next-page",
     })
   )
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole("button", { name: /variables\/example.yml/ })
+    ).toHaveLength(2)
+  )
   fireEvent.click(
-    await screen.findByRole("button", { name: /variables\/example.yml/ })
+    screen.getAllByRole("button", { name: /variables\/example.yml/ })[0]
   )
   await screen.findByText("old selected contents")
   jest.mocked(workflowsListSyncDiffs).mockResolvedValue({ items: [diff] })
