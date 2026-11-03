@@ -1,8 +1,8 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 
-from tracecat.agent.model_status.schemas import ModelStatusRead
+from tracecat.agent.model_status.schemas import ModelStatusCheck, ModelStatusRead
 from tracecat.agent.model_status.service import ModelStatusService
 from tracecat.agent.schemas import (
     BedrockSubscriptionRead,
@@ -286,26 +286,23 @@ async def get_workspace_providers_status(
     return await service.get_workspace_providers_status()
 
 
-@workspace_router.get("/workspace/models/status")
+@workspace_router.post("/workspace/models/status")
 @require_scope("agent:read")
-async def get_workspace_model_status(
+async def check_workspace_model_status(
     *,
+    params: ModelStatusCheck,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-    catalog_id: uuid.UUID | None = Query(default=None),
-    model_provider: str | None = Query(default=None, max_length=128),
-    model_name: str | None = Query(default=None, max_length=500),
-    preset: bool = Query(default=False),
-    refresh: bool = Query(default=False),
 ) -> ModelStatusRead:
     """Check whether this workspace can reach a model with its credentials.
 
-    Identify the model by catalog ID, or by provider and name. Pass ``preset``
-    when the chat runs the model through an agent preset, so the check uses the
-    same credential fallback. The result is cached briefly per credential set;
-    ``refresh`` re-checks unless the last check is very recent.
+    A POST, not a GET: a check may call the provider on the organization's key,
+    so a cross-site navigation must not be able to trigger it. Identify the
+    model by catalog ID, or by provider and name. Pass ``preset`` when the chat
+    runs the model through an agent preset, so the check uses the same
+    credential fallback. The result is cached briefly per credential set.
     """
-    if catalog_id is None and not (model_provider and model_name):
+    if params.catalog_id is None and not (params.model_provider and params.model_name):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Pass catalog_id, or model_provider and model_name",
@@ -313,11 +310,11 @@ async def get_workspace_model_status(
     service = ModelStatusService(session, role=role)
     try:
         return await service.get_status(
-            catalog_id=catalog_id,
-            model_provider=model_provider,
-            model_name=model_name,
-            preset=preset,
-            refresh=refresh,
+            catalog_id=params.catalog_id,
+            model_provider=params.model_provider,
+            model_name=params.model_name,
+            preset=params.preset,
+            refresh=params.refresh,
         )
     except TracecatNotFoundError as e:
         raise HTTPException(

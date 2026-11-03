@@ -7967,6 +7967,23 @@ export type ModelSecretConfig = {
 }
 
 /**
+ * Which model to check, by catalog ID or by provider and name.
+ */
+export type ModelStatusCheck = {
+  catalog_id?: string | null
+  model_provider?: string | null
+  model_name?: string | null
+  /**
+   * The chat runs the model through an agent preset.
+   */
+  preset?: boolean
+  /**
+   * Re-check now unless the last check is very recent.
+   */
+  refresh?: boolean
+}
+
+/**
  * Whether the selected model can currently be reached.
  */
 export type ModelStatusRead = {
@@ -16039,16 +16056,12 @@ export type AgentGetWorkspaceProvidersStatusResponse = {
   [key: string]: boolean
 }
 
-export type AgentGetWorkspaceModelStatusData = {
-  catalogId?: string | null
-  modelName?: string | null
-  modelProvider?: string | null
-  preset?: boolean
-  refresh?: boolean
+export type AgentCheckWorkspaceModelStatusData = {
+  requestBody: ModelStatusCheck
   workspaceId: string
 }
 
-export type AgentGetWorkspaceModelStatusResponse = ModelStatusRead
+export type AgentCheckWorkspaceModelStatusResponse = ModelStatusRead
 
 export type AgentChannelsCreateChannelTokenData = {
   requestBody: AgentChannelTokenCreate
@@ -22693,8 +22706,8 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/agent/workspace/models/status": {
-    get: {
-      req: AgentGetWorkspaceModelStatusData
+    post: {
+      req: AgentCheckWorkspaceModelStatusData
       res: {
         /**
          * Successful Response

@@ -761,7 +761,12 @@ export function useVercelChat({
   // Whether the request in flight is this tab's send or a reconnect replay.
   const requestKindRef = useRef<"send" | "resume">("send")
   // A failed model request's detail, held until its error chunk arrives.
-  const modelErrorRef = useRef<ModelErrorDetail | null>(null)
+  // Tagged with its chat, and cleared on every new turn, chat switch and
+  // finish, so an aborted stream's detail never explains another failure.
+  const modelErrorRef = useRef<{
+    chatKey: string | undefined
+    detail: ModelErrorDetail
+  } | null>(null)
   // A replay's prompt is off screen, so its turn is never resent. A Retry
   // reconnect means the server took the turn; a restored prompt is on screen.
   function isReplay(): boolean {
@@ -845,8 +850,10 @@ export function useVercelChat({
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
       // The server sends a model failure's detail just before its error.
-      const modelError = modelErrorRef.current
+      const held = modelErrorRef.current
       modelErrorRef.current = null
+      const modelError =
+        held !== null && held.chatKey === chatKey ? held.detail : null
       // A reconnect that fails before its stream opens gets no onFinish and
       // leaves status untouched; the turn is unknown, so mark it dropped.
       const streamOpened =
@@ -873,6 +880,8 @@ export function useVercelChat({
       })
     },
     onFinish: ({ messages: turnMessages, isAbort, isDisconnect, isError }) => {
+      // Runs after onError, which already took this turn's detail.
+      modelErrorRef.current = null
       if (!isAbort && !isDisconnect && !isError) {
         void subagentStore.complete()
       }
@@ -911,7 +920,8 @@ export function useVercelChat({
     },
     onData: (dataPart) => {
       if (dataPart.type === MODEL_ERROR_DATA_PART_TYPE) {
-        modelErrorRef.current = parseModelErrorDetail(dataPart.data)
+        const detail = parseModelErrorDetail(dataPart.data)
+        modelErrorRef.current = detail ? { chatKey, detail } : null
         return
       }
       if (dataPart.type === AGENT_CHUNK_DATA_PART_TYPE) {
@@ -948,6 +958,7 @@ export function useVercelChat({
     if (statusRef.current === "submitted" || statusRef.current === "streaming")
       return
     requestKindRef.current = "resume"
+    modelErrorRef.current = null
     const done = resumeStream().finally(() => {
       if (pendingResumeRef.current?.done === done) {
         pendingResumeRef.current = null
@@ -961,6 +972,7 @@ export function useVercelChat({
   }, [chatKey])
   const startTurn = useCallback(() => {
     requestKindRef.current = "send"
+    modelErrorRef.current = null
     setLastError(null)
     if (chatId) saveDroppedPrompt(chatId, null)
   }, [chatId])

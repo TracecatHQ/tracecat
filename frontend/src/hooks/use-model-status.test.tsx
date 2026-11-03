@@ -1,13 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-import { agentGetWorkspaceModelStatus, type ModelStatusRead } from "@/client"
+import { agentCheckWorkspaceModelStatus, type ModelStatusRead } from "@/client"
 import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { useModelStatus } from "@/hooks/use-model-status"
 import type { ModelInfo } from "@/lib/chat"
 import { DefaultQueryClientProvider } from "@/providers/query"
 
 jest.mock("@/client", () => ({
-  agentGetWorkspaceModelStatus: jest.fn(),
+  agentCheckWorkspaceModelStatus: jest.fn(),
 }))
 jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
 
@@ -29,12 +29,12 @@ const MODEL_B: ModelInfo = { name: "b", provider: "openai", catalogId: "cb" }
 
 describe("useModelStatus", () => {
   it("never shows one model's failed recheck on another model", async () => {
-    const fetchStatus = jest.mocked(agentGetWorkspaceModelStatus)
+    const fetchStatus = jest.mocked(agentCheckWorkspaceModelStatus)
     fetchStatus.mockImplementation(
-      ({ modelName, refresh }) =>
+      ({ requestBody }) =>
         new CancelablePromise((resolve, reject) => {
-          if (refresh) reject(new Error("check failed"))
-          else resolve(ready(modelName ?? ""))
+          if (requestBody.refresh) reject(new Error("check failed"))
+          else resolve(ready(requestBody.model_name ?? ""))
         })
     )
 

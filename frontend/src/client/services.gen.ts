@@ -162,6 +162,8 @@ import type {
   AgentChannelsStartSlackOauthResponse,
   AgentChannelsUpdateChannelTokenData,
   AgentChannelsUpdateChannelTokenResponse,
+  AgentCheckWorkspaceModelStatusData,
+  AgentCheckWorkspaceModelStatusResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
@@ -185,8 +187,6 @@ import type {
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
-  AgentGetWorkspaceModelStatusData,
-  AgentGetWorkspaceModelStatusResponse,
   AgentGetWorkspaceProvidersStatusData,
   AgentGetWorkspaceProvidersStatusResponse,
   AgentListModelsResponse,
@@ -6481,39 +6481,31 @@ export const agentGetWorkspaceProvidersStatus = (
 }
 
 /**
- * Get Workspace Model Status
+ * Check Workspace Model Status
  * Check whether this workspace can reach a model with its credentials.
  *
- * Identify the model by catalog ID, or by provider and name. Pass ``preset``
- * when the chat runs the model through an agent preset, so the check uses the
- * same credential fallback. The result is cached briefly per credential set;
- * ``refresh`` re-checks unless the last check is very recent.
+ * A POST, not a GET: a check may call the provider on the organization's key,
+ * so a cross-site navigation must not be able to trigger it. Identify the
+ * model by catalog ID, or by provider and name. Pass ``preset`` when the chat
+ * runs the model through an agent preset, so the check uses the same
+ * credential fallback. The result is cached briefly per credential set.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.catalogId
- * @param data.modelProvider
- * @param data.modelName
- * @param data.preset
- * @param data.refresh
+ * @param data.requestBody
  * @returns ModelStatusRead Successful Response
  * @throws ApiError
  */
-export const agentGetWorkspaceModelStatus = (
-  data: AgentGetWorkspaceModelStatusData
-): CancelablePromise<AgentGetWorkspaceModelStatusResponse> => {
+export const agentCheckWorkspaceModelStatus = (
+  data: AgentCheckWorkspaceModelStatusData
+): CancelablePromise<AgentCheckWorkspaceModelStatusResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/workspaces/{workspace_id}/agent/workspace/models/status",
     path: {
       workspace_id: data.workspaceId,
     },
-    query: {
-      catalog_id: data.catalogId,
-      model_provider: data.modelProvider,
-      model_name: data.modelName,
-      preset: data.preset,
-      refresh: data.refresh,
-    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

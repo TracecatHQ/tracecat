@@ -25805,6 +25805,62 @@ export const $ModelSecretConfig = {
   title: "ModelSecretConfig",
 } as const
 
+export const $ModelStatusCheck = {
+  properties: {
+    catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Id",
+    },
+    model_provider: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 128,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Provider",
+    },
+    model_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Name",
+    },
+    preset: {
+      type: "boolean",
+      title: "Preset",
+      description: "The chat runs the model through an agent preset.",
+      default: false,
+    },
+    refresh: {
+      type: "boolean",
+      title: "Refresh",
+      description: "Re-check now unless the last check is very recent.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "ModelStatusCheck",
+  description: "Which model to check, by catalog ID or by provider and name.",
+} as const
+
 export const $ModelStatusRead = {
   properties: {
     state: {

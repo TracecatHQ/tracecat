@@ -1,4 +1,4 @@
-import { agentGetWorkspaceModelStatus, type ModelStatusRead } from "@/client"
+import { agentCheckWorkspaceModelStatus, type ModelStatusRead } from "@/client"
 import type { ModelInfo } from "@/lib/chat"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
@@ -22,13 +22,15 @@ async function fetchModelStatus(
   modelInfo: ModelInfo,
   refresh: boolean
 ): Promise<ModelStatusRead> {
-  return await agentGetWorkspaceModelStatus({
+  return await agentCheckWorkspaceModelStatus({
     workspaceId,
-    catalogId: modelInfo.catalogId ?? undefined,
-    modelProvider: modelInfo.provider,
-    modelName: modelInfo.name,
-    preset: modelInfo.fromPreset ?? false,
-    refresh,
+    requestBody: {
+      catalog_id: modelInfo.catalogId ?? null,
+      model_provider: modelInfo.provider,
+      model_name: modelInfo.name,
+      preset: modelInfo.fromPreset ?? false,
+      refresh,
+    },
   })
 }
 

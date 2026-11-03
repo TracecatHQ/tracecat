@@ -1,5 +1,6 @@
 """API and stream contracts for model status and model errors."""
 
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,6 +36,22 @@ class ModelErrorDetail(BaseModel):
         default=None,
         max_length=128,
         description="The provider's machine-readable error code or type.",
+    )
+
+
+class ModelStatusCheck(BaseModel):
+    """Which model to check, by catalog ID or by provider and name."""
+
+    catalog_id: uuid.UUID | None = Field(default=None)
+    model_provider: str | None = Field(default=None, max_length=128)
+    model_name: str | None = Field(default=None, max_length=500)
+    preset: bool = Field(
+        default=False,
+        description="The chat runs the model through an agent preset.",
+    )
+    refresh: bool = Field(
+        default=False,
+        description="Re-check now unless the last check is very recent.",
     )
 
 

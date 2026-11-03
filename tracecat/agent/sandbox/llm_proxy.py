@@ -326,10 +326,15 @@ def _safe_error_token(value: str | None) -> str | None:
     return None
 
 
-def _upstream_request_id(headers: httpx.Headers) -> str | None:
-    """The provider's request ID, when it is a safe token."""
+def _upstream_request_id(headers: httpx.Headers, *, sent: str | None) -> str | None:
+    """The provider's own request ID, when it is a safe token.
+
+    ``sent`` is the trace ID the proxy forwarded, which the sandbox chose; an
+    upstream that echoes it back is not reporting its own ID.
+    """
     for name in ("x-request-id", "request-id"):
-        if request_id := _safe_error_token(headers.get(name)):
+        request_id = _safe_error_token(headers.get(name))
+        if request_id is not None and request_id != sent:
             return request_id
     return None
 
@@ -1823,10 +1828,11 @@ class LLMSocketProxy:
                                             else "managed",
                                             status_code=response.status_code,
                                         ),
-                                        # Never the inbound trace ID: the
-                                        # sandbox chooses it, and Chat shows this.
+                                        # Never the trace ID, even echoed back:
+                                        # the sandbox chooses it, Chat shows this.
                                         request_id=_upstream_request_id(
-                                            response.headers
+                                            response.headers,
+                                            sent=trace_request_id,
                                         ),
                                         error_body=error_body,
                                     )

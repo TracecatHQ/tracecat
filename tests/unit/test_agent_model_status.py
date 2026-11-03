@@ -34,6 +34,7 @@ from tracecat.agent.model_status.service import (
     probe_model,
 )
 from tracecat.agent.model_status.types import ModelErrorCode
+from tracecat.agent.sandbox.llm_proxy import _upstream_request_id
 from tracecat.agent.stream.connector import _parse_error_detail
 from tracecat.agent.stream.events import StreamEnd, StreamError, StreamEvent
 from tracecat.auth.types import Role
@@ -165,6 +166,17 @@ class TestModelErrorDetail:
         )
         assert detail.request_id is None
         assert detail.provider_error_code is None
+
+
+class TestUpstreamRequestId:
+    def test_echoed_trace_id_is_not_the_providers(self) -> None:
+        """An upstream echoing the sandbox-chosen trace ID reports no ID."""
+        echoed = httpx.Headers({"x-request-id": "req_fromTheSandbox"})
+        assert _upstream_request_id(echoed, sent="req_fromTheSandbox") is None
+
+    def test_providers_own_id_is_kept(self) -> None:
+        own = httpx.Headers({"request-id": "req_providerOwn123"})
+        assert _upstream_request_id(own, sent="trace-1") == "req_providerOwn123"
 
 
 class TestStreamContract:
