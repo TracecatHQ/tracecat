@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
 
 from pydantic import ValidationError
 from sqlalchemy import exists, func, select, update
@@ -20,11 +19,10 @@ from sqlalchemy.orm import selectinload
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from tracecat.audit.enums import AuditEventStatus
-from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.cases.enums import CaseEventType
 from tracecat.cases.schemas import CaseCommentWorkflowStatus
+from tracecat.cases.triggers.audit import audit_comment_workflow_execution
 from tracecat.cases.triggers.outbox import online_trigger_filter
 from tracecat.cases.triggers.types import (
     CaseCommentWorkflowTrigger,
@@ -110,17 +108,6 @@ async def _touch_outbox_row(row_id: int) -> None:
         await session.commit()
 
 
-def _event_type_value(event: CaseEvent) -> str:
-    return event.type.value if isinstance(event.type, CaseEventType) else event.type
-
-
-def _event_created_at(event: CaseEvent) -> datetime:
-    created_at = event.created_at or datetime.now(UTC)
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
-    return created_at
-
-
 def _tags_payload(case: Case) -> list[CaseTriggerTag]:
     return [
         {"id": str(tag.id), "ref": tag.ref, "name": tag.name, "color": tag.color}
@@ -134,9 +121,9 @@ def build_case_trigger_payload(*, case: Case, event: CaseEvent) -> CaseTriggerPa
         "case_id": str(case.id),
         "event": {
             "id": str(event.id),
-            "type": _event_type_value(event),
+            "type": event.type.value,
             "data": event.data,
-            "created_at": _event_created_at(event).isoformat(),
+            "created_at": event.created_at.isoformat(),
             "user_id": str(event.user_id) if event.user_id else None,
             "wf_exec_id": event.data.get("wf_exec_id") if event.data else None,
         },
@@ -169,8 +156,8 @@ def build_comment_workflow_payload(
         },
         "event": {
             "id": str(event.id),
-            "type": _event_type_value(event),
-            "created_at": _event_created_at(event).isoformat(),
+            "type": event.type.value,
+            "created_at": event.created_at.isoformat(),
             "user_id": str(event.user_id) if event.user_id else None,
         },
         "tags": _tags_payload(case),
@@ -240,6 +227,7 @@ class CaseTriggerOutboxDispatcher:
     def __init__(self, heartbeat: Callable[[], None] | None = None) -> None:
         self._heartbeat = heartbeat or (lambda: None)
         self._workspace_roles: dict[uuid.UUID, Role] = {}
+        self._org_entitled: dict[uuid.UUID, bool] = {}
 
     async def dispatch_row(self, row_id: int) -> None:
         """Start every run for one outbox row, then delete the row.
@@ -300,6 +288,7 @@ class CaseTriggerOutboxDispatcher:
             row = await _lock_outbox_row(session, row_id)
             if row is None:
                 return
+            comment_workflow = _parse_comment_workflow(row)
             if loaded := await _load_event_and_case(session, row):
                 event, case = loaded
                 role = await self._get_service_role(session, row.workspace_id)
@@ -311,7 +300,7 @@ class CaseTriggerOutboxDispatcher:
                     role=role,
                     case=case,
                     event=event,
-                    comment_workflow=_parse_comment_workflow(row),
+                    comment_workflow=comment_workflow,
                     failures=failures,
                 )
                 if failures:
@@ -319,7 +308,6 @@ class CaseTriggerOutboxDispatcher:
                     raise failures[0]
             # An overlapping attempt may still hold or have rolled back the
             # picked workflow, so the row goes only once that is settled.
-            comment_workflow = _parse_comment_workflow(row)
             if delete_row and (comment_workflow is None or comment_workflow.settled):
                 await session.delete(row)
             await session.commit()
@@ -344,17 +332,10 @@ class CaseTriggerOutboxDispatcher:
             )
             return
 
-        try:
-            event_type = CaseEventType(_event_type_value(event))
-        except ValueError:
-            logger.warning(
-                "Unknown case event type, skipping", event_type=_event_type_value(event)
-            )
-            return
         triggers = (
             await session.scalars(
                 select(CaseTrigger).where(
-                    online_trigger_filter(case.workspace_id, event_type)
+                    online_trigger_filter(case.workspace_id, event.type)
                 )
             )
         ).all()
@@ -404,9 +385,12 @@ class CaseTriggerOutboxDispatcher:
                 workspace_id=str(role.workspace_id),
             )
             return False
-        return await is_org_entitled(
-            session, role.organization_id, Entitlement.CASE_ADDONS
-        )
+        if (entitled := self._org_entitled.get(role.organization_id)) is None:
+            entitled = await is_org_entitled(
+                session, role.organization_id, Entitlement.CASE_ADDONS
+            )
+            self._org_entitled[role.organization_id] = entitled
+        return entitled
 
     async def _start_trigger_workflow(
         self,
@@ -504,43 +488,87 @@ class CaseTriggerOutboxDispatcher:
         event: CaseEvent,
         trigger: CaseCommentWorkflowTrigger,
     ) -> None:
+        """Start a picked comment workflow, or record that it cannot run.
+
+        Anything short of an accepted start settles the run ID: an earlier
+        attempt of this row may have started the run and then lost its commit.
+        Settling tells the two apart and makes sure a run that never started
+        cannot start later.
+        """
         self._heartbeat()
-        wf_id = WorkflowUUID.new(trigger.workflow_id)
-        audit_role = (
-            role.model_copy(
-                update={
-                    "user_id": trigger.triggered_by_user_id,
-                    "service_id": trigger.triggered_by_service_id or role.service_id,
-                }
-            )
-            if trigger.triggered_by_user_id is not None
-            else None
+        service = await WorkflowExecutionsService.connect(role=role)
+        started = await self._try_start_comment_workflow(
+            session, service, role=role, case=case, event=event, trigger=trigger
         )
+        if not started:
+            match await service.settle_lost_start(trigger.wf_exec_id):
+                case "unknown":
+                    raise CaseTriggerStartUnknownError(trigger.wf_exec_id)
+                case outcome:
+                    started = outcome == "started"
+        if not started:
+            await session.execute(
+                update(CaseComment)
+                .where(
+                    CaseComment.workspace_id == case.workspace_id,
+                    CaseComment.id == trigger.comment_id,
+                )
+                .values(workflow_status=CaseCommentWorkflowStatus.FAILED.value)
+            )
+        if trigger.triggered_by_user_id is not None:
+            await audit_comment_workflow_execution(
+                session,
+                role.model_copy(
+                    update={
+                        "user_id": trigger.triggered_by_user_id,
+                        "service_id": trigger.triggered_by_service_id
+                        or role.service_id,
+                    }
+                ),
+                status=AuditEventStatus.SUCCESS
+                if started
+                else AuditEventStatus.FAILURE,
+                workflow_id=trigger.workflow_id,
+                case_id=case.id,
+                comment_id=trigger.comment_id,
+                parent_id=trigger.parent_id,
+                wf_exec_id=trigger.wf_exec_id,
+            )
+
+    async def _try_start_comment_workflow(
+        self,
+        session: AsyncSession,
+        service: WorkflowExecutionsService,
+        *,
+        role: Role,
+        case: Case,
+        event: CaseEvent,
+        trigger: CaseCommentWorkflowTrigger,
+    ) -> bool:
+        """Return whether Temporal accepted the start; raise if it should retry."""
         defn = await WorkflowDefinitionsService(
             session, role=role
-        ).get_definition_by_workflow_id(wf_id, load_relationships=False)
-        dsl: DSLInput | None = None
-        if defn and defn.content:
-            try:
-                dsl = DSLInput.model_validate(defn.content)
-            except (ValidationError, TracecatDSLError):
-                dsl = None
-        service = await WorkflowExecutionsService.connect(role=role)
+        ).get_definition_by_workflow_id(
+            WorkflowUUID.new(trigger.workflow_id), load_relationships=False
+        )
+        log = logger.bind(
+            workflow_id=str(trigger.workflow_id),
+            event_id=str(event.id),
+            wf_exec_id=trigger.wf_exec_id,
+        )
+        try:
+            dsl = (
+                DSLInput.model_validate(defn.content) if defn and defn.content else None
+            )
+        except (ValidationError, TracecatDSLError):
+            dsl = None
         if defn is None or dsl is None:
-            logger.warning(
-                "Comment workflow definition missing or invalid",
-                workflow_id=str(trigger.workflow_id),
-                event_id=str(event.id),
-            )
-            await self._fail_comment_workflow_unless_started(
-                session, service, audit_role=audit_role, case=case, trigger=trigger
-            )
-            return
-
+            log.warning("Comment workflow definition missing or invalid")
+            return False
         try:
             await service.create_workflow_execution_wait_for_start(
                 dsl=dsl,
-                wf_id=wf_id,
+                wf_id=WorkflowUUID.new(trigger.workflow_id),
                 wf_exec_id=trigger.wf_exec_id,
                 payload=build_comment_workflow_payload(
                     case=case, event=event, trigger=trigger
@@ -551,114 +579,15 @@ class CaseTriggerOutboxDispatcher:
                 else None,
             )
         except WorkflowAlreadyStartedError:
-            logger.info(
-                "Comment workflow already started",
-                workflow_id=str(trigger.workflow_id),
-                event_id=str(event.id),
-                wf_exec_id=trigger.wf_exec_id,
-            )
             # The ID may be held by a tombstone from an earlier attempt that
             # lost its commit, rather than by the run itself.
-            if not await self._fail_comment_workflow_unless_started(
-                session, service, audit_role=audit_role, case=case, trigger=trigger
-            ):
-                return
+            log.info("Comment workflow ID already taken")
+            return False
         except PERMANENT_START_ERRORS as e:
-            logger.error(
+            log.error(
                 "Comment workflow cannot start",
-                workflow_id=str(trigger.workflow_id),
-                event_id=str(event.id),
-                wf_exec_id=trigger.wf_exec_id,
                 error_type=type(e).__name__,
                 error=str(e),
             )
-            await self._fail_comment_workflow_unless_started(
-                session, service, audit_role=audit_role, case=case, trigger=trigger
-            )
-            return
-        await self._audit_comment_workflow(
-            session,
-            audit_role=audit_role,
-            status=AuditEventStatus.SUCCESS,
-            case=case,
-            trigger=trigger,
-        )
-
-    async def _fail_comment_workflow_unless_started(
-        self,
-        session: AsyncSession,
-        service: WorkflowExecutionsService,
-        *,
-        audit_role: Role | None,
-        case: Case,
-        trigger: CaseCommentWorkflowTrigger,
-    ) -> bool:
-        """Mark a picked workflow failed, unless an earlier attempt started it.
-
-        An earlier attempt of this row may have started the run and then lost
-        its commit. Settling the ID tells the two apart, and makes sure a run
-        that never started cannot start later. Returns whether the run started.
-        """
-        match await service.settle_lost_start(trigger.wf_exec_id):
-            case "started":
-                return True
-            case "unknown":
-                raise CaseTriggerStartUnknownError(trigger.wf_exec_id)
-            case "not_started":
-                await self._fail_comment_workflow(
-                    session, audit_role=audit_role, case=case, trigger=trigger
-                )
-                return False
-
-    async def _fail_comment_workflow(
-        self,
-        session: AsyncSession,
-        *,
-        audit_role: Role | None,
-        case: Case,
-        trigger: CaseCommentWorkflowTrigger,
-    ) -> None:
-        await session.execute(
-            update(CaseComment)
-            .where(
-                CaseComment.workspace_id == case.workspace_id,
-                CaseComment.id == trigger.comment_id,
-            )
-            .values(workflow_status=CaseCommentWorkflowStatus.FAILED.value)
-        )
-        await self._audit_comment_workflow(
-            session,
-            audit_role=audit_role,
-            status=AuditEventStatus.FAILURE,
-            case=case,
-            trigger=trigger,
-        )
-
-    async def _audit_comment_workflow(
-        self,
-        session: AsyncSession,
-        *,
-        audit_role: Role | None,
-        status: AuditEventStatus,
-        case: Case,
-        trigger: CaseCommentWorkflowTrigger,
-    ) -> None:
-        if audit_role is None:
-            return
-        async with AuditService.with_session(role=audit_role, session=session) as svc:
-            await svc.create_event(
-                resource_type="workflow_execution",
-                action="create",
-                resource_id=trigger.workflow_id,
-                status=status,
-                data={
-                    "case_id": str(case.id),
-                    "comment_id": str(trigger.comment_id),
-                    "parent_id": str(trigger.parent_id)
-                    if trigger.parent_id is not None
-                    else None,
-                    "workflow_id": str(trigger.workflow_id),
-                    "wf_exec_id": trigger.wf_exec_id,
-                    "trigger_type": "case",
-                },
-            )
+            return False
+        return True

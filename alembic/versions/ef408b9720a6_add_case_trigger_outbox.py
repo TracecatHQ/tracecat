@@ -80,9 +80,17 @@ def upgrade() -> None:
         unique=False,
     )
     op.execute(enable_workspace_table_rls("case_trigger_outbox"))
+    # Case writes now check for an online trigger in the same transaction.
+    op.create_index(
+        "ix_case_trigger_online_workspace_id",
+        "case_trigger",
+        ["workspace_id"],
+        postgresql_where=sa.text("status = 'online'"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_case_trigger_online_workspace_id", table_name="case_trigger")
     op.execute(disable_workspace_table_rls("case_trigger_outbox"))
     op.drop_index(
         "ix_case_trigger_outbox_dispatch_order", table_name="case_trigger_outbox"

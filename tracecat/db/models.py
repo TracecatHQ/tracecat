@@ -1890,7 +1890,15 @@ class CaseTrigger(WorkspaceModel):
     """Configuration for case event triggers per workflow."""
 
     __tablename__ = "case_trigger"
-    __table_args__ = (UniqueConstraint("workflow_id"),)
+    __table_args__ = (
+        UniqueConstraint("workflow_id"),
+        # Case writes check for an online trigger in their workspace.
+        Index(
+            "ix_case_trigger_online_workspace_id",
+            "workspace_id",
+            postgresql_where=text("status = 'online'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,

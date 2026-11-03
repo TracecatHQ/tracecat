@@ -3,11 +3,12 @@
 import contextlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -36,6 +37,7 @@ from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.db.models import (
     Case,
     CaseComment,
+    CaseEvent,
     CaseTrigger,
     CaseTriggerOutbox,
     Workflow,
@@ -221,7 +223,9 @@ def _definition() -> SimpleNamespace:
 
 
 @contextlib.contextmanager
-def _dispatch_mocks(start: AsyncMock) -> Iterator[MagicMock]:
+def _dispatch_mocks(
+    start: AsyncMock, *, get_definition: AsyncMock | None = None
+) -> Iterator[MagicMock]:
     service = MagicMock()
     service.create_workflow_execution_wait_for_start = start
     service.settle_lost_start = AsyncMock(return_value="not_started")
@@ -232,7 +236,7 @@ def _dispatch_mocks(start: AsyncMock) -> Iterator[MagicMock]:
         ),
         patch(
             "tracecat.cases.triggers.dispatch.WorkflowDefinitionsService.get_definition_by_workflow_id",
-            new=AsyncMock(return_value=_definition()),
+            new=get_definition or AsyncMock(return_value=_definition()),
         ),
         patch(
             "tracecat.cases.triggers.dispatch.DSLInput.model_validate",
@@ -244,6 +248,73 @@ def _dispatch_mocks(start: AsyncMock) -> Iterator[MagicMock]:
         ),
     ):
         yield service
+
+
+@dataclass(frozen=True, slots=True)
+class PickedComment:
+    """IDs of a comment that picked a workflow, safe to use after a rollback."""
+
+    case_id: uuid.UUID
+    comment_id: uuid.UUID
+    workflow_id: uuid.UUID
+    exec_id: str
+
+
+async def _add_picked_comment(
+    session: AsyncSession, role: Role, case: Case
+) -> PickedComment:
+    """Post a comment that picks a workflow, writing its outbox row."""
+    picked = await _add_trigger(
+        session, role, event_types=["comment_created"], status="offline"
+    )
+    exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
+    comment = CaseComment(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        content="Run this",
+        workflow_id=picked.workflow_id,
+        workflow_wf_exec_id=exec_id,
+        workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+    )
+    session.add(comment)
+    await session.flush()
+    await CaseEventsService(session=session, role=role).create_event(
+        case,
+        CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
+        comment_workflow=CaseCommentWorkflowTrigger(
+            workflow_id=picked.workflow_id,
+            wf_exec_id=exec_id,
+            comment_id=comment.id,
+            comment="Run this",
+            triggered_by_type="service",
+        ),
+    )
+    await session.commit()
+    return PickedComment(
+        case_id=case.id,
+        comment_id=comment.id,
+        workflow_id=picked.workflow_id,
+        exec_id=exec_id,
+    )
+
+
+async def _add_update_event(session: AsyncSession, role: Role, case: Case) -> CaseEvent:
+    event = await CaseEventsService(session=session, role=role).create_event(
+        case, UpdatedEvent(field="summary", old="a", new="b")
+    )
+    await session.commit()
+    return event
+
+
+async def _dispatch_only_row() -> None:
+    (row_id,) = await list_outbox_row_ids()
+    await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+
+
+async def _comment_status(session: AsyncSession, comment_id: uuid.UUID) -> str | None:
+    return await session.scalar(
+        select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
+    )
 
 
 @pytest.mark.anyio
@@ -258,17 +329,12 @@ class TestOutboxDispatch:
         same run and Temporal's REJECT_DUPLICATE stops a second run.
         """
         trigger = await _add_trigger(session, svc_role, event_types=["case_updated"])
-        events = CaseEventsService(session=session, role=svc_role)
-        event = await events.create_event(
-            test_case, UpdatedEvent(field="summary", old="a", new="b")
-        )
-        await session.commit()
+        event = await _add_update_event(session, svc_role, test_case)
         expected_exec_id = case_trigger_exec_id(event.id, trigger.workflow_id)
 
         start = AsyncMock()
         with _dispatch_mocks(start):
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+            await _dispatch_only_row()
 
         assert start.await_count == 1
         assert start.await_args is not None
@@ -289,46 +355,52 @@ class TestOutboxDispatch:
             side_effect=WorkflowAlreadyStartedError(expected_exec_id, "DSLWorkflow")
         )
         with _dispatch_mocks(duplicate):
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+            await _dispatch_only_row()
 
         assert duplicate.await_args is not None
         assert duplicate.await_args.kwargs["wf_exec_id"] == expected_exec_id
         assert await _outbox_rows(session, test_case) == []
 
-    async def test_failed_start_keeps_row(
-        self, session: AsyncSession, svc_role: Role, test_case: Case
+    @pytest.mark.parametrize(
+        ("error", "row_kept"),
+        [
+            # Rows are deleted only after every start for them was accepted.
+            (RuntimeError("temporal unavailable"), True),
+            # A start that fails on its input every time is dropped, not retried.
+            (OverflowError("timeout too large"), False),
+        ],
+    )
+    async def test_a_failing_start_does_not_hold_back_the_other_triggers(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+        error: Exception,
+        row_kept: bool,
     ) -> None:
-        """Rows are deleted only after every start for them was accepted."""
         await _add_trigger(session, svc_role, event_types=["case_updated"])
         await _add_trigger(session, svc_role, event_types=["case_updated"])
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case, UpdatedEvent(field="summary", old="a", new="b")
-        )
-        await session.commit()
-
+        await _add_update_event(session, svc_role, test_case)
         case_id = test_case.id
-        start = AsyncMock(side_effect=[RuntimeError("temporal unavailable"), None])
-        with _dispatch_mocks(start), pytest.raises(RuntimeError):
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
 
-        # The other trigger was still attempted, and the row stays for a retry.
+        start = AsyncMock(side_effect=[error, None])
+        with _dispatch_mocks(start):
+            if row_kept:
+                with pytest.raises(type(error)):
+                    await _dispatch_only_row()
+            else:
+                await _dispatch_only_row()
+
         assert start.await_count == 2
-        assert len(await _outbox_rows(session, case_id)) == 1
+        assert len(await _outbox_rows(session, case_id)) == int(row_kept)
 
     async def test_failed_row_moves_behind_newer_rows(
         self, session: AsyncSession, svc_role: Role, test_case: Case
     ) -> None:
         """Rows that keep failing cannot fill every batch and starve newer rows."""
         await _add_trigger(session, svc_role, event_types=["case_updated"])
-        events = CaseEventsService(session=session, role=svc_role)
-        for summary in ("a", "b"):
-            await events.create_event(
-                test_case, UpdatedEvent(field="summary", old=summary, new="z")
-            )
-            await session.commit()
+        await _add_update_event(session, svc_role, test_case)
+        await _add_update_event(session, svc_role, test_case)
         first, second = await list_outbox_row_ids()
 
         start = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
@@ -337,26 +409,6 @@ class TestOutboxDispatch:
 
         assert await list_outbox_row_ids() == [second, first]
         assert await list_outbox_row_ids(limit=1) == [second]
-
-    async def test_permanent_start_error_is_dropped(
-        self, session: AsyncSession, svc_role: Role, test_case: Case
-    ) -> None:
-        """A start that fails on its input every time is dropped, not retried."""
-        await _add_trigger(session, svc_role, event_types=["case_updated"])
-        await _add_trigger(session, svc_role, event_types=["case_updated"])
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case, UpdatedEvent(field="summary", old="a", new="b")
-        )
-        await session.commit()
-
-        start = AsyncMock(side_effect=[OverflowError("timeout too large"), None])
-        with _dispatch_mocks(start):
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
-
-        assert start.await_count == 2
-        assert await _outbox_rows(session, test_case) == []
 
     async def test_tag_filters_and_offline_triggers_are_respected(
         self, session: AsyncSession, svc_role: Role, test_case: Case
@@ -371,20 +423,56 @@ class TestOutboxDispatch:
         await _add_trigger(
             session, svc_role, event_types=["case_updated"], status="offline"
         )
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case, UpdatedEvent(field="summary", old="a", new="b")
+        await _add_update_event(session, svc_role, test_case)
+
+        start = AsyncMock()
+        with _dispatch_mocks(start):
+            await _dispatch_only_row()
+
+        assert [call.kwargs["wf_id"] for call in start.await_args_list] == [
+            WorkflowUUID.new(matching.workflow_id)
+        ]
+
+    async def test_invalid_trigger_definition_disables_trigger(
+        self, session: AsyncSession, svc_role: Role, test_case: Case
+    ) -> None:
+        trigger = await _add_trigger(session, svc_role, event_types=["case_updated"])
+        await _add_update_event(session, svc_role, test_case)
+
+        start = AsyncMock()
+        with _dispatch_mocks(start, get_definition=AsyncMock(return_value=None)):
+            await _dispatch_only_row()
+
+        start.assert_not_awaited()
+        await session.refresh(trigger)
+        assert trigger.status == "offline"
+        assert await _outbox_rows(session, test_case) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("bypass_session")
+class TestCommentWorkflowDispatch:
+    async def test_comment_workflow_uses_preassigned_exec_id(
+        self, session: AsyncSession, svc_role: Role, test_case: Case
+    ) -> None:
+        """The picked workflow starts once with its ID; a same-workflow trigger is skipped."""
+        picked = await _add_picked_comment(session, svc_role, test_case)
+        await session.execute(
+            update(CaseTrigger)
+            .where(CaseTrigger.workflow_id == picked.workflow_id)
+            .values(status="online")
         )
         await session.commit()
 
         start = AsyncMock()
         with _dispatch_mocks(start):
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+            await _dispatch_only_row()
 
-        assert [call.kwargs["wf_id"] for call in start.await_args_list] == [
-            WorkflowUUID.new(matching.workflow_id)
-        ]
+        assert start.await_count == 1
+        assert start.await_args is not None
+        assert start.await_args.kwargs["wf_exec_id"] == picked.exec_id
+        assert start.await_args.kwargs["payload"]["comment"] == "Run this"
+        assert await _outbox_rows(session, picked.case_id) == []
 
     async def test_settled_comment_workflow_is_not_handled_again_on_retry(
         self, session: AsyncSession, svc_role: Role, test_case: Case
@@ -394,38 +482,9 @@ class TestOutboxDispatch:
         Re-handling it could find its definition gone and mark a running
         workflow failed.
         """
-        picked = await _add_trigger(
-            session, svc_role, event_types=["comment_created"], status="offline"
-        )
         sibling = await _add_trigger(session, svc_role, event_types=["comment_created"])
-        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
-        comment = CaseComment(
-            workspace_id=test_case.workspace_id,
-            case_id=test_case.id,
-            content="Run this",
-            workflow_id=picked.workflow_id,
-            workflow_wf_exec_id=exec_id,
-            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
-        )
-        session.add(comment)
-        await session.flush()
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case,
-            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
-            comment_workflow=CaseCommentWorkflowTrigger(
-                workflow_id=picked.workflow_id,
-                wf_exec_id=exec_id,
-                comment_id=comment.id,
-                comment="Run this",
-                triggered_by_type="service",
-            ),
-        )
-        await session.commit()
-        case_id = test_case.id
-        comment_id = comment.id
-        picked_id = picked.workflow_id
         sibling_id = sibling.workflow_id
+        picked = await _add_picked_comment(session, svc_role, test_case)
 
         # The picked workflow starts; the sibling fails and keeps the row.
         (row_id,) = await list_outbox_row_ids()
@@ -433,70 +492,37 @@ class TestOutboxDispatch:
         with _dispatch_mocks(first), pytest.raises(RuntimeError):
             await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
         assert [c.kwargs["wf_exec_id"] for c in first.await_args_list] == [
-            exec_id,
+            picked.exec_id,
             case_trigger_exec_id(
-                (await _outbox_rows(session, case_id))[0].event_id,
+                (await _outbox_rows(session, picked.case_id))[0].event_id,
                 sibling_id,
             ),
         ]
 
         # The picked workflow's definition is gone by the retry.
         retry = AsyncMock()
-        with (
-            _dispatch_mocks(retry) as service,
-            patch(
-                "tracecat.cases.triggers.dispatch.WorkflowDefinitionsService.get_definition_by_workflow_id",
-                new=AsyncMock(
-                    side_effect=lambda wf_id, **_: (
-                        None if wf_id == WorkflowUUID.new(picked_id) else _definition()
-                    )
-                ),
-            ),
-        ):
+        get_definition = AsyncMock(
+            side_effect=lambda wf_id, **_: (
+                None if wf_id == WorkflowUUID.new(picked.workflow_id) else _definition()
+            )
+        )
+        with _dispatch_mocks(retry, get_definition=get_definition) as service:
             await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
 
         service.settle_lost_start.assert_not_awaited()
         assert [c.kwargs["wf_id"] for c in retry.await_args_list] == [
             WorkflowUUID.new(sibling_id)
         ]
-        saved = await session.scalar(
-            select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
+        assert await _comment_status(session, picked.comment_id) == (
+            CaseCommentWorkflowStatus.RUNNING.value
         )
-        assert saved == CaseCommentWorkflowStatus.RUNNING.value
-        assert await _outbox_rows(session, case_id) == []
+        assert await _outbox_rows(session, picked.case_id) == []
 
     async def test_unsettled_comment_workflow_keeps_the_row(
         self, session: AsyncSession, svc_role: Role, test_case: Case
     ) -> None:
         """An overlapping attempt cannot delete a row whose picked workflow is pending."""
-        picked = await _add_trigger(
-            session, svc_role, event_types=["comment_created"], status="offline"
-        )
-        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
-        comment = CaseComment(
-            workspace_id=test_case.workspace_id,
-            case_id=test_case.id,
-            content="Run this",
-            workflow_id=picked.workflow_id,
-            workflow_wf_exec_id=exec_id,
-            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
-        )
-        session.add(comment)
-        await session.flush()
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case,
-            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
-            comment_workflow=CaseCommentWorkflowTrigger(
-                workflow_id=picked.workflow_id,
-                wf_exec_id=exec_id,
-                comment_id=comment.id,
-                comment="Run this",
-                triggered_by_type="service",
-            ),
-        )
-        await session.commit()
-        case_id = test_case.id
+        picked = await _add_picked_comment(session, svc_role, test_case)
 
         # The attempt holding the comment step skipped it here, so only the
         # configured-trigger step runs, as for an overlapping attempt.
@@ -506,205 +532,44 @@ class TestOutboxDispatch:
                 row_id, delete_row=True
             )
 
-        assert len(await _outbox_rows(session, case_id)) == 1
-
-    async def test_permanent_comment_start_error_keeps_a_started_run(
-        self, session: AsyncSession, svc_role: Role, test_case: Case
-    ) -> None:
-        """A pre-start error on a retry does not fail a run an earlier attempt started."""
-        picked = await _add_trigger(
-            session, svc_role, event_types=["comment_created"], status="offline"
-        )
-        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
-        comment = CaseComment(
-            workspace_id=test_case.workspace_id,
-            case_id=test_case.id,
-            content="Run this",
-            workflow_id=picked.workflow_id,
-            workflow_wf_exec_id=exec_id,
-            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
-        )
-        session.add(comment)
-        await session.flush()
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case,
-            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
-            comment_workflow=CaseCommentWorkflowTrigger(
-                workflow_id=picked.workflow_id,
-                wf_exec_id=exec_id,
-                comment_id=comment.id,
-                comment="Run this",
-                triggered_by_type="service",
-            ),
-        )
-        await session.commit()
-        case_id = test_case.id
-        comment_id = comment.id
-
-        start = AsyncMock(side_effect=OverflowError("timeout too large"))
-        with _dispatch_mocks(start) as service:
-            service.settle_lost_start = AsyncMock(return_value="started")
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
-
-        service.settle_lost_start.assert_awaited_once_with(exec_id)
-        saved = await session.scalar(
-            select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
-        )
-        assert saved == CaseCommentWorkflowStatus.RUNNING.value
-        assert await _outbox_rows(session, case_id) == []
+        assert len(await _outbox_rows(session, picked.case_id)) == 1
 
     @pytest.mark.parametrize(
-        ("outcome", "status"),
+        ("error", "outcome", "status"),
         [
-            ("started", CaseCommentWorkflowStatus.RUNNING),
-            # The ID is held by an earlier attempt's tombstone, not the run.
-            ("not_started", CaseCommentWorkflowStatus.FAILED),
+            # A pre-start error on a retry keeps a run an earlier attempt started.
+            (OverflowError("timeout too large"), "started", "running"),
+            # A rejected duplicate start may be an earlier attempt's tombstone.
+            (
+                WorkflowAlreadyStartedError("wf_x/exec_y", "DSLWorkflow"),
+                "started",
+                "running",
+            ),
+            (
+                WorkflowAlreadyStartedError("wf_x/exec_y", "DSLWorkflow"),
+                "not_started",
+                "failed",
+            ),
         ],
     )
-    async def test_duplicate_comment_start_is_checked_against_a_tombstone(
+    async def test_an_unaccepted_start_is_settled_before_failing_the_comment(
         self,
         session: AsyncSession,
         svc_role: Role,
         test_case: Case,
+        error: Exception,
         outcome: str,
-        status: CaseCommentWorkflowStatus,
+        status: str,
     ) -> None:
-        picked = await _add_trigger(
-            session, svc_role, event_types=["comment_created"], status="offline"
-        )
-        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
-        comment = CaseComment(
-            workspace_id=test_case.workspace_id,
-            case_id=test_case.id,
-            content="Run this",
-            workflow_id=picked.workflow_id,
-            workflow_wf_exec_id=exec_id,
-            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
-        )
-        session.add(comment)
-        await session.flush()
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case,
-            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
-            comment_workflow=CaseCommentWorkflowTrigger(
-                workflow_id=picked.workflow_id,
-                wf_exec_id=exec_id,
-                comment_id=comment.id,
-                comment="Run this",
-                triggered_by_type="service",
-            ),
-        )
-        await session.commit()
-        case_id = test_case.id
-        comment_id = comment.id
+        picked = await _add_picked_comment(session, svc_role, test_case)
 
-        start = AsyncMock(
-            side_effect=WorkflowAlreadyStartedError(exec_id, "DSLWorkflow")
-        )
-        with _dispatch_mocks(start) as service:
+        with _dispatch_mocks(AsyncMock(side_effect=error)) as service:
             service.settle_lost_start = AsyncMock(return_value=outcome)
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+            await _dispatch_only_row()
 
-        service.settle_lost_start.assert_awaited_once_with(exec_id)
-        saved = await session.scalar(
-            select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
-        )
-        assert saved == status.value
-        assert await _outbox_rows(session, case_id) == []
-
-    async def test_comment_workflow_uses_preassigned_exec_id(
-        self, session: AsyncSession, svc_role: Role, test_case: Case
-    ) -> None:
-        """The picked workflow starts once with its ID; a same-workflow trigger is skipped."""
-        trigger = await _add_trigger(session, svc_role, event_types=["comment_created"])
-        exec_id = generate_exec_id(WorkflowUUID.new(trigger.workflow_id))
-        comment = CaseComment(
-            workspace_id=test_case.workspace_id,
-            case_id=test_case.id,
-            content="Run this",
-            workflow_id=trigger.workflow_id,
-            workflow_wf_exec_id=exec_id,
-            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
-        )
-        session.add(comment)
-        await session.flush()
-        comment_workflow = CaseCommentWorkflowTrigger(
-            workflow_id=trigger.workflow_id,
-            wf_exec_id=exec_id,
-            comment_id=comment.id,
-            comment="Run this",
-            triggered_by_type="service",
-        )
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case,
-            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
-            comment_workflow=comment_workflow,
-        )
-        await session.commit()
-
-        start = AsyncMock()
-        with _dispatch_mocks(start):
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
-
-        assert start.await_count == 1
-        assert start.await_args is not None
-        assert start.await_args.kwargs["wf_exec_id"] == exec_id
-        assert start.await_args.kwargs["payload"]["comment"] == "Run this"
-        assert await _outbox_rows(session, test_case) == []
-
-    async def test_disabled_case_triggers_write_no_rows(
-        self,
-        session: AsyncSession,
-        svc_role: Role,
-        test_case: Case,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """The kill switch stops picked comment workflows and configured triggers alike."""
-        picked = await _add_trigger(
-            session, svc_role, event_types=["comment_created"], status="offline"
-        )
-        await _add_trigger(
-            session, svc_role, event_types=["comment_created", "case_updated"]
-        )
-        exec_id = generate_exec_id(WorkflowUUID.new(picked.workflow_id))
-        comment = CaseComment(
-            workspace_id=test_case.workspace_id,
-            case_id=test_case.id,
-            content="Run this",
-            workflow_id=picked.workflow_id,
-            workflow_wf_exec_id=exec_id,
-            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
-        )
-        session.add(comment)
-        await session.flush()
-        monkeypatch.setattr(
-            "tracecat.cases.triggers.outbox.config.TRACECAT__CASE_TRIGGERS_ENABLED",
-            False,
-        )
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case,
-            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
-            comment_workflow=CaseCommentWorkflowTrigger(
-                workflow_id=picked.workflow_id,
-                wf_exec_id=exec_id,
-                comment_id=comment.id,
-                comment="Run this",
-                triggered_by_type="service",
-            ),
-        )
-        await events.create_event(
-            test_case, UpdatedEvent(field="summary", old="a", new="b")
-        )
-        await session.commit()
-
-        assert await _outbox_rows(session, test_case) == []
+        service.settle_lost_start.assert_awaited_once_with(picked.exec_id)
+        assert await _comment_status(session, picked.comment_id) == status
+        assert await _outbox_rows(session, picked.case_id) == []
 
     @pytest.mark.parametrize(
         ("outcome", "status", "row_kept"),
@@ -725,83 +590,43 @@ class TestOutboxDispatch:
         row_kept: bool,
     ) -> None:
         """A missing definition fails the comment only if its run never started."""
-        trigger = await _add_trigger(session, svc_role, event_types=["case_closed"])
-        exec_id = generate_exec_id(WorkflowUUID.new(trigger.workflow_id))
-        comment = CaseComment(
-            workspace_id=test_case.workspace_id,
-            case_id=test_case.id,
-            content="Run this",
-            workflow_id=trigger.workflow_id,
-            workflow_wf_exec_id=exec_id,
-            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
-        )
-        session.add(comment)
-        await session.flush()
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case,
-            CommentCreatedEvent(comment_id=comment.id, thread_root_id=comment.id),
-            comment_workflow=CaseCommentWorkflowTrigger(
-                workflow_id=trigger.workflow_id,
-                wf_exec_id=exec_id,
-                comment_id=comment.id,
-                comment="Run this",
-                triggered_by_type="service",
-            ),
-        )
-        await session.commit()
+        picked = await _add_picked_comment(session, svc_role, test_case)
 
         start = AsyncMock()
-        case_id = test_case.id
-        comment_id = comment.id
-        with (
-            _dispatch_mocks(start) as service,
-            patch(
-                "tracecat.cases.triggers.dispatch.WorkflowDefinitionsService.get_definition_by_workflow_id",
-                new=AsyncMock(return_value=None),
-            ),
-        ):
+        with _dispatch_mocks(
+            start, get_definition=AsyncMock(return_value=None)
+        ) as service:
             service.settle_lost_start = AsyncMock(return_value=outcome)
-            (row_id,) = await list_outbox_row_ids()
             if row_kept:
                 with pytest.raises(CaseTriggerStartUnknownError):
-                    await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+                    await _dispatch_only_row()
             else:
-                await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+                await _dispatch_only_row()
 
         start.assert_not_awaited()
-        service.settle_lost_start.assert_awaited_once_with(exec_id)
-        saved = await session.scalar(
-            select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
-        )
-        assert saved == status.value
-        assert len(await _outbox_rows(session, case_id)) == int(row_kept)
+        service.settle_lost_start.assert_awaited_once_with(picked.exec_id)
+        assert await _comment_status(session, picked.comment_id) == status.value
+        assert len(await _outbox_rows(session, picked.case_id)) == int(row_kept)
 
-    async def test_invalid_trigger_definition_disables_trigger(
-        self, session: AsyncSession, svc_role: Role, test_case: Case
+    async def test_disabled_case_triggers_write_no_rows(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        trigger = await _add_trigger(session, svc_role, event_types=["case_updated"])
-        events = CaseEventsService(session=session, role=svc_role)
-        await events.create_event(
-            test_case, UpdatedEvent(field="summary", old="a", new="b")
+        """The kill switch stops picked comment workflows and configured triggers alike."""
+        await _add_trigger(
+            session, svc_role, event_types=["comment_created", "case_updated"]
         )
-        await session.commit()
+        monkeypatch.setattr(
+            "tracecat.cases.triggers.outbox.config.TRACECAT__CASE_TRIGGERS_ENABLED",
+            False,
+        )
+        picked = await _add_picked_comment(session, svc_role, test_case)
+        await _add_update_event(session, svc_role, test_case)
 
-        start = AsyncMock()
-        with (
-            _dispatch_mocks(start),
-            patch(
-                "tracecat.cases.triggers.dispatch.WorkflowDefinitionsService.get_definition_by_workflow_id",
-                new=AsyncMock(return_value=None),
-            ),
-        ):
-            (row_id,) = await list_outbox_row_ids()
-            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
-
-        start.assert_not_awaited()
-        await session.refresh(trigger)
-        assert trigger.status == "offline"
-        assert await _outbox_rows(session, test_case) == []
+        assert await _outbox_rows(session, picked.case_id) == []
 
 
 def test_case_trigger_exec_id_is_stable_per_event_and_workflow() -> None:
