@@ -115,10 +115,17 @@ export function knownStateAfter(
   }
 }
 
+// EventSource gives up on a non-200 (a 503 during a Redis blip); reopen a few
+// times with backoff. Showing the tab again always reopens.
+const FEED_REOPEN_BASE_MS = 1_000
+const FEED_REOPEN_MAX_MS = 30_000
+const FEED_MAX_REOPENS = 6
+
 /**
  * Follow a session's run state, so runs started elsewhere reach this tab.
  * While `busy`, the latest action waits and runs once the tab is idle. The
- * feed closes while the tab is hidden and reopens with a fresh snapshot.
+ * feed closes while the tab is hidden and reopens with a fresh snapshot; a
+ * failed connection reopens a bounded number of times.
  */
 export function useSessionFeed({
   chatId,
@@ -168,11 +175,42 @@ export function useSessionFeed({
     const url = new URL(`/api/agent/sessions/${chatId}/feed`, getBaseUrl())
     url.searchParams.set("workspace_id", workspaceId)
     let source: EventSource | null = null
+    let reopenTimer: ReturnType<typeof setTimeout> | null = null
+    let failures = 0
+
+    function cancelReopen() {
+      if (reopenTimer !== null) clearTimeout(reopenTimer)
+      reopenTimer = null
+    }
+
+    function scheduleReopen() {
+      if (reopenTimer !== null || failures >= FEED_MAX_REOPENS) return
+      const delay = Math.min(
+        FEED_REOPEN_BASE_MS * 2 ** failures,
+        FEED_REOPEN_MAX_MS
+      )
+      failures += 1
+      reopenTimer = setTimeout(() => {
+        reopenTimer = null
+        open()
+      }, delay)
+    }
 
     function open() {
+      cancelReopen()
       source?.close()
-      source = new EventSource(url.toString(), { withCredentials: true })
-      source.onmessage = (message: MessageEvent<string>) => {
+      const current = new EventSource(url.toString(), { withCredentials: true })
+      source = current
+      current.onopen = () => {
+        failures = 0
+      }
+      // CONNECTING means the browser is retrying itself; CLOSED means it gave up.
+      current.onerror = () => {
+        if (source === current && current.readyState === EventSource.CLOSED) {
+          scheduleReopen()
+        }
+      }
+      current.onmessage = (message: MessageEvent<string>) => {
         const event = parseSessionFeedEvent(message.data)
         if (!event) return
         const action = feedActionFor(event, stateRef.current)
@@ -186,9 +224,11 @@ export function useSessionFeed({
 
     function onVisibilityChange() {
       if (document.visibilityState === "hidden") {
+        cancelReopen()
         source?.close()
         source = null
       } else if (!source || source.readyState === EventSource.CLOSED) {
+        failures = 0
         open()
       }
     }
@@ -197,6 +237,7 @@ export function useSessionFeed({
     document.addEventListener("visibilitychange", onVisibilityChange)
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange)
+      cancelReopen()
       source?.close()
     }
   }, [chatId, workspaceId])

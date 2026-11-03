@@ -37,6 +37,7 @@ class FakeEventSource {
 
   readyState = FakeEventSource.CONNECTING
   onopen: (() => void) | null = null
+  onerror: (() => void) | null = null
   onmessage: ((message: MessageEvent<string>) => void) | null = null
 
   constructor(
@@ -60,6 +61,12 @@ class FakeEventSource {
 
   close() {
     this.readyState = FakeEventSource.CLOSED
+  }
+
+  /** Fail the connection the way a non-200 response does. */
+  fail() {
+    this.readyState = FakeEventSource.CLOSED
+    this.onerror?.()
   }
 
   static latest(): FakeEventSource {
@@ -230,6 +237,50 @@ describe("useSessionFeed", () => {
 
     unmount()
     expect(FakeEventSource.latest().readyState).toBe(FakeEventSource.CLOSED)
+  })
+
+  it("reopens a failed connection with bounded backoff", () => {
+    jest.useFakeTimers()
+    try {
+      const { unmount } = renderHook(() =>
+        useSessionFeed({
+          chatId: "chat-1",
+          workspaceId: "workspace-1",
+          busy: false,
+          onAttach: jest.fn(),
+          onRefresh: jest.fn(),
+        })
+      )
+      FakeEventSource.latest().fail()
+      jest.advanceTimersByTime(999)
+      expect(FakeEventSource.instances).toHaveLength(1)
+      jest.advanceTimersByTime(1)
+      expect(FakeEventSource.instances).toHaveLength(2)
+
+      // A successful open resets the backoff.
+      FakeEventSource.latest().deliver({
+        type: "snapshot",
+        run_id: null,
+        stream_id: null,
+        paused: false,
+      })
+      FakeEventSource.latest().fail()
+      jest.advanceTimersByTime(1_000)
+      expect(FakeEventSource.instances).toHaveLength(3)
+
+      // Without an open, it stops after six attempts (one is already spent).
+      for (let attempt = 0; attempt < 10; attempt++) {
+        FakeEventSource.latest().fail()
+        jest.advanceTimersByTime(30_000)
+      }
+      expect(FakeEventSource.instances).toHaveLength(8)
+
+      unmount()
+      jest.advanceTimersByTime(60_000)
+      expect(FakeEventSource.instances).toHaveLength(8)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it("holds the latest action while busy and runs it once idle", () => {
