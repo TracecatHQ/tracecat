@@ -143,7 +143,7 @@ function describeModelErrorRaw(detail: ModelErrorDetail): ModelErrorCopy {
       return {
         title: `Couldn't reach ${provider}.`,
         action:
-          "Retry in a moment. If it keeps failing, check the provider's base URL in agent settings.",
+          "Retry in a moment. If it keeps failing, check the provider's settings in agent settings.",
         settingsHref: AGENT_SETTINGS_HREF,
       }
     case "request_rejected":

@@ -10,7 +10,11 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorKind
+from tracecat.runtime.errors import (
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 
 
 class ModelErrorCode(StrEnum):
@@ -136,6 +140,7 @@ def model_error_code(
     status_code: int | None = None,
     provider_error_code: str | None = None,
     provider_error_type: str | None = None,
+    platform_owned: bool = False,
 ) -> ModelErrorCode:
     """Pick the most specific chat-facing code for a failed model request.
 
@@ -147,6 +152,10 @@ def model_error_code(
             return code
     if kind is not None and (code := _KIND_CODES.get(kind)):
         return code
+    if platform_owned and status_code in (401, 403):
+        # Tracecat's gateway refused the request for its own reason, so the
+        # provider's key is not the cause.
+        return ModelErrorCode.UNKNOWN
     return model_error_code_for_status(status_code)
 
 
@@ -184,6 +193,8 @@ def model_error_detail(
         status_code=status_code,
         provider_error_code=error_code,
         provider_error_type=error_type,
+        platform_owned=classification is not None
+        and classification.owner is RuntimeErrorOwner.PLATFORM,
     )
     if code is ModelErrorCode.UNKNOWN and provider_unreachable:
         code = ModelErrorCode.PROVIDER_UNREACHABLE

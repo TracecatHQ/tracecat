@@ -42,22 +42,23 @@ function ModelErrorMessage({
 }) {
   const copy = describeModelError(detail)
   return (
-    <div role="alert" className="flex items-start gap-2 text-sm">
+    <div className="flex items-start gap-2 text-sm">
       <AlertCircleIcon className="mt-0.5 size-3.5 shrink-0 text-destructive" />
       <div className="min-w-0 space-y-1">
-        <p className="font-medium text-destructive">{copy.title}</p>
-        <p className="text-muted-foreground">
-          {copy.action}
-          {copy.settingsHref && (
-            <Link
-              href={copy.settingsHref}
-              className="ml-1.5 inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
-            >
-              Agent settings
-              <ArrowRight className="size-3" />
-            </Link>
-          )}
-        </p>
+        {/* Only the message is announced; the controls sit outside the alert. */}
+        <div role="alert" className="space-y-1">
+          <p className="font-medium text-destructive">{copy.title}</p>
+          <p className="text-muted-foreground">{copy.action}</p>
+        </div>
+        {copy.settingsHref && (
+          <Link
+            href={copy.settingsHref}
+            className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Agent settings
+            <ArrowRight className="size-3" />
+          </Link>
+        )}
         <Collapsible>
           <CollapsibleTrigger className="group inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
             <ChevronRightIcon className="size-3 transition-transform group-data-[state=open]:rotate-90" />

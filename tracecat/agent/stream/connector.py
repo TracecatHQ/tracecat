@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.common.stream_types import parse_vercel_frame_cursor
-from tracecat.agent.model_errors import ModelErrorDetail
+from tracecat.agent.model_errors import ModelErrorCode, ModelErrorDetail
 from tracecat.agent.stream.events import (
     StreamConnected,
     StreamDelta,
@@ -47,6 +47,10 @@ def _parse_error_detail(raw: object) -> ModelErrorDetail | None:
     """Read an error entry's optional detail; a malformed one is dropped."""
     if raw is None:
         return None
+    # A newer backend may send a code this server doesn't know yet: keep the
+    # detail and read the code as unknown, so the chat still explains it.
+    if isinstance(raw, dict) and raw.get("code") not in set(ModelErrorCode):
+        raw = {**raw, "code": ModelErrorCode.UNKNOWN}
     try:
         return ModelErrorDetail.model_validate(raw)
     except ValidationError:

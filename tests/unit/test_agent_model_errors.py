@@ -10,6 +10,7 @@ import pytest
 
 from tracecat.agent.adapter.vercel import sse_vercel
 from tracecat.agent.error_policy import (
+    agent_executor_unclassified,
     agent_llm_gateway_auth_failed,
     agent_llm_model_not_enabled,
     agent_llm_provider_auth_failed,
@@ -92,6 +93,23 @@ class TestModelErrorDetail:
         )
         assert detail.code is ModelErrorCode.UNKNOWN
 
+    @pytest.mark.parametrize("status_code", [401, 403])
+    def test_unrecognized_gateway_auth_refusal_is_not_the_provider_key(
+        self, status_code: int
+    ) -> None:
+        """A managed 401/403 the proxy couldn't attribute is platform-owned, so
+        the chat never tells the user to replace their provider key."""
+        detail = model_error_detail(
+            agent_executor_unclassified(
+                detail=f"LLM gateway returned HTTP {status_code}"
+            ),
+            provider="openai",
+            model="gpt-test",
+            status_code=status_code,
+        )
+        assert detail.code is ModelErrorCode.UNKNOWN
+        assert detail.status_code == status_code
+
     def test_rate_limit_kind_maps_without_status(self) -> None:
         detail = model_error_detail(
             agent_llm_rate_limited(route_is_direct=True),
@@ -143,7 +161,7 @@ class TestModelErrorDetail:
             )
         else:
             assert detail.request_id is None
-            assert detail.provider_error_code in (None, "x")
+            assert detail.provider_error_code == ("x" if error_code == "x" else None)
 
     def test_long_model_names_are_accepted(self) -> None:
         """Catalog names may be long; building the detail must never fail."""
@@ -201,8 +219,17 @@ class TestStreamContract:
         )
         assert _parse_error_detail(raw) == detail
 
+    def test_unknown_code_from_a_newer_backend_reads_as_unknown(self) -> None:
+        detail = _parse_error_detail(
+            {"code": "a_future_code", "provider": "openai", "status_code": 401}
+        )
+        assert detail == ModelErrorDetail(
+            code=ModelErrorCode.UNKNOWN, provider="openai", status_code=401
+        )
+
     def test_malformed_detail_is_dropped(self) -> None:
-        assert _parse_error_detail({"code": "not-a-code"}) is None
+        assert _parse_error_detail({"code": "unknown", "status_code": 99}) is None
+        assert _parse_error_detail("not-a-detail") is None
         assert _parse_error_detail(None) is None
 
     @pytest.mark.anyio

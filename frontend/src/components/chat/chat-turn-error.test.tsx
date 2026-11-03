@@ -27,6 +27,10 @@ describe("TurnErrorLine", () => {
       screen.getByRole("link", { name: /agent settings/i })
     ).toHaveAttribute("href", "/organization/settings/agent")
     expect(screen.queryByText(/HTTP 401/)).not.toBeInTheDocument()
+    // The alert announces the message only; its controls sit outside it.
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveTextContent("OpenAI rejected the API key for gpt-test.")
+    expect(alert.querySelector("a, button")).toBeNull()
   })
 
   it("keeps a dropped connection neutral even with model detail", () => {
