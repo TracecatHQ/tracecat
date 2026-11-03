@@ -66,6 +66,13 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_case_trigger_outbox")),
         sa.UniqueConstraint("id", name=op.f("uq_case_trigger_outbox_id")),
     )
+    # Cascading deletes from case and case_event look rows up by these keys.
+    op.create_index(
+        op.f("ix_case_trigger_outbox_case_id"), "case_trigger_outbox", ["case_id"]
+    )
+    op.create_index(
+        op.f("ix_case_trigger_outbox_event_id"), "case_trigger_outbox", ["event_id"]
+    )
     op.create_index(
         "ix_case_trigger_outbox_dispatch_order",
         "case_trigger_outbox",
@@ -79,5 +86,11 @@ def downgrade() -> None:
     op.execute(disable_workspace_table_rls("case_trigger_outbox"))
     op.drop_index(
         "ix_case_trigger_outbox_dispatch_order", table_name="case_trigger_outbox"
+    )
+    op.drop_index(
+        op.f("ix_case_trigger_outbox_event_id"), table_name="case_trigger_outbox"
+    )
+    op.drop_index(
+        op.f("ix_case_trigger_outbox_case_id"), table_name="case_trigger_outbox"
     )
     op.drop_table("case_trigger_outbox")

@@ -3528,11 +3528,13 @@ class CaseTriggerOutbox(WorkspaceModel):
         UUID,
         ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     event_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("case_event.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     extras: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
