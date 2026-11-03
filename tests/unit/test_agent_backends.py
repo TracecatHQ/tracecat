@@ -60,6 +60,7 @@ from tracecat.agent.session.activities import (
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest
@@ -89,6 +90,28 @@ def entitled_to_non_default_backends() -> Iterator[None]:
         AsyncMock(return_value=True),
     ):
         yield
+
+
+type FeedEvents = list[tuple[SessionFeedEventType, UUID, UUID | None]]
+
+
+@pytest.fixture(autouse=True)
+def feed_events(monkeypatch: pytest.MonkeyPatch) -> FeedEvents:
+    """Record session feed publishes instead of writing to Redis."""
+    events: FeedEvents = []
+
+    async def publish(**kwargs: object) -> None:
+        event_type = kwargs["type"]
+        run_id = kwargs["run_id"]
+        stream_id = kwargs.get("stream_id")
+        assert isinstance(event_type, SessionFeedEventType)
+        assert isinstance(run_id, UUID)
+        assert stream_id is None or isinstance(stream_id, UUID)
+        events.append((event_type, run_id, stream_id))
+
+    monkeypatch.setattr("tracecat.agent.backends.base.publish_session_event", publish)
+    monkeypatch.setattr("tracecat.agent.session.service.publish_session_event", publish)
+    return events
 
 
 def entry(name: str, factory: object) -> SimpleNamespace:
@@ -456,7 +479,7 @@ def temporal_client() -> tuple[Client, AsyncMock]:
 
 
 @pytest.mark.anyio
-async def test_builtin_dispatch_preserves_workflow_contract():
+async def test_builtin_dispatch_preserves_workflow_contract(feed_events: FeedEvents):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     client, rpc = temporal_client()
@@ -488,6 +511,9 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     # Recovery waits out this deadline before tombstoning a missing turn.
     assert rpc.await_args.kwargs["timeout"] == timedelta(seconds=30)
     ctx.db.rollback.assert_not_awaited()
+    assert feed_events == [
+        (SessionFeedEventType.RUN_STARTED, ctx.run_id, ctx.stream_id)
+    ]
 
 
 @pytest.mark.anyio
@@ -633,7 +659,9 @@ async def test_recovery_rechecks_ownership_after_releasing_the_lock():
 
 
 @pytest.mark.anyio
-async def test_default_backend_releases_terminal_turn_and_dispatches():
+async def test_default_backend_releases_terminal_turn_and_dispatches(
+    feed_events: FeedEvents,
+):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     old_run_id = uuid4()
@@ -671,6 +699,10 @@ async def test_default_backend_releases_terminal_turn_and_dispatches():
     assert ctx.db.commit.await_count == 2
     assert released.curr_run_id == ctx.run_id
     rpc.assert_awaited_once()
+    assert feed_events == [
+        (SessionFeedEventType.RUN_FINISHED, old_run_id, None),
+        (SessionFeedEventType.RUN_STARTED, ctx.run_id, ctx.stream_id),
+    ]
 
 
 @pytest.mark.anyio
@@ -685,7 +717,9 @@ async def test_default_backend_releases_terminal_turn_and_dispatches():
         (WorkflowExecutionStatus.RUNNING, False),
     ],
 )
-async def test_backend_can_retain_ownership_of_terminal_turn(status, consulted):
+async def test_backend_can_retain_ownership_of_terminal_turn(
+    status, consulted, feed_events: FeedEvents
+):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     old_run_id, old_stream_id = uuid4(), uuid4()
@@ -717,6 +751,7 @@ async def test_backend_can_retain_ownership_of_terminal_turn(status, consulted):
     ctx.db.scalar.assert_awaited_once()
     ctx.db.commit.assert_not_awaited()
     rpc.assert_not_awaited()
+    assert feed_events == []
 
 
 @pytest.mark.anyio
@@ -1449,7 +1484,9 @@ async def test_real_client_encoding_failure_releases_reservation_before_rpc():
         RPCStatusCode.UNAUTHENTICATED,
     ],
 )
-async def test_rpc_rejection_releases_reservation_without_raw_exception_context(status):
+async def test_rpc_rejection_releases_reservation_without_raw_exception_context(
+    status, feed_events: FeedEvents
+):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     client, rpc = temporal_client()
@@ -1468,6 +1505,7 @@ async def test_rpc_rejection_releases_reservation_without_raw_exception_context(
     rpc.assert_awaited_once()
     assert rpc.await_args is not None
     assert rpc.await_args.kwargs["retry"] is False
+    assert feed_events == [(SessionFeedEventType.RUN_FINISHED, ctx.run_id, None)]
 
 
 @pytest.mark.anyio
@@ -1499,7 +1537,9 @@ async def test_rejection_cleanup_failure_preserves_uncertainty(failure):
 @pytest.mark.parametrize(
     "failure", [None, "rollback", "execute", "commit", "ownership"]
 )
-async def test_commit_failure_reconciles_with_a_fresh_session(failure):
+async def test_commit_failure_reconciles_with_a_fresh_session(
+    failure, feed_events: FeedEvents
+):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     client, rpc = temporal_client()
@@ -1541,6 +1581,10 @@ async def test_commit_failure_reconciles_with_a_fresh_session(failure):
         ctx.db.invalidate.assert_awaited_once()
     else:
         ctx.db.invalidate.assert_not_awaited()
+    released = failure in {None, "rollback"}
+    assert feed_events == (
+        [(SessionFeedEventType.RUN_FINISHED, ctx.run_id, None)] if released else []
+    )
 
 
 @pytest.mark.anyio

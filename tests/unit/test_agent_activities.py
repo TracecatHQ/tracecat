@@ -93,6 +93,7 @@ from tracecat.agent.session.activities import (
     load_session_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
@@ -1327,6 +1328,48 @@ class TestCreateSessionActivity:
         )
         session_service.session.add.assert_called_once_with(mock_agent_session)
         session_service.session.commit.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_announces_the_run_once_the_workflow_owns_it(
+        self,
+        session_service: AsyncMock,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+    ):
+        """Runs started without the API, like case comments, reach open tabs."""
+        run_id, stream_id, workspace_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        mock_agent_session = _agent_session(
+            id=mock_session_id, workspace_id=workspace_id, active_stream_id=stream_id
+        )
+        session_service.get_or_create_session.return_value = (
+            mock_agent_session,
+            False,
+        )
+        session_service.session = MagicMock()
+        session_service.session.commit = AsyncMock()
+
+        with patch(
+            "tracecat.agent.session.activities.publish_session_event",
+            new_callable=AsyncMock,
+        ) as publish:
+            result = await create_session_activity(
+                CreateSessionInput(
+                    role=mock_role,
+                    session_id=mock_session_id,
+                    entity_type=AgentSessionEntity.AGENT_PRESET,
+                    entity_id=uuid.uuid4(),
+                    curr_run_id=run_id,
+                )
+            )
+
+        assert result.success is True
+        publish.assert_awaited_once_with(
+            workspace_id=workspace_id,
+            session_id=mock_session_id,
+            type=SessionFeedEventType.RUN_STARTED,
+            run_id=run_id,
+            stream_id=stream_id,
+        )
 
     @pytest.mark.parametrize(
         (

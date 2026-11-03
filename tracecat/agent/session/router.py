@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
+from redis.exceptions import RedisError
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
     require_workspace_chat_entitlement_for_entity,
@@ -48,6 +49,7 @@ from tracecat.agent.session.views import build_session_read
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.stream.feed import SessionFeed
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import ArtifactType
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -870,6 +872,49 @@ async def stream_session_events(
         ),
         media_type="text/event-stream",
         headers=headers,
+    )
+
+
+@router.get("/{session_id}/feed", dependencies=[ReleaseRequestSession])
+@require_scope("agent:read")
+async def stream_session_feed(
+    role: WorkspaceActorRouteRole,
+    request: Request,
+    session_id: uuid.UUID,
+) -> StreamingResponse:
+    """Stream the session's run state changes via Server-Sent Events (SSE).
+
+    Sends a snapshot of the current run first, then ``run.started``,
+    ``run.paused``, ``run.resumed`` and ``run.finished``. Clients attach to a
+    run's output through ``/stream``. A reconnect gets a fresh snapshot, so
+    there is no resume cursor.
+    """
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+    try:
+        feed = await SessionFeed.new(workspace_id=workspace_id, session_id=session_id)
+        # Read the feed position before the row, so a change between them is replayed.
+        after_id = await feed.latest_id()
+    except (RedisError, RuntimeError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Session feed is unavailable",
+        ) from e
+    async with AgentSessionService.with_session(role=role) as svc:
+        snapshot = await svc.get_feed_snapshot(session_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with ID {session_id} not found",
+        )
+    return StreamingResponse(
+        feed.sse(snapshot, after_id, request.is_disconnected),
+        media_type="text/event-stream",
+        headers=dict(SSE_HEADERS),
     )
 
 

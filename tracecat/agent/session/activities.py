@@ -23,6 +23,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.bindings import artifact_side_effects_for_tool_result
 from tracecat.artifacts.resolution import resolve_artifact_side_effects
@@ -236,6 +237,14 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 agent_session.last_error = None
                 service.session.add(agent_session)
                 await service.session.commit()
+                # The workflow is running now, so a tab that attaches can stream.
+                await publish_session_event(
+                    workspace_id=agent_session.workspace_id,
+                    session_id=agent_session.id,
+                    type=SessionFeedEventType.RUN_STARTED,
+                    run_id=input.curr_run_id,
+                    stream_id=agent_session.active_stream_id,
+                )
 
             # Avoid duplicate title generation when run_turn already attempted
             # first-prompt auto-title before spawning this workflow.
