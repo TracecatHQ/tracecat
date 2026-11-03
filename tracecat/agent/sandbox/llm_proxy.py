@@ -15,7 +15,7 @@ import re
 import ssl
 import time
 import uuid
-from collections.abc import AsyncIterable, Callable, Iterator, Sequence
+from collections.abc import AsyncIterable, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from functools import cache, partial
@@ -326,15 +326,24 @@ def _safe_error_token(value: str | None) -> str | None:
     return None
 
 
-def _upstream_request_id(headers: httpx.Headers, *, sent: str | None) -> str | None:
+_REQUEST_ID_HEADERS = ("x-request-id", "request-id")
+
+
+def _upstream_request_id(
+    headers: httpx.Headers, *, forwarded: Mapping[str, str]
+) -> str | None:
     """The provider's own request ID, when it is a safe token.
 
-    ``sent`` is the trace ID the proxy forwarded, which the sandbox chose; an
-    upstream that echoes it back is not reporting its own ID.
+    ``forwarded`` is the request the proxy sent upstream. Any request ID in it
+    came from the sandbox, in whatever header spelling or case, so an upstream
+    that echoes one back is not reporting its own ID.
     """
-    for name in ("x-request-id", "request-id"):
+    sent = {
+        value for key, value in forwarded.items() if key.lower() in _REQUEST_ID_HEADERS
+    }
+    for name in _REQUEST_ID_HEADERS:
         request_id = _safe_error_token(headers.get(name))
-        if request_id is not None and request_id != sent:
+        if request_id is not None and request_id not in sent:
             return request_id
     return None
 
@@ -1832,7 +1841,7 @@ class LLMSocketProxy:
                                         # the sandbox chooses it, Chat shows this.
                                         request_id=_upstream_request_id(
                                             response.headers,
-                                            sent=trace_request_id,
+                                            forwarded=upstream_request.headers,
                                         ),
                                         error_body=error_body,
                                     )

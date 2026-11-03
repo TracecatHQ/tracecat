@@ -173,8 +173,11 @@ def build_probe_target(
                 if runtime.api_key
                 else {}
             )
+            # OpenRouter's plain listing ignores a key's guardrails; its
+            # per-key listing leaves out models the key may not call.
+            listing = "models/user" if provider == "openrouter" else "models"
             return ProbeTarget(
-                url=f"{runtime.base_url}/models",
+                url=f"{runtime.base_url}/{listing}",
                 headers=headers,
                 listed_model=runtime.model_name
                 or _bare_model_name(provider, model_name),

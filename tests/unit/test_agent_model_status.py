@@ -169,14 +169,25 @@ class TestModelErrorDetail:
 
 
 class TestUpstreamRequestId:
-    def test_echoed_trace_id_is_not_the_providers(self) -> None:
-        """An upstream echoing the sandbox-chosen trace ID reports no ID."""
-        echoed = httpx.Headers({"x-request-id": "req_fromTheSandbox"})
-        assert _upstream_request_id(echoed, sent="req_fromTheSandbox") is None
+    @pytest.mark.parametrize(
+        "forwarded",
+        [
+            {"X-Request-ID": "req_fromTheSandbox"},
+            {"request-id": "req_fromTheSandbox"},
+            {"X-Request-ID": "req_other123", "x-request-id": "req_fromTheSandbox"},
+        ],
+    )
+    def test_echoed_request_ids_are_not_the_providers(
+        self, forwarded: dict[str, str]
+    ) -> None:
+        """Any request ID the sandbox sent, in any spelling, isn't the provider's."""
+        echoed = httpx.Headers({"request-id": "req_fromTheSandbox"})
+        assert _upstream_request_id(echoed, forwarded=forwarded) is None
 
     def test_providers_own_id_is_kept(self) -> None:
         own = httpx.Headers({"request-id": "req_providerOwn123"})
-        assert _upstream_request_id(own, sent="trace-1") == "req_providerOwn123"
+        forwarded = {"X-Request-ID": "trace-1"}
+        assert _upstream_request_id(own, forwarded=forwarded) == "req_providerOwn123"
 
 
 class TestStreamContract:
@@ -262,6 +273,13 @@ class TestProbeTarget:
         assert target is not None
         assert target.listed_model == "llama"
         assert target.url == "https://vllm.example.com/v1/models"
+
+    def test_openrouter_lists_only_models_the_key_may_call(self) -> None:
+        target = build_probe_target(
+            "openrouter", "openai/gpt-test", {"OPENROUTER_API_KEY": "k"}
+        )
+        assert target is not None
+        assert target.url == "https://openrouter.ai/api/v1/models/user"
 
     @pytest.mark.parametrize("provider", ["bedrock", "vertex_ai", "azure_openai"])
     def test_cloud_providers_have_no_probe(self, provider: str) -> None:
