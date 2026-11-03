@@ -17,7 +17,10 @@ from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat import config
 from tracecat.agent.backends.default import DefaultBackend
-from tracecat.agent.error_policy import agent_provider_credentials_missing
+from tracecat.agent.error_policy import (
+    agent_preparation_failed,
+    agent_provider_credentials_missing,
+)
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -125,6 +128,15 @@ async def missing_credentials_prepare_turn(
         agent_provider_credentials_missing(
             AgentProviderCredentialsNotFoundError(_MISSING_CREDENTIALS_MESSAGE)
         )
+    )
+
+
+@activity.defn(name=schemas.PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY)
+async def platform_failure_prepare_turn(
+    input: schemas.PrepareCommentAgentInvocationInput,
+) -> schemas.PrepareCommentAgentInvocationResult:
+    raise_application_error_from_classification(
+        agent_preparation_failed(retryable=False)
     )
 
 
@@ -443,6 +455,39 @@ async def test_parent_fails_once_with_actionable_message_without_credentials() -
     assert classification is not None
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.kind is RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING
+
+
+@pytest.mark.anyio
+async def test_parent_keeps_platform_diagnostics_out_of_the_comment() -> None:
+    """A platform-owned failure records Temporal's wrapper text, not its message."""
+    _FAILURES.clear()
+    invocation_id = uuid.uuid4()
+    queue = f"comment-agent-platform-failure-{invocation_id}"
+    role = Role(type="service", service_id="tracecat-api")
+
+    async with await WorkflowEnvironment.start_time_skipping(
+        data_converter=get_data_converter()
+    ) as env:
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            activities=[platform_failure_prepare_turn, record_failure],
+            workflows=[invocation_workflows.CaseCommentAgentInvocationWorkflow],
+            workflow_runner=new_sandbox_runner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    invocation_workflows.CaseCommentAgentInvocationWorkflow.run,
+                    schemas.CaseCommentAgentInvocationWorkflowInput(
+                        role=role, invocation_id=invocation_id
+                    ),
+                    id=f"parent/{invocation_id}",
+                    task_queue=queue,
+                )
+
+    assert len(_FAILURES) == 1
+    assert _FAILURES[0].kind == "preparation"
+    assert _FAILURES[0].error == "Activity task failed"
 
 
 @pytest.mark.anyio

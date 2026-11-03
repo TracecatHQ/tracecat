@@ -34,20 +34,26 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.concurrency import drain_future_through_cancellation
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
-    from tracecat.runtime.errors import select_error_classification
+    from tracecat.runtime.errors import (
+        RuntimeErrorOwner,
+        select_error_classification,
+    )
     from tracecat.temporal.errors import extract_error_classifications
 
 
 def _failure_message(error: BaseException) -> str:
-    """Prefer the classified runtime message over Temporal's wrapper text.
+    """Show a user-owned failure's message instead of Temporal's wrapper text.
 
-    Activity and child failures arrive wrapped (``Activity task failed``); the
-    classification carries the message written for the comment's reader.
+    Activity and child failures arrive wrapped (``Activity task failed``). A
+    user-owned classification carries a message written for the comment's
+    reader. Platform diagnostics stay out of case-scoped records.
     """
     if classifications := extract_error_classifications(
         error, include_implicit_context=False
     ):
-        return select_error_classification(classifications).message
+        classification = select_error_classification(classifications)
+        if classification.owner is RuntimeErrorOwner.USER:
+            return classification.message
     return str(error)
 
 
