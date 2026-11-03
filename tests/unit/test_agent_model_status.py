@@ -778,6 +778,37 @@ class TestModelStatusService:
         assert probed == ["https://gateway.example.com/v1/models/gpt-test"]
 
     @pytest.mark.anyio
+    async def test_unlinked_passthrough_preset_probes_with_the_org_key(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """An unlinked passthrough route takes its URL from the preset's
+        credentials but its key organization first, so the probe does too."""
+        self._stub(monkeypatch, provider="litellm")
+        probed: list[tuple[str, str]] = []
+
+        async def workspace_runtime(self: Any, _provider: str) -> Any:
+            return {
+                "LITELLM_BASE_URL": "https://litellm.example.com/v1",
+                "LITELLM_API_KEY": "sk-workspace",
+            }
+
+        async def org_runtime(self: Any, _provider: str) -> Any:
+            return {"LITELLM_API_KEY": "sk-org"}
+
+        async def probe(target: ProbeTarget, **_: Any) -> None:
+            probed.append((target.url, target.headers["Authorization"]))
+
+        management = status_module.AgentManagementService
+        monkeypatch.setattr(
+            management, "get_workspace_runtime_provider_credentials", workspace_runtime
+        )
+        monkeypatch.setattr(management, "get_runtime_provider_credentials", org_runtime)
+        monkeypatch.setattr(status_module, "probe_model", probe)
+        self._stub_preset(monkeypatch, catalog_id=None)
+        await self._service(role).get_status(preset_id=uuid.uuid4())
+        assert probed == [("https://litellm.example.com/v1/models", "Bearer sk-org")]
+
+    @pytest.mark.anyio
     async def test_passthrough_provider_keeps_its_own_url(
         self, monkeypatch: pytest.MonkeyPatch, role: Role
     ) -> None:

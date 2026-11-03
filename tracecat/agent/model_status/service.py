@@ -408,13 +408,21 @@ class ModelStatusService(BaseWorkspaceService):
                 return status(None, verified=False)
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
 
+        catalog_linked = catalog_id is not None
         credentials = await self._runtime_credentials(
             management,
             row.id,
             provider,
             preset=preset,
-            catalog_linked=catalog_id is not None,
+            catalog_linked=catalog_linked,
         )
+        if (
+            credentials
+            and preset
+            and not catalog_linked
+            and _is_passthrough(provider, credentials)
+        ):
+            credentials = await self._passthrough_key(management, provider, credentials)
         if (
             credentials
             and base_url
@@ -462,6 +470,29 @@ class ModelStatusService(BaseWorkspaceService):
             return False
         _refresh_counts[caller] = used + 1
         return True
+
+    async def _passthrough_key(
+        self,
+        management: AgentManagementService,
+        provider: str,
+        credentials: dict[str, str],
+    ) -> dict[str, str]:
+        """Swap in the API key an unlinked passthrough route actually sends.
+
+        The route's URL comes from the preset's resolved credentials, but the
+        direct route reads its key organization first, then workspace
+        (``tracecat/agent/sandbox/llm_proxy.py`` route ``api_key``).
+        """
+        spec = GATEWAY_PROVIDER_SPECS[provider]
+        source = await management.get_runtime_provider_credentials(
+            provider
+        ) or await management.get_workspace_provider_credentials(provider)
+        runtime = resolve_gateway_provider_config(provider, source or {})
+        api_key = runtime.api_key if runtime is not None else None
+        swapped = {k: v for k, v in credentials.items() if k != spec.api_key_key}
+        if api_key:
+            swapped[spec.api_key_key] = api_key
+        return swapped
 
     async def _runtime_credentials(
         self,
