@@ -17,6 +17,7 @@ import pytest
 from tracecat.agent.adapter.vercel import sse_vercel
 from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES
 from tracecat.agent.error_policy import (
+    agent_llm_gateway_auth_failed,
     agent_llm_model_not_enabled,
     agent_llm_provider_auth_failed,
     agent_llm_rate_limited,
@@ -94,6 +95,17 @@ class TestModelErrorDetail:
             provider_error_code=error_code,
         )
         assert detail.code is expected
+
+    def test_gateway_token_failure_never_blames_the_provider_key(self) -> None:
+        """A refused internal gateway token is not the user's provider key."""
+        detail = model_error_detail(
+            agent_llm_gateway_auth_failed(),
+            provider="openai",
+            model="gpt-test",
+            status_code=401,
+            provider_error_type="tracecat_llm_token_invalid",
+        )
+        assert detail.code is ModelErrorCode.UNKNOWN
 
     def test_rate_limit_kind_maps_without_status(self) -> None:
         detail = model_error_detail(

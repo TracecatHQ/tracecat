@@ -54,8 +54,11 @@ function toneFor(
 function headline(
   tone: DotTone,
   status: ModelStatusRead | undefined,
-  modelInfo: ModelInfo
+  modelInfo: ModelInfo,
+  failed: boolean
 ): string {
+  // A failed check says nothing about the result cached before it.
+  if (failed) return "Couldn't check the model's status."
   const provider = providerDisplayName(modelInfo.provider)
   switch (tone) {
     case "checking":
@@ -88,8 +91,8 @@ export function ModelStatusDot({
     modelInfo
   )
   const tone = toneFor(status, isChecking, Boolean(error))
-  const label = headline(tone, status, modelInfo)
-  const problem = status?.problem ?? null
+  const label = headline(tone, status, modelInfo, Boolean(error))
+  const problem = error ? null : (status?.problem ?? null)
   const copy = problem ? describeModelError(problem) : null
 
   return (

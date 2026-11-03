@@ -35,6 +35,9 @@ _KIND_CODES: dict[RuntimeErrorKind, ModelErrorCode] = {
     RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT: ModelErrorCode.PROVIDER_UNREACHABLE,
     RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED: ModelErrorCode.PROVIDER_UNREACHABLE,
     RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT: ModelErrorCode.PROVIDER_UNREACHABLE,
+    # Tracecat's own gateway token was refused: the provider was never asked,
+    # so the user's provider key is not the cause.
+    RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED: ModelErrorCode.UNKNOWN,
 }
 
 
