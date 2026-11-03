@@ -18,6 +18,7 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
+    from tracecat import config
     from tracecat.cases.triggers.dispatch import (
         CaseTriggerOutboxDispatcher,
         list_outbox_row_ids,
@@ -44,11 +45,12 @@ async def wait_for_case_trigger_outbox() -> bool:
     """Return True as soon as outbox rows exist, or False after 5 idle minutes.
 
     Waiting inside one heartbeating activity keeps the poll out of workflow
-    history; Temporal retries it only if the worker dies.
+    history; Temporal retries it only if the worker dies. While case triggers
+    are disabled, queued rows wait and the dispatcher stays idle.
     """
     deadline = time.monotonic() + _IDLE_RETURN_SECONDS
     while True:
-        if await outbox_has_rows():
+        if config.TRACECAT__CASE_TRIGGERS_ENABLED and await outbox_has_rows():
             return True
         if time.monotonic() >= deadline:
             return False
@@ -64,6 +66,8 @@ async def dispatch_case_trigger_outbox_batch() -> int:
     rest. Any failure fails the activity afterwards, and the retry picks up the
     rows that are still pending.
     """
+    if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
+        return 0
     dispatcher = CaseTriggerOutboxDispatcher(heartbeat=activity.heartbeat)
     row_ids = await list_outbox_row_ids()
     failed = 0

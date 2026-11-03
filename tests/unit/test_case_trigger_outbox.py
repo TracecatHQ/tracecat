@@ -27,6 +27,10 @@ from tracecat.cases.triggers.dispatch import (
     case_trigger_exec_id,
     list_outbox_row_ids,
 )
+from tracecat.cases.triggers.dispatcher import (
+    dispatch_case_trigger_outbox_batch,
+    wait_for_case_trigger_outbox,
+)
 from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.db.models import (
     Case,
@@ -548,3 +552,26 @@ def test_case_trigger_exec_id_is_stable_per_event_and_workflow() -> None:
     assert exec_id != case_trigger_exec_id(uuid.uuid4(), workflow_id)
     assert exec_id.startswith("wf_")
     assert "/exec_" in exec_id
+
+
+@pytest.mark.anyio
+async def test_disabled_case_triggers_leave_queued_rows_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The kill switch also stops the dispatcher from draining queued rows."""
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.dispatcher.config.TRACECAT__CASE_TRIGGERS_ENABLED",
+        False,
+    )
+    monkeypatch.setattr("tracecat.cases.triggers.dispatcher._IDLE_RETURN_SECONDS", 0.0)
+    has_rows = AsyncMock(return_value=True)
+    list_rows = AsyncMock(return_value=[1])
+    monkeypatch.setattr("tracecat.cases.triggers.dispatcher.outbox_has_rows", has_rows)
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.dispatcher.list_outbox_row_ids", list_rows
+    )
+
+    assert await wait_for_case_trigger_outbox() is False
+    assert await dispatch_case_trigger_outbox_batch() == 0
+    has_rows.assert_not_awaited()
+    list_rows.assert_not_awaited()
