@@ -30,7 +30,7 @@ async def select_backend_id(
     The configured backend applies only to selectable surfaces and only for
     organizations entitled to it. Everything else gets the built-in backend.
     """
-    backend_id = config.TRACECAT__AGENT_CHAT_BACKEND
+    backend_id = config.TRACECAT__AGENT_SESSION_BACKEND
     if entity_type not in SELECTABLE_ENTITIES:
         return DEFAULT_AGENT_BACKEND
     if not await can_use_backend(session, organization_id, backend_id):
