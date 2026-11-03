@@ -247,10 +247,16 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
 
 
 def test_outbound_private_cidrs_are_wired_to_deployments() -> None:
-    """Validation, gateway, and agent processes share the operator's policy."""
+    """Validation, gateway, agent, and search-indexing processes share the policy."""
     name = "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
     for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
-        for service in ("api", "litellm", "agent-executor", "agent-worker"):
+        for service in (
+            "api",
+            "litellm",
+            "agent-executor",
+            "agent-worker",
+            "background-worker",
+        ):
             match = re.search(
                 rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
                 path.read_text(),

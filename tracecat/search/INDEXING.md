@@ -1,10 +1,22 @@
 # Background semantic indexing
 
-The DSL worker reconciles Temporal schedule `semantic-search-dispatch-v1` at
-startup in a managed background task. Each reconciliation attempt has a
-30-second timeout; failures log only their type and retry after 30 seconds.
-Registration failure does not stop DSL polling, and shutdown cancels the task.
-Every ten seconds it starts `SearchIndexDispatcher`; overlap is skipped.
+The background worker (`tracecat.background.worker`) runs the dispatcher and its
+activities on `TRACECAT__BACKGROUND_QUEUE`, sharing its activity slots
+(`TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES`, default eight) with Git sync.
+The dispatcher runs at most six indexing activities across the deployment, so
+with N replicas at least `8N - 6` slots stay free for other work.
+In a managed background task, the worker reconciles Temporal schedule
+`semantic-search-dispatch-v1` at startup and every ten minutes, pointing it at
+that queue. Each attempt has a 30-second timeout; failures log only their type
+and retry after 30 seconds. Registration failure does not stop polling, and
+shutdown cancels the task. Reconciliation also terminates a running dispatcher
+started on any other queue (for example the DSL queue that hosted it before),
+because no worker there can finish it and overlap skipping would block every
+later run. The next run rediscovers its work. The schedule ID is
+namespace-global: use one background queue per Temporal namespace. Deployments
+that share a namespace with different background queues are unsupported; their
+reconcilers would retarget the schedule and terminate each other's runs.
+Every ten seconds the schedule starts `SearchIndexDispatcher`; overlap is skipped.
 The dispatcher keyset-scans 32 collections at a time, including disabled or
 unconfigured collections, with up to six independent workspace jobs in flight.
 Within each page, a free slot starts the next eligible job immediately; jobs for

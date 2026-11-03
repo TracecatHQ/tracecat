@@ -26,6 +26,7 @@ from tracecat.agent.worker import get_activities as get_agent_worker_activities
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 from tracecat.search import indexing_schedule
+from tracecat.search.indexing_workflow import SearchIndexDispatcher
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +57,48 @@ def _activity_names(activities: Sequence[object]) -> set[str]:
 def test_dsl_worker_registers_preset_version_resolution_activity() -> None:
     names = _activity_names(get_dsl_worker_activities())
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
-    assert {"discover_search_collections", "index_search_collection"} <= names
+    # Semantic-search indexing runs on the background worker instead.
+    assert not {"discover_search_collections", "index_search_collection"} & names
+
+
+@pytest.mark.anyio
+async def test_background_worker_runs_search_indexing_on_background_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.background import worker
+
+    shutdown_event = asyncio.Event()
+    schedule = AsyncMock(side_effect=lambda *_: shutdown_event.set())
+    monkeypatch.setattr(indexing_schedule, "ensure_search_schedule", schedule)
+    captured: dict[str, object] = {}
+
+    class _FakeWorker:
+        def __init__(self, client: object, **kwargs: object) -> None:
+            del client
+            captured.update(kwargs)
+
+        async def __aenter__(self) -> _FakeWorker:
+            return self
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+            del exc_type, exc, tb
+
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setattr(worker.config, "TRACECAT__BACKGROUND_QUEUE", "test-bg-queue")
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "close_storage_client_cache", AsyncMock())
+
+    await asyncio.wait_for(worker.main(shutdown_event=shutdown_event), 2)
+
+    schedule.assert_awaited_once()
+    assert schedule.await_args is not None
+    assert schedule.await_args.args[1] == "test-bg-queue"
+    assert captured["task_queue"] == "test-bg-queue"
+    assert SearchIndexDispatcher in cast(Sequence[type], captured["workflows"])
+    assert {"discover_search_collections", "index_search_collection"} <= (
+        _activity_names(cast(Sequence[object], captured["activities"]))
+    )
 
 
 def test_agent_worker_registers_preset_resolution_activities() -> None:
@@ -240,8 +282,6 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
     from tracecat.dsl import worker
 
     shutdown_event = asyncio.Event()
-    schedule = AsyncMock(side_effect=lambda *_: shutdown_event.set())
-    monkeypatch.setattr(indexing_schedule, "ensure_search_schedule", schedule)
     captured: dict[str, object] = {}
 
     class _FakeWorker:
@@ -277,6 +317,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
             captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
 
         async def __aenter__(self) -> _FakeWorker:
+            shutdown_event.set()
             return self
 
         async def __aexit__(
@@ -300,9 +341,6 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
 
     await asyncio.wait_for(worker.main(shutdown_event=shutdown_event), 2)
 
-    schedule.assert_awaited_once()
-    assert schedule.await_args is not None
-    assert schedule.await_args.args[1] == "test-dsl-queue"
     assert captured == {
         "task_queue": "test-dsl-queue",
         "threadpool_max_workers": 100,

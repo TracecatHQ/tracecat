@@ -16,7 +16,7 @@ The Docker Compose stack runs 18 containers. Only `caddy` is exposed externally;
 | `api` | 8000 | REST API and webhook receiver |
 | `ui` | 3000 | Next.js frontend |
 | `worker` | — | Workflow orchestrator |
-| `background-worker` | — | Git sync and platform background tasks |
+| `background-worker` | — | Git sync, semantic-search indexing, and platform background tasks |
 | `executor` | — | Action executor with optional sandbox |
 | `agent-worker` | — | AI agent orchestrator |
 | `agent-executor` | — | AI agent action executor |
@@ -53,7 +53,7 @@ External systems send webhooks to `/api/webhooks/...`, which Caddy forwards to t
 
 The API submits workflow runs to the Temporal server on port 7233. Workers pull tasks from Temporal's task queue and dispatch actions to executors. Executors run individual action steps, optionally inside an nsjail sandbox.
 
-Git sync requires `background-worker`, which polls `shared-background-queue` by default. Set `TRACECAT__BACKGROUND_QUEUE` to the same value on the API and background worker when overriding it.
+Git sync and semantic-search indexing require `background-worker`, which polls `shared-background-queue` by default. Set `TRACECAT__BACKGROUND_QUEUE` to the same value on the API and background worker when overriding it.
 
 Agent workers and agent executors follow the same Temporal-based pattern for AI agent workflows.
 
