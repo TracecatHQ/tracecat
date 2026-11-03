@@ -1155,7 +1155,9 @@ TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
 This queue is reserved for `run_agent_activity` so agent runtime capacity can be
 provisioned independently from agent workflow/control-plane work."""
 
-TRACECAT__AGENT_CHAT_BACKEND = os.environ.get("TRACECAT__AGENT_CHAT_BACKEND") or "oss"
+TRACECAT__AGENT_SESSION_BACKEND = (
+    os.environ.get("TRACECAT__AGENT_SESSION_BACKEND") or "oss"
+)
 """Agent backend for new sessions whose caller does not choose one.
 
 Applies to workspace, agent preset, preset builder, case and external channel

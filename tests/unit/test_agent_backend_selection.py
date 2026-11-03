@@ -16,7 +16,7 @@ from tracecat.auth.types import Role
 
 IS_ORG_ENTITLED = "tracecat.agent.backends.access.is_org_entitled"
 CONFIGURED_BACKEND = (
-    "tracecat.agent.backends.selection.config.TRACECAT__AGENT_CHAT_BACKEND"
+    "tracecat.agent.backends.selection.config.TRACECAT__AGENT_SESSION_BACKEND"
 )
 
 
