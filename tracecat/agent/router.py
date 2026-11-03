@@ -17,7 +17,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.auth.dependencies import OrgUserRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -326,4 +326,10 @@ async def check_workspace_model_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Model not found",
+        ) from e
+    except TracecatValidationError as e:
+        # A preset version that doesn't belong to the given preset.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The preset and preset version don't match",
         ) from e

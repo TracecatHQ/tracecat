@@ -16,6 +16,7 @@ import {
   describeModelError,
   modelErrorFacts,
   providerDisplayName,
+  sentence,
 } from "@/lib/model-errors"
 import { cn } from "@/lib/utils"
 
@@ -64,10 +65,14 @@ function headline(
     case "checking":
       return `Checking ${provider}…`
     case "ready":
-      return `${provider} accepted the credentials for ${modelInfo.name}.`
+      return sentence(
+        `${provider} accepted the credentials for ${modelInfo.name}.`
+      )
     case "unverified":
       if (!status) return "Couldn't check the model's status."
-      return `${provider} credentials are set. Connectivity isn't checked for this provider.`
+      return sentence(
+        `${provider} credentials are set. Connectivity isn't checked for this provider.`
+      )
     default:
       return status?.problem
         ? describeModelError(status.problem).title
@@ -117,13 +122,18 @@ export function ModelStatusDot({
           </p>
         )}
         <div className="flex items-center justify-between gap-2 pt-1">
-          <Link
-            href={copy?.settingsHref ?? AGENT_SETTINGS_HREF}
-            className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            Agent settings
-            <ArrowRight className="size-3" />
-          </Link>
+          {/* A transient problem needs no settings change, so no link. */}
+          {problem && !copy?.settingsHref ? (
+            <span />
+          ) : (
+            <Link
+              href={copy?.settingsHref ?? AGENT_SETTINGS_HREF}
+              className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              Agent settings
+              <ArrowRight className="size-3" />
+            </Link>
+          )}
           <Button
             size="sm"
             variant="ghost"

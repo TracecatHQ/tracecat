@@ -58,6 +58,19 @@ describe("describeModelError", () => {
     expect(copy.settingsHref).toBeUndefined()
   })
 
+  it("keeps sentences well formed for unnamed and custom providers", () => {
+    expect(
+      describeModelError({ code: "credentials_missing", model: "m" }).title
+    ).toBe("No model provider credentials are set up for m.")
+    expect(
+      describeModelError({
+        code: "provider_auth_failed",
+        provider: "custom-model-provider",
+        model: "m",
+      }).title
+    ).toBe("Custom model provider rejected the API key for m.")
+  })
+
   it("falls back to generic copy", () => {
     expect(describeModelError({ code: "unknown" }).title).toBe(
       "The request to the selected model failed."

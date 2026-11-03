@@ -882,8 +882,10 @@ export function useVercelChat({
       })
     },
     onFinish: ({ messages: turnMessages, isAbort, isDisconnect, isError }) => {
-      // Runs after onError, which already took this turn's detail.
-      modelErrorRef.current = null
+      // Runs after onError, which already took this turn's detail. An abort's
+      // onFinish can run with the next request's callbacks, so it leaves the
+      // next request's detail alone.
+      if (!isAbort) modelErrorRef.current = null
       if (!isAbort && !isDisconnect && !isError) {
         void subagentStore.complete()
       }

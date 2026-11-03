@@ -488,6 +488,7 @@ def _transport_proxy_error(
     route_is_direct: bool,
     fallback_message: str,
     diagnostic: LLMErrorDiagnostics | None,
+    before_headers: bool,
 ) -> LLMProxyError:
     """Build the terminal proxy error for one upstream transport failure.
 
@@ -499,6 +500,8 @@ def _transport_proxy_error(
         route_is_direct: Whether the request bypassed the managed gateway.
         fallback_message: Message to surface for non-read-timeout failures.
         diagnostic: Safe route context for the selected request route.
+        before_headers: The failure came before any response headers, so the
+            provider was never reached.
 
     Returns:
         Terminal proxy error with message, classification, and diagnostic.
@@ -514,7 +517,7 @@ def _transport_proxy_error(
         ),
         classification=classification,
         diagnostic=diagnostic,
-        provider_unreachable=route_is_direct,
+        provider_unreachable=route_is_direct and before_headers,
     )
 
 
@@ -1930,6 +1933,7 @@ class LLMSocketProxy:
                             else f"LLM upstream unavailable: {exc}"
                         ),
                         diagnostic=diagnostic(),
+                        before_headers=response_phase == "response_headers",
                     ),
                     source_error=exc,
                     context=ProxyFailureContext(
@@ -2236,6 +2240,7 @@ class LLMSocketProxy:
                             diagnostic=diagnostic_factory()
                             if diagnostic_factory
                             else None,
+                            before_headers=False,
                         ),
                         source_error=exc,
                         context=ProxyFailureContext(

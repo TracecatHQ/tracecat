@@ -57,6 +57,8 @@ export function useModelStatus(
         false
       ),
     enabled: Boolean(workspaceId && modelInfo),
+    // The dot itself shows a failed check.
+    meta: { suppressErrorToast: true },
     staleTime: MODEL_STATUS_STALE_MS,
     retry: false,
   })

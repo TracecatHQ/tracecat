@@ -23,7 +23,7 @@ const PROVIDER_NAMES: Record<string, string> = {
   azure_ai: "Azure AI",
   azure_openai: "Azure OpenAI",
   bedrock: "AWS Bedrock",
-  "custom-model-provider": "The custom model provider",
+  "custom-model-provider": "custom model provider",
   gemini: "Google Gemini",
   litellm: "LiteLLM",
   mistral: "Mistral",
@@ -34,8 +34,9 @@ const PROVIDER_NAMES: Record<string, string> = {
   vllm: "vLLM",
 }
 
+/** A provider's name as a noun; templates add articles and capitals. */
 export function providerDisplayName(provider: string | null | undefined) {
-  if (!provider) return "The model provider"
+  if (!provider) return "model provider"
   return PROVIDER_NAMES[provider] ?? provider.replaceAll("_", " ")
 }
 
@@ -78,8 +79,18 @@ export interface ModelErrorCopy {
   settingsHref?: string
 }
 
+/** Capitalize a sentence that may start with a lowercase provider name. */
+export function sentence(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
 /** Actionable copy for a model error code. */
 export function describeModelError(detail: ModelErrorDetail): ModelErrorCopy {
+  const copy = describeModelErrorRaw(detail)
+  return { ...copy, title: sentence(copy.title) }
+}
+
+function describeModelErrorRaw(detail: ModelErrorDetail): ModelErrorCopy {
   const provider = providerDisplayName(detail.provider)
   const model = detail.model ?? "the selected model"
   switch (detail.code) {
@@ -114,7 +125,7 @@ export function describeModelError(detail: ModelErrorDetail): ModelErrorCopy {
       }
     case "budget_exceeded":
       return {
-        title: `The ${provider} account for ${model} is out of quota or budget.`,
+        title: `${provider} account for ${model} is out of quota or budget.`,
         action: "Check billing with the provider or the configured budget.",
       }
     case "context_too_long":

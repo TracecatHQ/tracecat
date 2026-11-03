@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from opentelemetry import context as otel_context
@@ -2227,7 +2227,18 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.error == error
         assert result.classification == classification
         assert result.terminal_stream_error_emitted is True
-        stream.error.assert_awaited_once_with(error, detail=ANY)
+        stream.error.assert_awaited_once()
+        await_args = stream.error.await_args
+        assert await_args is not None
+        assert await_args.args == (error,)
+        # The chat gets the failure's structured detail, attributed to the turn.
+        detail = await_args.kwargs["detail"]
+        assert detail is not None
+        assert detail.kind is classification.kind
+        assert (detail.provider, detail.model) == (
+            executor_input.config.model_provider,
+            executor_input.config.model_name,
+        )
         stream.done.assert_not_awaited()
         capture.assert_not_called()
 
