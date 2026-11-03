@@ -71,11 +71,12 @@ async def enqueue_case_trigger(
 
     The row commits or rolls back with the case change. A comment that picks a
     workflow always gets a row; any other event gets one only when the
-    workspace has an online trigger for its event type.
+    workspace has an online trigger for its event type. Disabling case
+    triggers stops both, as the Redis publisher did.
     """
+    if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
+        return
     if comment_workflow is None:
-        if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
-            return
         if is_workflow_originated(event):
             return
         if not await has_online_trigger(

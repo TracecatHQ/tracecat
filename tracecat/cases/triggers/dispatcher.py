@@ -111,7 +111,23 @@ class CaseTriggerDispatcher:
 
 
 async def ensure_case_trigger_dispatcher(client: Client, task_queue: str) -> None:
-    """Start the dispatcher unless it is already running. Safe on every replica."""
+    """Start the dispatcher unless it is already running. Safe on every replica.
+
+    A run left on a queue that no longer has workers would never make
+    progress, so it is replaced. Dispatch is idempotent: the new run picks up
+    every pending row.
+    """
+    handle = await client.start_workflow(
+        CaseTriggerDispatcher.run,
+        id=CASE_TRIGGER_DISPATCHER_ID,
+        task_queue=task_queue,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+    )
+    description = await handle.describe()
+    if description.task_queue == task_queue:
+        return
+    await handle.terminate(reason="Case trigger dispatcher moved to another task queue")
+    logger.info("Replaced the case trigger dispatcher on a previous task queue")
     await client.start_workflow(
         CaseTriggerDispatcher.run,
         id=CASE_TRIGGER_DISPATCHER_ID,

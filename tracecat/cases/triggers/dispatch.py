@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import exists, select, update
+from sqlalchemy import exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -54,6 +54,15 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
 CASE_TRIGGER_SERVICE_ID = "tracecat-case-triggers"
 OUTBOX_BATCH_SIZE = 100
+# Errors from bad input that fail every attempt the same way, such as a
+# workflow timeout too large to convert. Retrying them would hold the row
+# forever, so the start is logged and dropped as the Redis consumer did.
+# Temporal, database and storage outages raise other types and are retried.
+PERMANENT_START_ERRORS: tuple[type[Exception], ...] = (
+    ValueError,
+    TypeError,
+    ArithmeticError,
+)
 
 
 def case_trigger_exec_id(
@@ -73,14 +82,28 @@ async def outbox_has_rows() -> bool:
 
 
 async def list_outbox_row_ids(limit: int = OUTBOX_BATCH_SIZE) -> list[int]:
-    """The oldest outbox rows, in commit order."""
+    """The outbox rows to dispatch next, least recently attempted first.
+
+    A failed row is touched after each attempt, so rows that keep failing move
+    behind newer rows instead of filling every batch.
+    """
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.scalars(
             select(CaseTriggerOutbox.surrogate_id)
-            .order_by(CaseTriggerOutbox.surrogate_id)
+            .order_by(CaseTriggerOutbox.updated_at, CaseTriggerOutbox.surrogate_id)
             .limit(limit)
         )
         return list(result.all())
+
+
+async def _touch_outbox_row(row_id: int) -> None:
+    async with get_async_session_bypass_rls_context_manager() as session:
+        await session.execute(
+            update(CaseTriggerOutbox)
+            .where(CaseTriggerOutbox.surrogate_id == row_id)
+            .values(updated_at=func.clock_timestamp())
+        )
+        await session.commit()
 
 
 def _event_type_value(event: CaseEvent) -> str:
@@ -166,6 +189,11 @@ def _parse_comment_workflow(
         return None
 
 
+def _raise_first(failures: list[Exception]) -> None:
+    if failures:
+        raise failures[0]
+
+
 class CaseTriggerOutboxDispatcher:
     """Dispatch outbox rows one at a time, each in its own transaction."""
 
@@ -178,19 +206,23 @@ class CaseTriggerOutboxDispatcher:
 
         Another dispatcher holding the row's lock means it is already being
         handled, so the row is skipped. Transient failures raise and leave the
-        row in place for the next attempt.
+        row in place, moved to the back of the queue, for the next attempt.
         """
-        async with get_async_session_bypass_rls_context_manager() as session:
-            row = await session.scalar(
-                select(CaseTriggerOutbox)
-                .where(CaseTriggerOutbox.surrogate_id == row_id)
-                .with_for_update(skip_locked=True)
-            )
-            if row is None:
-                return
-            await self._dispatch(session, row)
-            await session.delete(row)
-            await session.commit()
+        try:
+            async with get_async_session_bypass_rls_context_manager() as session:
+                row = await session.scalar(
+                    select(CaseTriggerOutbox)
+                    .where(CaseTriggerOutbox.surrogate_id == row_id)
+                    .with_for_update(skip_locked=True)
+                )
+                if row is None:
+                    return
+                await self._dispatch(session, row)
+                await session.delete(row)
+                await session.commit()
+        except Exception:
+            await _touch_outbox_row(row_id)
+            raise
 
     async def _dispatch(self, session: AsyncSession, row: CaseTriggerOutbox) -> None:
         event = await session.scalar(
@@ -211,17 +243,42 @@ class CaseTriggerOutboxDispatcher:
             return
 
         role = await self._get_service_role(session, row.workspace_id)
+        # Try every start before failing the row, so one run that cannot start
+        # does not hold back the event's other runs.
+        failures: list[Exception] = []
         comment_workflow = _parse_comment_workflow(row)
         if comment_workflow is not None:
-            await self._start_comment_workflow(
-                session, role=role, case=case, event=event, trigger=comment_workflow
-            )
+            try:
+                await self._start_comment_workflow(
+                    session, role=role, case=case, event=event, trigger=comment_workflow
+                )
+            except Exception as e:
+                failures.append(e)
+        await self._start_configured_triggers(
+            session,
+            role=role,
+            case=case,
+            event=event,
+            comment_workflow=comment_workflow,
+            failures=failures,
+        )
+        _raise_first(failures)
 
+    async def _start_configured_triggers(
+        self,
+        session: AsyncSession,
+        *,
+        role: Role,
+        case: Case,
+        event: CaseEvent,
+        comment_workflow: CaseCommentWorkflowTrigger | None,
+        failures: list[Exception],
+    ) -> None:
         if not await self._has_case_addons_entitlement(session, role):
             logger.info(
                 "Skipping configured case trigger dispatch; entitlement missing",
                 event_id=str(event.id),
-                workspace_id=str(row.workspace_id),
+                workspace_id=str(case.workspace_id),
                 organization_id=str(role.organization_id),
                 entitlement=Entitlement.CASE_ADDONS.value,
             )
@@ -237,7 +294,7 @@ class CaseTriggerOutboxDispatcher:
         triggers = (
             await session.scalars(
                 select(CaseTrigger).where(
-                    online_trigger_filter(row.workspace_id, event_type)
+                    online_trigger_filter(case.workspace_id, event_type)
                 )
             )
         ).all()
@@ -252,9 +309,12 @@ class CaseTriggerOutboxDispatcher:
                 trigger.tag_filters
             ):
                 continue
-            await self._start_trigger_workflow(
-                session, role=role, trigger=trigger, case=case, event=event
-            )
+            try:
+                await self._start_trigger_workflow(
+                    session, role=role, trigger=trigger, case=case, event=event
+                )
+            except Exception as e:
+                failures.append(e)
 
     async def _get_service_role(
         self, session: AsyncSession, workspace_id: uuid.UUID
@@ -347,6 +407,15 @@ class CaseTriggerOutboxDispatcher:
                 event_id=str(event.id),
                 wf_exec_id=wf_exec_id,
             )
+        except PERMANENT_START_ERRORS as e:
+            logger.error(
+                "Dropping case-triggered run that cannot start",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+                wf_exec_id=wf_exec_id,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
 
     async def _disable_invalid_trigger(
         self,
@@ -428,6 +497,19 @@ class CaseTriggerOutboxDispatcher:
                 event_id=str(event.id),
                 wf_exec_id=trigger.wf_exec_id,
             )
+        except PERMANENT_START_ERRORS as e:
+            logger.error(
+                "Comment workflow cannot start",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+                wf_exec_id=trigger.wf_exec_id,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
+            await self._fail_comment_workflow(
+                session, audit_role=audit_role, case=case, trigger=trigger
+            )
+            return
         await self._audit_comment_workflow(
             session,
             audit_role=audit_role,

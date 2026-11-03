@@ -117,3 +117,41 @@ async def test_dispatcher_restarts_after_it_stops(env: WorkflowEnvironment) -> N
         assert restarted.status == WorkflowExecutionStatus.RUNNING
         await asyncio.sleep(timedelta(milliseconds=300).total_seconds())
         await handle.terminate(reason="test complete")
+
+
+@pytest.mark.anyio
+async def test_dispatcher_on_a_previous_queue_is_replaced(
+    env: WorkflowEnvironment,
+) -> None:
+    """A run left on a queue without workers is moved to the current queue."""
+    old_queue = f"case-trigger-dispatcher-old-{uuid.uuid4()}"
+    new_queue = f"case-trigger-dispatcher-{uuid.uuid4()}"
+
+    @activity.defn(name="wait_for_case_trigger_outbox")
+    async def wait_for_rows() -> bool:
+        await asyncio.sleep(0.1)
+        return False
+
+    @activity.defn(name="dispatch_case_trigger_outbox_batch")
+    async def dispatch_batch() -> int:
+        return 0
+
+    # Nothing polls the old queue, as after a queue rename.
+    await ensure_case_trigger_dispatcher(env.client, old_queue)
+    handle = env.client.get_workflow_handle(CASE_TRIGGER_DISPATCHER_ID)
+    stranded = await handle.describe()
+    assert stranded.task_queue == old_queue
+
+    async with Worker(
+        env.client,
+        task_queue=new_queue,
+        workflows=[CaseTriggerDispatcher],
+        activities=[wait_for_rows, dispatch_batch],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        await ensure_case_trigger_dispatcher(env.client, new_queue)
+        replaced = await handle.describe()
+        assert replaced.run_id != stranded.run_id
+        assert replaced.task_queue == new_queue
+        assert replaced.status == WorkflowExecutionStatus.RUNNING
+        await handle.terminate(reason="test complete")
