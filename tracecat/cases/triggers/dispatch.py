@@ -12,7 +12,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import exists, func, select, update
@@ -27,7 +26,12 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.enums import CaseEventType
 from tracecat.cases.schemas import CaseCommentWorkflowStatus
 from tracecat.cases.triggers.outbox import online_trigger_filter
-from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
+from tracecat.cases.triggers.types import (
+    CaseCommentWorkflowTrigger,
+    CaseTriggerPayload,
+    CaseTriggerTag,
+    CommentWorkflowPayload,
+)
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     Case,
@@ -117,14 +121,14 @@ def _event_created_at(event: CaseEvent) -> datetime:
     return created_at
 
 
-def _tags_payload(case: Case) -> list[dict[str, Any]]:
+def _tags_payload(case: Case) -> list[CaseTriggerTag]:
     return [
         {"id": str(tag.id), "ref": tag.ref, "name": tag.name, "color": tag.color}
         for tag in case.tags
     ]
 
 
-def build_case_trigger_payload(*, case: Case, event: CaseEvent) -> dict[str, Any]:
+def build_case_trigger_payload(*, case: Case, event: CaseEvent) -> CaseTriggerPayload:
     """Trigger inputs for a run started by a configured case trigger."""
     return {
         "case_id": str(case.id),
@@ -143,7 +147,7 @@ def build_case_trigger_payload(*, case: Case, event: CaseEvent) -> dict[str, Any
 
 def build_comment_workflow_payload(
     *, case: Case, event: CaseEvent, trigger: CaseCommentWorkflowTrigger
-) -> dict[str, Any]:
+) -> CommentWorkflowPayload:
     """Trigger inputs for a workflow a user picked when posting a comment."""
     comment_id = str(trigger.comment_id)
     parent_id = str(trigger.parent_id) if trigger.parent_id is not None else None
