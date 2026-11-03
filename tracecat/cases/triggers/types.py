@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Self
 
 from pydantic import BaseModel, Field, model_validator
 
 from tracecat.identifiers.workflow import (
+    EXEC_ID_SHORT_PATTERN,
     WorkflowExecutionID,
     WorkflowUUID,
-    exec_id_to_parts,
 )
 
 
@@ -41,7 +42,9 @@ class CaseCommentWorkflowTrigger(BaseModel):
     @model_validator(mode="after")
     def _exec_id_names_the_workflow(self) -> Self:
         # The execution ID is used as a Temporal workflow ID and a storage key;
-        # it must be the picked workflow's own run.
-        if exec_id_to_parts(self.wf_exec_id)[0] != WorkflowUUID.new(self.workflow_id):
+        # it must be exactly one of the picked workflow's own run IDs.
+        prefix = f"{WorkflowUUID.new(self.workflow_id).short()}/"
+        suffix = self.wf_exec_id.removeprefix(prefix)
+        if suffix == self.wf_exec_id or not re.fullmatch(EXEC_ID_SHORT_PATTERN, suffix):
             raise ValueError("wf_exec_id does not belong to workflow_id")
         return self

@@ -788,10 +788,11 @@ def test_comment_workflow_exec_id_must_belong_to_the_workflow() -> None:
     CaseCommentWorkflowTrigger(
         **fields, wf_exec_id=generate_exec_id(WorkflowUUID.new(workflow_id))
     )
-    with pytest.raises(ValueError, match="does not belong"):
-        CaseCommentWorkflowTrigger(
-            **fields, wf_exec_id=generate_exec_id(WorkflowUUID.new(uuid.uuid4()))
-        )
+    own = generate_exec_id(WorkflowUUID.new(workflow_id))
+    other = generate_exec_id(WorkflowUUID.new(uuid.uuid4()))
+    for bad in (other, f"{own}/../../other", f"{own}:x"):
+        with pytest.raises(ValueError, match="does not belong"):
+            CaseCommentWorkflowTrigger(**fields, wf_exec_id=bad)
 
 
 @pytest.mark.anyio
