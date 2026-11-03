@@ -7974,9 +7974,13 @@ export type ModelStatusCheck = {
   model_provider?: string | null
   model_name?: string | null
   /**
-   * The chat runs the model through an agent preset.
+   * The agent preset the chat runs; its stored model wins.
    */
-  preset?: boolean
+  preset_id?: string | null
+  /**
+   * The preset version the chat is pinned to.
+   */
+  preset_version_id?: string | null
   /**
    * Re-check now unless the last check is very recent.
    */

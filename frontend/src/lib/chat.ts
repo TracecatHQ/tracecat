@@ -527,8 +527,10 @@ export type ModelInfo = {
   iconId?: string
   /** The model's catalog row, when known; the status check prefers it. */
   catalogId?: string | null
-  /** The model comes from an agent preset, whose credentials fall back. */
-  fromPreset?: boolean
+  /** The agent preset the model comes from; the status check loads it. */
+  presetId?: string | null
+  /** The preset version the chat is pinned to. */
+  presetVersionId?: string | null
 }
 
 /**

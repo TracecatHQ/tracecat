@@ -608,6 +608,10 @@ export function ChatInterface({
           chatError={chatError}
           onRetryChatLoad={() => void refetchChat()}
           selectedPreset={activePreset}
+          selectedPresetId={activePreset ? effectivePresetId : null}
+          selectedPresetVersionId={
+            activePreset ? selectedPresetVersionId : null
+          }
           selectedPresetConfigError={selectedPresetConfigError}
           toolsEnabled={toolsEnabled}
           agentMentionsSupported={presetsSupported}
@@ -679,6 +683,9 @@ interface ChatBodyProps {
   chatError: unknown
   onRetryChatLoad: () => void
   selectedPreset?: PresetConfigLike
+  /** The preset and pinned version behind `selectedPreset`, for the status check. */
+  selectedPresetId?: string | null
+  selectedPresetVersionId?: string | null
   selectedPresetConfigError?: unknown
   toolsEnabled: boolean
   /** Whether `@` offers agent presets on this surface. */
@@ -717,6 +724,8 @@ function ChatBody({
   chatError,
   onRetryChatLoad,
   selectedPreset,
+  selectedPresetId,
+  selectedPresetVersionId,
   selectedPresetConfigError,
   toolsEnabled,
   agentMentionsSupported,
@@ -746,6 +755,8 @@ function ChatBody({
             provider: selectedPreset.model_provider,
             baseUrl: selectedPreset.base_url ?? null,
             catalogId: selectedPreset.catalog_id ?? null,
+            presetId: selectedPresetId ?? null,
+            presetVersionId: selectedPresetVersionId ?? null,
           },
         }
       : undefined

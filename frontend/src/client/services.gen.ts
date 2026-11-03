@@ -6486,9 +6486,9 @@ export const agentGetWorkspaceProvidersStatus = (
  *
  * A POST, not a GET: a check may call the provider on the organization's key,
  * so a cross-site navigation must not be able to trigger it. Identify the
- * model by catalog ID, or by provider and name. Pass ``preset`` when the chat
- * runs the model through an agent preset, so the check uses the same
- * credential fallback. The result is cached briefly per credential set.
+ * model by catalog ID, by provider and name, or by the agent preset the chat
+ * runs, so the check uses that preset's model, credentials and base URL.
+ * The result is cached briefly per credential set.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody

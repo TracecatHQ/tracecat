@@ -298,14 +298,19 @@ async def check_workspace_model_status(
 
     A POST, not a GET: a check may call the provider on the organization's key,
     so a cross-site navigation must not be able to trigger it. Identify the
-    model by catalog ID, or by provider and name. Pass ``preset`` when the chat
-    runs the model through an agent preset, so the check uses the same
-    credential fallback. The result is cached briefly per credential set.
+    model by catalog ID, by provider and name, or by the agent preset the chat
+    runs, so the check uses that preset's model, credentials and base URL.
+    The result is cached briefly per credential set.
     """
-    if params.catalog_id is None and not (params.model_provider and params.model_name):
+    if (
+        params.catalog_id is None
+        and params.preset_id is None
+        and params.preset_version_id is None
+        and not (params.model_provider and params.model_name)
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Pass catalog_id, or model_provider and model_name",
+            detail="Pass catalog_id, preset_id, or model_provider and model_name",
         )
     service = ModelStatusService(session, role=role)
     try:
@@ -313,7 +318,8 @@ async def check_workspace_model_status(
             catalog_id=params.catalog_id,
             model_provider=params.model_provider,
             model_name=params.model_name,
-            preset=params.preset,
+            preset_id=params.preset_id,
+            preset_version_id=params.preset_version_id,
             refresh=params.refresh,
         )
     except TracecatNotFoundError as e:

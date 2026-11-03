@@ -80,6 +80,8 @@ export function InboxDetail({
             name: presetModel.model_name,
             provider: presetModel.model_provider,
             baseUrl: presetModel.base_url ?? null,
+            presetId,
+            presetVersionId,
           },
         }
       : undefined

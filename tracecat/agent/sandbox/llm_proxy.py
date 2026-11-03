@@ -339,7 +339,10 @@ def _upstream_request_id(
     that echoes one back is not reporting its own ID.
     """
     sent = {
-        value for key, value in forwarded.items() if key.lower() in _REQUEST_ID_HEADERS
+        part.strip()
+        for key, value in forwarded.items()
+        if key.lower() in _REQUEST_ID_HEADERS
+        for part in value.split(",")
     }
     for name in _REQUEST_ID_HEADERS:
         request_id = _safe_error_token(headers.get(name))

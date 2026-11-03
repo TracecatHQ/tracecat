@@ -45,9 +45,13 @@ class ModelStatusCheck(BaseModel):
     catalog_id: uuid.UUID | None = Field(default=None)
     model_provider: str | None = Field(default=None, max_length=128)
     model_name: str | None = Field(default=None, max_length=500)
-    preset: bool = Field(
-        default=False,
-        description="The chat runs the model through an agent preset.",
+    preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="The agent preset the chat runs; its stored model wins.",
+    )
+    preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="The preset version the chat is pinned to.",
     )
     refresh: bool = Field(
         default=False,

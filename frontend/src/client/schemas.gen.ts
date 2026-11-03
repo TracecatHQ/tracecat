@@ -25843,11 +25843,31 @@ export const $ModelStatusCheck = {
       ],
       title: "Model Name",
     },
-    preset: {
-      type: "boolean",
-      title: "Preset",
-      description: "The chat runs the model through an agent preset.",
-      default: false,
+    preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Id",
+      description: "The agent preset the chat runs; its stored model wins.",
+    },
+    preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Version Id",
+      description: "The preset version the chat is pinned to.",
     },
     refresh: {
       type: "boolean",

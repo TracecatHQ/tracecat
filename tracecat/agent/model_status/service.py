@@ -20,6 +20,7 @@ from tracecat.agent.diagnostics import (
     parse_bounded_error_body,
 )
 from tracecat.agent.gateway_providers import (
+    CUSTOM_MODEL_PROVIDER_SLUG,
     GATEWAY_PROVIDER_SPECS,
     is_gateway_provider,
     resolve_gateway_provider_config,
@@ -28,6 +29,7 @@ from tracecat.agent.gateway_providers import (
 from tracecat.agent.model_status.errors import model_error_detail
 from tracecat.agent.model_status.schemas import ModelErrorDetail, ModelStatusRead
 from tracecat.agent.model_status.types import ModelErrorCode, ModelStatusState
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.db.models import AgentCatalog
 from tracecat.exceptions import TracecatNotFoundError
@@ -54,6 +56,14 @@ _ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 _ANTHROPIC_API_VERSION = "2023-06-01"
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 _MISTRAL_DEFAULT_BASE_URL = "https://api.mistral.ai/v1"
+
+# The credential key a preset's base URL overrides, for the providers whose
+# base URL the LLM gateway lets a preset set.
+_BASE_URL_OVERRIDE_KEYS: dict[str, str] = {
+    "openai": "OPENAI_BASE_URL",
+    "anthropic": "ANTHROPIC_BASE_URL",
+    CUSTOM_MODEL_PROVIDER_SLUG: "CUSTOM_MODEL_PROVIDER_BASE_URL",
+}
 
 # Providers whose credential check needs a token exchange or a cloud SDK call.
 # Tracecat confirms their credentials exist but does not probe them.
@@ -258,7 +268,7 @@ async def probe_model(
                 body = await _bounded_body(response, MAX_LLM_ERROR_BODY_BYTES)
             elif target.listed_model is not None:
                 body = await _bounded_body(response, _MAX_MODEL_LIST_BYTES)
-    except (httpx.TransportError, DisallowedUrlError) as exc:
+    except (httpx.RequestError, DisallowedUrlError) as exc:
         logger.info(
             "Model status probe could not reach the provider",
             provider=provider,
@@ -314,7 +324,8 @@ class ModelStatusService(BaseWorkspaceService):
         catalog_id: uuid.UUID | None = None,
         model_provider: str | None = None,
         model_name: str | None = None,
-        preset: bool = False,
+        preset_id: uuid.UUID | None = None,
+        preset_version_id: uuid.UUID | None = None,
         refresh: bool = False,
     ) -> ModelStatusRead:
         """Check one model, by catalog ID or by provider and name.
@@ -323,14 +334,28 @@ class ModelStatusService(BaseWorkspaceService):
             catalog_id: The model's catalog row.
             model_provider: Provider slug, when the catalog ID is unknown.
             model_name: Model name, when the catalog ID is unknown.
-            preset: The chat runs this model through an agent preset, whose
-                credentials fall back to workspace and then organization keys.
+            preset_id: The agent preset the chat runs. Its stored model,
+                catalog link and base URL replace the other model arguments.
+            preset_version_id: The preset version the chat is pinned to.
             refresh: Skip the cache, unless the last check is very recent.
 
         Raises:
             TracecatNotFoundError: If no catalog row matches.
         """
         org_id, workspace_id = self.organization_id, self.workspace_id
+        preset = preset_id is not None or preset_version_id is not None
+        base_url: str | None = None
+        if preset:
+            # The preset's own fields, never the caller's: its base URL decides
+            # where the org's key is sent.
+            version = await AgentPresetService(
+                self.session, role=self.role
+            ).resolve_agent_preset_version(
+                preset_id=preset_id, preset_version_id=preset_version_id
+            )
+            catalog_id = version.catalog_id
+            model_provider, model_name = version.model_provider, version.model_name
+            base_url = version.base_url
         row = await self._catalog_row(
             catalog_id=catalog_id,
             model_provider=model_provider,
@@ -375,6 +400,9 @@ class ModelStatusService(BaseWorkspaceService):
             preset=preset,
             catalog_linked=catalog_id is not None,
         )
+        if credentials and base_url and (key := _BASE_URL_OVERRIDE_KEYS.get(provider)):
+            # As the LLM gateway applies a preset's base URL.
+            credentials = credentials | {key: base_url}
         if not credentials or credentials_incomplete(provider, credentials):
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
         target = build_probe_target(provider, model, credentials)

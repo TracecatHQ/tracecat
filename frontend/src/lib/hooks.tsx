@@ -6162,6 +6162,8 @@ interface ChatReadinessOptions {
     provider: string
     baseUrl?: string | null
     catalogId?: string | null
+    presetId?: string | null
+    presetVersionId?: string | null
   }
 }
 
@@ -6191,7 +6193,8 @@ export function useChatReadiness(
       provider: modelOverride.provider,
       baseUrl: modelOverride.baseUrl ?? null,
       catalogId: modelOverride.catalogId ?? null,
-      fromPreset: true,
+      presetId: modelOverride.presetId ?? null,
+      presetVersionId: modelOverride.presetVersionId ?? null,
     }
     return {
       ready: true,

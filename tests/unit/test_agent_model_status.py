@@ -175,6 +175,7 @@ class TestUpstreamRequestId:
             {"X-Request-ID": "req_fromTheSandbox"},
             {"request-id": "req_fromTheSandbox"},
             {"X-Request-ID": "req_other123", "x-request-id": "req_fromTheSandbox"},
+            {"request-id": "req_fromTheSandbox, req_other123"},
         ],
     )
     def test_echoed_request_ids_are_not_the_providers(
@@ -439,6 +440,22 @@ class TestProbeModel:
         assert seen == [MAX_LLM_ERROR_BODY_BYTES + 1]
 
     @pytest.mark.anyio
+    async def test_corrupt_encoding_is_unreachable_not_a_crash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _mock_outbound(
+            monkeypatch,
+            httpx.MockTransport(
+                lambda _: httpx.Response(
+                    401, content=b"not gzip", headers={"content-encoding": "gzip"}
+                )
+            ),
+        )
+        detail = await probe_model(self.TARGET, provider="openai", model="m")
+        assert detail is not None
+        assert detail.code is ModelErrorCode.PROVIDER_UNREACHABLE
+
+    @pytest.mark.anyio
     async def test_list_probe_404_means_wrong_base_url(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -520,6 +537,27 @@ class TestModelStatusService:
         )
         monkeypatch.setattr(status_module, "probe_model", probe)
         return state
+
+    def _stub_preset(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        catalog_id: uuid.UUID | None,
+        base_url: str | None = None,
+    ) -> None:
+        version = SimpleNamespace(
+            catalog_id=catalog_id,
+            model_provider="openai",
+            model_name="gpt-test",
+            base_url=base_url,
+        )
+
+        async def resolve(self: Any, **_: Any) -> Any:
+            return version
+
+        monkeypatch.setattr(
+            status_module.AgentPresetService, "resolve_agent_preset_version", resolve
+        )
 
     def _service(self, role: Role) -> ModelStatusService:
         return ModelStatusService(session=AsyncMock(), role=role)
@@ -621,7 +659,8 @@ class TestModelStatusService:
         default = await service.get_status(catalog_id=uuid.uuid4())
         assert default.problem is not None
         assert default.problem.code is ModelErrorCode.CREDENTIALS_MISSING
-        preset = await service.get_status(catalog_id=uuid.uuid4(), preset=True)
+        self._stub_preset(monkeypatch, catalog_id=uuid.uuid4())
+        preset = await service.get_status(preset_id=uuid.uuid4())
         assert preset.state == "ready"
 
     @pytest.mark.anyio
@@ -646,10 +685,29 @@ class TestModelStatusService:
             workspace_credentials,
         )
         monkeypatch.setattr(status_module, "probe_model", probe)
-        await self._service(role).get_status(
-            model_provider="openai", model_name="gpt-test", preset=True
-        )
+        self._stub_preset(monkeypatch, catalog_id=None)
+        await self._service(role).get_status(preset_id=uuid.uuid4())
         assert probed == ["Bearer sk-workspace"]
+
+    @pytest.mark.anyio
+    async def test_preset_base_url_is_probed_like_the_gateway(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """A preset's stored base URL, not the caller's, decides the probe host."""
+        self._stub(monkeypatch)
+        probed: list[str] = []
+
+        async def probe(target: ProbeTarget, **_: Any) -> None:
+            probed.append(target.url)
+
+        monkeypatch.setattr(status_module, "probe_model", probe)
+        self._stub_preset(
+            monkeypatch,
+            catalog_id=uuid.uuid4(),
+            base_url="https://gateway.example.com/v1",
+        )
+        await self._service(role).get_status(preset_id=uuid.uuid4())
+        assert probed == ["https://gateway.example.com/v1/models/gpt-test"]
 
     @pytest.mark.anyio
     async def test_probe_problem_is_reported(

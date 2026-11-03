@@ -869,7 +869,9 @@ export function useVercelChat({
         message: friendlyMessage,
         modelError,
         disconnected: reconnectDropped,
-        replay: reconnectDropped && isReplay(),
+        // A replay's prompt is off screen whether the replay dropped or ended
+        // in a model error, so Retry must never resend the visible one.
+        replay: (reconnectDropped || modelError !== null) && isReplay(),
       })
       console.error("Error in Vercel chat:", error)
       toast({
@@ -1007,7 +1009,12 @@ export function useVercelChat({
       // approval continuation, so neither is resent: adopt the server's state.
       const unconfirmable =
         currentError?.replay || (prompt !== undefined && !isUserPrompt(prompt))
-      if (currentError?.disconnected && chatId && unconfirmable) {
+      // A replayed model error is not a drop, but its prompt is off screen
+      // too: adopt the server's transcript instead of resending a turn.
+      const resync = currentError?.disconnected
+        ? unconfirmable
+        : Boolean(currentError?.replay)
+      if (chatId && resync) {
         await refetchChatTranscript(queryClient, chatId, workspaceId)
         setReconnect({ chatId, generation: generation + 1 })
         return
