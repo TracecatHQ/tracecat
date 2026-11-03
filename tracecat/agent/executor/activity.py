@@ -75,8 +75,7 @@ from tracecat.agent.metrics import (
     backend_label,
     record_turn,
 )
-from tracecat.agent.model_status.errors import model_error_detail
-from tracecat.agent.model_status.schemas import ModelErrorDetail
+from tracecat.agent.model_errors import ModelErrorDetail, model_error_detail
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
     ResolvedAgentOtelConfig,

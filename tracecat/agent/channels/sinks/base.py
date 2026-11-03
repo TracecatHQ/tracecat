@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
-from tracecat.agent.model_status.schemas import ModelErrorDetail
+from tracecat.agent.model_errors import ModelErrorDetail
 
 
 @runtime_checkable

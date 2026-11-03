@@ -6,14 +6,17 @@ import {
   WifiOffIcon,
 } from "lucide-react"
 import Link from "next/link"
-import type { ModelErrorDetail } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { describeModelError, modelErrorFacts } from "@/lib/model-errors"
+import {
+  describeModelError,
+  type ModelErrorDetail,
+  modelErrorFacts,
+} from "@/lib/model-errors"
 
 /** The Retry action under a turn. */
 export function RetryAction({ onRetry }: { onRetry: () => void }) {

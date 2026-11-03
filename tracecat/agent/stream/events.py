@@ -8,7 +8,7 @@ import orjson
 from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
-from tracecat.agent.model_status.schemas import ModelErrorDetail
+from tracecat.agent.model_errors import ModelErrorDetail
 
 UnifiedStreamEventTA: TypeAdapter[UnifiedStreamEvent] = TypeAdapter(UnifiedStreamEvent)
 

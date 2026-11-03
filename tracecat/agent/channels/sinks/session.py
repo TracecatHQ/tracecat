@@ -20,7 +20,7 @@ from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChanne
 from tracecat.agent.channels.sinks.base import ExternalChannelSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
-from tracecat.agent.model_status.schemas import ModelErrorDetail
+from tracecat.agent.model_errors import ModelErrorDetail
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.db.engine import get_async_session_context_manager

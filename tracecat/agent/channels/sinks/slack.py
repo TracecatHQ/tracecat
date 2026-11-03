@@ -18,7 +18,7 @@ from tracecat.agent.channels.handlers.slack_helpers import (
 )
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
-from tracecat.agent.model_status.schemas import ModelErrorDetail
+from tracecat.agent.model_errors import ModelErrorDetail
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 

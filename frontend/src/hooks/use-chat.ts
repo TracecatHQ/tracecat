@@ -30,7 +30,6 @@ import {
   agentSessionsUpdateSession,
   type ChatPageContext,
   type ContinueRunRequest,
-  type ModelErrorDetail,
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -53,6 +52,7 @@ import type { WithdrawPendingRequest } from "@/lib/extensions"
 import {
   describeModelError,
   MODEL_ERROR_DATA_PART_TYPE,
+  type ModelErrorDetail,
   parseModelErrorDetail,
 } from "@/lib/model-errors"
 import {

@@ -2,8 +2,6 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 
-from tracecat.agent.model_status.schemas import ModelStatusCheck, ModelStatusRead
-from tracecat.agent.model_status.service import ModelStatusService
 from tracecat.agent.schemas import (
     BedrockSubscriptionRead,
     DefaultModelSelection,
@@ -17,7 +15,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.auth.dependencies import OrgUserRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -284,52 +282,3 @@ async def get_workspace_providers_status(
     """Get workspace credential status for all providers."""
     service = AgentManagementService(session, role=role)
     return await service.get_workspace_providers_status()
-
-
-@workspace_router.post("/workspace/models/status")
-@require_scope("agent:read")
-async def check_workspace_model_status(
-    *,
-    params: ModelStatusCheck,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-) -> ModelStatusRead:
-    """Check whether this workspace can reach a model with its credentials.
-
-    A POST, not a GET: a check may call the provider on the organization's key,
-    so a cross-site navigation must not be able to trigger it. Identify the
-    model by catalog ID, by provider and name, or by the agent preset the chat
-    runs, so the check uses that preset's model, credentials and base URL.
-    The result is cached briefly per credential set.
-    """
-    if (
-        params.catalog_id is None
-        and params.preset_id is None
-        and params.preset_version_id is None
-        and not (params.model_provider and params.model_name)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Pass catalog_id, preset_id, or model_provider and model_name",
-        )
-    service = ModelStatusService(session, role=role)
-    try:
-        return await service.get_status(
-            catalog_id=params.catalog_id,
-            model_provider=params.model_provider,
-            model_name=params.model_name,
-            preset_id=params.preset_id,
-            preset_version_id=params.preset_version_id,
-            refresh=params.refresh,
-        )
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Model not found",
-        ) from e
-    except TracecatValidationError as e:
-        # A preset version that doesn't belong to the given preset.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="The preset and preset version don't match",
-        ) from e

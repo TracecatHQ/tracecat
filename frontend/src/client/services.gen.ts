@@ -162,8 +162,6 @@ import type {
   AgentChannelsStartSlackOauthResponse,
   AgentChannelsUpdateChannelTokenData,
   AgentChannelsUpdateChannelTokenResponse,
-  AgentCheckWorkspaceModelStatusData,
-  AgentCheckWorkspaceModelStatusResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
@@ -6474,38 +6472,6 @@ export const agentGetWorkspaceProvidersStatus = (
     path: {
       workspace_id: data.workspaceId,
     },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Check Workspace Model Status
- * Check whether this workspace can reach a model with its credentials.
- *
- * A POST, not a GET: a check may call the provider on the organization's key,
- * so a cross-site navigation must not be able to trigger it. Identify the
- * model by catalog ID, by provider and name, or by the agent preset the chat
- * runs, so the check uses that preset's model, credentials and base URL.
- * The result is cached briefly per credential set.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns ModelStatusRead Successful Response
- * @throws ApiError
- */
-export const agentCheckWorkspaceModelStatus = (
-  data: AgentCheckWorkspaceModelStatusData
-): CancelablePromise<AgentCheckWorkspaceModelStatusResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/agent/workspace/models/status",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

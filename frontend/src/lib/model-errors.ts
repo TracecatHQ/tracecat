@@ -1,12 +1,9 @@
-import type { ModelErrorCode, ModelErrorDetail } from "@/client"
-
 /** UI data part carrying a failed model request's structured detail. */
 export const MODEL_ERROR_DATA_PART_TYPE = "data-model-error"
 
 export const AGENT_SETTINGS_HREF = "/organization/settings/agent"
 
-const MODEL_ERROR_CODES: readonly ModelErrorCode[] = [
-  "credentials_missing",
+const MODEL_ERROR_CODES = [
   "provider_auth_failed",
   "model_not_enabled",
   "model_unavailable",
@@ -16,7 +13,22 @@ const MODEL_ERROR_CODES: readonly ModelErrorCode[] = [
   "provider_unreachable",
   "request_rejected",
   "unknown",
-]
+] as const
+
+/** Why a model request failed; mirrors the server's `ModelErrorCode`. */
+export type ModelErrorCode = (typeof MODEL_ERROR_CODES)[number]
+
+/** A failed model request's detail, sent on the chat stream. */
+export interface ModelErrorDetail {
+  code: ModelErrorCode
+  /** The server's runtime error classification, when it has one. */
+  kind?: string | null
+  provider?: string | null
+  model?: string | null
+  status_code?: number | null
+  request_id?: string | null
+  provider_error_code?: string | null
+}
 
 const PROVIDER_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
@@ -35,7 +47,7 @@ const PROVIDER_NAMES: Record<string, string> = {
 }
 
 /** A provider's name as a noun; templates add articles and capitals. */
-export function providerDisplayName(provider: string | null | undefined) {
+function providerDisplayName(provider: string | null | undefined) {
   if (!provider) return "model provider"
   return PROVIDER_NAMES[provider] ?? provider.replaceAll("_", " ")
 }
@@ -61,7 +73,7 @@ export function parseModelErrorDetail(data: unknown): ModelErrorDetail | null {
   if (typeof raw.code !== "string") return null
   return {
     code: isModelErrorCode(raw.code) ? raw.code : "unknown",
-    kind: optionalString(raw.kind) as ModelErrorDetail["kind"],
+    kind: optionalString(raw.kind),
     provider: optionalString(raw.provider),
     model: optionalString(raw.model),
     status_code: typeof raw.status_code === "number" ? raw.status_code : null,
@@ -80,7 +92,7 @@ export interface ModelErrorCopy {
 }
 
 /** Capitalize a sentence that may start with a lowercase provider name. */
-export function sentence(text: string): string {
+function sentence(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
@@ -94,12 +106,6 @@ function describeModelErrorRaw(detail: ModelErrorDetail): ModelErrorCopy {
   const provider = providerDisplayName(detail.provider)
   const model = detail.model ?? "the selected model"
   switch (detail.code) {
-    case "credentials_missing":
-      return {
-        title: `No ${provider} credentials are set up for ${model}.`,
-        action: "Add them in agent settings.",
-        settingsHref: AGENT_SETTINGS_HREF,
-      }
     case "provider_auth_failed":
       return {
         title: `${provider} rejected the API key for ${model}.`,

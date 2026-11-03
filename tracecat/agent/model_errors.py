@@ -1,10 +1,64 @@
-"""Map runtime classifications and HTTP outcomes to chat-facing model errors."""
+"""Chat-facing model errors shared by every agent backend.
+
+A backend that fails a model request maps the failure to a ``ModelErrorDetail``
+with ``model_error_detail`` and sends it with the stream's terminal error. The
+chat UI turns the detail's code into an actionable message.
+"""
 
 import re
+from enum import StrEnum
 
-from tracecat.agent.model_status.schemas import ModelErrorDetail
-from tracecat.agent.model_status.types import ModelErrorCode
+from pydantic import BaseModel, ConfigDict, Field
+
 from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorKind
+
+
+class ModelErrorCode(StrEnum):
+    """Why a model request failed, phrased for the person in the chat.
+
+    ``UNKNOWN`` is the fallback for anything else.
+    """
+
+    PROVIDER_AUTH_FAILED = "provider_auth_failed"
+    MODEL_NOT_ENABLED = "model_not_enabled"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    RATE_LIMITED = "rate_limited"
+    BUDGET_EXCEEDED = "budget_exceeded"
+    CONTEXT_TOO_LONG = "context_too_long"
+    PROVIDER_UNREACHABLE = "provider_unreachable"
+    REQUEST_REJECTED = "request_rejected"
+    UNKNOWN = "unknown"
+
+
+class ModelErrorDetail(BaseModel):
+    """Structured detail for a failed model request.
+
+    Carried on the chat stream's error entry (``{"kind": "error", "error":
+    <message>, "detail": <this>}``). Never holds secrets, provider messages, or
+    request payloads.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    code: ModelErrorCode
+    kind: RuntimeErrorKind | None = Field(
+        default=None,
+        description="The runtime classification, when the backend has one.",
+    )
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
+    status_code: int | None = Field(default=None, ge=100, le=599)
+    request_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="The provider's request ID, for support.",
+    )
+    provider_error_code: str | None = Field(
+        default=None,
+        max_length=128,
+        description="The provider's machine-readable error code or type.",
+    )
+
 
 # Provider error codes and types are lowercase words (invalid_api_key,
 # context_length_exceeded). Digits, capitals and hyphens are refused: an echoed

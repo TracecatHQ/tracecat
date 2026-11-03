@@ -43,7 +43,7 @@ from tracecat.agent.error_policy import (
     agent_executor_unclassified,
 )
 from tracecat.agent.metrics import FIRST_TOKEN_EVENT_TYPES
-from tracecat.agent.model_status.schemas import ModelErrorDetail
+from tracecat.agent.model_errors import ModelErrorDetail
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.artifacts import artifact_stream_event

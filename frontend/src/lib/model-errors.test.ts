@@ -60,8 +60,8 @@ describe("describeModelError", () => {
 
   it("keeps sentences well formed for unnamed and custom providers", () => {
     expect(
-      describeModelError({ code: "credentials_missing", model: "m" }).title
-    ).toBe("No model provider credentials are set up for m.")
+      describeModelError({ code: "provider_auth_failed", model: "m" }).title
+    ).toBe("Model provider rejected the API key for m.")
     expect(
       describeModelError({
         code: "provider_auth_failed",

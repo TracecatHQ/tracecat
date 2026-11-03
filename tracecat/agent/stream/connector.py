@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.common.stream_types import parse_vercel_frame_cursor
-from tracecat.agent.model_status.schemas import ModelErrorDetail
+from tracecat.agent.model_errors import ModelErrorDetail
 from tracecat.agent.stream.events import (
     StreamConnected,
     StreamDelta,

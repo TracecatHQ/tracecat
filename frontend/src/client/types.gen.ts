@@ -7917,88 +7917,10 @@ export type ModelCredentialUpdate = {
   }
 }
 
-/**
- * Why a model request failed, phrased for the person in the chat.
- *
- * Backends map their own failures to one of these; the UI maps each one to
- * an actionable message. ``UNKNOWN`` is the fallback for anything else.
- */
-export type ModelErrorCode =
-  | "credentials_missing"
-  | "provider_auth_failed"
-  | "model_not_enabled"
-  | "model_unavailable"
-  | "rate_limited"
-  | "budget_exceeded"
-  | "context_too_long"
-  | "provider_unreachable"
-  | "request_rejected"
-  | "unknown"
-
-/**
- * Structured detail for a failed model request.
- *
- * Carried on the chat stream's error entry (``{"kind": "error", "error":
- * <message>, "detail": <this>}``) by any backend, and returned by the model
- * status check. Never holds secrets, provider messages, or request payloads.
- */
-export type ModelErrorDetail = {
-  code: ModelErrorCode
-  /**
-   * The runtime classification, when the backend has one.
-   */
-  kind?: RuntimeErrorKind | null
-  provider?: string | null
-  model?: string | null
-  status_code?: number | null
-  /**
-   * The provider's request ID, for support.
-   */
-  request_id?: string | null
-  /**
-   * The provider's machine-readable error code or type.
-   */
-  provider_error_code?: string | null
-}
-
 export type ModelSecretConfig = {
   required?: Array<string>
   optional?: Array<string>
 }
-
-/**
- * Which model to check, by catalog ID or by provider and name.
- */
-export type ModelStatusCheck = {
-  catalog_id?: string | null
-  model_provider?: string | null
-  model_name?: string | null
-  /**
-   * The agent preset the chat runs; its stored model wins.
-   */
-  preset_id?: string | null
-  /**
-   * The preset version the chat is pinned to.
-   */
-  preset_version_id?: string | null
-  /**
-   * Re-check now unless the last check is very recent.
-   */
-  refresh?: boolean
-}
-
-/**
- * Whether the selected model can currently be reached.
- */
-export type ModelStatusRead = {
-  state: ModelStatusState
-  provider: string
-  model: string
-  problem?: ModelErrorDetail | null
-  checked_at: string
-}
-
-export type ModelStatusState = "ready" | "unverified" | "problem"
 
 /**
  * Per-model token usage and cost breakdown.
@@ -16060,13 +15982,6 @@ export type AgentGetWorkspaceProvidersStatusResponse = {
   [key: string]: boolean
 }
 
-export type AgentCheckWorkspaceModelStatusData = {
-  requestBody: ModelStatusCheck
-  workspaceId: string
-}
-
-export type AgentCheckWorkspaceModelStatusResponse = ModelStatusRead
-
 export type AgentChannelsCreateChannelTokenData = {
   requestBody: AgentChannelTokenCreate
   workspaceId: string
@@ -22702,21 +22617,6 @@ export type $OpenApiTs = {
         200: {
           [key: string]: boolean
         }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/agent/workspace/models/status": {
-    post: {
-      req: AgentCheckWorkspaceModelStatusData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ModelStatusRead
         /**
          * Validation Error
          */
