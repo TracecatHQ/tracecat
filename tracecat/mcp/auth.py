@@ -711,11 +711,16 @@ def _create_oidc_auth() -> OIDCProxy:
     # The internal OIDC issuer lives on the API server. The MCP server
     # uses it as the upstream identity provider instead of an external BYO
     # OIDC IdP. Keep ``offline_access`` out of ``_required_scopes`` so
-    # validated tool tokens do not require it. Advertise and default the
+    # validated tool tokens do not require it. Advertise and request the
     # refresh scope only when refresh-token support is enabled for this
     # deployment.
     _required_scopes = ["openid", "profile", "email"]
     _supported_scopes = get_supported_scopes()
+    _authorize_scopes = (
+        append_scope_if_missing(_required_scopes, OFFLINE_ACCESS_SCOPE)
+        if OFFLINE_ACCESS_SCOPE in _supported_scopes
+        else _required_scopes
+    )
 
     class TracecatProxyDCRClient(ProxyDCRClient):
         """Relax CIMD loopback callback validation to allow ephemeral local ports."""
@@ -769,15 +774,15 @@ def _create_oidc_auth() -> OIDCProxy:
             client: OAuthClientInformationFull,
             params: AuthorizationParams,
         ) -> str:
-            """Merge all required OIDC scopes into the authorization request.
+            """Merge required OIDC scopes into the authorization request.
 
-            Request ``offline_access`` optimistically even if the upstream OIDC
-            metadata omits it — some providers issue refresh tokens despite not
-            advertising the scope in discovery metadata.  If the provider truly
-            rejects the scope, ``_retry_without_refresh_scope()`` handles a
-            single retry without it.
+            Always request ``offline_access`` when refresh tokens are enabled,
+            including when the client omits ``scope``. Otherwise the upstream
+            issuer returns no refresh token and clients must re-authenticate
+            when the access token expires. If the upstream rejects the scope,
+            ``_retry_without_refresh_scope()`` retries once without it.
             """
-            scopes = merge_unique_scopes(list(params.scopes or []), _required_scopes)
+            scopes = merge_unique_scopes(list(params.scopes or []), _authorize_scopes)
             params_with_scopes = params.model_copy(update={"scopes": scopes})
             return await super().authorize(client, params_with_scopes)
 
