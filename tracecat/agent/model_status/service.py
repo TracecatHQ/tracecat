@@ -32,7 +32,7 @@ from tracecat.agent.model_status.types import ModelErrorCode, ModelStatusState
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.db.models import AgentCatalog
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError
 from tracecat.outbound import create_outbound_http_client
@@ -407,16 +407,20 @@ class ModelStatusService(BaseWorkspaceService):
                 and await management.check_workspace_provider_credentials(provider)
             )
 
-        if provider in _UNPROBED_PROVIDERS or (preset and catalog_id is None):
-            # Unprobed providers need a token exchange. A preset without a
-            # catalog link resolves its key differently per route (workspace
-            # only when managed, organization first when passthrough), so the
-            # check reports what it can verify rather than guess a key.
-            if await has_any_credentials():
-                return status(None, verified=False)
-            return problem(ModelErrorCode.CREDENTIALS_MISSING)
-
-        credentials = await management.get_catalog_credentials(row.id)
+        try:
+            if provider in _UNPROBED_PROVIDERS or (preset and catalog_id is None):
+                # Unprobed providers need a token exchange. A preset without a
+                # catalog link resolves its key differently per route (workspace
+                # only when managed, organization first when passthrough), so
+                # the check reports what it can verify rather than guess a key.
+                if await has_any_credentials():
+                    return status(None, verified=False)
+                return problem(ModelErrorCode.CREDENTIALS_MISSING)
+            credentials = await management.get_catalog_credentials(row.id)
+        except ScopeDeniedError:
+            # The caller (such as a service account with only `agent:read`)
+            # may not read the credentials; the check never lifts that.
+            return status(None, verified=False)
         if credentials is None and preset:
             # A linked preset whose row has no credentials falls back to other
             # keys at runtime; the check doesn't follow that fallback.

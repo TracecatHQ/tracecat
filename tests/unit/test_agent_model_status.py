@@ -40,6 +40,7 @@ from tracecat.agent.stream.connector import _parse_error_detail
 from tracecat.agent.stream.events import StreamEnd, StreamError, StreamEvent
 from tracecat.auth.types import Role
 from tracecat.chat.constants import MODEL_ERROR_DATA_PART_TYPE
+from tracecat.exceptions import ScopeDeniedError
 from tracecat.runtime.errors import RuntimeErrorKind
 
 
@@ -846,6 +847,27 @@ class TestModelStatusService:
         result = await self._service(role).get_status(catalog_id=uuid.uuid4())
         assert result.problem is not None
         assert result.problem.code is ModelErrorCode.MODEL_NOT_ENABLED
+        assert state["probes"] == 0
+
+    @pytest.mark.anyio
+    async def test_caller_without_secret_scope_gets_unverified(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """An `agent:read` caller who may not read secrets learns nothing about
+        them and is not given access through the check."""
+        state = self._stub(monkeypatch)
+
+        async def denied(self: Any, _catalog_id: uuid.UUID) -> Any:
+            raise ScopeDeniedError(
+                required_scopes=["org:secret:read"], missing_scopes=["org:secret:read"]
+            )
+
+        monkeypatch.setattr(
+            status_module.AgentManagementService, "get_catalog_credentials", denied
+        )
+        result = await self._service(role).get_status(catalog_id=uuid.uuid4())
+        assert result.state == "unverified"
+        assert result.problem is None
         assert state["probes"] == 0
 
     @pytest.mark.anyio
