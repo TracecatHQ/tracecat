@@ -124,7 +124,7 @@ The `background-worker` service runs `tracecat.background.worker` on a dedicated
 generic Temporal queue. `background_queue` defaults to `shared-background-queue`
 and is passed to both the API and worker. Temporal creates the queue on demand;
 no server provisioning is required. Default sizing is one task, 1024 CPU units,
-2048 MiB, and four concurrent activities. Use `background_worker_desired_count`,
+2048 MiB, and eight concurrent activities. Use `background_worker_desired_count`,
 `background_worker_cpu`, `background_worker_memory`, and
 `background_worker_max_concurrent_activities` to tune it independently.
 

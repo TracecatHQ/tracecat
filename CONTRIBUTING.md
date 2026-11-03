@@ -90,10 +90,10 @@ You can then access the application at http://localhost:80.
 
 - Temporal runs as the single-binary dev server, with its UI on the usual
   Temporal UI port.
-- The agent services, the MCP server, and the workspace-sync worker are off.
-  Turn them on with `--with`, for example
-  `just cluster up -d --with agents,mcp,workspace-sync`. The `agents` profile
-  starts LiteLLM, the agent worker, and the agent executor.
+- The agent services and the MCP server are off. Turn them on with `--with`,
+  for example `just cluster up -d --with agents,mcp`. The `agents` profile
+  starts LiteLLM, the agent worker, and the agent executor. The background
+  worker (Git sync, semantic-search indexing) always runs.
 - Core services have memory caps; the opt-in services above do not.
 
 Use `just cluster up -d --full` for the complete stack, the same services the
