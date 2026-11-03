@@ -124,12 +124,18 @@ The `background-worker` service runs `tracecat.background.worker` on a dedicated
 generic Temporal queue. `background_queue` defaults to `shared-background-queue`
 and is passed to both the API and worker. Temporal creates the queue on demand;
 no server provisioning is required. Default sizing is one task, 1024 CPU units,
-2048 MiB, and eight concurrent activities. Use `background_worker_desired_count`,
+2048 MiB, and ten concurrent activities. Use `background_worker_desired_count`,
 `background_worker_cpu`, `background_worker_memory`, and
 `background_worker_max_concurrent_activities` to tune it independently.
 Semantic-search indexing runs on this worker and holds up to six activities
-across the deployment. If you set `background_worker_max_concurrent_activities`
-to six or less, raise it to at least eight so Git sync keeps capacity.
+across the deployment. The case trigger dispatcher also runs here and holds up
+to two. If you set `background_worker_max_concurrent_activities` to eight or
+less, raise it to at least ten so Git sync keeps capacity.
+
+The background worker is required: case triggers start their workflows from it.
+While `api_desired_count` is positive, `background_worker_desired_count` must be
+too. Case changes made while the worker is down start their workflows once it
+returns.
 
 Deploy an app image containing the worker together with the additive
 `workspace_sync_operation` migration. The worker shares the existing API task

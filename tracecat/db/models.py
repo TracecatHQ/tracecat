@@ -3505,6 +3505,38 @@ class CaseEvent(WorkspaceModel):
     case: Mapped[Case] = relationship("Case", back_populates="events")
 
 
+class CaseTriggerOutbox(WorkspaceModel):
+    """A committed case event that still has to start its case-triggered runs.
+
+    Rows are written in the case transaction and deleted by the background
+    worker's case trigger dispatcher once Temporal has accepted every start.
+    """
+
+    __tablename__ = "case_trigger_outbox"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_event.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    extras: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Fields for an explicitly selected comment workflow, if any",
+    )
+
+
 class CaseTask(WorkspaceModel):
     __tablename__ = "case_task"
 
