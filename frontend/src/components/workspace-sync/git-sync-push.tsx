@@ -9,6 +9,16 @@ import {
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { GitBranchInfo, PullResourceDiff, VcsProvider } from "@/client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -158,7 +168,7 @@ export function GitSyncPushTab({
   const reviewRequest = getReviewRequestLabel(provider)
   const reviewRequestShort = getReviewRequestAbbreviation(provider)
   const visiblePreview = previewRequested ? preview : undefined
-  const changeCount = visiblePreview ? previewDiffCount : 0
+  const [confirmOpen, setConfirmOpen] = useState(false)
   // Pushes to the repository default are blocked by name, so stay off until
   // the branch list says which branch that is.
   const defaultKnown = repoBranches?.some((candidate) => candidate.is_default)
@@ -380,7 +390,6 @@ export function GitSyncPushTab({
             isBlocked,
             isPending: exportWorkspaceIsPending,
             createPr: outcome.createPr,
-            changeCount,
             targetBranch,
             reviewRequestShort,
           })}
@@ -391,9 +400,42 @@ export function GitSyncPushTab({
           menuDisabled={isBlocked || exportWorkspaceIsPending}
           reviewRequest={reviewRequest}
           reviewRequestShort={reviewRequestShort}
-          onPush={() => void handlePush()}
+          onPush={() => setConfirmOpen(true)}
         />
       </GitSyncActionBar>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {getPushConfirmation({
+                isPackage: Boolean(sourcePackage),
+                createPr: outcome.createPr,
+                fileCount: previewDiffCount,
+                targetBranch,
+                baseBranch,
+                reviewRequest,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pushDisabled}
+              onClick={() => void handlePush()}
+            >
+              {getPushButtonLabel({
+                isPackage: Boolean(sourcePackage),
+                isBlocked,
+                isPending: false,
+                createPr: outcome.createPr,
+                targetBranch,
+                reviewRequestShort,
+              })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -524,7 +566,6 @@ function getPushButtonLabel({
   isBlocked,
   isPending,
   createPr,
-  changeCount,
   targetBranch,
   reviewRequestShort,
 }: {
@@ -532,7 +573,6 @@ function getPushButtonLabel({
   isBlocked: boolean
   isPending: boolean
   createPr: boolean
-  changeCount: number
   targetBranch: string
   reviewRequestShort: string
 }): string {
@@ -542,15 +582,36 @@ function getPushButtonLabel({
   if (isBlocked) {
     return "Pick another branch"
   }
-  let push = changeCount > 0 ? `Push ${changeCount}` : "Push"
-  if (isPackage) {
-    push =
-      changeCount > 0 ? `Publish package (${changeCount})` : "Publish package"
-  }
+  // Keep the label stable; the preview above already shows what changes.
+  const push = isPackage ? "Publish package" : "Push"
   if (createPr) {
     return `${push} and open ${reviewRequestShort}`
   }
   return `${push} to ${targetBranch}`
+}
+
+function getPushConfirmation({
+  isPackage,
+  createPr,
+  fileCount,
+  targetBranch,
+  baseBranch,
+  reviewRequest,
+}: {
+  isPackage: boolean
+  createPr: boolean
+  fileCount: number
+  targetBranch: string
+  baseBranch: string | undefined
+  reviewRequest: string
+}): string {
+  const files = `${fileCount} changed ${fileCount === 1 ? "file" : "files"}`
+  const subject = isPackage ? `the package (${files})` : files
+  const commit = `This commits ${subject} to ${targetBranch}`
+  if (createPr) {
+    return `${commit} and opens a ${reviewRequest} into ${baseBranch ?? "the base branch"}.`
+  }
+  return `${commit} without a ${reviewRequest}.`
 }
 
 function getPushToastTitle({

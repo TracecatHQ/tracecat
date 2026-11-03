@@ -17,7 +17,7 @@ import { GitSyncConnectionPanel } from "@/components/workspace-sync/git-sync-con
 import { GitSyncPullTab } from "@/components/workspace-sync/git-sync-pull"
 import { GitSyncPushTab } from "@/components/workspace-sync/git-sync-push"
 import { GitSyncRepoStatus } from "@/components/workspace-sync/git-sync-repo-status"
-import { SyncOperationHistory } from "@/components/workspace-sync/sync-operation-history"
+import { SyncOperationStatus } from "@/components/workspace-sync/sync-operation-status"
 import { WORKSPACE_SYNC_PACKAGE_QUERY_KEY } from "@/components/workspace-sync/use-workspace-package"
 import {
   useRepositoryBranches,
@@ -57,12 +57,12 @@ export function GitSyncView({
     return (
       <div className="flex h-full flex-col">
         <GitSyncHeader workspaceName={workspace.name} />
+        {canSync && <SyncOperationStatus workspaceId={workspace.id} />}
         {canManageConnection ? (
           <GitSyncConnectionPanel workspace={workspace} canSync={canSync} />
         ) : (
           <GitSyncConnectionEmptyState />
         )}
-        {canSync && <SyncOperationHistory workspaceId={workspace.id} />}
       </div>
     )
   }
@@ -172,6 +172,7 @@ function GitSyncConnectedView({
           </div>
         )}
       </GitSyncHeader>
+      <SyncOperationStatus workspaceId={workspaceId} />
       {showConnection && (
         <GitSyncConnectionPanel
           workspace={workspace}
@@ -231,7 +232,6 @@ function GitSyncConnectedView({
           />
         </TabsContent>
       </div>
-      <SyncOperationHistory workspaceId={workspaceId} />
     </Tabs>
   )
 }
