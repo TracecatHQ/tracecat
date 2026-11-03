@@ -26,6 +26,7 @@ from claude_agent_sdk.types import (
     StopHookInput,
     StreamEvent,
     SyncHookJSONOutput,
+    SystemMessage,
     ToolUseBlock,
 )
 
@@ -3834,3 +3835,105 @@ async def test_interrupt_preserves_live_connection_error(
 
     with pytest.raises(connection_error, match="synthetic live failure"):
         await runtime.interrupt(reason="user_cancel")
+
+
+@pytest.mark.anyio
+async def test_api_retry_system_message_is_logged(
+    mock_socket_writer: MagicMock,
+) -> None:
+    """The CLI's own model-call retries show up in executor logs."""
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+
+    await runtime._handle_system_message(
+        SystemMessage(
+            subtype="api_retry",
+            data={
+                "type": "system",
+                "subtype": "api_retry",
+                "attempt": 1,
+                "max_retries": 10,
+                "retry_delay_ms": 605,
+                "error_status": None,
+                "error": "unknown",
+            },
+        )
+    )
+
+    mock_socket_writer.send_log.assert_awaited_once_with(
+        "warning",
+        "Claude SDK retrying model request",
+        attempt=1,
+        max_retries=10,
+        retry_delay_ms=605,
+        error_status=None,
+        error="unknown",
+    )
+
+
+def _result_message(
+    *, subtype: str, is_error: bool, terminal_reason: str | None
+) -> ResultMessage:
+    return ResultMessage(
+        subtype=subtype,
+        duration_ms=10,
+        duration_api_ms=5,
+        is_error=is_error,
+        num_turns=2,
+        session_id="sdk-session",
+        usage={"input_tokens": 3},
+        result="API Error: Connection lost mid-response." if is_error else "Done.",
+        api_error_status=None,
+        terminal_reason=terminal_reason,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("subtype", "is_error", "terminal_reason", "output", "fails"),
+    [
+        ("success", False, "completed", "Done.", False),
+        # The CLI's last model request failed after its own retries.
+        ("success", True, "api_error", None, True),
+        # Other error results keep their existing handling.
+        ("success", True, "refusal", "API Error: Connection lost mid-response.", False),
+        (
+            "error_max_turns",
+            True,
+            "max_turns",
+            "API Error: Connection lost mid-response.",
+            False,
+        ),
+    ],
+)
+async def test_result_message_fails_turn_only_on_model_api_error(
+    mock_socket_writer: MagicMock,
+    subtype: str,
+    is_error: bool,
+    terminal_reason: str,
+    output: str | None,
+    fails: bool,
+) -> None:
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+
+    await runtime._handle_result_message(
+        _result_message(
+            subtype=subtype, is_error=is_error, terminal_reason=terminal_reason
+        )
+    )
+
+    mock_socket_writer.send_result.assert_awaited_once_with(
+        usage={"input_tokens": 3},
+        num_turns=2,
+        duration_ms=10,
+        output=output,
+    )
+    if fails:
+        mock_socket_writer.send_error.assert_awaited_once_with(
+            runtime_module.MODEL_REQUEST_FAILED_MESSAGE
+        )
+    else:
+        mock_socket_writer.send_error.assert_not_awaited()

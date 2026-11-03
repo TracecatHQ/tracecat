@@ -57,7 +57,6 @@ from tracecat.agent.error_policy import (
     agent_llm_provider_subscription_required,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
-    agent_llm_stream_interrupted,
     invalid_agent_configuration,
     user_agent_execution_failed,
 )
@@ -436,17 +435,6 @@ def _is_managed_stream_interruption(error: Exception, *, route_is_direct: bool) 
     return not route_is_direct and isinstance(
         error, httpx.RemoteProtocolError | httpx.ReadError
     )
-
-
-def _stream_transport_error_classification(
-    error: httpx.TransportError,
-    *,
-    route_is_direct: bool,
-) -> RuntimeErrorClassification:
-    """Classify a transport failure after response headers reached the runtime."""
-    if _is_managed_stream_interruption(error, route_is_direct=route_is_direct):
-        return agent_llm_stream_interrupted(error)
-    return _transport_error_classification(error, route_is_direct=route_is_direct)
 
 
 def _transport_proxy_error(
@@ -2088,6 +2076,21 @@ class LLMSocketProxy:
                     first_chunk_at=first_chunk_at,
                     last_chunk_at=last_chunk_at,
                 )
+            if is_streaming_response and _is_managed_stream_interruption(
+                exc, route_is_direct=route_is_direct
+            ):
+                # Not fatal: on a clean EOF the Claude Code CLI re-streams the
+                # same request, or keeps the completed blocks and continues.
+                # An SSE error event would push it to a non-streaming fallback.
+                # Failures of its follow-up requests still surface here, and
+                # the activity timeout bounds the rest.
+                logger.warning(
+                    "LLM stream interrupted after headers sent, ending stream "
+                    "for runtime recovery",
+                    error_type=type(exc).__name__,
+                    **stream_progress(),
+                )
+                return
             if is_streaming_response:
                 if isinstance(exc, httpx.ReadTimeout):
                     status_code = 504
@@ -2098,13 +2101,6 @@ class LLMSocketProxy:
                         f"Model response timed out after {timeout_duration} "
                         "without receiving data. Please retry the agent execution."
                     )
-                    surfaced_error = detail
-                elif _is_managed_stream_interruption(
-                    exc, route_is_direct=route_is_direct
-                ):
-                    # Transport text is not source-owned; surface the policy message.
-                    status_code = 502
-                    detail = agent_llm_stream_interrupted().message
                     surfaced_error = detail
                 else:
                     status_code = getattr(exc, "status_code", 502)
@@ -2126,7 +2122,7 @@ class LLMSocketProxy:
                     upstream.stream_ended(progress)
                 if path is not None and not _is_non_critical_request(method, path):
                     classification = (
-                        _stream_transport_error_classification(
+                        _transport_error_classification(
                             exc, route_is_direct=route_is_direct
                         )
                         if isinstance(exc, httpx.TransportError)
