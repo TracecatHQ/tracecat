@@ -6191,6 +6191,7 @@ export function useChatReadiness(
       provider: modelOverride.provider,
       baseUrl: modelOverride.baseUrl ?? null,
       catalogId: modelOverride.catalogId ?? null,
+      fromPreset: true,
     }
     return {
       ready: true,

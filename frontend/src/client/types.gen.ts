@@ -16043,6 +16043,7 @@ export type AgentGetWorkspaceModelStatusData = {
   catalogId?: string | null
   modelName?: string | null
   modelProvider?: string | null
+  preset?: boolean
   refresh?: boolean
   workspaceId: string
 }

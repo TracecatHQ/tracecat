@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import gzip
 import uuid
 from collections.abc import AsyncIterator
@@ -109,6 +110,31 @@ class TestModelErrorDetail:
             provider_unreachable=True,
         )
         assert detail.code is ModelErrorCode.PROVIDER_UNREACHABLE
+
+    @pytest.mark.parametrize(
+        ("request_id", "error_code", "kept"),
+        [
+            ("req_abc123", "invalid_api_key", True),
+            ("sk-proj-AbC123xyz", "invalid_api_key", False),
+            ("req_abc123", "sk-proj-AbC123xyz", False),
+            ("Bearer", "Mixed-Case", False),
+        ],
+    )
+    def test_credential_shaped_values_never_reach_the_chat(
+        self, request_id: str, error_code: str, kept: bool
+    ) -> None:
+        """An upstream that echoes a key in an ID or code field is filtered."""
+        detail = model_error_detail(
+            agent_llm_provider_auth_failed(),
+            provider="openai",
+            model="gpt-test",
+            request_id=request_id,
+            provider_error_code=error_code,
+        )
+        shown = {detail.request_id, detail.provider_error_code}
+        assert ("sk-proj-AbC123xyz" in shown or "Bearer" in shown) is False
+        if kept:
+            assert shown == {request_id, error_code}
 
     def test_long_model_names_are_accepted(self) -> None:
         """Catalog names may be long; building the detail must never fail."""
@@ -480,6 +506,69 @@ class TestModelStatusService:
         monkeypatch.setattr(status_module, "MIN_REFRESH_INTERVAL_SECONDS", 0)
         await service.get_status(catalog_id=uuid.uuid4(), refresh=True)
         assert state["probes"] == 3
+
+    @pytest.mark.anyio
+    async def test_concurrent_checks_share_one_probe(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """Simultaneous checks for one key start a single provider request."""
+        state = self._stub(monkeypatch)
+        release = asyncio.Event()
+
+        async def slow_probe(*_: Any, **__: Any) -> ModelErrorDetail | None:
+            state["probes"] += 1
+            await release.wait()
+            return None
+
+        monkeypatch.setattr(status_module, "probe_model", slow_probe)
+        service = self._service(role)
+        checks = [
+            asyncio.create_task(
+                service.get_status(catalog_id=uuid.uuid4(), refresh=True)
+            )
+            for _ in range(20)
+        ]
+        await asyncio.sleep(0)
+        release.set()
+        results = await asyncio.gather(*checks)
+        assert state["probes"] == 1
+        assert {r.state for r in results} == {"ready"}
+
+    @pytest.mark.anyio
+    async def test_metadata_permission_denial_is_unverified(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """A 403 on model metadata doesn't mean inference is refused."""
+        state = self._stub(monkeypatch)
+        state["probe_result"] = ModelErrorDetail(
+            code=ModelErrorCode.PROVIDER_AUTH_FAILED, status_code=403
+        )
+        result = await self._service(role).get_status(catalog_id=uuid.uuid4())
+        assert result.state == "unverified"
+        assert result.problem is None
+
+    @pytest.mark.anyio
+    async def test_preset_falls_back_to_workspace_credentials(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """A preset runs on workspace keys when its catalog row has none."""
+        state = self._stub(monkeypatch)
+        state["credentials"] = None
+
+        async def workspace_credentials(self: Any, _provider: str) -> Any:
+            return {"OPENAI_API_KEY": "sk-workspace"}
+
+        monkeypatch.setattr(
+            status_module.AgentManagementService,
+            "get_workspace_runtime_provider_credentials",
+            workspace_credentials,
+        )
+        service = self._service(role)
+        default = await service.get_status(catalog_id=uuid.uuid4())
+        assert default.problem is not None
+        assert default.problem.code is ModelErrorCode.CREDENTIALS_MISSING
+        preset = await service.get_status(catalog_id=uuid.uuid4(), preset=True)
+        assert preset.state == "ready"
 
     @pytest.mark.anyio
     async def test_probe_problem_is_reported(

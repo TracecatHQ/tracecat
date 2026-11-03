@@ -1,5 +1,6 @@
 """Cheap, cached connectivity checks for a chat's selected model."""
 
+import asyncio
 import hashlib
 import uuid
 from dataclasses import dataclass
@@ -62,6 +63,9 @@ type _CacheKey = tuple[uuid.UUID, uuid.UUID, uuid.UUID, str]
 _status_cache = TTLCache[_CacheKey, ModelStatusRead](
     maxsize=_STATUS_CACHE_MAX_ENTRIES, ttl=STATUS_CACHE_TTL_SECONDS
 )
+# One probe in flight per key: concurrent checks share it, so the refresh floor
+# holds however many callers arrive at once.
+_inflight: dict[_CacheKey, asyncio.Task[ModelErrorDetail | None]] = {}
 
 
 # The key each directly probed provider needs; without it no request can work.
@@ -300,6 +304,7 @@ class ModelStatusService(BaseWorkspaceService):
         catalog_id: uuid.UUID | None = None,
         model_provider: str | None = None,
         model_name: str | None = None,
+        preset: bool = False,
         refresh: bool = False,
     ) -> ModelStatusRead:
         """Check one model, by catalog ID or by provider and name.
@@ -308,7 +313,9 @@ class ModelStatusService(BaseWorkspaceService):
             catalog_id: The model's catalog row.
             model_provider: Provider slug, when the catalog ID is unknown.
             model_name: Model name, when the catalog ID is unknown.
-            refresh: Skip the cache.
+            preset: The chat runs this model through an agent preset, whose
+                credentials fall back to workspace and then organization keys.
+            refresh: Skip the cache, unless the last check is very recent.
 
         Raises:
             TracecatNotFoundError: If no catalog row matches.
@@ -344,11 +351,16 @@ class ModelStatusService(BaseWorkspaceService):
 
         management = AgentManagementService(self.session, role=self.role)
         if provider in _UNPROBED_PROVIDERS:
-            if await management.check_provider_credentials(provider):
+            if await management.check_provider_credentials(provider) or (
+                preset
+                and await management.check_workspace_provider_credentials(provider)
+            ):
                 return status(None, verified=False)
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
 
-        credentials = await management.get_catalog_credentials(row.id)
+        credentials = await self._runtime_credentials(
+            management, row.id, provider, preset=preset
+        )
         if not credentials or credentials_incomplete(provider, credentials):
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
         target = build_probe_target(provider, model, credentials)
@@ -360,9 +372,42 @@ class ModelStatusService(BaseWorkspaceService):
             age = (datetime.now(UTC) - cached.checked_at).total_seconds()
             if not refresh or age < MIN_REFRESH_INTERVAL_SECONDS:
                 return cached
-        result = status(await probe_model(target, provider=provider, model=model))
+        if (task := _inflight.get(key)) is None:
+            task = asyncio.create_task(
+                probe_model(target, provider=provider, model=model)
+            )
+            _inflight[key] = task
+            task.add_done_callback(lambda _: _inflight.pop(key, None))
+        detail = await asyncio.shield(task)
+        if detail is not None and detail.status_code == 403:
+            # The key may lack only the permission to read model metadata,
+            # which inference doesn't need; that says nothing about chat.
+            result = status(None, verified=False)
+        else:
+            result = status(detail)
         _status_cache[key] = result
         return result
+
+    async def _runtime_credentials(
+        self,
+        management: AgentManagementService,
+        catalog_id: uuid.UUID,
+        provider: str,
+        *,
+        preset: bool,
+    ) -> dict[str, str] | None:
+        """The credentials a chat on this model runs with.
+
+        The organization default uses its catalog row's credentials only. A
+        preset falls back to workspace, then organization provider keys, as
+        ``AgentManagementService.with_preset_config`` does.
+        """
+        credentials = await management.get_catalog_credentials(catalog_id)
+        if credentials is not None or not preset:
+            return credentials
+        return await management.get_workspace_runtime_provider_credentials(
+            provider
+        ) or await management.get_runtime_provider_credentials(provider)
 
     async def _catalog_row(
         self,

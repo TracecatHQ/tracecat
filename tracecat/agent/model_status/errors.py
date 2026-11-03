@@ -7,6 +7,11 @@ from tracecat.agent.model_status.types import ModelErrorCode
 from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorKind
 
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,128}$")
+# Provider error codes and types are lowercase identifiers (invalid_api_key,
+# context_length_exceeded); a mixed-case or hyphenated value may be an echoed key.
+_ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_.]{0,63}$")
+# Credential prefixes the chat must never show, whatever field echoes them.
+_SECRET_PREFIXES = ("sk-", "sk_", "pk-", "rk-", "gsk_", "xai-", "aiza", "bearer")
 
 # Machine-readable provider or gateway error codes that name a cause outright.
 _PROVIDER_ERROR_CODES: dict[str, ModelErrorCode] = {
@@ -36,6 +41,19 @@ def safe_token(value: str | None) -> str | None:
     so a free-text message can never leak through an ID or code field.
     """
     if value is not None and _SAFE_TOKEN_RE.fullmatch(value):
+        return value
+    return None
+
+
+def _safe_request_id(value: str | None) -> str | None:
+    token = safe_token(value)
+    if token is None or token.lower().startswith(_SECRET_PREFIXES):
+        return None
+    return token
+
+
+def _safe_error_code(value: str | None) -> str | None:
+    if value is not None and _ERROR_CODE_RE.fullmatch(value):
         return value
     return None
 
@@ -108,8 +126,8 @@ def model_error_detail(
         Detail safe to put on the chat stream.
     """
     kind = classification.kind if classification is not None else None
-    error_code = safe_token(provider_error_code)
-    error_type = safe_token(provider_error_type)
+    error_code = _safe_error_code(provider_error_code)
+    error_type = _safe_error_code(provider_error_type)
     code = model_error_code(
         kind,
         status_code=status_code,
@@ -126,6 +144,6 @@ def model_error_detail(
         status_code=status_code
         if status_code is not None and 100 <= status_code <= 599
         else None,
-        request_id=safe_token(request_id),
+        request_id=_safe_request_id(request_id),
         provider_error_code=error_code or error_type,
     )

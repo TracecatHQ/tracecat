@@ -851,13 +851,16 @@ export function useVercelChat({
       // leaves status untouched; the turn is unknown, so mark it dropped.
       const streamOpened =
         statusRef.current === "submitted" || statusRef.current === "streaming"
+      // A model error's detail came from the server, so the stream delivered
+      // the turn's real outcome rather than dropping.
       const reconnectDropped =
+        !modelError &&
         requestKindRef.current === "resume" &&
         (generation > 0 || error instanceof TypeError || !streamOpened)
       setLastError({
         chatKey,
         message: friendlyMessage,
-        modelError: reconnectDropped ? null : modelError,
+        modelError,
         disconnected: reconnectDropped,
         replay: reconnectDropped && isReplay(),
       })
@@ -881,8 +884,11 @@ export function useVercelChat({
         } else if (isDisconnect) {
           // The SDK also runs onFinish after onError; keep that turn's error.
           const replay = isReplay()
-          setLastError(
-            (prev) => prev && { ...prev, disconnected: true, replay }
+          // A model error the server sent is the turn's outcome, not a drop.
+          setLastError((prev) =>
+            prev && !prev.modelError
+              ? { ...prev, disconnected: true, replay }
+              : prev
           )
         }
         // Sends already cleared the saved prompt, and a reconnect's history may

@@ -13,6 +13,7 @@ function modelStatusQueryKey(workspaceId: string, modelInfo: ModelInfo) {
     modelInfo.catalogId ?? null,
     modelInfo.provider,
     modelInfo.name,
+    modelInfo.fromPreset ?? false,
   ] as const
 }
 
@@ -26,6 +27,7 @@ async function fetchModelStatus(
     catalogId: modelInfo.catalogId ?? undefined,
     modelProvider: modelInfo.provider,
     modelName: modelInfo.name,
+    preset: modelInfo.fromPreset ?? false,
     refresh,
   })
 }

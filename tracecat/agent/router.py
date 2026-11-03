@@ -294,13 +294,16 @@ async def get_workspace_model_status(
     session: AsyncDBSession,
     catalog_id: uuid.UUID | None = Query(default=None),
     model_provider: str | None = Query(default=None, max_length=128),
-    model_name: str | None = Query(default=None, max_length=256),
+    model_name: str | None = Query(default=None, max_length=500),
+    preset: bool = Query(default=False),
     refresh: bool = Query(default=False),
 ) -> ModelStatusRead:
     """Check whether this workspace can reach a model with its credentials.
 
-    Identify the model by catalog ID, or by provider and name. The result is
-    cached briefly per credential set; ``refresh`` re-checks now.
+    Identify the model by catalog ID, or by provider and name. Pass ``preset``
+    when the chat runs the model through an agent preset, so the check uses the
+    same credential fallback. The result is cached briefly per credential set;
+    ``refresh`` re-checks unless the last check is very recent.
     """
     if catalog_id is None and not (model_provider and model_name):
         raise HTTPException(
@@ -313,6 +316,7 @@ async def get_workspace_model_status(
             catalog_id=catalog_id,
             model_provider=model_provider,
             model_name=model_name,
+            preset=preset,
             refresh=refresh,
         )
     except TracecatNotFoundError as e:
