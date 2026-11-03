@@ -7900,6 +7900,13 @@ export const $BooleanApprovalDecision = {
   description: "Persisted boolean decision enriched with submission metadata.",
 } as const
 
+export const $BuildEdition = {
+  type: "string",
+  enum: ["oss", "ee"],
+  title: "BuildEdition",
+  description: "Edition of the running deployment.",
+} as const
+
 export const $CaseAgentSessionBackfillStatus = {
   type: "string",
   enum: ["running", "completed", "failed"],
@@ -27791,6 +27798,45 @@ export const $PlatformAuditSettingsUpdate = {
   type: "object",
   title: "PlatformAuditSettingsUpdate",
   description: "Update platform audit settings.",
+} as const
+
+export const $PlatformBuildInfo = {
+  properties: {
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    edition: {
+      $ref: "#/components/schemas/BuildEdition",
+    },
+    commit: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit",
+    },
+    built_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Built At",
+    },
+  },
+  type: "object",
+  required: ["version", "edition"],
+  title: "PlatformBuildInfo",
+  description: "Version and build details of the running deployment.",
 } as const
 
 export const $PlatformMCPCatalogListResponse = {

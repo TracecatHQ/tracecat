@@ -3,6 +3,7 @@
 import {
   BookOpenIcon,
   BuildingIcon,
+  InfoIcon,
   LayersIcon,
   LogOutIcon,
   LogsIcon,
@@ -89,6 +90,12 @@ export function AdminSidebar({
       url: "/admin/maintenance",
       icon: WrenchIcon,
       isActive: pathname?.includes("/admin/maintenance"),
+    },
+    {
+      title: "Build",
+      url: "/admin/build-info",
+      icon: InfoIcon,
+      isActive: pathname?.includes("/admin/build-info"),
     },
   ]
 

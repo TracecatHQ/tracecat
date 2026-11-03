@@ -2125,6 +2125,11 @@ export type BooleanApprovalDecision = {
 }
 
 /**
+ * Edition of the running deployment.
+ */
+export type BuildEdition = "oss" | "ee"
+
+/**
  * Lifecycle state for the durable backfill operation.
  */
 export type CaseAgentSessionBackfillStatus = "running" | "completed" | "failed"
@@ -8498,6 +8503,16 @@ export type PlatformAuditSettingsUpdate = {
    * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
    */
   audit_webhook_verify_ssl?: boolean
+}
+
+/**
+ * Version and build details of the running deployment.
+ */
+export type PlatformBuildInfo = {
+  version: string
+  edition: BuildEdition
+  commit?: string | null
+  built_at?: string | null
 }
 
 /**
@@ -17184,6 +17199,8 @@ export type AdminAgentListPlatformCatalogData = {
 
 export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
 
+export type AdminBuildGetBuildInfoResponse = PlatformBuildInfo
+
 export type AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse =
   CaseAgentSessionInteractionBackfillStartResponse
 
@@ -24880,6 +24897,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/build-info": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformBuildInfo
       }
     }
   }

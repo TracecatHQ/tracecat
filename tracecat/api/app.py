@@ -44,6 +44,7 @@ from tracecat_ee.watchtower.router import router as watchtower_router
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.admin.agent.router import router as admin_agent_router
+from tracecat.admin.build_info.router import router as admin_build_router
 from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.agent.access.router import router as agent_model_access_router
@@ -734,6 +735,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(watchtower_router)
     app.include_router(admin_router)
     app.include_router(admin_agent_router, prefix="/admin")
+    app.include_router(admin_build_router, prefix="/admin")
     app.include_router(admin_maintenance_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
     _include_workspace_scoped_router(app, inbox_router)
