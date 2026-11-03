@@ -84,6 +84,7 @@ class RuntimeErrorKind(StrEnum):
     WORKFLOW_AGENT_INPUT_INVALID = "workflow.agent.input_invalid"
     WORKFLOW_AGENT_PREPARATION_FAILED = "workflow.agent.preparation_failed"
     AGENT_CONFIGURATION_INVALID = "agent.configuration.invalid"
+    AGENT_PROVIDER_CREDENTIALS_MISSING = "agent.provider.credentials_missing"
     AGENT_PREPARATION_FAILED = "agent.preparation.failed"
     AGENT_SESSION_INITIALIZATION_FAILED = "agent.session.initialization_failed"
     AGENT_LLM_GATEWAY_AUTH_FAILED = "agent.llm.gateway_auth_failed"

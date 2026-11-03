@@ -9,6 +9,7 @@ from temporalio import activity
 
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
+    agent_provider_credentials_missing,
     invalid_agent_configuration,
 )
 from tracecat.agent.gateway_providers import (
@@ -29,6 +30,7 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
 from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -91,6 +93,10 @@ async def resolve_agent_preset_config_activity(
                 prune_tool_tunnels=False,
             ) as config:
                 return agent_config_to_payload(config)
+    except AgentProviderCredentialsNotFoundError as exc:
+        raise_application_error_from_classification(
+            agent_provider_credentials_missing(exc)
+        )
     except (
         TracecatAuthorizationError,
         TracecatNotFoundError,

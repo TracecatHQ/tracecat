@@ -37,6 +37,7 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
     ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -143,6 +144,42 @@ async def test_resolve_agent_preset_config_classifies_user_input_errors(
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
     assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_preset_config_classifies_missing_provider_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing provider credentials are the org's to fix and never retried."""
+    message = (
+        "No credentials found for provider 'example'. "
+        "Add them in organization settings under Agent > Configuration."
+    )
+    error = AgentProviderCredentialsNotFoundError(message)
+    service = SimpleNamespace(
+        with_preset_config=lambda **_: _FailingAsyncContext(error)
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agent_preset_config_activity(
+            ResolveAgentPresetConfigActivityInput(
+                role=_role(),
+                preset_slug="example-preset",
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.message == message
+    assert exc_info.value.non_retryable is True
+    assert exc_info.value.message == message
 
 
 @pytest.mark.anyio

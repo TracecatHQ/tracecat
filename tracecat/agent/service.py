@@ -1218,7 +1218,7 @@ class AgentManagementService(BaseOrgService):
                 )
             raise AgentProviderCredentialsNotFoundError(
                 "No organization credentials found for the default model. "
-                "Configure credentials in organization settings first."
+                "Add them in organization settings under Agent > Configuration."
             )
 
         # Cloud catalog rows store the invocation target inside the encrypted
@@ -1361,7 +1361,7 @@ class AgentManagementService(BaseOrgService):
         if not credentials:
             raise AgentProviderCredentialsNotFoundError(
                 f"No credentials found for provider '{preset_config.model_provider}'. "
-                "Please configure credentials for this provider first."
+                "Add them in organization settings under Agent > Configuration."
             )
 
         preset_config = self._resolve_custom_provider_config(

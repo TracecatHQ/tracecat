@@ -17,6 +17,7 @@ from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat import config
 from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.error_policy import agent_provider_credentials_missing
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -45,12 +46,23 @@ from tracecat.db.models import (
     CaseCommentMention,
 )
 from tracecat.dsl._converter import get_data_converter
+from tracecat.exceptions import AgentProviderCredentialsNotFoundError
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.temporal.errors import (
+    extract_error_classification,
+    raise_application_error_from_classification,
+)
 
 pytestmark = pytest.mark.temporal
 _EVENTS: list[str] = []
 _CHILD_WAITING = asyncio.Event()
 _RELEASE_CHILD = asyncio.Event()
 _FAILURES: list[schemas.FailCommentAgentInvocationInput] = []
+_PREPARE_ATTEMPTS: list[int] = []
+_MISSING_CREDENTIALS_MESSAGE = (
+    "No credentials found for provider 'example'. "
+    "Add them in organization settings under Agent > Configuration."
+)
 
 
 @activity.defn(name=schemas.PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY)
@@ -102,6 +114,18 @@ async def fail_prepare_turn(
     input: schemas.PrepareCommentAgentInvocationInput,
 ) -> schemas.PrepareCommentAgentInvocationResult:
     raise ApplicationError("preparation exploded", non_retryable=True)
+
+
+@activity.defn(name=schemas.PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY)
+async def missing_credentials_prepare_turn(
+    input: schemas.PrepareCommentAgentInvocationInput,
+) -> schemas.PrepareCommentAgentInvocationResult:
+    _PREPARE_ATTEMPTS.append(activity.info().attempt)
+    raise_application_error_from_classification(
+        agent_provider_credentials_missing(
+            AgentProviderCredentialsNotFoundError(_MISSING_CREDENTIALS_MESSAGE)
+        )
+    )
 
 
 @activity.defn(name=schemas.COMPLETE_COMMENT_AGENT_INVOCATION_ACTIVITY)
@@ -380,6 +404,45 @@ async def test_parent_routes_failure_stage_and_preserves_error(
     original_error = root_cause(exc_info.value)
     assert isinstance(original_error, ApplicationError)
     assert f"{stage} exploded" in str(original_error)
+
+
+@pytest.mark.anyio
+async def test_parent_fails_once_with_actionable_message_without_credentials() -> None:
+    """Missing credentials fail the comment once, showing the user what to fix."""
+    _FAILURES.clear()
+    _PREPARE_ATTEMPTS.clear()
+    invocation_id = uuid.uuid4()
+    queue = f"comment-agent-missing-credentials-{invocation_id}"
+    role = Role(type="service", service_id="tracecat-api")
+
+    async with await WorkflowEnvironment.start_time_skipping(
+        data_converter=get_data_converter()
+    ) as env:
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            activities=[missing_credentials_prepare_turn, record_failure],
+            workflows=[invocation_workflows.CaseCommentAgentInvocationWorkflow],
+            workflow_runner=new_sandbox_runner(),
+        ):
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await env.client.execute_workflow(
+                    invocation_workflows.CaseCommentAgentInvocationWorkflow.run,
+                    schemas.CaseCommentAgentInvocationWorkflowInput(
+                        role=role, invocation_id=invocation_id
+                    ),
+                    id=f"parent/{invocation_id}",
+                    task_queue=queue,
+                )
+
+    assert _PREPARE_ATTEMPTS == [1]
+    assert len(_FAILURES) == 1
+    assert _FAILURES[0].kind == "preparation"
+    assert _FAILURES[0].error == _MISSING_CREDENTIALS_MESSAGE
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING
 
 
 @pytest.mark.anyio

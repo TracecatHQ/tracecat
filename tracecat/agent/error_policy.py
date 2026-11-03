@@ -16,7 +16,10 @@ from tracecat.agent.common.exceptions import (
     UserMCPDiscoveryUnavailableError,
 )
 from tracecat.agent.sandbox.config import AgentResourceLimits
-from tracecat.exceptions import RegistryLockAmbiguousActionError
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    RegistryLockAmbiguousActionError,
+)
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -56,6 +59,23 @@ def invalid_agent_configuration(
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         message="Agent configuration is invalid",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_provider_credentials_missing(
+    error: AgentProviderCredentialsNotFoundError,
+) -> RuntimeErrorClassification:
+    """Classify an agent whose model provider has no configured credentials.
+
+    The organization owns the fix, and a retry fails the same way until the
+    credentials exist. The raised message names only the provider and where to
+    add credentials.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING,
+        message=str(error),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )
