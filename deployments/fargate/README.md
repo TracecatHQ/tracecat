@@ -127,6 +127,9 @@ no server provisioning is required. Default sizing is one task, 1024 CPU units,
 2048 MiB, and eight concurrent activities. Use `background_worker_desired_count`,
 `background_worker_cpu`, `background_worker_memory`, and
 `background_worker_max_concurrent_activities` to tune it independently.
+Semantic-search indexing runs on this worker and holds up to six activities
+across the deployment. If you set `background_worker_max_concurrent_activities`
+to six or less, raise it to at least eight so Git sync keeps capacity.
 
 Deploy an app image containing the worker together with the additive
 `workspace_sync_operation` migration. The worker shares the existing API task
