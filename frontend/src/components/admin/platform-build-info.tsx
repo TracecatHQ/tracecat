@@ -12,8 +12,6 @@ const EDITION_LABELS: Record<BuildEdition, string> = {
   ee: "Enterprise",
 }
 
-const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i
-
 /** Shows the version, edition, commit, and build time of the deployment. */
 export function PlatformBuildInfo() {
   const { buildInfo, buildInfoIsLoading, buildInfoError } = useAdminBuildInfo()
@@ -67,9 +65,6 @@ function BuildRow({
 function CommitValue({ commit }: { commit?: string | null }) {
   if (!commit) {
     return "Unknown"
-  }
-  if (!COMMIT_SHA_PATTERN.test(commit)) {
-    return <span className="font-mono text-xs">{commit}</span>
   }
   return (
     <a

@@ -412,7 +412,11 @@ build_platform_digest() {
 
   case "$image_key" in
     api)
-      BUILD_CMD+=(--target production "$REPO_ROOT")
+      BUILD_CMD+=(
+        --build-arg "TRACECAT__BUILD_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)"
+        --build-arg "TRACECAT__BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        --target production "$REPO_ROOT"
+      )
       ;;
     ui)
       BUILD_CMD+=(
