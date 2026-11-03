@@ -716,11 +716,6 @@ def _create_oidc_auth() -> OIDCProxy:
     # deployment.
     _required_scopes = ["openid", "profile", "email"]
     _supported_scopes = get_supported_scopes()
-    _authorize_scopes = (
-        append_scope_if_missing(_required_scopes, OFFLINE_ACCESS_SCOPE)
-        if OFFLINE_ACCESS_SCOPE in _supported_scopes
-        else _required_scopes
-    )
 
     class TracecatProxyDCRClient(ProxyDCRClient):
         """Relax CIMD loopback callback validation to allow ephemeral local ports."""
@@ -782,7 +777,7 @@ def _create_oidc_auth() -> OIDCProxy:
             when the access token expires. If the upstream rejects the scope,
             ``_retry_without_refresh_scope()`` retries once without it.
             """
-            scopes = merge_unique_scopes(list(params.scopes or []), _authorize_scopes)
+            scopes = merge_unique_scopes(list(params.scopes or []), _supported_scopes)
             params_with_scopes = params.model_copy(update={"scopes": scopes})
             return await super().authorize(client, params_with_scopes)
 
