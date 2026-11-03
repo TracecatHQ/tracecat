@@ -274,7 +274,11 @@ export function useWorkspaceSyncExportPreview(
     operationError = new Error(
       "Preview expired. Refresh the preview before pushing."
     )
-  } else if (operation?.status === "failed") {
+  } else if (
+    operation?.status === "failed" &&
+    // Apply failures belong to the push itself, not the preview.
+    !["applying", "finishing"].includes(operation.stage)
+  ) {
     operationError = new Error(operation.error ?? "Preview did not complete")
   }
 
