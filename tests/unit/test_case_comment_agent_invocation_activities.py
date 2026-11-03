@@ -278,7 +278,8 @@ async def test_prepare_fails_without_retry_when_provider_credentials_are_missing
     actor_role, execution_role = _roles()
     message = (
         "No credentials found for provider 'example'. "
-        "Add them in organization settings under Agent > Configuration."
+        "An organization admin can add them in organization settings under "
+        "Agent > Configuration."
     )
 
     with pytest.raises(ApplicationError) as exc_info:

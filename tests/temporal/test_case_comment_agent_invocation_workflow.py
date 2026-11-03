@@ -64,7 +64,8 @@ _FAILURES: list[schemas.FailCommentAgentInvocationInput] = []
 _PREPARE_ATTEMPTS: list[int] = []
 _MISSING_CREDENTIALS_MESSAGE = (
     "No credentials found for provider 'example'. "
-    "Add them in organization settings under Agent > Configuration."
+    "An organization admin can add them in organization settings under "
+    "Agent > Configuration."
 )
 
 

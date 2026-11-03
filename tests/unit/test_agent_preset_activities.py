@@ -153,7 +153,8 @@ async def test_resolve_agent_preset_config_classifies_missing_provider_credentia
     """Missing provider credentials are the org's to fix and never retried."""
     message = (
         "No credentials found for provider 'example'. "
-        "Add them in organization settings under Agent > Configuration."
+        "An organization admin can add them in organization settings under "
+        "Agent > Configuration."
     )
     error = AgentProviderCredentialsNotFoundError(message)
     service = SimpleNamespace(
