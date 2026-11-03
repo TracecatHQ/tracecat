@@ -230,6 +230,8 @@ class TestStreamContract:
     def test_malformed_detail_is_dropped(self) -> None:
         assert _parse_error_detail({"code": "unknown", "status_code": 99}) is None
         assert _parse_error_detail("not-a-detail") is None
+        assert _parse_error_detail({"code": []}) is None
+        assert _parse_error_detail({"code": {}}) is None
         assert _parse_error_detail(None) is None
 
     @pytest.mark.anyio

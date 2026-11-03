@@ -43,14 +43,19 @@ class ApprovalContinuationMarker:
     previous_stream_id: uuid.UUID | None
 
 
+_MODEL_ERROR_CODES = frozenset(code.value for code in ModelErrorCode)
+
+
 def _parse_error_detail(raw: object) -> ModelErrorDetail | None:
     """Read an error entry's optional detail; a malformed one is dropped."""
     if raw is None:
         return None
     # A newer backend may send a code this server doesn't know yet: keep the
     # detail and read the code as unknown, so the chat still explains it.
-    if isinstance(raw, dict) and raw.get("code") not in set(ModelErrorCode):
-        raw = {**raw, "code": ModelErrorCode.UNKNOWN}
+    if isinstance(raw, dict):
+        code = raw.get("code")
+        if isinstance(code, str) and code not in _MODEL_ERROR_CODES:
+            raw = {**raw, "code": ModelErrorCode.UNKNOWN}
     try:
         return ModelErrorDetail.model_validate(raw)
     except ValidationError:
