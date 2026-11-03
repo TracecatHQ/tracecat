@@ -49,13 +49,13 @@ class TestModelErrorDetail:
             provider="openai",
             model="gpt-test",
             status_code=401,
-            request_id="req_abc123",
+            request_id="req_abc12345",
             provider_error_code="invalid_api_key",
         )
         assert detail.code is ModelErrorCode.PROVIDER_AUTH_FAILED
         assert detail.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
         assert (detail.provider, detail.model) == ("openai", "gpt-test")
-        assert (detail.status_code, detail.request_id) == (401, "req_abc123")
+        assert (detail.status_code, detail.request_id) == (401, "req_abc12345")
 
     def test_gateway_error_type_beats_auth_status(self) -> None:
         """The gateway's machine-readable type wins over a 403 status."""
@@ -114,16 +114,23 @@ class TestModelErrorDetail:
     @pytest.mark.parametrize(
         ("request_id", "error_code", "kept"),
         [
-            ("req_abc123", "invalid_api_key", True),
-            ("sk-proj-AbC123xyz", "invalid_api_key", False),
-            ("req_abc123", "sk-proj-AbC123xyz", False),
-            ("Bearer", "Mixed-Case", False),
+            ("req_abc12345", "invalid_api_key", True),
+            ("0b6c5f9e-2d1a-4c8e-9f3b-7a1d2e3f4a5b", "authentication_error", True),
+            ("sk-proj-AbC123xyz", "sk-proj-AbC123xyz", False),
+            (
+                "c0ffee0123456789abcdef0123456789",
+                "c0ffee0123456789abcdef0123456789",
+                False,
+            ),
+            ("nvapi-AbC123", "Mixed-Case", False),
+            ("tracecat.support.example.upload-your-key", "x", True),
         ],
     )
-    def test_credential_shaped_values_never_reach_the_chat(
+    def test_only_known_id_and_code_shapes_reach_the_chat(
         self, request_id: str, error_code: str, kept: bool
     ) -> None:
-        """An upstream that echoes a key in an ID or code field is filtered."""
+        """An upstream that echoes a key, or any free text, in an ID or code
+        field is dropped; real provider IDs and error codes are kept."""
         detail = model_error_detail(
             agent_llm_provider_auth_failed(),
             provider="openai",
@@ -131,10 +138,14 @@ class TestModelErrorDetail:
             request_id=request_id,
             provider_error_code=error_code,
         )
-        shown = {detail.request_id, detail.provider_error_code}
-        assert ("sk-proj-AbC123xyz" in shown or "Bearer" in shown) is False
-        if kept:
-            assert shown == {request_id, error_code}
+        if kept and error_code != "x":
+            assert (detail.request_id, detail.provider_error_code) == (
+                request_id,
+                error_code,
+            )
+        else:
+            assert detail.request_id is None
+            assert detail.provider_error_code in (None, "x")
 
     def test_long_model_names_are_accepted(self) -> None:
         """Catalog names may be long; building the detail must never fail."""
@@ -306,14 +317,14 @@ class TestProbeModel:
             monkeypatch,
             httpx.MockTransport(
                 lambda _: httpx.Response(
-                    401, json=body, headers={"x-request-id": "req_1"}
+                    401, json=body, headers={"x-request-id": "req_abcdef123"}
                 )
             ),
         )
         detail = await probe_model(self.TARGET, provider="openai", model="m")
         assert detail is not None
         assert detail.code is ModelErrorCode.PROVIDER_AUTH_FAILED
-        assert (detail.status_code, detail.request_id) == (401, "req_1")
+        assert (detail.status_code, detail.request_id) == (401, "req_abcdef123")
         assert detail.provider_error_code == "invalid_api_key"
 
     @pytest.mark.anyio
@@ -535,6 +546,19 @@ class TestModelStatusService:
         assert {r.state for r in results} == {"ready"}
 
     @pytest.mark.anyio
+    async def test_forced_rechecks_are_budgeted_per_caller(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """Cycling refresh across models can't exceed the caller's budget."""
+        state = self._stub(monkeypatch)
+        monkeypatch.setattr(status_module, "MIN_REFRESH_INTERVAL_SECONDS", 0)
+        service = self._service(role)
+        await service.get_status(catalog_id=uuid.uuid4())
+        for _ in range(status_module.REFRESHES_PER_MINUTE + 4):
+            await service.get_status(catalog_id=uuid.uuid4(), refresh=True)
+        assert state["probes"] == 1 + status_module.REFRESHES_PER_MINUTE
+
+    @pytest.mark.anyio
     async def test_metadata_permission_denial_is_unverified(
         self, monkeypatch: pytest.MonkeyPatch, role: Role
     ) -> None:
@@ -569,6 +593,33 @@ class TestModelStatusService:
         assert default.problem.code is ModelErrorCode.CREDENTIALS_MISSING
         preset = await service.get_status(catalog_id=uuid.uuid4(), preset=True)
         assert preset.state == "ready"
+
+    @pytest.mark.anyio
+    async def test_unlinked_preset_uses_workspace_keys_first(
+        self, monkeypatch: pytest.MonkeyPatch, role: Role
+    ) -> None:
+        """A preset with no catalog link runs on workspace keys even when the
+        matching catalog row has its own, so the check probes those."""
+        state = self._stub(monkeypatch)
+        state["credentials"] = {"OPENAI_API_KEY": "sk-org"}
+        probed: list[str] = []
+
+        async def workspace_credentials(self: Any, _provider: str) -> Any:
+            return {"OPENAI_API_KEY": "sk-workspace"}
+
+        async def probe(target: ProbeTarget, **_: Any) -> None:
+            probed.append(target.headers["Authorization"])
+
+        monkeypatch.setattr(
+            status_module.AgentManagementService,
+            "get_workspace_runtime_provider_credentials",
+            workspace_credentials,
+        )
+        monkeypatch.setattr(status_module, "probe_model", probe)
+        await self._service(role).get_status(
+            model_provider="openai", model_name="gpt-test", preset=True
+        )
+        assert probed == ["Bearer sk-workspace"]
 
     @pytest.mark.anyio
     async def test_probe_problem_is_reported(

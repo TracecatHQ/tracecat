@@ -41,6 +41,9 @@ STATUS_CACHE_TTL_SECONDS = 120
 # A refresh within this window of the last check returns that check, so a
 # caller looping on refresh can't spend the org's provider rate limit.
 MIN_REFRESH_INTERVAL_SECONDS = 15
+# Forced re-checks each caller may start per minute, across every model.
+# Past it, a refresh is answered from the cache like an ordinary check.
+REFRESHES_PER_MINUTE = 6
 _STATUS_CACHE_MAX_ENTRIES = 1024
 # Large gateways (OpenRouter) list a few hundred models; past this the listing
 # is not checked for the model.
@@ -63,6 +66,9 @@ type _CacheKey = tuple[uuid.UUID, uuid.UUID, uuid.UUID, str]
 _status_cache = TTLCache[_CacheKey, ModelStatusRead](
     maxsize=_STATUS_CACHE_MAX_ENTRIES, ttl=STATUS_CACHE_TTL_SECONDS
 )
+# Forced re-checks per caller (organization, actor) in the current minute.
+_refresh_counts = TTLCache[tuple[uuid.UUID, str], int](maxsize=4096, ttl=60)
+
 # One probe in flight per key: concurrent checks share it, so the refresh floor
 # holds however many callers arrive at once.
 _inflight: dict[_CacheKey, asyncio.Task[ModelErrorDetail | None]] = {}
@@ -289,8 +295,9 @@ def _credentials_fingerprint(credentials: dict[str, str]) -> str:
 
 
 def clear_status_cache() -> None:
-    """Drop every cached status. For tests."""
+    """Drop every cached status and refresh budget. For tests."""
     _status_cache.clear()
+    _refresh_counts.clear()
 
 
 class ModelStatusService(BaseWorkspaceService):
@@ -359,7 +366,11 @@ class ModelStatusService(BaseWorkspaceService):
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
 
         credentials = await self._runtime_credentials(
-            management, row.id, provider, preset=preset
+            management,
+            row.id,
+            provider,
+            preset=preset,
+            catalog_linked=catalog_id is not None,
         )
         if not credentials or credentials_incomplete(provider, credentials):
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
@@ -368,6 +379,8 @@ class ModelStatusService(BaseWorkspaceService):
             return status(None, verified=False)
 
         key = (org_id, workspace_id, row.id, _credentials_fingerprint(credentials))
+        if refresh and not self._spend_refresh():
+            refresh = False
         if (cached := _status_cache.get(key)) is not None:
             age = (datetime.now(UTC) - cached.checked_at).total_seconds()
             if not refresh or age < MIN_REFRESH_INTERVAL_SECONDS:
@@ -388,6 +401,16 @@ class ModelStatusService(BaseWorkspaceService):
         _status_cache[key] = result
         return result
 
+    def _spend_refresh(self) -> bool:
+        """Take one of the caller's forced re-checks for this minute."""
+        actor = str(self.role.user_id or self.role.service_account_id or "service")
+        caller = (self.organization_id, actor)
+        used = _refresh_counts.get(caller, 0)
+        if used >= REFRESHES_PER_MINUTE:
+            return False
+        _refresh_counts[caller] = used + 1
+        return True
+
     async def _runtime_credentials(
         self,
         management: AgentManagementService,
@@ -395,16 +418,20 @@ class ModelStatusService(BaseWorkspaceService):
         provider: str,
         *,
         preset: bool,
+        catalog_linked: bool,
     ) -> dict[str, str] | None:
-        """The credentials a chat on this model runs with.
+        """The credentials a chat on this model runs with, mirroring
+        ``AgentManagementService.with_preset_config``.
 
         The organization default uses its catalog row's credentials only. A
-        preset falls back to workspace, then organization provider keys, as
-        ``AgentManagementService.with_preset_config`` does.
+        catalog-linked preset uses its row's credentials, then workspace, then
+        organization provider keys; a preset without a catalog link skips the
+        row and starts at the workspace keys.
         """
-        credentials = await management.get_catalog_credentials(catalog_id)
-        if credentials is not None or not preset:
-            return credentials
+        if not preset or catalog_linked:
+            credentials = await management.get_catalog_credentials(catalog_id)
+            if credentials is not None or not preset:
+                return credentials
         return await management.get_workspace_runtime_provider_credentials(
             provider
         ) or await management.get_runtime_provider_credentials(provider)

@@ -25758,7 +25758,7 @@ export const $ModelErrorDetail = {
         },
       ],
       title: "Request Id",
-      description: "Provider or Tracecat request ID, for support.",
+      description: "The provider's request ID, for support.",
     },
     provider_error_code: {
       anyOf: [

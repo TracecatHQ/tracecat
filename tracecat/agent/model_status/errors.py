@@ -6,12 +6,16 @@ from tracecat.agent.model_status.schemas import ModelErrorDetail
 from tracecat.agent.model_status.types import ModelErrorCode
 from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorKind
 
-_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,128}$")
-# Provider error codes and types are lowercase identifiers (invalid_api_key,
-# context_length_exceeded); a mixed-case or hyphenated value may be an echoed key.
-_ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_.]{0,63}$")
-# Credential prefixes the chat must never show, whatever field echoes them.
-_SECRET_PREFIXES = ("sk-", "sk_", "pk-", "rk-", "gsk_", "xai-", "aiza", "bearer")
+# Provider error codes and types are lowercase words (invalid_api_key,
+# context_length_exceeded). Digits, capitals and hyphens are refused: an echoed
+# key, such as a hex Azure key, always has some.
+_ERROR_CODE_RE = re.compile(r"^[a-z][a-z_.]{0,63}$")
+# Request IDs in the shapes providers use: OpenAI and Anthropic ``req_…``, and
+# UUIDs (LiteLLM, Mistral). Anything else may be an echoed key and is dropped.
+_REQUEST_ID_RE = re.compile(
+    r"^(req_[A-Za-z0-9]{8,64}"
+    r"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+)
 
 # Machine-readable provider or gateway error codes that name a cause outright.
 _PROVIDER_ERROR_CODES: dict[str, ModelErrorCode] = {
@@ -34,25 +38,15 @@ _KIND_CODES: dict[RuntimeErrorKind, ModelErrorCode] = {
 }
 
 
-def safe_token(value: str | None) -> str | None:
-    """Return ``value`` when it is a short identifier-like token, else None.
-
-    Provider-controlled strings pass through this before they reach the chat,
-    so a free-text message can never leak through an ID or code field.
-    """
-    if value is not None and _SAFE_TOKEN_RE.fullmatch(value):
+def _safe_request_id(value: str | None) -> str | None:
+    """A provider request ID in a known shape; never free text or an echoed key."""
+    if value is not None and _REQUEST_ID_RE.fullmatch(value):
         return value
     return None
 
 
-def _safe_request_id(value: str | None) -> str | None:
-    token = safe_token(value)
-    if token is None or token.lower().startswith(_SECRET_PREFIXES):
-        return None
-    return token
-
-
 def _safe_error_code(value: str | None) -> str | None:
+    """A provider error code or type that is a lowercase word, else None."""
     if value is not None and _ERROR_CODE_RE.fullmatch(value):
         return value
     return None
@@ -117,7 +111,7 @@ def model_error_detail(
         provider: Model provider slug, such as ``openai``.
         model: Model name as configured in Tracecat.
         status_code: Upstream HTTP status, when the provider answered.
-        request_id: Provider or Tracecat request ID for support.
+        request_id: The provider's request ID, for support.
         provider_error_code: The provider's machine-readable ``error.code``.
         provider_error_type: The provider's machine-readable ``error.type``.
         provider_unreachable: The request never reached the provider.

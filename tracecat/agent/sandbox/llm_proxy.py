@@ -1823,10 +1823,11 @@ class LLMSocketProxy:
                                             else "managed",
                                             status_code=response.status_code,
                                         ),
+                                        # Never the inbound trace ID: the
+                                        # sandbox chooses it, and Chat shows this.
                                         request_id=_upstream_request_id(
                                             response.headers
-                                        )
-                                        or trace_request_id,
+                                        ),
                                         error_body=error_body,
                                     )
                                 body_chunks = [error_body]

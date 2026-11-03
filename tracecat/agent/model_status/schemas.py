@@ -29,7 +29,7 @@ class ModelErrorDetail(BaseModel):
     request_id: str | None = Field(
         default=None,
         max_length=128,
-        description="Provider or Tracecat request ID, for support.",
+        description="The provider's request ID, for support.",
     )
     provider_error_code: str | None = Field(
         default=None,

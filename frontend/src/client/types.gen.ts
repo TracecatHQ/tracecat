@@ -7952,7 +7952,7 @@ export type ModelErrorDetail = {
   model?: string | null
   status_code?: number | null
   /**
-   * Provider or Tracecat request ID, for support.
+   * The provider's request ID, for support.
    */
   request_id?: string | null
   /**
