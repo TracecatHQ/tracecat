@@ -131,6 +131,23 @@ describe("feedActionFor", () => {
     ).toEqual({ kind: "attach", streamId: "s1" })
   })
 
+  it("refreshes on a held live snapshot when the feed moved on", () => {
+    const liveAt = (feedId: string) =>
+      ({
+        type: "snapshot",
+        run_id: "r1",
+        stream_id: "s0",
+        paused: false,
+        feed_id: feedId,
+      }) as const
+    const held: FeedState = {
+      attachedStreamId: "s0",
+      known: { runId: "r1", paused: false, feedId: "3-0" },
+    }
+    expect(feedActionFor(liveAt("3-0"), held)).toBeNull()
+    expect(feedActionFor(liveAt("5-0"), held)).toEqual({ kind: "refresh" })
+  })
+
   it("refreshes on a snapshot only when the run state changed", () => {
     const idleSnapshot = {
       type: "snapshot",
@@ -270,8 +287,15 @@ describe("useVercelChat with the session feed", () => {
   )
 
   beforeEach(() => {
+    // onFinish schedules delayed title refreshes; keep them out of later tests.
+    jest.useFakeTimers()
     fetchMock.mockClear()
     globalThis.fetch = fetchMock as unknown as typeof fetch
+  })
+
+  afterEach(() => {
+    jest.clearAllTimers()
+    jest.useRealTimers()
   })
 
   function renderChat(queryClient: QueryClient) {
@@ -431,6 +455,33 @@ describe("useVercelChat with the session feed", () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ["chat", "chat-1", "workspace-1", "vercel"],
     })
+  })
+
+  it("still attaches after a send that failed without dropping", async () => {
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: false,
+        status: 500,
+        body: null,
+        text: () => Promise.resolve("boom"),
+      })
+    )
+    const { result } = renderChat(new QueryClient())
+
+    await act(async () => {
+      await result.current.sendMessage({ text: "hi" })
+    })
+    await waitFor(() => expect(result.current.status).toBe("error"))
+    expect(result.current.lastErrorDisconnected).toBe(false)
+    act(() => {
+      FakeEventSource.latest().deliver({
+        type: "run.started",
+        run_id: "r1",
+        stream_id: "s0",
+      })
+    })
+
+    await waitFor(() => expect(streamRequests()).toHaveLength(1))
   })
 
   it("acts on only the latest event held while attaching", async () => {

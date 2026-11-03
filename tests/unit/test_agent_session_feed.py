@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import Future, RetryError
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.router import stream_session_feed
@@ -200,11 +201,21 @@ async def test_publish_session_event_is_best_effort() -> None:
 
 
 @pytest.mark.anyio
-async def test_feed_route_reports_redis_outage_as_unavailable() -> None:
+@pytest.mark.parametrize(
+    "error",
+    [
+        RedisConnectionError("redis down"),
+        # The client's retry decorator wraps the final Redis error.
+        RetryError(Future(attempt_number=3)),
+    ],
+)
+async def test_feed_route_reports_redis_outage_as_unavailable(
+    error: Exception,
+) -> None:
     with (
         patch(
             "tracecat.agent.session.router.SessionFeed.new",
-            AsyncMock(side_effect=RedisConnectionError("redis down")),
+            AsyncMock(side_effect=error),
         ),
         patch(
             "tracecat.agent.session.router.AgentSessionService.with_session"

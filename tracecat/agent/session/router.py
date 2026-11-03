@@ -9,6 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
 from redis.exceptions import RedisError
+from tenacity import RetryError
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
     require_workspace_chat_entitlement_for_entity,
@@ -899,7 +900,7 @@ async def stream_session_feed(
         feed = await SessionFeed.new(workspace_id=workspace_id, session_id=session_id)
         # Read the feed position before the row, so a change between them is replayed.
         after_id = await feed.latest_id()
-    except (RedisError, RuntimeError) as e:
+    except (RedisError, RuntimeError, RetryError) as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Session feed is unavailable",

@@ -1337,7 +1337,9 @@ class TestCreateSessionActivity:
         mock_session_id: uuid.UUID,
     ):
         """Runs started without the API, like case comments, reach open tabs."""
-        run_id, stream_id, workspace_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        assert mock_role.workspace_id is not None
+        workspace_id = mock_role.workspace_id
+        run_id, stream_id = uuid.uuid4(), uuid.uuid4()
         mock_agent_session = _agent_session(
             id=mock_session_id, workspace_id=workspace_id, active_stream_id=stream_id
         )
@@ -1347,11 +1349,21 @@ class TestCreateSessionActivity:
         )
         session_service.session = MagicMock()
         session_service.session.commit = AsyncMock()
+        stream = MagicMock()
+        stream.clear_buffer = AsyncMock()
+        publish = AsyncMock()
+        calls = MagicMock()
+        calls.attach_mock(session_service.session.commit, "commit")
+        calls.attach_mock(stream.clear_buffer, "clear_buffer")
+        calls.attach_mock(publish, "publish")
 
-        with patch(
-            "tracecat.agent.session.activities.publish_session_event",
-            new_callable=AsyncMock,
-        ) as publish:
+        with (
+            patch(
+                "tracecat.agent.session.activities.AgentStream.new",
+                AsyncMock(return_value=stream),
+            ),
+            patch("tracecat.agent.session.activities.publish_session_event", publish),
+        ):
             result = await create_session_activity(
                 CreateSessionInput(
                     role=mock_role,
@@ -1370,6 +1382,9 @@ class TestCreateSessionActivity:
             run_id=run_id,
             stream_id=stream_id,
         )
+        # Announced only once the row is committed and the old buffer is gone.
+        order = [name for name, *_ in calls.mock_calls if not name.startswith("_")]
+        assert order == ["commit", "clear_buffer", "publish"]
 
     @pytest.mark.parametrize(
         (

@@ -92,13 +92,18 @@ def entitled_to_non_default_backends() -> Iterator[None]:
         yield
 
 
-type FeedEvents = list[tuple[SessionFeedEventType, UUID, UUID | None]]
+class FeedEvents(list[tuple[SessionFeedEventType, UUID, UUID | None]]):
+    """Published events, plus the (workspace_id, session_id) feed each went to."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.destinations: list[tuple[UUID, UUID]] = []
 
 
 @pytest.fixture(autouse=True)
 def feed_events(monkeypatch: pytest.MonkeyPatch) -> FeedEvents:
     """Record session feed publishes instead of writing to Redis."""
-    events: FeedEvents = []
+    events = FeedEvents()
 
     async def publish(**kwargs: object) -> None:
         event_type = kwargs["type"]
@@ -107,7 +112,10 @@ def feed_events(monkeypatch: pytest.MonkeyPatch) -> FeedEvents:
         assert isinstance(event_type, SessionFeedEventType)
         assert isinstance(run_id, UUID)
         assert stream_id is None or isinstance(stream_id, UUID)
+        workspace_id, session_id = kwargs["workspace_id"], kwargs["session_id"]
+        assert isinstance(workspace_id, UUID) and isinstance(session_id, UUID)
         events.append((event_type, run_id, stream_id))
+        events.destinations.append((workspace_id, session_id))
 
     monkeypatch.setattr("tracecat.agent.backends.base.publish_session_event", publish)
     monkeypatch.setattr("tracecat.agent.session.service.publish_session_event", publish)
@@ -514,6 +522,7 @@ async def test_builtin_dispatch_preserves_workflow_contract(feed_events: FeedEve
     assert feed_events == [
         (SessionFeedEventType.RUN_STARTED, ctx.run_id, ctx.stream_id)
     ]
+    assert feed_events.destinations == [(ctx.session.workspace_id, ctx.session.id)]
 
 
 @pytest.mark.anyio
@@ -1506,6 +1515,7 @@ async def test_rpc_rejection_releases_reservation_without_raw_exception_context(
     assert rpc.await_args is not None
     assert rpc.await_args.kwargs["retry"] is False
     assert feed_events == [(SessionFeedEventType.RUN_FINISHED, ctx.run_id, None)]
+    assert feed_events.destinations == [(ctx.session.workspace_id, ctx.session.id)]
 
 
 @pytest.mark.anyio

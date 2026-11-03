@@ -948,7 +948,12 @@ export function useVercelChat({
     onAttach: () => {
       // A dropped stream's Chat keeps its partial state, so a replay would
       // duplicate it; Retry owns reconnecting with a fresh Chat.
-      if (statusRef.current === "error") refreshFromFeed()
+      const dropped =
+        statusRef.current === "error" &&
+        lastError !== null &&
+        lastError.chatKey === chatKey &&
+        lastError.disconnected
+      if (dropped) refreshFromFeed()
       else startResume()
     },
     onRefresh: refreshFromFeed,

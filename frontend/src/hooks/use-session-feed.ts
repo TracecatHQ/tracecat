@@ -65,7 +65,8 @@ export function feedActionFor(
   switch (event.type) {
     case "snapshot": {
       if (event.run_id && !event.paused) {
-        return attachUnlessHeld(event.stream_id, state)
+        const attach = attachUnlessHeld(event.stream_id, state)
+        if (attach) return attach
       }
       const known = state.known
       const changed =
