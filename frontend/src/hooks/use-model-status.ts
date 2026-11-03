@@ -54,22 +54,40 @@ export function useModelStatus(
     staleTime: MODEL_STATUS_STALE_MS,
     retry: false,
   })
+  // A recheck belongs to the model it ran for; its state never shows on
+  // another model the pane switched to.
+  const currentKey =
+    workspaceId && modelInfo
+      ? JSON.stringify(modelStatusQueryKey(workspaceId, modelInfo))
+      : null
   const recheck = useMutation({
     // The dot itself shows a failed check.
     meta: { suppressErrorToast: true },
-    mutationFn: async () => {
-      if (!workspaceId || !modelInfo) return
-      const fresh = await fetchModelStatus(workspaceId, modelInfo, true)
+    mutationFn: async (target: {
+      key: string
+      workspaceId: string
+      modelInfo: ModelInfo
+    }) => {
+      const fresh = await fetchModelStatus(
+        target.workspaceId,
+        target.modelInfo,
+        true
+      )
       queryClient.setQueryData(
-        modelStatusQueryKey(workspaceId, modelInfo),
+        modelStatusQueryKey(target.workspaceId, target.modelInfo),
         fresh
       )
     },
   })
+  const recheckIsCurrent =
+    currentKey !== null && recheck.variables?.key === currentKey
   return {
     status: query.data,
-    isChecking: query.isLoading || recheck.isPending,
-    error: query.error ?? recheck.error,
-    recheck: () => recheck.mutate(),
+    isChecking: query.isLoading || (recheckIsCurrent && recheck.isPending),
+    error: query.error ?? (recheckIsCurrent ? recheck.error : null),
+    recheck: () => {
+      if (!workspaceId || !modelInfo || currentKey === null) return
+      recheck.mutate({ key: currentKey, workspaceId, modelInfo })
+    },
   }
 }

@@ -14,8 +14,12 @@ from sqlalchemy import select
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.agent.diagnostics import parse_bounded_error_body
+from tracecat.agent.diagnostics import (
+    MAX_LLM_ERROR_BODY_BYTES,
+    parse_bounded_error_body,
+)
 from tracecat.agent.gateway_providers import (
+    GATEWAY_PROVIDER_SPECS,
     is_gateway_provider,
     resolve_gateway_provider_config,
     strip_openai_version_suffix,
@@ -33,7 +37,13 @@ from tracecat.service import BaseWorkspaceService
 
 PROBE_TIMEOUT_SECONDS = 5.0
 STATUS_CACHE_TTL_SECONDS = 120
+# A refresh within this window of the last check returns that check, so a
+# caller looping on refresh can't spend the org's provider rate limit.
+MIN_REFRESH_INTERVAL_SECONDS = 15
 _STATUS_CACHE_MAX_ENTRIES = 1024
+# Large gateways (OpenRouter) list a few hundred models; past this the listing
+# is not checked for the model.
+_MAX_MODEL_LIST_BYTES = 4 * 1024 * 1024
 
 _OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
@@ -54,14 +64,41 @@ _status_cache = TTLCache[_CacheKey, ModelStatusRead](
 )
 
 
+# The key each directly probed provider needs; without it no request can work.
+_REQUIRED_KEYS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+}
+
+
+def credentials_incomplete(provider: str, credentials: dict[str, str]) -> bool:
+    """Whether stored credentials lack what every model request needs.
+
+    Mirrors the gateway's own "Provider credentials incomplete" checks: the
+    provider's API key, or a gateway provider's base URL and required key.
+    """
+    if key := _REQUIRED_KEYS.get(provider):
+        return not credentials.get(key)
+    if is_gateway_provider(provider):
+        spec = GATEWAY_PROVIDER_SPECS[provider]
+        runtime = resolve_gateway_provider_config(provider, credentials)
+        if runtime is None or not runtime.base_url:
+            return True
+        return spec.requires_api_key and not runtime.api_key
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class ProbeTarget:
     """One authenticated GET that proves the key works for the model."""
 
     url: str
     headers: dict[str, str]
-    # A list endpoint answers 404 only for a wrong base URL, not a missing model.
-    lists_models: bool = False
+    # For a list endpoint, the model ID the list must contain. A list endpoint
+    # answers 404 only for a wrong base URL, not a missing model.
+    listed_model: str | None = None
 
 
 def _bare_model_name(provider: str, model_name: str) -> str:
@@ -76,7 +113,8 @@ def build_probe_target(
     """The cheapest authenticated request for a provider, or None if it has none.
 
     Retrieving one model costs nothing and proves both the key and access to
-    that model. OpenAI-compatible gateways list their models instead.
+    that model. OpenAI-compatible gateways list their models instead. Check
+    :func:`credentials_incomplete` first; None here never means a missing key.
     """
     model = quote(_bare_model_name(provider, model_name), safe="")
     match provider:
@@ -126,7 +164,10 @@ def build_probe_target(
                 else {}
             )
             return ProbeTarget(
-                url=f"{runtime.base_url}/models", headers=headers, lists_models=True
+                url=f"{runtime.base_url}/models",
+                headers=headers,
+                listed_model=runtime.model_name
+                or _bare_model_name(provider, model_name),
             )
         case _:
             return None
@@ -146,6 +187,40 @@ def _error_strings(body: bytes) -> tuple[str | None, str | None]:
             return None, None
 
 
+async def _bounded_body(response: httpx.Response, limit: int) -> bytes:
+    """Read at most ``limit + 1`` decoded bytes, so an oversized body is
+    detectable but never held, even when one decompressed chunk is huge."""
+    body = bytearray()
+    async for chunk in response.aiter_bytes():
+        body.extend(chunk[: limit + 1 - len(body)])
+        if len(body) > limit:
+            break
+    return bytes(body)
+
+
+def _lists_model(body: bytes, model_id: str) -> bool:
+    """Whether a ``/models`` listing contains ``model_id``.
+
+    A listing that is truncated or not the OpenAI shape proves nothing, so it
+    counts as listed: the key itself was accepted.
+    """
+    if len(body) > _MAX_MODEL_LIST_BYTES:
+        return True
+    try:
+        payload = orjson.loads(body)
+    except orjson.JSONDecodeError:
+        return True
+    match payload:
+        case {"data": [*items]}:
+            pass
+        case [*items]:
+            pass
+        case _:
+            return True
+    ids = {item.get("id") for item in items if isinstance(item, dict)}
+    return model_id in ids
+
+
 def _request_id(headers: httpx.Headers) -> str | None:
     return headers.get("x-request-id") or headers.get("request-id")
 
@@ -159,10 +234,17 @@ async def probe_model(
     and private-network rules apply exactly as they do to model requests.
     """
     try:
-        async with create_outbound_http_client(
-            origin_url=target.url, timeout=PROBE_TIMEOUT_SECONDS
-        ) as client:
-            response = await client.get(target.url, headers=target.headers)
+        async with (
+            create_outbound_http_client(
+                origin_url=target.url, timeout=PROBE_TIMEOUT_SECONDS
+            ) as client,
+            client.stream("GET", target.url, headers=target.headers) as response,
+        ):
+            body = b""
+            if not response.is_success:
+                body = await _bounded_body(response, MAX_LLM_ERROR_BODY_BYTES)
+            elif target.listed_model is not None:
+                body = await _bounded_body(response, _MAX_MODEL_LIST_BYTES)
     except (httpx.TransportError, DisallowedUrlError) as exc:
         logger.info(
             "Model status probe could not reach the provider",
@@ -173,8 +255,12 @@ async def probe_model(
             None, provider=provider, model=model, provider_unreachable=True
         )
     if response.is_success:
-        return None
-    error_type, error_code = _error_strings(response.content)
+        if target.listed_model is None or _lists_model(body, target.listed_model):
+            return None
+        return ModelErrorDetail(
+            code=ModelErrorCode.MODEL_UNAVAILABLE, provider=provider, model=model
+        )
+    error_type, error_code = _error_strings(body)
     detail = model_error_detail(
         None,
         provider=provider,
@@ -184,7 +270,10 @@ async def probe_model(
         provider_error_code=error_code,
         provider_error_type=error_type,
     )
-    if target.lists_models and detail.code is ModelErrorCode.MODEL_UNAVAILABLE:
+    if (
+        target.listed_model is not None
+        and detail.code is ModelErrorCode.MODEL_UNAVAILABLE
+    ):
         detail = detail.model_copy(update={"code": ModelErrorCode.PROVIDER_UNREACHABLE})
     return detail
 
@@ -260,15 +349,17 @@ class ModelStatusService(BaseWorkspaceService):
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
 
         credentials = await management.get_catalog_credentials(row.id)
-        if not credentials:
+        if not credentials or credentials_incomplete(provider, credentials):
             return problem(ModelErrorCode.CREDENTIALS_MISSING)
         target = build_probe_target(provider, model, credentials)
         if target is None:
             return status(None, verified=False)
 
         key = (org_id, workspace_id, row.id, _credentials_fingerprint(credentials))
-        if not refresh and (cached := _status_cache.get(key)) is not None:
-            return cached
+        if (cached := _status_cache.get(key)) is not None:
+            age = (datetime.now(UTC) - cached.checked_at).total_seconds()
+            if not refresh or age < MIN_REFRESH_INTERVAL_SECONDS:
+                return cached
         result = status(await probe_model(target, provider=provider, model=model))
         _status_cache[key] = result
         return result

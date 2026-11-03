@@ -25716,7 +25716,6 @@ export const $ModelErrorDetail = {
       anyOf: [
         {
           type: "string",
-          maxLength: 128,
         },
         {
           type: "null",
@@ -25728,7 +25727,6 @@ export const $ModelErrorDetail = {
       anyOf: [
         {
           type: "string",
-          maxLength: 256,
         },
         {
           type: "null",

@@ -23,8 +23,8 @@ class ModelErrorDetail(BaseModel):
         default=None,
         description="The runtime classification, when the backend has one.",
     )
-    provider: str | None = Field(default=None, max_length=128)
-    model: str | None = Field(default=None, max_length=256)
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
     status_code: int | None = Field(default=None, ge=100, le=599)
     request_id: str | None = Field(
         default=None,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import uuid
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ import orjson
 import pytest
 
 from tracecat.agent.adapter.vercel import sse_vercel
+from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES
 from tracecat.agent.error_policy import (
     agent_llm_model_not_enabled,
     agent_llm_provider_auth_failed,
@@ -27,6 +29,7 @@ from tracecat.agent.model_status.service import (
     ProbeTarget,
     build_probe_target,
     clear_status_cache,
+    credentials_incomplete,
     probe_model,
 )
 from tracecat.agent.model_status.types import ModelErrorCode
@@ -106,6 +109,13 @@ class TestModelErrorDetail:
             provider_unreachable=True,
         )
         assert detail.code is ModelErrorCode.PROVIDER_UNREACHABLE
+
+    def test_long_model_names_are_accepted(self) -> None:
+        """Catalog names may be long; building the detail must never fail."""
+        detail = model_error_detail(
+            agent_llm_provider_auth_failed(), provider="openai", model="m" * 500
+        )
+        assert detail.model == "m" * 500
 
     def test_free_text_never_passes_as_an_id_or_code(self) -> None:
         """Provider-controlled strings that aren't tokens are dropped."""
@@ -201,15 +211,28 @@ class TestProbeTarget:
             {"VLLM_BASE_URL": "https://vllm.example.com/v1", "VLLM_API_KEY": "k"},
         )
         assert target is not None
-        assert target.lists_models
+        assert target.listed_model == "llama"
         assert target.url == "https://vllm.example.com/v1/models"
 
     @pytest.mark.parametrize("provider", ["bedrock", "vertex_ai", "azure_openai"])
     def test_cloud_providers_have_no_probe(self, provider: str) -> None:
         assert build_probe_target(provider, "m", {"X": "y"}) is None
 
-    def test_missing_key_has_no_probe(self) -> None:
-        assert build_probe_target("openai", "gpt-test", {}) is None
+    @pytest.mark.parametrize(
+        ("provider", "credentials", "incomplete"),
+        [
+            ("openai", {"OPENAI_BASE_URL": "https://proxy.example.com/v1"}, True),
+            ("openai", {"OPENAI_API_KEY": "sk"}, False),
+            ("openrouter", {}, True),
+            ("vllm", {"VLLM_BASE_URL": "https://vllm.example.com/v1"}, False),
+            ("custom-model-provider", {"CUSTOM_MODEL_PROVIDER_API_KEY": "k"}, True),
+        ],
+    )
+    def test_incomplete_credentials_match_the_gateway(
+        self, provider: str, credentials: dict[str, str], incomplete: bool
+    ) -> None:
+        """A key or base URL every model request needs counts as missing."""
+        assert credentials_incomplete(provider, credentials) is incomplete
 
 
 def _mock_outbound(
@@ -280,12 +303,81 @@ class TestProbeModel:
         assert detail.code is ModelErrorCode.PROVIDER_UNREACHABLE
 
     @pytest.mark.anyio
+    async def test_large_error_body_is_not_buffered(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An oversized error body is cut at the parse bound and still classified."""
+        _mock_outbound(
+            monkeypatch,
+            httpx.MockTransport(
+                lambda _: httpx.Response(401, content=b"x" * (10 * 1024 * 1024))
+            ),
+        )
+        detail = await probe_model(self.TARGET, provider="openai", model="m")
+        assert detail is not None
+        assert detail.code is ModelErrorCode.PROVIDER_AUTH_FAILED
+
+    LIST_TARGET = ProbeTarget(
+        url="https://vllm.example.com/v1/models", headers={}, listed_model="llama"
+    )
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("listing", "expected"),
+        [
+            ({"data": [{"id": "llama"}, {"id": "other"}]}, None),
+            ({"data": [{"id": "other"}]}, ModelErrorCode.MODEL_UNAVAILABLE),
+            ({"unexpected": True}, None),
+        ],
+    )
+    async def test_gateway_listing_must_contain_the_model(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        listing: dict[str, Any],
+        expected: ModelErrorCode | None,
+    ) -> None:
+        """A gateway that no longer serves the model is not ready."""
+        _mock_outbound(
+            monkeypatch,
+            httpx.MockTransport(lambda _: httpx.Response(200, json=listing)),
+        )
+        detail = await probe_model(self.LIST_TARGET, provider="vllm", model="llama")
+        assert (detail.code if detail else None) is expected
+
+    @pytest.mark.anyio
+    async def test_compressed_error_body_is_cut_at_the_bound(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One large decompressed chunk is still cut at the bound."""
+        seen: list[int] = []
+        original = status_module._bounded_body
+
+        async def spy(response: httpx.Response, limit: int) -> bytes:
+            body = await original(response, limit)
+            seen.append(len(body))
+            return body
+
+        monkeypatch.setattr(status_module, "_bounded_body", spy)
+        payload = gzip.compress(b"x" * (10 * 1024 * 1024))
+        _mock_outbound(
+            monkeypatch,
+            httpx.MockTransport(
+                lambda _: httpx.Response(
+                    401, content=payload, headers={"content-encoding": "gzip"}
+                )
+            ),
+        )
+        detail = await probe_model(self.TARGET, provider="openai", model="m")
+        assert detail is not None
+        assert seen == [MAX_LLM_ERROR_BODY_BYTES + 1]
+
+    @pytest.mark.anyio
     async def test_list_probe_404_means_wrong_base_url(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _mock_outbound(monkeypatch, httpx.MockTransport(lambda _: httpx.Response(404)))
         target = ProbeTarget(
-            url="https://vllm.example.com/v1/models", headers={}, lists_models=True
+            url="https://vllm.example.com/v1/models", headers={}, listed_model="m"
         )
         detail = await probe_model(target, provider="vllm", model="m")
         assert detail is not None
@@ -380,6 +472,12 @@ class TestModelStatusService:
         await service.get_status(catalog_id=uuid.uuid4())
         assert state["probes"] == 2
 
+        # A refresh right after a check returns that check.
+        await service.get_status(catalog_id=uuid.uuid4(), refresh=True)
+        assert state["probes"] == 2
+
+        # Past the minimum interval, a refresh probes again.
+        monkeypatch.setattr(status_module, "MIN_REFRESH_INTERVAL_SECONDS", 0)
         await service.get_status(catalog_id=uuid.uuid4(), refresh=True)
         assert state["probes"] == 3
 
@@ -407,10 +505,18 @@ class TestModelStatusService:
         assert state["probes"] == 0
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "credentials",
+        [{}, {"OPENAI_BASE_URL": "https://proxy.example.com/v1"}],
+    )
     async def test_missing_credentials(
-        self, monkeypatch: pytest.MonkeyPatch, role: Role
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        role: Role,
+        credentials: dict[str, str],
     ) -> None:
-        self._stub(monkeypatch, credentials={})
+        """No stored credentials, or no API key among them, is a problem."""
+        self._stub(monkeypatch, credentials=credentials)
         result = await self._service(role).get_status(catalog_id=uuid.uuid4())
         assert result.problem is not None
         assert result.problem.code is ModelErrorCode.CREDENTIALS_MISSING
