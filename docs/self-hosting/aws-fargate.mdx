@@ -117,6 +117,19 @@ This setting applies only to the bundled Temporal RDS instance. It requires a DB
 
 If you are using Temporal Cloud or another external Temporal cluster, set `disable_temporal_autosetup=true` and point `temporal_cluster_url` at your external cluster. In that setup, `temporal_db_force_ssl` is typically unused because the bundled Temporal RDS instance is not created. If you run your own external Temporal PostgreSQL and want SSL-only enforcement there, set `TF_VAR_temporal_db_force_ssl=true`.
 
+## AWS role assumption
+
+The executor assumes the role in an `AWS_ROLE_ARN` secret or an external secret store with its ECS task role. By default, `executor_deny_same_account_assume_role` denies it any role in the deployment's own AWS account, so workflows reach AWS only through roles in other accounts.
+
+If your AWS integration roles live in the same account as Tracecat, turn the Deny off:
+
+```bash
+export TF_VAR_executor_deny_same_account_assume_role=false
+terraform apply
+```
+
+With the Deny off, every workspace user can assume any role in that account whose trust policy names the account root or the executor task role. Keep other roles in that account from trusting either. Cross-account roles are unaffected by this setting.
+
 ## FAQ
 
 <AccordionGroup>

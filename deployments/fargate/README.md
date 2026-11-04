@@ -33,6 +33,12 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 
 - `TRACECAT__EXECUTOR_BACKEND=direct` (executor + agent-executor)
 
+### Executor AWS role assumption
+
+Workflows reach AWS by setting an `AWS_ROLE_ARN` secret, and external secret stores register a role ARN; the executor assumes those roles with its task role, `<iam_name_prefix>ExecutorTaskRole`. That role may assume a role in any account, so `executor_deny_same_account_assume_role` (default `true`) adds an explicit Deny for roles in this deployment's own account. Without it, any workspace user could assume any role in this account whose trust policy names the account root or the executor task role.
+
+Set `executor_deny_same_account_assume_role = false` only for a single-account self-hosted install whose AWS integration roles live in this account. That reopens the hole: every workspace user can then assume any role in this account whose trust policy names the account root or the executor task role, so keep other roles in that account from trusting either. The setting doesn't change cross-account assumption, which stays limited only by the target role's trust policy.
+
 ## Default sizing
 
 - `api_cpu=2048`

@@ -371,17 +371,34 @@ resource "aws_iam_role_policy" "executor_task_assume_role" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sts:AssumeRole"
-        ]
-        Resource = [
-          "arn:aws:iam::*:role/*"
-        ]
-      }
-    ]
+    Statement = concat(
+      [
+        {
+          Effect = "Allow"
+          Action = [
+            "sts:AssumeRole"
+          ]
+          Resource = [
+            "arn:aws:iam::*:role/*"
+          ]
+        }
+      ],
+      # Workflows assume customer roles in other accounts. Don't let them assume
+      # a role in this account, even one whose trust names the root. Single-account
+      # self-hosted installs turn this off (executor_deny_same_account_assume_role).
+      var.executor_deny_same_account_assume_role ? [
+        {
+          Effect   = "Deny"
+          Action   = ["sts:AssumeRole"]
+          Resource = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*"]
+          Condition = {
+            StringEquals = {
+              "aws:ResourceAccount" = data.aws_caller_identity.current.account_id
+            }
+          }
+        }
+      ] : []
+    )
   })
 }
 
