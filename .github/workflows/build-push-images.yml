@@ -207,6 +207,9 @@ jobs:
           context: .
           target: production
           platforms: ${{ matrix.platform }}
+          build-args: |
+            TRACECAT__BUILD_COMMIT=${{ github.sha }}
+            TRACECAT__BUILD_TIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/tracecathq/tracecat,push-by-digest=true,name-canonical=true,push=true
 

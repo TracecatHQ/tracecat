@@ -425,5 +425,12 @@ COPY --from=registry-manifest --chown=apiuser:apiuser /app/.registry-artifacts /
 # Verification
 RUN nsjail --help > /dev/null 2>&1 && echo "nsjail available"
 
+# Build metadata shown to platform admins. Declared last so a new commit only
+# rebuilds this metadata layer.
+ARG TRACECAT__BUILD_COMMIT
+ARG TRACECAT__BUILD_TIME
+ENV TRACECAT__BUILD_COMMIT=${TRACECAT__BUILD_COMMIT} \
+    TRACECAT__BUILD_TIME=${TRACECAT__BUILD_TIME}
+
 EXPOSE $PORT
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]

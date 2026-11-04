@@ -22,6 +22,7 @@ import {
   type AgentCatalogListResponse,
   type AgentCatalogRead,
   type AuditWebhookTestResult,
+  adminBuildGetBuildInfo,
   adminCheckIpAllowlist,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
@@ -82,6 +83,7 @@ import {
   type OrgUpdate,
   type PlatformAuditSettingsRead,
   type PlatformAuditSettingsUpdate,
+  type PlatformBuildInfo,
   type PlatformRegistrySettingsUpdate,
   type PlatformSecuritySettingsRead,
   type PlatformSecuritySettingsUpdate,
@@ -914,6 +916,20 @@ export function useAdminRegistrySettings() {
     updateSettings,
     updatePending,
   }
+}
+
+/** Loads the version and build details of the running deployment. */
+export function useAdminBuildInfo() {
+  const {
+    data: buildInfo,
+    isLoading: buildInfoIsLoading,
+    error: buildInfoError,
+  } = useQuery<PlatformBuildInfo, Error>({
+    queryKey: ["admin", "build-info"],
+    queryFn: adminBuildGetBuildInfo,
+  })
+
+  return { buildInfo, buildInfoIsLoading, buildInfoError }
 }
 
 export function useAdminAuditSettings() {

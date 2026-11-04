@@ -1539,6 +1539,13 @@ TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES = {
 }
 """The allowed MIME types for case attachment files."""
 
+# === Build metadata === #
+TRACECAT__BUILD_COMMIT = os.environ.get("TRACECAT__BUILD_COMMIT") or None
+"""Tracecat source commit the image was built from, set as an image build arg."""
+
+TRACECAT__BUILD_TIME = os.environ.get("TRACECAT__BUILD_TIME") or None
+"""ISO 8601 time the image was built, set as an image build arg."""
+
 # === Enterprise Edition === #
 ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 """Whether the enterprise edition is enabled."""
