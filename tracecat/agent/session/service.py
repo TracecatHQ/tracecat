@@ -2155,8 +2155,7 @@ class AgentSessionService(BaseWorkspaceService):
                 .with_for_update(key_share=True)
                 .execution_options(populate_existing=True)
             )
-            held_by = locked.curr_run_id if locked is not None else None
-            if locked is not None and held_by not in (None, caller_run_id):
+            if locked is not None and locked.curr_run_id not in (None, caller_run_id):
                 if holder_ended is None or not await holder_ended(locked):
                     raise TracecatConflictError("This chat already has an active turn")
                 # Its run will never release the session, so take it over.

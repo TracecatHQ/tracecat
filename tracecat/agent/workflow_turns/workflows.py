@@ -13,15 +13,13 @@ with workflow.unsafe.imports_passed_through():
         read_workflow_agent_turn_activity,
     )
     from tracecat.agent.workflow_turns.schemas import (
-        WORKFLOW_AGENT_TURN_WORKFLOW,
-        PrepareWorkflowAgentTurnInput,
         ReadWorkflowAgentTurnInput,
         WorkflowAgentTurnInput,
     )
     from tracecat.dsl.common import RETRY_POLICIES
 
 
-@workflow.defn(name=WORKFLOW_AGENT_TURN_WORKFLOW)
+@workflow.defn
 class WorkflowAgentTurnWorkflow:
     """Prepare and run the backend's turn, and return it as an AgentOutput.
 
@@ -41,12 +39,7 @@ class WorkflowAgentTurnWorkflow:
         started_at = workflow.now()
         turn = await workflow.execute_activity(
             prepare_workflow_agent_turn_activity,
-            PrepareWorkflowAgentTurnInput(
-                role=input.args.role,
-                run_id=input.run_id,
-                backend_id=input.backend_id,
-                args=input.args,
-            ),
+            input,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )

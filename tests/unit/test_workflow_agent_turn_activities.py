@@ -1,10 +1,11 @@
 """Workflow agent actions run on their session's backend.
 
 The workflow builds the built-in durable workflow's arguments either way. The
-prepare activity returns no turn when the session is on the built-in backend,
-so that path is unchanged. Otherwise it creates the workflow session on the
-selected backend, reserves the turn with the action's own configuration, and
-hands back the backend's workflow input to start as a child by type name.
+select activity returns no backend when the session is on the built-in one, so
+that path is unchanged. Otherwise the turn's parent workflow runs the prepare
+activity, which creates the workflow session on the selected backend, reserves
+the turn with the action's own configuration, and hands back the backend's
+workflow input to start as a child by type name.
 """
 
 from __future__ import annotations
@@ -52,9 +53,8 @@ from tracecat.agent.workflow_turns.activities import (
     select_workflow_agent_backend_activity,
 )
 from tracecat.agent.workflow_turns.schemas import (
-    PrepareWorkflowAgentTurnInput,
     ReadWorkflowAgentTurnInput,
-    SelectWorkflowAgentBackendInput,
+    WorkflowAgentTurnInput,
 )
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
@@ -222,15 +222,33 @@ def _activity_env(service: SimpleNamespace, *, selected: str) -> Iterator[AsyncM
         patch(
             f"{ACTIVITIES}.select_backend_id", AsyncMock(return_value=selected)
         ) as select,
-        patch(f"{ACTIVITIES}.get_agent_backend", return_value=InstalledBackend()),
+        patch(
+            "tracecat.agent.backends.turns.get_agent_backend",
+            return_value=InstalledBackend(),
+        ),
     ):
         yield select
 
 
+def _existing(**overrides: Any) -> SimpleNamespace:
+    """A workflow session of this workflow on the installed backend."""
+    fields: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "backend_id": "external",
+        "entity_type": AgentSessionEntity.WORKFLOW.value,
+        "entity_id": _WORKFLOW_ID,
+        "forked_from_session_id": None,
+        "created_by": None,
+    }
+    return SimpleNamespace(**(fields | overrides))
+
+
+def _continuing(existing: SimpleNamespace) -> AgentWorkflowArgs:
+    return _args(session_id=existing.id, continue_existing_session=True)
+
+
 async def _select(args: AgentWorkflowArgs) -> str | None:
-    selected = await select_workflow_agent_backend_activity(
-        SelectWorkflowAgentBackendInput(role=args.role, args=args)
-    )
+    selected = await select_workflow_agent_backend_activity(args)
     return selected.backend_id
 
 
@@ -238,9 +256,7 @@ async def _prepare(
     args: AgentWorkflowArgs, *, backend_id: str = "external"
 ) -> ChildAgentTurn:
     return await prepare_workflow_agent_turn_activity(
-        PrepareWorkflowAgentTurnInput(
-            role=args.role, run_id=uuid.uuid4(), backend_id=backend_id, args=args
-        )
+        WorkflowAgentTurnInput(run_id=uuid.uuid4(), backend_id=backend_id, args=args)
     )
 
 
@@ -299,20 +315,13 @@ async def test_selected_backend_runs_the_action_with_its_own_config() -> None:
 @pytest.mark.anyio
 async def test_existing_session_keeps_its_own_backend() -> None:
     """Continuing a session never re-selects: its backend is part of it."""
-    existing = SimpleNamespace(
-        id=uuid.uuid4(),
-        title="Earlier",
-        backend_id="external",
-        entity_type=AgentSessionEntity.WORKFLOW.value,
-        forked_from_session_id=None,
-        created_by=None,
-        entity_id=_WORKFLOW_ID,
-    )
+    existing = _existing()
     service = _service(existing=existing)
-    args = _args(session_id=existing.id, continue_existing_session=True)
     with _activity_env(service, selected="oss") as select:
-        turn = await _prepare(args)
+        turn = await _prepare(_continuing(existing))
     select.assert_not_awaited()
+    # The session the backend choice loaded is the one the turn runs in.
+    service.get_or_create_session.assert_not_awaited()
     service.auto_title_session_on_first_prompt.assert_not_awaited()
     assert turn.session_id == existing.id
 
@@ -322,17 +331,13 @@ async def test_existing_session_keeps_its_own_backend() -> None:
 async def test_existing_builtin_session_keeps_the_durable_workflow_path(
     existing_backend: str | None,
 ) -> None:
-    existing = SimpleNamespace(
-        id=uuid.uuid4(),
+    existing = _existing(
         backend_id=existing_backend,
         entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
-        created_by=None,
-        entity_id=_WORKFLOW_ID,
     )
     service = _service(existing=existing)
-    args = _args(session_id=existing.id, continue_existing_session=True)
     with _activity_env(service, selected="external"):
-        assert await _select(args) is None
+        assert await _select(_continuing(existing)) is None
     service.prepare_new_turn.assert_not_awaited()
 
 
@@ -388,59 +393,35 @@ async def test_preset_action_layers_its_overrides_on_the_preset() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "entity_type",
+    "overrides",
     [
-        AgentSessionEntity.WORKSPACE_CHAT,
-        AgentSessionEntity.CASE,
-        AgentSessionEntity.EXTERNAL_CHANNEL,
-        # Approval forks have no tools; an action's config would give them some.
-        AgentSessionEntity.APPROVAL,
+        # Another surface's session would skip the workflow entitlement or that
+        # surface's own rules; approval forks have no tools to give.
+        *(
+            pytest.param({"entity_type": entity.value}, id=entity.value)
+            for entity in (
+                AgentSessionEntity.WORKSPACE_CHAT,
+                AgentSessionEntity.CASE,
+                AgentSessionEntity.EXTERNAL_CHANNEL,
+                AgentSessionEntity.APPROVAL,
+            )
+        ),
+        # A reviewer fork of a workflow session has no tools either.
+        pytest.param({"forked_from_session_id": uuid.uuid4()}, id="reviewer-fork"),
+        # A session belongs to its workflow, even one no user started.
+        pytest.param({"entity_id": uuid.uuid4()}, id="another-workflow"),
     ],
 )
-async def test_action_cannot_continue_another_surfaces_session_on_a_backend(
-    entity_type: AgentSessionEntity,
+async def test_action_continues_only_its_own_workflow_sessions_on_a_backend(
+    overrides: dict[str, Any],
 ) -> None:
-    """Otherwise a workflow action would skip the workflow entitlement, or the
-    other surface's own rules, by naming that surface's session."""
-    existing = SimpleNamespace(
-        id=uuid.uuid4(),
-        backend_id="external",
-        entity_type=entity_type.value,
-        forked_from_session_id=None,
-        created_by=None,
-        entity_id=_WORKFLOW_ID,
-    )
+    existing = _existing(**overrides)
     service = _service(existing=existing)
-    args = _args(session_id=existing.id, continue_existing_session=True)
-    with (
-        _activity_env(service, selected="external"),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        await _prepare(args)
-    assert exc_info.value.non_retryable
-    service.prepare_new_turn.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_action_cannot_continue_a_reviewer_fork_on_a_backend() -> None:
-    """A reviewer fork of a workflow session has no tools; an action's config
-    would give it some."""
-    existing = SimpleNamespace(
-        id=uuid.uuid4(),
-        backend_id="external",
-        entity_type=AgentSessionEntity.WORKFLOW.value,
-        forked_from_session_id=uuid.uuid4(),
-        created_by=None,
-        entity_id=_WORKFLOW_ID,
-    )
-    service = _service(existing=existing)
-    args = _args(session_id=existing.id, continue_existing_session=True)
-    with (
-        _activity_env(service, selected="external"),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        await _prepare(args)
-    assert exc_info.value.non_retryable
+    with _activity_env(service, selected="external"):
+        for activity_call in (_select, _prepare):
+            with pytest.raises(ApplicationError) as exc_info:
+                await activity_call(_continuing(existing))
+            assert exc_info.value.non_retryable
     service.prepare_new_turn.assert_not_awaited()
 
 
@@ -464,18 +445,10 @@ async def test_action_continues_only_sessions_its_user_may_write(
     user_id = uuid.uuid4() if actor == "user" else None
     role = _role().model_copy(update={"user_id": user_id})
     created_by = {"teammate": uuid.uuid4(), "self": user_id, None: None}[creator]
-    existing = SimpleNamespace(
-        id=uuid.uuid4(),
-        title="Earlier",
-        backend_id="external",
-        entity_type=AgentSessionEntity.WORKFLOW.value,
-        forked_from_session_id=None,
-        created_by=created_by,
-        entity_id=_WORKFLOW_ID,
-    )
+    existing = _existing(created_by=created_by)
     service = _service(existing=existing)
     service.role = role
-    args = _args(session_id=existing.id, continue_existing_session=True)
+    args = _continuing(existing)
     with _activity_env(service, selected="external"):
         if refused:
             with pytest.raises(ApplicationError):
@@ -483,27 +456,6 @@ async def test_action_continues_only_sessions_its_user_may_write(
             service.prepare_new_turn.assert_not_awaited()
         else:
             assert (await _prepare(args)).session_id == existing.id
-
-
-@pytest.mark.anyio
-async def test_action_cannot_continue_another_workflows_session_on_a_backend() -> None:
-    """A session belongs to its workflow, even one no user started."""
-    existing = SimpleNamespace(
-        id=uuid.uuid4(),
-        backend_id="external",
-        entity_type=AgentSessionEntity.WORKFLOW.value,
-        forked_from_session_id=None,
-        created_by=None,
-        entity_id=uuid.uuid4(),
-    )
-    service = _service(existing=existing)
-    args = _args(session_id=existing.id, continue_existing_session=True)
-    with (
-        _activity_env(service, selected="external"),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        await _select(args)
-    assert exc_info.value.non_retryable
 
 
 @pytest.mark.anyio
@@ -726,7 +678,7 @@ async def test_holder_ends_only_when_its_turn_can_never_finish(
         patch(f"{ACTIVITIES}.get_temporal_client", AsyncMock(return_value=client)),
         patch(f"{ACTIVITIES}.claim_unstarted_workflow_id", claim),
     ):
-        assert await _holder_ended(db, admitting)(held) is ended
+        assert await _holder_ended(admitting)(held) is ended
 
     claimed = [call.args[1] for call in claim.await_args_list]
     missing = [

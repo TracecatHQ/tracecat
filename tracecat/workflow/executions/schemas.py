@@ -970,7 +970,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 )
                 compact_event.set_mask_output(memo.mask_output)
                 return compact_event
-            case "DurableAgentWorkflow":
+            case "DurableAgentWorkflow" | "WorkflowAgentTurnWorkflow" as agent_type:
                 memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
 
                 input_data = await extract_first(attrs.input)
@@ -991,7 +991,13 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     compact_event.set_mask_output(memo.mask_output)
                     return compact_event
 
-                agent_run_args = AgentWorkflowArgs(**input_data)
+                # An installed backend's turn carries the action's own
+                # arguments, so both read the same.
+                agent_run_args = (
+                    WorkflowAgentTurnInput.model_validate(input_data).args
+                    if agent_type == "WorkflowAgentTurnWorkflow"
+                    else AgentWorkflowArgs(**input_data)
+                )
                 session = None
                 session_id = agent_run_args.agent_args.session_id
                 if session_id is not None:
@@ -1004,30 +1010,6 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     action_name=PlatformAction.AI_AGENT.value,
                     action_ref=memo.action_ref,
                     action_input=agent_run_args,
-                    child_wf_exec_id=None,
-                    loop_index=memo.loop_index,
-                    stream_id=memo.stream_id,
-                    session=session,
-                )
-                compact_event.set_mask_output(memo.mask_output)
-                return compact_event
-            case "WorkflowAgentTurnWorkflow":
-                # An agent action on an installed backend.
-                memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
-                input_data = await extract_first(attrs.input)
-                session = None
-                if not is_unreadable_temporal_payload(input_data):
-                    # The action's own arguments, as for the built-in workflow.
-                    input_data = WorkflowAgentTurnInput.model_validate(input_data).args
-                    session = Session(id=input_data.agent_args.session_id)
-                compact_event = WorkflowExecutionEventCompact(
-                    source_event_id=event.event_id,
-                    schedule_time=event.event_time.ToDatetime(UTC),
-                    curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
-                    status=WorkflowExecutionEventStatus.SCHEDULED,
-                    action_name=PlatformAction.AI_AGENT.value,
-                    action_ref=memo.action_ref,
-                    action_input=input_data,
                     child_wf_exec_id=None,
                     loop_index=memo.loop_index,
                     stream_id=memo.stream_id,

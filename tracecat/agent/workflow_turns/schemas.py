@@ -6,20 +6,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
-from tracecat.auth.types import Role
-
-WORKFLOW_AGENT_TURN_WORKFLOW = "WorkflowAgentTurnWorkflow"
 
 
 def workflow_agent_turn_workflow_id(run_id: uuid.UUID) -> str:
     """Return the stable workflow ID of the parent of one backend turn."""
     return f"workflow-agent-turn/{run_id}"
-
-
-class SelectWorkflowAgentBackendInput(BaseModel):
-    role: Role
-    # The built-in workflow's input, which the action builds either way.
-    args: AgentWorkflowArgs
 
 
 class SelectWorkflowAgentBackendResult(BaseModel):
@@ -28,14 +19,20 @@ class SelectWorkflowAgentBackendResult(BaseModel):
     backend_id: str | None = None
 
 
-class PrepareWorkflowAgentTurnInput(BaseModel):
-    role: Role
+class WorkflowAgentTurnInput(BaseModel):
+    """A workflow agent action's turn on an installed backend.
+
+    The input of the turn's parent workflow, and of the activity that prepares
+    the turn there.
+    """
+
     # Minted by the action, so a retry adopts this action's own reservation
     # and a concurrent action on the same session is refused.
     run_id: uuid.UUID
     # The backend the action selected; preparation refuses any other.
     backend_id: str
-    # The session, prompt, configuration and limits of the turn.
+    # The action's own arguments, as the built-in workflow would take them,
+    # run views included.
     args: AgentWorkflowArgs
 
 
@@ -50,13 +47,3 @@ class ReadWorkflowAgentTurnResult(BaseModel):
     # The turn ended without a usable output, for example when it failed or
     # was cancelled.
     error: str | None = Field(default=None)
-
-
-class WorkflowAgentTurnInput(BaseModel):
-    """A workflow agent action's turn on an installed backend."""
-
-    run_id: uuid.UUID
-    backend_id: str
-    # The action's own arguments, as the built-in workflow would take them.
-    # The parent prepares the turn from them, and run views show them.
-    args: AgentWorkflowArgs

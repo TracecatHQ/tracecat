@@ -7,13 +7,8 @@ from dataclasses import replace
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from tracecat.agent.backends.registry import (
-    find_agent_backend,
-    get_agent_backend,
-    get_workflow_type,
-)
-from tracecat.agent.backends.schemas import ChildAgentTurn
-from tracecat.agent.backends.types import SessionWorkflowContext
+from tracecat.agent.backends.registry import find_agent_backend
+from tracecat.agent.backends.turns import build_child_agent_turn
 from tracecat.agent.error_policy import agent_provider_credentials_missing
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.cases.agent_invocations.completion import (
@@ -86,43 +81,16 @@ async def prepare_comment_agent_invocation_activity(
             raise_application_error_from_classification(
                 agent_provider_credentials_missing(e)
             )
-        backend = get_agent_backend(
-            prepared_turn.backend_id, harness_type=prepared_turn.harness_type
-        )
         config = replace(
             prepared_turn.config,
             actions=_without_comment_reply_actions(prepared_turn.config.actions),
         )
-        tools = _without_comment_reply_actions(prepared_turn.tools)
-        args = await backend.build_workflow_args(
-            SessionWorkflowContext(
-                session_id=prepared_turn.session_id,
-                backend_id=prepared_turn.backend_id,
-                harness_type=prepared_turn.harness_type,
-                title=prepared_turn.title,
-                entity_type=prepared_turn.entity_type,
-                entity_id=prepared_turn.entity_id,
-                tools=tuple(tools) if tools is not None else None,
-                agent_preset_id=prepared_turn.agent_preset_id,
-                agent_preset_version_id=prepared_turn.agent_preset_version_id,
-                role=session_service.execution_role,
-                config=config,
-                prompt=prepared_turn.prompt,
-                run_id=prepared_turn.run_id,
-                stream_id=prepared_turn.active_stream_id,
-            )
+        turn = await build_child_agent_turn(
+            prepared_turn,
+            role=session_service.execution_role,
+            config=config,
+            tools=_without_comment_reply_actions(prepared_turn.tools),
         )
-    turn = ChildAgentTurn(
-        backend_id=prepared_turn.backend_id,
-        session_id=prepared_turn.session_id,
-        run_id=prepared_turn.run_id,
-        workflow_type=get_workflow_type(backend),
-        workflow_id=backend.workflow_id(prepared_turn.run_id),
-        task_queue=backend.task_queue,
-        priority=backend.priority,
-        retry_policy=backend.retry_policy,
-        args=args,
-    )
     return PrepareCommentAgentInvocationResult(turn=turn)
 
 

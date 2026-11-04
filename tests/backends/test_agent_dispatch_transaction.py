@@ -5,7 +5,7 @@ uv run pytest --noconftest tests/backends/test_agent_dispatch_transaction.py
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import timedelta
@@ -938,6 +938,19 @@ async def test_caller_owned_reservation_is_never_tombstoned(
     assert saved.reserved_at is None
 
 
+def identity_map_loader(
+    db: AsyncSession, context: SessionTurnContext
+) -> Callable[..., Awaitable[AgentSession]]:
+    """Stand in for turn validation, which loads the session without a refresh."""
+
+    async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
+        loaded = await db.get(AgentSession, context.session.surrogate_id)
+        assert loaded is not None
+        return loaded
+
+    return load_session
+
+
 async def test_named_caller_runs_are_admitted_one_at_a_time(
     connection: AsyncConnection,
 ) -> None:
@@ -953,10 +966,7 @@ async def test_named_caller_runs_are_admitted_one_at_a_time(
         service = AgentSessionService(db, context.role)
         first, second, third = uuid4(), uuid4(), uuid4()
 
-        async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
-            loaded = await db.get(AgentSession, context.session.surrogate_id)
-            assert loaded is not None
-            return loaded
+        load_session = identity_map_loader(db, context)
 
         async def prepare(run_id: UUID, *, ended: bool = False):
             return await service.prepare_new_turn(
@@ -1019,10 +1029,7 @@ async def test_named_caller_never_reuses_a_finished_runs_pointers(
             )
             await other.commit()
 
-        async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
-            loaded = await db.get(AgentSession, context.session.surrogate_id)
-            assert loaded is not None
-            return loaded
+        load_session = identity_map_loader(db, context)
 
         with patch.object(service, "validate_turn_request", load_session):
             prepared = await service.prepare_new_turn(

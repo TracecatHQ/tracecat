@@ -225,7 +225,8 @@ async def test_prepare_routes_the_turn_to_the_sessions_installed_backend() -> No
     prepared_turn = _prepared_turn("external")
 
     with patch(
-        f"{ACTIVITIES}.get_agent_backend", return_value=InstalledBackend()
+        "tracecat.agent.backends.turns.get_agent_backend",
+        return_value=InstalledBackend(),
     ) as get_backend:
         result = await _prepare(prepared_turn, actor_role, execution_role)
 

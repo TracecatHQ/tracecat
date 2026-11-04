@@ -54,7 +54,6 @@ with workflow.unsafe.imports_passed_through():
         select_workflow_agent_backend_activity,
     )
     from tracecat.agent.workflow_turns.schemas import (
-        SelectWorkflowAgentBackendInput,
         WorkflowAgentTurnInput,
         workflow_agent_turn_workflow_id,
     )
@@ -1873,20 +1872,41 @@ class DSLWorkflow:
         type name, the way case comments run theirs, and returns its output as
         an AgentOutput.
         """
+        backend_id: str | None = None
         if workflow.patched(WorkflowPatch.AGENT_ACTIONS_ON_SESSION_BACKEND):
             selected = await workflow.execute_activity(
                 select_workflow_agent_backend_activity,
-                SelectWorkflowAgentBackendInput(role=self.role, args=arg),
+                arg,
                 # The agent worker has the installed backends.
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
-            if selected.backend_id is not None:
-                return await self._run_backend_agent_turn(
-                    task, selected.backend_id, arg, stream_id
-                )
+            backend_id = selected.backend_id
         wf_info = workflow.info()
+        search_attributes = _build_agent_child_search_attributes(wf_info, task.ref)
+        memo = AgentActionMemo(
+            action_ref=task.ref,
+            action_title=task.title,
+            stream_id=stream_id or ROOT_STREAM,
+            mask_output=task.mask_output,
+        ).model_dump()
+        if backend_id is not None:
+            run_id = workflow.uuid4()
+            return await workflow.execute_child_workflow(
+                WorkflowAgentTurnWorkflow.run,
+                WorkflowAgentTurnInput(run_id=run_id, backend_id=backend_id, args=arg),
+                id=workflow_agent_turn_workflow_id(run_id),
+                # A session taken over from this turn claims this ID first. Then
+                # this start is rejected rather than running beside the new turn.
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                execution_timeout=wf_info.execution_timeout,
+                task_timeout=wf_info.task_timeout,
+                search_attributes=search_attributes,
+                memo=memo,
+            )
         return await workflow.execute_child_workflow(
             DurableAgentWorkflow.run,
             arg=arg,
@@ -1896,44 +1916,8 @@ class DSLWorkflow:
             task_queue=config.TRACECAT__AGENT_QUEUE,
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
-            search_attributes=_build_agent_child_search_attributes(wf_info, task.ref),
-            memo=AgentActionMemo(
-                action_ref=task.ref,
-                action_title=task.title,
-                stream_id=stream_id or ROOT_STREAM,
-                mask_output=task.mask_output,
-            ).model_dump(),
-        )
-
-    async def _run_backend_agent_turn(
-        self,
-        task: ActionStatement,
-        backend_id: str,
-        arg: AgentWorkflowArgs,
-        stream_id: StreamID,
-    ) -> AgentOutput:
-        """Run a prepared turn on an installed backend through its parent workflow."""
-        wf_info = workflow.info()
-        run_id = workflow.uuid4()
-        return await workflow.execute_child_workflow(
-            WorkflowAgentTurnWorkflow.run,
-            WorkflowAgentTurnInput(run_id=run_id, backend_id=backend_id, args=arg),
-            id=workflow_agent_turn_workflow_id(run_id),
-            # A session taken over from this turn claims this ID first. Then
-            # this start is rejected rather than running beside the new turn.
-            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-            # The agent worker has the installed backends.
-            task_queue=config.TRACECAT__AGENT_QUEUE,
-            execution_timeout=wf_info.execution_timeout,
-            task_timeout=wf_info.task_timeout,
-            search_attributes=_build_agent_child_search_attributes(wf_info, task.ref),
-            memo=AgentActionMemo(
-                action_ref=task.ref,
-                action_title=task.title,
-                stream_id=stream_id or ROOT_STREAM,
-                mask_output=task.mask_output,
-            ).model_dump(),
+            search_attributes=search_attributes,
+            memo=memo,
         )
 
     def _build_action_context(

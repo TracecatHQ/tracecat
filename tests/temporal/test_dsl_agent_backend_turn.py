@@ -34,6 +34,7 @@ from tests.temporal.installed_backend_turn_harness import (
 )
 from tracecat import config
 from tracecat.agent.backends.schemas import (
+    AgentWorkflowArgs,
     ChildAgentTurn,
     WorkflowApprovalSubmission,
 )
@@ -44,9 +45,8 @@ from tracecat.agent.workflow_turns.activities import (
     select_workflow_agent_backend_activity,
 )
 from tracecat.agent.workflow_turns.schemas import (
-    PrepareWorkflowAgentTurnInput,
-    SelectWorkflowAgentBackendInput,
     SelectWorkflowAgentBackendResult,
+    WorkflowAgentTurnInput,
 )
 from tracecat.agent.workflow_turns.workflows import WorkflowAgentTurnWorkflow
 from tracecat.auth.types import Role
@@ -86,19 +86,17 @@ def _agent_action_dsl(**args: Any) -> DSLInput:
 
 
 def _installed_backend_activities(
-    prepared: list[PrepareWorkflowAgentTurnInput], *, task_queue: str
+    prepared: list[WorkflowAgentTurnInput], *, task_queue: str
 ) -> list[Callable[..., Any]]:
     """Select the installed backend for every action and prepare its turn there."""
 
     @activity.defn(name="select_workflow_agent_backend_activity")
-    async def select(
-        input: SelectWorkflowAgentBackendInput,
-    ) -> SelectWorkflowAgentBackendResult:
-        del input
+    async def select(args: AgentWorkflowArgs) -> SelectWorkflowAgentBackendResult:
+        del args
         return SelectWorkflowAgentBackendResult(backend_id="installed")
 
     @activity.defn(name="prepare_workflow_agent_turn_activity")
-    async def prepare(input: PrepareWorkflowAgentTurnInput) -> ChildAgentTurn:
+    async def prepare(input: WorkflowAgentTurnInput) -> ChildAgentTurn:
         assert input.backend_id == "installed"
         agent_args = input.args.agent_args
         assert agent_args.config is not None
@@ -129,8 +127,8 @@ _REGISTRY_LOCK = RegistryLock(
 
 
 async def _wait_for_turn(
-    client: Client, prepared: list[PrepareWorkflowAgentTurnInput]
-) -> PrepareWorkflowAgentTurnInput:
+    client: Client, prepared: list[WorkflowAgentTurnInput]
+) -> WorkflowAgentTurnInput:
     """Wait until the backend's turn workflow is running."""
     for _ in range(100):
         if prepared:
@@ -171,7 +169,7 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
     """The action's history holds an AgentOutput, or a failure, never the
     backend's own result: reruns reuse that history, and a turn that ended
     without output must not count as a success."""
-    prepared: list[PrepareWorkflowAgentTurnInput] = []
+    prepared: list[WorkflowAgentTurnInput] = []
     backend = InstalledBackend()
     agent_queue = config.TRACECAT__AGENT_QUEUE
     monkeypatch.setattr(
