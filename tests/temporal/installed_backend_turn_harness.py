@@ -32,12 +32,14 @@ class InstalledBackendTurnWorkflow:
     async def run(self, args: dict[str, Any]) -> dict[str, Any]:
         await workflow.wait_condition(lambda: self._approvals is not None)
         assert self._approvals is not None
+        # Like a real backend, a turn that ends without output still completes.
+        if self._approvals.get("call_1") is not True:
+            return {"error": "The tool call was denied"}
         return {
             "output": {
                 "verdict": "benign",
                 "prompt": args["prompt"],
                 "output_type": args["output_type"],
-                "approved": self._approvals.get("call_1") is True,
             }
         }
 
@@ -71,6 +73,8 @@ class InstalledBackend(AgentBackend[dict[str, Any], dict[str, Any]]):
         match result:
             case {"output": output}:
                 return TurnResult(output=output)
+            case {"error": str(error)}:
+                return TurnResult(output=None, error=error)
         return TurnResult(output=None, error="Turn ended without output")
 
 

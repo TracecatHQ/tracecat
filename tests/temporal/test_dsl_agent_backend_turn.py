@@ -16,7 +16,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 from temporalio import activity
-from temporalio.client import Client, WorkflowHandle
+from temporalio.client import (
+    Client,
+    WorkflowExecutionStatus,
+    WorkflowFailureError,
+    WorkflowHandle,
+)
 from temporalio.common import Priority, RetryPolicy
 from temporalio.service import RPCError
 from temporalio.worker import Worker
@@ -42,6 +47,7 @@ from tracecat.agent.workflow_turns.schemas import (
     PrepareWorkflowAgentTurnInput,
     PrepareWorkflowAgentTurnResult,
 )
+from tracecat.agent.workflow_turns.workflows import WorkflowAgentTurnWorkflow
 from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement
@@ -77,6 +83,10 @@ def _agent_action_dsl(**args: Any) -> DSLInput:
     )
 
 
+# Sessions the mocked preparation handed out, by run ID.
+_SESSION_IDS: dict[uuid.UUID, uuid.UUID] = {}
+
+
 def _prepare_on_installed_backend(
     *, run_id: uuid.UUID, task_queue: str
 ) -> Callable[..., Any]:
@@ -88,6 +98,7 @@ def _prepare_on_installed_backend(
     ) -> PrepareWorkflowAgentTurnResult:
         agent_args = input.args.agent_args
         assert agent_args.config is not None
+        _SESSION_IDS[run_id] = agent_args.session_id
         return PrepareWorkflowAgentTurnResult(
             turn=ChildAgentTurn(
                 backend_id="installed",
@@ -134,13 +145,18 @@ def _with_activity(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("approved", [True, False], ids=["approved", "denied"])
 async def test_agent_action_runs_on_the_sessions_installed_backend(
+    approved: bool,
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[..., Worker],
     threadpool: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The action's history holds an AgentOutput, or a failure, never the
+    backend's own result: reruns reuse that history, and a turn that ended
+    without output must not count as a success."""
     run_id = uuid.uuid4()
     backend = InstalledBackend()
     agent_queue = config.TRACECAT__AGENT_QUEUE
@@ -166,7 +182,7 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
             get_agent_worker_activities(),
             _prepare_on_installed_backend(run_id=run_id, task_queue=agent_queue),
         ),
-        workflows=[InstalledBackendTurnWorkflow],
+        workflows=[WorkflowAgentTurnWorkflow, InstalledBackendTurnWorkflow],
         workflow_runner=new_agent_sandbox_runner(),
         activity_executor=threadpool,
     )
@@ -187,30 +203,36 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             execution_timeout=timedelta(seconds=60),
         )
-        child = temporal_client.get_workflow_handle(f"agent/{run_id}")
-        await _wait_until_started(child)
+        await _wait_until_started(
+            temporal_client.get_workflow_handle(f"agent/{run_id}")
+        )
         # The approvals inbox submits through the backend's control path.
         resumed = await backend.submit_approvals(
             run_id,
             WorkflowApprovalSubmission(
-                approvals={"call_1": True}, new_stream_id=uuid.uuid4()
+                approvals={"call_1": approved}, new_stream_id=uuid.uuid4()
             ),
         )
         assert resumed is True
+        parent = temporal_client.get_workflow_handle(f"workflow-agent-turn/{run_id}")
+        if not approved:
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+            description = await parent.describe()
+            assert description.status == WorkflowExecutionStatus.FAILED
+            return
         result = await handle.result()
-        memo = await (await child.describe()).memo()
+        memo = await (await parent.describe()).memo()
 
     data = await to_data(result)
     assert data["output"] == {
         "verdict": "benign",
         "prompt": "Investigate this alert",
         "output_type": output_type,
-        "approved": True,
     }
-    session_id = uuid.UUID(str(data["session_id"]))
-    # The run view finds the session through the child's memo.
+    assert uuid.UUID(str(data["session_id"])) == _SESSION_IDS[run_id]
+    # The run view attributes the turn to its action through this memo.
     assert memo["action_ref"] == "agent"
-    assert uuid.UUID(str(memo["session_id"])) == session_id
 
 
 @pytest.mark.anyio

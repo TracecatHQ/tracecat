@@ -17,6 +17,7 @@ def test_workflow_patch_ids_are_history_stable() -> None:
         "RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR": (
             "runtime-error-attribution-interceptor-v1"
         ),
+        "AGENT_ACTIONS_ON_SESSION_BACKEND": "dsl-agent-actions-on-session-backend-v1",
     }
 
 

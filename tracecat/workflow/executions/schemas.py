@@ -30,7 +30,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
-from tracecat.agent.backends.registry import is_agent_turn_workflow_type
+from tracecat.agent.workflow_turns.schemas import WorkflowAgentTurnInput
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import ScatterActionInput
@@ -365,18 +365,12 @@ def destructure_slugified_namespace(s: str, delimiter: str = "__") -> tuple[str,
     return (".".join(stem), leaf)
 
 
-class AgentBackendTurnInput(BaseModel):
-    """An agent action's input on an installed backend, in that backend's shape."""
-
-    backend_input: Any
-
-
 EventInput = (
     RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
     | AgentWorkflowArgs
-    | AgentBackendTurnInput
+    | WorkflowAgentTurnInput
     | UnreadableTemporalPayload
 )
 
@@ -561,13 +555,13 @@ class EventGroup[T: EventInput](BaseModel):
                 )
                 agent_group.set_mask_output(memo.mask_output)
                 return agent_group
-            case workflow_type if is_agent_turn_workflow_type(workflow_type):
-                # An agent action on an installed backend. Its input is the
-                # backend's own type, so show it as recorded.
+            case "WorkflowAgentTurnWorkflow":
+                # An agent action on an installed backend. The backend's own
+                # input stays opaque inside the prepared turn.
                 memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
                 input = await extract_first(attrs.input)
                 if not is_unreadable_temporal_payload(input):
-                    input = AgentBackendTurnInput(backend_input=input)
+                    input = WorkflowAgentTurnInput.model_validate(input)
                 namespace, name = PlatformAction.AI_AGENT.value.split(".", 1)
                 agent_group = EventGroup(
                     event_id=event.event_id,
@@ -1018,10 +1012,14 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 )
                 compact_event.set_mask_output(memo.mask_output)
                 return compact_event
-            case workflow_type if is_agent_turn_workflow_type(workflow_type):
-                # An agent action on an installed backend. Its input is the
-                # backend's own type; the memo names the session.
+            case "WorkflowAgentTurnWorkflow":
+                # An agent action on an installed backend.
                 memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
+                input_data = await extract_first(attrs.input)
+                session = None
+                if not is_unreadable_temporal_payload(input_data):
+                    input_data = WorkflowAgentTurnInput.model_validate(input_data)
+                    session = Session(id=input_data.turn.session_id)
                 compact_event = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(UTC),
@@ -1029,13 +1027,11 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     status=WorkflowExecutionEventStatus.SCHEDULED,
                     action_name=PlatformAction.AI_AGENT.value,
                     action_ref=memo.action_ref,
-                    action_input=await extract_first(attrs.input),
+                    action_input=input_data,
                     child_wf_exec_id=None,
                     loop_index=memo.loop_index,
                     stream_id=memo.stream_id,
-                    session=Session(id=memo.session_id)
-                    if memo.session_id is not None
-                    else None,
+                    session=session,
                 )
                 compact_event.set_mask_output(memo.mask_output)
                 return compact_event

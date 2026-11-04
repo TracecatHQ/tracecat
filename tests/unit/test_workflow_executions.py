@@ -29,8 +29,11 @@ from temporalio.api.history.v1 import (
     WorkflowExecutionTerminatedEventAttributes,
 )
 from temporalio.client import Client, WorkflowHandle
+from temporalio.common import Priority, RetryPolicy
 from temporalio.converter import DefaultPayloadConverter
 
+from tracecat.agent.backends.schemas import ChildAgentTurn
+from tracecat.agent.workflow_turns.schemas import WorkflowAgentTurnInput
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
@@ -56,7 +59,6 @@ from tracecat.workflow.executions.enums import (
     WorkflowExecutionEventStatus,
 )
 from tracecat.workflow.executions.schemas import (
-    AgentBackendTurnInput,
     EventFailure,
     EventGroup,
     WorkflowExecutionEventCompact,
@@ -1265,33 +1267,43 @@ class TestWorkflowExecutionEvents:
         assert event.action_ref == expected_ref
         assert event.should_mask_output is True
 
-    async def test_backend_agent_child_shows_as_an_agent_action(self) -> None:
+    async def test_backend_agent_turn_shows_as_an_agent_action(self) -> None:
         """An agent action on an installed backend shows in the run view.
 
-        Its workflow type is the backend's own, and only the memo names the
-        session, since the input is the backend's own type.
+        Its parent workflow is Tracecat's own, so the run view reads it, and
+        the session it names, without the backend installed.
         """
         session_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        turn = ChildAgentTurn(
+            backend_id="uninstalled",
+            session_id=session_id,
+            run_id=run_id,
+            workflow_type="UninstalledTurnWorkflow",
+            workflow_id=f"agent/{run_id}",
+            task_queue="uninstalled-queue",
+            priority=Priority(),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+            args={"prompt": "Investigate"},
+        )
         initiated = create_mock_child_workflow_initiated_event(
             event_id=1,
-            workflow_type_name="InstalledTurnWorkflow",
-            workflow_id=cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}"),
+            workflow_type_name="WorkflowAgentTurnWorkflow",
+            workflow_id=cast(WorkflowExecutionID, f"workflow-agent-turn/{run_id}"),
         )
-        memo = AgentActionMemo(
-            action_ref="triage", mask_output=True, session_id=session_id
-        )
+        memo = AgentActionMemo(action_ref="triage", mask_output=True)
         with (
-            patch(
-                "tracecat.workflow.executions.schemas.is_agent_turn_workflow_type",
-                lambda name: name == "InstalledTurnWorkflow",
-            ),
             patch(
                 "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
                 AsyncMock(return_value=memo),
             ),
             patch(
                 "tracecat.workflow.executions.schemas.extract_first",
-                AsyncMock(return_value={"prompt": "Investigate"}),
+                AsyncMock(
+                    return_value=WorkflowAgentTurnInput(turn=turn).model_dump(
+                        mode="json"
+                    )
+                ),
             ),
         ):
             event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
@@ -1302,13 +1314,11 @@ class TestWorkflowExecutionEvents:
         assert event is not None
         assert event.action_name == "ai.agent"
         assert event.action_ref == "triage"
-        assert event.action_input == {"prompt": "Investigate"}
+        assert event.action_input == WorkflowAgentTurnInput(turn=turn)
         assert event.session is not None and event.session.id == session_id
         assert event.should_mask_output is True
         assert group.udf_key == "ai.agent"
-        assert group.action_input == AgentBackendTurnInput(
-            backend_input={"prompt": "Investigate"}
-        )
+        assert group.action_input == WorkflowAgentTurnInput(turn=turn)
 
     async def test_unknown_child_workflow_type_is_still_rejected(self) -> None:
         initiated = create_mock_child_workflow_initiated_event(

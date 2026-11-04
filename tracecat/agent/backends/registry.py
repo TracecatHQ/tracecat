@@ -192,13 +192,6 @@ def get_workflow_type(backend: AgentBackend[Any, Any]) -> str:
     return name
 
 
-def is_agent_turn_workflow_type(name: str) -> bool:
-    """Whether a Temporal workflow type is an installed backend's turn workflow."""
-    return any(
-        get_workflow_type(backend) == name for backend in get_agent_backends().values()
-    )
-
-
 def agent_backend_available(identifier: str | None, harness_type: str | None) -> bool:
     """Whether the installed provider can execute this session."""
     backend = find_agent_backend(identifier)

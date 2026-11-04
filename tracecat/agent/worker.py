@@ -37,6 +37,7 @@ with workflow.unsafe.imports_passed_through():
         prepare_workflow_agent_turn_activity,
         read_workflow_agent_turn_activity,
     )
+    from tracecat.agent.workflow_turns.workflows import WorkflowAgentTurnWorkflow
     from tracecat.agent.workflows.mcp_probe import (
         StdioMCPProbeWorkflow,
     )
@@ -152,6 +153,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             workflows: list[type] = [
                 DurableAgentWorkflow,
                 CaseCommentAgentInvocationWorkflow,
+                WorkflowAgentTurnWorkflow,
                 ExecuteRegistryToolWorkflow,
                 StdioMCPProbeWorkflow,
             ]

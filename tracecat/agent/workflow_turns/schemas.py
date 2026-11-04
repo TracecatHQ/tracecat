@@ -7,6 +7,13 @@ from pydantic import BaseModel, Field
 from tracecat.agent.backends.schemas import AgentWorkflowArgs, ChildAgentTurn
 from tracecat.auth.types import Role
 
+WORKFLOW_AGENT_TURN_WORKFLOW = "WorkflowAgentTurnWorkflow"
+
+
+def workflow_agent_turn_workflow_id(turn: ChildAgentTurn) -> str:
+    """Return the stable workflow ID of the parent of one backend turn."""
+    return f"workflow-agent-turn/{turn.run_id}"
+
 
 class PrepareWorkflowAgentTurnInput(BaseModel):
     role: Role
@@ -33,3 +40,9 @@ class ReadWorkflowAgentTurnResult(BaseModel):
     # The turn ended without a usable output, for example when it failed or
     # was cancelled.
     error: str | None = Field(default=None)
+
+
+class WorkflowAgentTurnInput(BaseModel):
+    """A prepared workflow agent action turn on an installed backend."""
+
+    turn: ChildAgentTurn
