@@ -6,24 +6,32 @@ from typing import get_args
 
 import httpx
 import pytest
+import sqlalchemy as sa
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.schemas import CaseFieldCreate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session
-from tracecat.db.models import Case, Organization, Workspace
+from tracecat.db.models import Case, CaseEvent, Organization, Workspace
 from tracecat.executor.action_gateway.app import create_app
 from tracecat.tables.enums import SqlType
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
 
 FIELD_NAME = "observed_at"
-INVALID_VALUE = "next tuesday"
+SQL_TYPES = [SqlType.TIMESTAMPTZ, SqlType.DATE]
+# A non-ISO string raises TypeError; an out-of-range epoch raises OverflowError.
+INVALID_VALUES = ["next tuesday", 1e20]
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -86,14 +94,16 @@ async def _create_field(session: AsyncSession, role: Role, sql_type: SqlType) ->
     )
 
 
-@pytest.mark.parametrize("sql_type", [SqlType.TIMESTAMPTZ, SqlType.DATE])
+@pytest.mark.parametrize("value", INVALID_VALUES)
+@pytest.mark.parametrize("sql_type", SQL_TYPES)
 async def test_create_case_simple_rejects_invalid_temporal_field_value(
     session: AsyncSession,
     role: Role,
     client: httpx.AsyncClient,
     sql_type: SqlType,
+    value: str | float,
 ) -> None:
-    """A non-ISO string for a temporal field is a client error, not a 500."""
+    """An unparseable temporal field value is a client error, not a 500."""
     await _create_field(session, role, sql_type)
 
     response = await client.post(
@@ -104,7 +114,7 @@ async def test_create_case_simple_rejects_invalid_temporal_field_value(
             "priority": "medium",
             "severity": "low",
             "status": "new",
-            "fields": {FIELD_NAME: INVALID_VALUE},
+            "fields": {FIELD_NAME: value},
         },
     )
 
@@ -126,20 +136,22 @@ async def _add_case(session: AsyncSession, role: Role) -> Case:
     return case
 
 
-@pytest.mark.parametrize("sql_type", [SqlType.TIMESTAMPTZ, SqlType.DATE])
+@pytest.mark.parametrize("value", INVALID_VALUES)
+@pytest.mark.parametrize("sql_type", SQL_TYPES)
 async def test_update_case_simple_rejects_invalid_temporal_field_value(
     session: AsyncSession,
     role: Role,
     client: httpx.AsyncClient,
     sql_type: SqlType,
+    value: str | float,
 ) -> None:
-    """A non-ISO string for a temporal field is a client error, not a 500."""
+    """An unparseable temporal field value is a client error, not a 500."""
     await _create_field(session, role, sql_type)
     case = await _add_case(session, role)
 
     response = await client.patch(
         f"/internal/cases/{case.id}/simple",
-        json={"fields": {FIELD_NAME: INVALID_VALUE}},
+        json={"fields": {FIELD_NAME: value}},
     )
 
     assert response.status_code == 400, response.text
@@ -147,14 +159,15 @@ async def test_update_case_simple_rejects_invalid_temporal_field_value(
 
 
 @pytest.mark.parametrize(
-    ("sql_type", "value", "stored"),
+    ("sql_type", "value", "stored", "event_value"),
     [
         (
             SqlType.TIMESTAMPTZ,
             "2026-03-08T12:30:00+02:00",
             datetime(2026, 3, 8, 10, 30, tzinfo=UTC),
+            "2026-03-08T10:30:00Z",
         ),
-        (SqlType.DATE, "2026-03-08", date(2026, 3, 8)),
+        (SqlType.DATE, "2026-03-08", date(2026, 3, 8), "2026-03-08"),
     ],
 )
 async def test_update_case_simple_stores_valid_temporal_field_value(
@@ -164,8 +177,9 @@ async def test_update_case_simple_stores_valid_temporal_field_value(
     sql_type: SqlType,
     value: str,
     stored: datetime | date,
+    event_value: str,
 ) -> None:
-    """Valid ISO strings are still stored, and the change event still records."""
+    """Valid ISO strings are stored, and the change event records them as ISO."""
     await _create_field(session, role, sql_type)
     case = await _add_case(session, role)
 
@@ -177,3 +191,13 @@ async def test_update_case_simple_stores_valid_temporal_field_value(
     fields = await CaseFieldsService(session=session, role=role).get_fields(case)
     assert fields is not None
     assert fields[FIELD_NAME] == stored
+    event_data = await session.scalar(
+        sa.select(CaseEvent.data).where(
+            CaseEvent.case_id == case.id,
+            CaseEvent.type == CaseEventType.FIELDS_CHANGED,
+        )
+    )
+    assert event_data is not None
+    assert event_data["changes"] == [
+        {"field": FIELD_NAME, "old": None, "new": event_value}
+    ]
