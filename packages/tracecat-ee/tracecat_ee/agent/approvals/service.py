@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import func, null, select
+from sqlalchemy import func, null, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
 
@@ -321,17 +321,21 @@ class ApprovalManager:
         *,
         approved_by: uuid.UUID | None = None,
         decision_metadata: dict[str, dict[str, Any]] | None = None,
-    ) -> None:
+    ) -> bool:
         """Record approval decisions, accepting partial submissions.
 
         Parallel tool calls surface as individual approval cards that are
         decided one by one, so decisions are merged across submissions. The
         manager only becomes READY (resuming the run) once every expected
         tool call has a decision.
+
+        Returns whether the submission decided any tool call for the first time.
         """
+        new_ids = approvals.keys() - self._approvals.keys()
         self._approvals.update(approvals)
+        # Deliveries resend earlier decisions; keep their original approver.
         if approved_by is not None:
-            for tool_call_id in approvals:
+            for tool_call_id in new_ids:
                 self._approved_by_by_tool_call_id[tool_call_id] = approved_by
         if decision_metadata:
             self._decision_metadata_by_tool_call_id.update(decision_metadata)
@@ -346,6 +350,7 @@ class ApprovalManager:
                 decided=sorted(self._approvals.keys()),
                 awaiting=sorted(expected_ids - set(self._approvals.keys())),
             )
+        return bool(new_ids)
 
     async def wait(self) -> None:
         await workflow.wait_condition(lambda: self.is_ready())
@@ -585,6 +590,8 @@ class ApprovalManager:
                     }
                 )
 
+            # Lock rows in the session service's order (tool call id).
+            rows.sort(key=lambda row: row["tool_call_id"])
             stmt = pg_insert(Approval).values(rows)
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_approval_workspace_session_tool",
@@ -599,6 +606,12 @@ class ApprovalManager:
                     # onupdate does not fire for ON CONFLICT DO UPDATE.
                     "updated_at": func.now(),
                 },
+                # The API records each decision with its approver first; only a
+                # different outcome (cancellation) may replace it.
+                where=or_(
+                    Approval.status == ApprovalStatus.PENDING,
+                    Approval.status != stmt.excluded.status,
+                ),
             )
             await service.session.execute(stmt)
             await service.session.commit()
@@ -611,25 +624,22 @@ class ApprovalManager:
     ) -> str | None:
         """Persist pending approval records for deferred tool calls.
 
+        The batch is written in one transaction, so its new rows share
+        ``created_at`` (transaction time): the session service groups a batch
+        by it. Re-persisting refreshes pending rows only; recorded decisions
+        and approvers stay.
+
         Returns the posted approval message's ref; None when nothing was
         published, which workflow code from before publishing also decodes.
-
-        Handles business logic:
-        - Upserts approvals (updates existing or creates new)
-        - Resets approval state to PENDING if record already exists
         """
 
         if not input.approvals:
             return None
 
         async with ApprovalService.with_session(role=input.role) as service:
+            # Untyped: SQLAlchemy insert values keyed by column name.
+            rows: dict[str, dict[str, Any]] = {}
             for payload in input.approvals:
-                # Check if approval already exists
-                existing = await service.get_approval_by_session_and_tool(
-                    session_id=input.session_id,
-                    tool_call_id=payload.tool_call_id,
-                )
-
                 # Normalize tool args to a dict
                 approval_args: dict[str, Any] | None = None
                 if payload.args is not None:
@@ -649,32 +659,29 @@ class ApprovalManager:
                     approval_args = approval_args or {}
                     approval_args["_tracecat"] = payload.metadata
 
-                if existing:
-                    # TODO: Do we need this path?
-                    # Update existing record and reset to pending state
-                    await service.update_approval(
-                        existing,
-                        ApprovalUpdate(
-                            status=ApprovalStatus.PENDING,
-                            tool_name=payload.tool_name,
-                            tool_call_args=approval_args,
-                            reason=None,
-                            approved_by=None,
-                            decision=None,
-                        ),
-                    )
-                    # Reset approved_at manually
-                    existing.approved_at = None
-                else:
-                    # Create new approval record
-                    await service.create_approval(
-                        ApprovalCreate(
-                            session_id=input.session_id,
-                            tool_call_id=payload.tool_call_id,
-                            tool_name=payload.tool_name,
-                            tool_call_args=approval_args,
-                        )
-                    )
+                rows[payload.tool_call_id] = {
+                    "workspace_id": service.workspace_id,
+                    "session_id": input.session_id,
+                    "tool_call_id": payload.tool_call_id,
+                    "tool_name": payload.tool_name,
+                    "tool_call_args": approval_args,
+                    "status": ApprovalStatus.PENDING,
+                }
+
+            # Lock rows in the session service's order (tool call id).
+            stmt = pg_insert(Approval).values([rows[key] for key in sorted(rows)])
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_approval_workspace_session_tool",
+                set_={
+                    "tool_name": stmt.excluded.tool_name,
+                    "tool_call_args": stmt.excluded.tool_call_args,
+                    # onupdate does not fire for ON CONFLICT DO UPDATE.
+                    "updated_at": func.now(),
+                },
+                where=Approval.status == ApprovalStatus.PENDING,
+            )
+            await service.session.execute(stmt)
+            await service.session.commit()
             owner = (
                 await service.session.execute(
                     select(

@@ -910,12 +910,9 @@ def _control_provider(
 @contextlib.contextmanager
 def _patched_control(
     service: AgentSessionService, ctx: SessionTurnContext, provider: Mock
-) -> Iterator[AsyncMock]:
-    """Route the service to `provider`; yields the Redis client getter."""
+) -> Iterator[None]:
+    """Route the service to `provider`."""
     with (
-        patch(
-            "tracecat.agent.session.service.get_redis_client", AsyncMock()
-        ) as get_redis_client,
         patch.object(service, "get_session", return_value=ctx.session),
         patch.object(service, "require_entitlement", AsyncMock(return_value=None)),
         patch(
@@ -925,12 +922,12 @@ def _patched_control(
             "tracecat.agent.session.service.find_agent_backend", return_value=provider
         ),
     ):
-        yield get_redis_client
+        yield
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("accepted", [True, False])
-async def test_steer_control_delegates_to_the_backend_without_redis(accepted: bool):
+async def test_steer_control_delegates_to_the_backend(accepted: bool):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     ctx.session.curr_run_id = ctx.run_id
@@ -941,7 +938,7 @@ async def test_steer_control_delegates_to_the_backend_without_redis(accepted: bo
         type="steer", id=uuid4(), text="Focus on the newest alert"
     )
     with (
-        _patched_control(service, ctx, provider) as get_redis_client,
+        _patched_control(service, ctx, provider),
         patch.object(
             service, "require_entitlement", AsyncMock(return_value=None)
         ) as require_entitlement,
@@ -950,7 +947,6 @@ async def test_steer_control_delegates_to_the_backend_without_redis(accepted: bo
     # A workspace chat steers only with the Workspace Chat entitlement.
     require_entitlement.assert_awaited_once_with(Entitlement.WORKSPACE_CHAT)
     # Session-scoped idempotency belongs to the backend; no steer-to-run binding.
-    get_redis_client.assert_not_awaited()
     provider.steer.assert_awaited_once_with(ctx.run_id, request.id, request.text)
     assert receipt == AgentControlReceipt(
         id=request.id,

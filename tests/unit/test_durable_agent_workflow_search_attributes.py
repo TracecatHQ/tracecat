@@ -159,6 +159,32 @@ def test_workflow_rotates_stream_from_new_approval_update() -> None:
     assert workflow_instance.approvals.is_ready()
 
 
+def test_late_subset_of_recorded_decisions_keeps_the_newer_stream() -> None:
+    """Deliveries can arrive out of order; one adding nothing must not rotate back."""
+    role = _user_role()
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    older_stream_id, newer_stream_id = uuid.uuid4(), uuid.uuid4()
+
+    with patch(
+        "tracecat_ee.agent.workflows.durable.workflow.patched", return_value=True
+    ):
+        cast(Any, workflow_instance.set_approvals)(
+            WorkflowApprovalSubmission(
+                approvals={"tool_call_123": True, "tool_call_456": True},
+                new_stream_id=newer_stream_id,
+            )
+        )
+        resumed = cast(Any, workflow_instance.set_approvals)(
+            WorkflowApprovalSubmission(
+                approvals={"tool_call_123": True},
+                new_stream_id=older_stream_id,
+            )
+        )
+
+    assert resumed is True
+    assert workflow_instance.active_stream_id == newer_stream_id
+
+
 def test_approval_update_does_not_rotate_stream_when_decision_set_fails() -> None:
     role = _user_role()
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))

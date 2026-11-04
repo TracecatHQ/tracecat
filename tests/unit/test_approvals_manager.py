@@ -401,18 +401,59 @@ class TestRecordApprovalRequestsActivity:
 
         await ApprovalManager.record_approval_requests(input_data)
 
-        # Verify record was updated and reset to pending
+        # A recorded decision is the record: re-persisting never reopens it.
         async with ApprovalService.with_session(role=svc_role) as service:
-            updated = await service.get_approval_by_session_and_tool(
+            kept = await service.get_approval_by_session_and_tool(
                 session_id=mock_agent_session.id,
                 tool_call_id="call_123",
             )
-            assert updated is not None
-            assert updated.tool_name == "updated_tool"
-            assert updated.tool_call_args == {"new": "args"}
-            assert updated.status == ApprovalStatus.PENDING
-            assert updated.reason is None
-            assert updated.approved_at is None
+            assert kept is not None
+            await service.session.refresh(kept)
+            assert kept.tool_name == "old_tool"
+            assert kept.tool_call_args == {"old": "args"}
+            assert kept.status == ApprovalStatus.APPROVED
+            assert kept.reason == "Previously approved"
+
+    async def test_record_approvals_refreshes_pending_rows(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+    ) -> None:
+        async with ApprovalService.with_session(role=svc_role) as service:
+            await service.create_approval(
+                ApprovalCreate(
+                    session_id=mock_agent_session.id,
+                    tool_call_id="call_123",
+                    tool_name="old_tool",
+                    tool_call_args={"old": "args"},
+                )
+            )
+
+        await ApprovalManager.record_approval_requests(
+            PersistApprovalsActivityInputs(
+                role=svc_role,
+                session_id=mock_agent_session.id,
+                approvals=[
+                    ToolApprovalPayload(
+                        tool_call_id="call_123",
+                        tool_name="updated_tool",
+                        args={"new": "args"},
+                    )
+                ],
+            )
+        )
+
+        async with ApprovalService.with_session(role=svc_role) as service:
+            refreshed = await service.get_approval_by_session_and_tool(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_123",
+            )
+            assert refreshed is not None
+            await service.session.refresh(refreshed)
+            assert refreshed.tool_name == "updated_tool"
+            assert refreshed.tool_call_args == {"new": "args"}
+            assert refreshed.status == ApprovalStatus.PENDING
 
     async def test_record_approvals_string_args(
         self,
@@ -782,6 +823,53 @@ class TestApplyApprovalDecisionsUpsert:
         assert approval.status == ApprovalStatus.REJECTED
         assert approval.reason == "revoked"
         assert approval.decision is False
+
+    async def test_apply_approval_keeps_recorded_approver_for_same_outcome(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+        test_user: User,
+    ) -> None:
+        """The run re-applies recorded decisions; it must not overwrite who decided."""
+        service = ApprovalService(session=session, role=svc_role)
+        approval = await service.create_approval(
+            ApprovalCreate(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_attributed",
+                tool_name="tool_1",
+                tool_call_args={},
+            )
+        )
+        recorded = {"value": True, "metadata": {"source": "channel"}}
+        approval = await service.update_approval(
+            approval,
+            ApprovalUpdate(
+                status=ApprovalStatus.APPROVED,
+                decision=recorded,
+                approved_by=test_user.id,
+            ),
+        )
+
+        await ApprovalManager.apply_approval_decisions(
+            ApplyApprovalResultsActivityInputs(
+                role=svc_role,
+                session_id=mock_agent_session.id,
+                decisions=[
+                    ApprovalDecisionPayload(
+                        tool_call_id="call_attributed",
+                        approved=True,
+                        decision=True,
+                        approved_by=None,
+                    )
+                ],
+            )
+        )
+
+        await session.refresh(approval)
+        assert approval.status == ApprovalStatus.APPROVED
+        assert approval.approved_by == test_user.id
+        assert approval.decision == recorded
 
     async def test_apply_approval_sets_updated_at_on_conflict(
         self,
