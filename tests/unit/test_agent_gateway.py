@@ -291,69 +291,79 @@ async def test_bedrock_role_credentials_require_external_id() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("error_code", "operation", "status_code", "wire_type", "kind", "owner", "retry"),
+    ("failing_step", "error_code", "operation", "status_code", "wire_type", "owner"),
     [
         pytest.param(
+            "workspace",
             "AccessDenied",
             "AssumeRole",
             403,
             "tracecat_llm_provider_role_denied",
-            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
             RuntimeErrorOwner.USER,
-            RetryDisposition.NON_RETRYABLE,
-            id="trust-policy-denial-is-user-owned",
+            id="workspace-role-denial-is-user-owned",
         ),
         pytest.param(
-            "AccessDenied",
-            "AssumeRoleWithWebIdentity",
-            401,
-            "auth_error",
-            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
-            RuntimeErrorOwner.PLATFORM,
-            RetryDisposition.RETRYABLE,
-            id="gateway-source-credential-denial-stays-platform",
-        ),
-        pytest.param(
+            "workspace",
             "Throttling",
             "AssumeRole",
             401,
             "auth_error",
-            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
             RuntimeErrorOwner.PLATFORM,
-            RetryDisposition.RETRYABLE,
-            id="other-sts-failure-stays-platform",
+            id="other-workspace-sts-failure-stays-platform",
+        ),
+        pytest.param(
+            "source",
+            "AccessDenied",
+            "AssumeRoleWithWebIdentity",
+            401,
+            "auth_error",
+            RuntimeErrorOwner.PLATFORM,
+            id="gateway-irsa-denial-stays-platform",
+        ),
+        pytest.param(
+            "source",
+            "AccessDenied",
+            "AssumeRole",
+            401,
+            "auth_error",
+            RuntimeErrorOwner.PLATFORM,
+            id="gateway-role-chain-denial-stays-platform",
         ),
     ],
 )
 async def test_bedrock_assume_role_failure_classification(
     monkeypatch: pytest.MonkeyPatch,
+    failing_step: str,
     error_code: str,
     operation: str,
     status_code: int,
     wire_type: str,
-    kind: RuntimeErrorKind,
     owner: RuntimeErrorOwner,
-    retry: RetryDisposition,
 ) -> None:
-    """Only AccessDenied on the workspace AssumeRole is workspace-owned.
+    """Only a denial of the workspace AssumeRole request is workspace-owned.
 
-    Other STS failures can be transport or service faults, and an AccessDenied
-    while refreshing the gateway's own source credentials never reached the
-    workspace role, so both keep the platform-owned retryable classification. Neither path echoes the role ARN
-    or the STS error message.
+    A failure resolving the gateway's own credentials happens before AWS sees
+    the workspace role, even when it is an AccessDenied on AssumeRole (role
+    chaining), so it stays platform-owned and retryable, as do other STS
+    failures. Neither path echoes the role ARN or the STS error message.
     """
     role_arn = "arn:aws:iam::123456789012:role/synthetic-role"
     sts_message = "synthetic-sts-detail"
+    error = ClientError(
+        {"Error": {"Code": error_code, "Message": f"{sts_message} {role_arn}"}},
+        operation,
+    )
 
-    def mock_assume_bedrock_role(*_: object, **__: object) -> dict[str, str]:
-        raise ClientError(
-            {"Error": {"Code": error_code, "Message": f"{sts_message} {role_arn}"}},
-            operation,
-        )
+    def assume_role(**_: object) -> None:
+        raise error
+
+    def gateway_sts_client() -> SimpleNamespace:
+        if failing_step == "source":
+            raise error
+        return SimpleNamespace(assume_role=assume_role)
 
     monkeypatch.setattr(
-        "tracecat.agent.gateway._assume_bedrock_role",
-        mock_assume_bedrock_role,
+        "tracecat.agent.gateway._gateway_sts_client", gateway_sts_client
     )
 
     with pytest.raises(ProxyException) as exc_info:
@@ -373,9 +383,13 @@ async def test_bedrock_assume_role_failure_classification(
         route_is_direct=False,
         body=json.dumps({"error": wire_error}).encode(),
     )
-    assert classification.kind is kind
     assert classification.owner is owner
-    assert classification.retry_disposition is retry
+    if owner is RuntimeErrorOwner.USER:
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    else:
+        assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+        assert classification.retry_disposition is RetryDisposition.RETRYABLE
     for text in (json.dumps(wire_error), classification.message):
         assert role_arn not in text
         assert sts_message not in text
