@@ -1330,6 +1330,14 @@ async def test_read_timeout_before_headers_records_route(
             False,
         ),
         (
+            403,
+            "tracecat_llm_provider_role_denied",
+            False,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
             401,
             "tracecat_llm_token_invalid",
             True,
