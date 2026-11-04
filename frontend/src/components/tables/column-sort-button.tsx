@@ -42,15 +42,15 @@ export function ColumnSortButton({
 
   let SortIcon = ArrowUpDownIcon
   let label = `Sort by ${columnName}`
-  let hint = "Click to sort ascending (A→Z)"
+  let hint = "Sort ascending"
   if (direction === "asc") {
     SortIcon = ArrowDownAZIcon
     label = `${columnName}, sorted ascending. Activate to sort descending.`
-    hint = "Sorted ascending (A→Z). Click to sort descending (Z→A)"
+    hint = "Sort descending"
   } else if (direction === "desc") {
     SortIcon = ArrowDownZAIcon
     label = `${columnName}, sorted descending. Activate to remove sorting.`
-    hint = "Sorted descending (Z→A). Click to clear sort"
+    hint = "Clear sort"
   }
 
   return (
