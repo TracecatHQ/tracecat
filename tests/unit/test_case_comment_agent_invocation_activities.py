@@ -39,7 +39,16 @@ from tracecat.cases.agent_invocations.schemas import (
     PrepareCommentAgentInvocationResult,
 )
 from tracecat.cases.agent_invocations.types import PreparedCommentAgentSession
-from tracecat.exceptions import EntitlementRequired
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    EntitlementRequired,
+)
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classification
 
 ACTIVITIES = "tracecat.cases.agent_invocations.activities"
 
@@ -259,6 +268,39 @@ async def test_prepare_fails_without_retry_when_the_backend_is_not_entitled() ->
     assert error.type == "EntitlementRequired"
     assert error.message == SESSION_BACKEND_NOT_ENTITLED_MESSAGE
     assert error.details == (refusal.detail,)
+
+
+@pytest.mark.anyio
+async def test_prepare_fails_without_retry_when_provider_credentials_are_missing() -> (
+    None
+):
+    """The org owns the missing credentials, so the failure is user-attributed."""
+    actor_role, execution_role = _roles()
+    message = (
+        "No credentials found for provider 'example'. "
+        "An organization admin can add them in organization settings under "
+        "Agent > Configuration."
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await _prepare(
+            _prepared_turn("oss"),
+            actor_role,
+            execution_role,
+            prepare_error=AgentProviderCredentialsNotFoundError(message),
+        )
+
+    error = exc_info.value
+    assert error.non_retryable
+    assert error.message == message
+    # The raw service error must not ride along into workflow history.
+    assert error.__cause__ is None
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.message == message
 
 
 def _complete_input(

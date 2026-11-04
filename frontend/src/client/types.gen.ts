@@ -9645,6 +9645,7 @@ export type RuntimeErrorKind =
   | "workflow.agent.input_invalid"
   | "workflow.agent.preparation_failed"
   | "agent.configuration.invalid"
+  | "agent.provider.credentials_missing"
   | "agent.preparation.failed"
   | "agent.session.initialization_failed"
   | "agent.llm.gateway_auth_failed"

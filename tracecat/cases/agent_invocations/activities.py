@@ -13,6 +13,7 @@ from tracecat.agent.backends.registry import (
     get_workflow_type,
 )
 from tracecat.agent.backends.types import SessionWorkflowContext
+from tracecat.agent.error_policy import agent_provider_credentials_missing
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.cases.agent_invocations.completion import (
     CaseCommentAgentInvocationCompletionService,
@@ -34,8 +35,13 @@ from tracecat.cases.agent_invocations.service import (
 )
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    EntitlementRequired,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
+from tracecat.temporal.errors import raise_application_error_from_classification
 
 _MAX_STORED_ERROR_LENGTH = 2_000
 _COMMENT_REPLY_ACTIONS = {
@@ -75,6 +81,11 @@ async def prepare_comment_agent_invocation_activity(
             raise ApplicationError(
                 str(e), e.detail, type=e.__class__.__name__, non_retryable=True
             ) from e
+        except AgentProviderCredentialsNotFoundError as e:
+            # The organization must add credentials; retrying cannot help.
+            raise_application_error_from_classification(
+                agent_provider_credentials_missing(e)
+            )
         backend = get_agent_backend(
             prepared_turn.backend_id, harness_type=prepared_turn.harness_type
         )
