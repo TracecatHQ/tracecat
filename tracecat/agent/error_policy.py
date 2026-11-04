@@ -392,6 +392,22 @@ def agent_llm_provider_subscription_required() -> RuntimeErrorClassification:
     )
 
 
+def agent_llm_provider_role_denied() -> RuntimeErrorClassification:
+    """Classify STS refusing the workspace-configured Bedrock role.
+
+    The role's trust policy belongs to the workspace, and a retry fails the same
+    way until it changes. The message omits the role ARN and the STS error body.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        message=(
+            "AWS denied assuming the configured Bedrock role; check that the "
+            "role trust policy allows Tracecat and the workspace External ID"
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_model_not_enabled() -> RuntimeErrorClassification:
     """Classify a managed-route model that workspace model access disallows."""
     return RuntimeErrorClassification.user(

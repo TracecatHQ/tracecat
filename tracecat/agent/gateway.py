@@ -203,6 +203,14 @@ def _assume_bedrock_role(
     }
 
 
+def _is_sts_access_denied(exc: Exception) -> bool:
+    """Return whether STS returned the typed ``AccessDenied`` error code."""
+    match exc:
+        case ClientError(response={"Error": {"Code": "AccessDenied"}}):
+            return True
+    return False
+
+
 async def _resolve_bedrock_runtime_credentials(
     credentials: dict[str, str],
 ) -> dict[str, str]:
@@ -230,6 +238,20 @@ async def _resolve_bedrock_runtime_credentials(
                 session_name=_get_aws_role_session_name(credentials),
             )
         except (BotoCoreError, ClientError, KeyError) as exc:
+            if _is_sts_access_denied(exc):
+                # STS refused this caller for the configured role. The role's
+                # trust policy belongs to the workspace and must change before
+                # a retry can succeed.
+                raise ProxyException(
+                    message=(
+                        "AWS denied assuming the configured Bedrock role. Check "
+                        "that the role trust policy allows Tracecat and the "
+                        "workspace External ID."
+                    ),
+                    type="tracecat_llm_provider_role_denied",
+                    param=None,
+                    code=403,
+                ) from exc
             raise ProxyException(
                 message="Failed to assume configured AWS role for Bedrock.",
                 # This broad SDK failure may be transport or service failure,
@@ -503,6 +525,7 @@ class TracecatCallbackHandler(CustomLogger):
                 "tracecat_llm_provider_auth_failed",
                 "tracecat_llm_model_not_enabled",
                 "tracecat_llm_provider_subscription_required",
+                "tracecat_llm_provider_role_denied",
                 "budget_exceeded",
             }:
                 original_exception.message = _anthropic_error_message(

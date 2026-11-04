@@ -11,6 +11,7 @@ import httpx
 import litellm
 import pytest
 import yaml
+from botocore.exceptions import ClientError
 from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import (
     AuthenticationError,
@@ -286,6 +287,84 @@ async def test_bedrock_role_credentials_require_external_id() -> None:
 
     assert exc_info.value.code == "400"
     assert "workspace External ID" in exc_info.value.message
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error_code", "status_code", "wire_type", "kind", "owner", "retry"),
+    [
+        pytest.param(
+            "AccessDenied",
+            403,
+            "tracecat_llm_provider_role_denied",
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+            RuntimeErrorOwner.USER,
+            RetryDisposition.NON_RETRYABLE,
+            id="trust-policy-denial-is-user-owned",
+        ),
+        pytest.param(
+            "Throttling",
+            401,
+            "auth_error",
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            id="other-sts-failure-stays-platform",
+        ),
+    ],
+)
+async def test_bedrock_assume_role_failure_classification(
+    monkeypatch: pytest.MonkeyPatch,
+    error_code: str,
+    status_code: int,
+    wire_type: str,
+    kind: RuntimeErrorKind,
+    owner: RuntimeErrorOwner,
+    retry: RetryDisposition,
+) -> None:
+    """Only STS AccessDenied establishes a workspace-owned role misconfiguration.
+
+    Other STS failures can be transport or service faults, so they keep the
+    platform-owned retryable classification. Neither path echoes the role ARN
+    or the STS error message.
+    """
+    role_arn = "arn:aws:iam::123456789012:role/synthetic-role"
+    sts_message = "synthetic-sts-detail"
+
+    def mock_assume_bedrock_role(*_: object, **__: object) -> dict[str, str]:
+        raise ClientError(
+            {"Error": {"Code": error_code, "Message": f"{sts_message} {role_arn}"}},
+            "AssumeRole",
+        )
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway._assume_bedrock_role",
+        mock_assume_bedrock_role,
+    )
+
+    with pytest.raises(ProxyException) as exc_info:
+        await _resolve_bedrock_runtime_credentials(
+            {
+                "AWS_ROLE_ARN": role_arn,
+                "TRACECAT_AWS_EXTERNAL_ID": "ws-external-id",
+                "AWS_REGION": "us-west-2",
+            }
+        )
+
+    wire_error = exc_info.value.to_dict()
+    assert exc_info.value.code == str(status_code)
+    assert wire_error["type"] == wire_type
+    classification = _http_error_classification(
+        status_code,
+        route_is_direct=False,
+        body=json.dumps({"error": wire_error}).encode(),
+    )
+    assert classification.kind is kind
+    assert classification.owner is owner
+    assert classification.retry_disposition is retry
+    for text in (json.dumps(wire_error), classification.message):
+        assert role_arn not in text
+        assert sts_message not in text
 
 
 def test_bedrock_rejects_ambient_credential_fallback() -> None:
