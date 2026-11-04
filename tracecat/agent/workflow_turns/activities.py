@@ -187,11 +187,11 @@ def _holder_ended(
     Only then may another workflow agent action take the session over. The run
     may be a workflow agent action's, whose parent starts the backend's turn,
     or a direct turn the API started on the backend's own workflow ID, so both
-    workflows are checked. The run has ended when neither runs and at least
-    one of them closed, or when neither ever started and the reservation has
-    outlived the start grace period, after both IDs are claimed so neither can
-    start late. Any failed lookup proves nothing, and the backend may still
-    keep a terminal turn's reservation for reconciliation.
+    workflows are checked. The run has ended when neither runs and every ID
+    that never started has been claimed, so no late start can run; when
+    neither started, only once the reservation has outlived the start grace
+    period. Any failed lookup proves nothing, and the backend may still keep
+    a terminal turn's reservation for reconciliation.
 
     Args:
         db: The admission's database session, which holds the row lock.
@@ -212,7 +212,8 @@ def _holder_ended(
         if parent in (_Execution.RUNNING, _Execution.UNKNOWN):
             return False
         if native is _Execution.MISSING and parent is _Execution.MISSING:
-            # Every reservation write bumps updated_at, so this is its age.
+            # Neither started yet; either may still be on its way. Every
+            # reservation write bumps updated_at, so this is its age.
             outlived = await db.scalar(
                 select(AgentSession.id).where(
                     AgentSession.id == session.id,
@@ -221,11 +222,20 @@ def _holder_ended(
             )
             if outlived is None:
                 return False
-            # Either start may still arrive late. Claim both IDs first, so a
-            # late start is rejected and never runs beside the new turn.
-            for workflow_id in (parent_id, backend.workflow_id(run_id)):
-                if not await claim_unstarted_workflow_id(client, workflow_id):
-                    return False
+        # Claim every ID that never started, each on its own, so a late start
+        # is rejected and never runs beside the new turn. An earlier attempt
+        # may have claimed one already; its tombstone then shows as closed.
+        missing = [
+            workflow_id
+            for workflow_id, execution in (
+                (parent_id, parent),
+                (backend.workflow_id(run_id), native),
+            )
+            if execution is _Execution.MISSING
+        ]
+        for workflow_id in missing:
+            if not await claim_unstarted_workflow_id(client, workflow_id):
+                return False
         return not await backend.retains_terminal_ownership(
             replace(turn, session=session), run_id
         )

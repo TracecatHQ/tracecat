@@ -537,8 +537,9 @@ async def test_busy_session_fails_the_action_without_retry() -> None:
 
 @pytest.mark.anyio
 async def test_gateway_provider_uses_the_organizations_endpoint() -> None:
-    """An action's base URL never reaches a gateway provider, as on the
-    built-in path, so a workflow cannot redirect the organization's key."""
+    """A gateway provider uses the organization's endpoint, as on the built-in
+    path, so an action's base URL cannot redirect that provider's key. Other
+    providers keep the action's base URL on both paths."""
     service = _service()
     catalog_id = uuid.uuid4()
     args = _args(
@@ -666,11 +667,25 @@ def _handle(state: WorkflowExecutionStatus | RPCError) -> Mock:
         # A failed lookup proves nothing, even for a direct API turn.
         (_DOWN, _MISSING, True, (), False, False),
         (WorkflowExecutionStatus.COMPLETED, _DOWN, True, (), False, False),
-        # Closed: the backend's turn, or the parent that alone would start it.
-        (WorkflowExecutionStatus.COMPLETED, _MISSING, False, (), False, True),
-        (_MISSING, WorkflowExecutionStatus.FAILED, False, (), False, True),
-        # Unless the backend keeps that turn's reservation to reconcile it.
-        (WorkflowExecutionStatus.FAILED, _MISSING, False, (), True, False),
+        # Both closed.
+        (
+            WorkflowExecutionStatus.COMPLETED,
+            WorkflowExecutionStatus.COMPLETED,
+            False,
+            (),
+            False,
+            True,
+        ),
+        # One closed: the other ID is claimed first, with no grace period,
+        # since a late start could still run beside the new turn.
+        (WorkflowExecutionStatus.COMPLETED, _MISSING, False, (True,), False, True),
+        (_MISSING, WorkflowExecutionStatus.FAILED, False, (True,), False, True),
+        (_MISSING, WorkflowExecutionStatus.FAILED, False, (False,), False, False),
+        # An earlier attempt claimed the parent and then failed on the native
+        # ID: its tombstone shows as closed, and the native ID is claimed now.
+        (_MISSING, WorkflowExecutionStatus.TERMINATED, True, (True,), False, True),
+        # The backend keeps that turn's reservation to reconcile it.
+        (WorkflowExecutionStatus.FAILED, _MISSING, False, (True,), True, False),
         # Never started: only past the grace period, and only once both IDs are
         # claimed so neither a late parent nor a late direct start can run.
         (_MISSING, _MISSING, False, (), False, False),
@@ -714,11 +729,15 @@ async def test_holder_ends_only_when_its_turn_can_never_finish(
         assert await _holder_ended(db, admitting)(held) is ended
 
     claimed = [call.args[1] for call in claim.await_args_list]
-    expected = [
-        f"workflow-agent-turn/{held.curr_run_id}",
-        f"agent/{held.curr_run_id}",
-    ][: len(claims)]
-    assert claimed == expected
+    missing = [
+        workflow_id
+        for workflow_id, state in (
+            (f"workflow-agent-turn/{held.curr_run_id}", parent),
+            (f"agent/{held.curr_run_id}", native),
+        )
+        if state is _MISSING
+    ]
+    assert claimed == missing[: len(claims)]
     # The backend's veto is asked only once the turn is proven over, about the
     # held session.
     proven = ended or retained
