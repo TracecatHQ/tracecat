@@ -1043,9 +1043,12 @@ class BaseTablesService(BaseWorkspaceService):
                 set_fields["default"] = normalized_default
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
-                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                        (full_table_name, quote_identifier(new_name)),
+                        "ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s",
+                        (
+                            full_table_name,
+                            quote_identifier(new_name),
+                            formatted_default,
+                        ),
                     )
                 )
 
@@ -2579,9 +2582,12 @@ class TableEditorService(BaseWorkspaceService):
                 set_fields["default"] = normalized_default
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
-                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                        (full_table_name, quote_identifier(new_name)),
+                        "ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s",
+                        (
+                            full_table_name,
+                            quote_identifier(new_name),
+                            formatted_default,
+                        ),
                     )
                 )
 
