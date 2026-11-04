@@ -12,6 +12,7 @@ from temporalio.common import (
     RetryPolicy,
     SearchAttributePair,
     TypedSearchAttributes,
+    WorkflowIDReusePolicy,
 )
 from temporalio.exceptions import (
     ActivityError,
@@ -1886,7 +1887,7 @@ class DSLWorkflow:
             )
             if prepared.turn is not None:
                 return await self._run_backend_agent_turn(
-                    task, prepared.turn, stream_id
+                    task, prepared.turn, arg, stream_id
                 )
         wf_info = workflow.info()
         return await workflow.execute_child_workflow(
@@ -1911,14 +1912,18 @@ class DSLWorkflow:
         self,
         task: ActionStatement,
         turn: ChildAgentTurn,
+        arg: AgentWorkflowArgs,
         stream_id: StreamID,
     ) -> AgentOutput:
         """Run a prepared turn on an installed backend through its parent workflow."""
         wf_info = workflow.info()
         return await workflow.execute_child_workflow(
             WorkflowAgentTurnWorkflow.run,
-            WorkflowAgentTurnInput(turn=turn),
+            WorkflowAgentTurnInput(turn=turn, args=arg),
             id=workflow_agent_turn_workflow_id(turn.run_id),
+            # A session taken over from this turn claims this ID first. Then
+            # this start is rejected rather than running beside the new turn.
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # The agent worker has the installed backends.
             task_queue=config.TRACECAT__AGENT_QUEUE,

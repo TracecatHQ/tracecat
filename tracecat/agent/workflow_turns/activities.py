@@ -17,6 +17,7 @@ from temporalio.client import WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
+from tracecat.agent.backends.base import claim_unstarted_workflow_id
 from tracecat.agent.backends.registry import (
     DEFAULT_AGENT_BACKEND,
     find_agent_backend,
@@ -37,7 +38,11 @@ from tracecat.agent.preset.activities import (
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.session.types import (
+    AgentSessionEntity,
+    TurnLifecycle,
+    is_session_readonly,
+)
 from tracecat.agent.types import (
     AgentConfig,
     apply_preset_overrides,
@@ -72,13 +77,19 @@ async def _turn_backend_id(
 
     A workflow action continues only workflow sessions on another backend.
     Chat, channel and approval sessions keep their own surface's rules, such
-    as the entitlements it needs, and reviewer forks keep having no tools.
+    as the entitlements it needs, and reviewer forks keep having no tools. A
+    session a teammate started stays theirs, as in the API; sessions started
+    by background runs have no user creator and stay open to later runs.
     """
     if session := await service.get_session(args.agent_args.session_id):
         backend_id = session.backend_id or DEFAULT_AGENT_BACKEND
+        teammates = session.created_by is not None and is_session_readonly(
+            service.role, session.created_by
+        )
         if backend_id != DEFAULT_AGENT_BACKEND and (
             session.entity_type != AgentSessionEntity.WORKFLOW.value
             or session.forked_from_session_id is not None
+            or teammates
         ):
             raise_application_error_from_classification(invalid_agent_configuration())
         return backend_id
@@ -170,7 +181,14 @@ def _holder_ended(db: AsyncSession) -> Callable[[AgentSession], Awaitable[bool]]
                     AgentSession.updated_at <= func.now() - _UNSTARTED_TURN_GRACE,
                 )
             )
-            return outlived is not None
+            if outlived is None:
+                return False
+            # Its action may still wake up and start the parent. Claim the
+            # parent's ID first, so that start is rejected and never runs
+            # beside the new turn; the parent alone starts the backend turn.
+            return await claim_unstarted_workflow_id(
+                client, workflow_agent_turn_workflow_id(run_id)
+            )
         return description.status not in _RUNNING
 
     return ended

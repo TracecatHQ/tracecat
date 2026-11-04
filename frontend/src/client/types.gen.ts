@@ -3722,21 +3722,6 @@ export type ChatReadVercel = {
 }
 
 /**
- * A prepared turn that its caller starts as a child workflow by type name.
- */
-export type ChildAgentTurn = {
-  backend_id: string
-  session_id: string
-  run_id: string
-  workflow_type: string
-  workflow_id: string
-  task_queue: string
-  priority: Priority
-  retry_policy: RetryPolicy
-  args: unknown
-}
-
-/**
  * Event for when a case is closed.
  */
 export type ClosedEventRead = {
@@ -5220,7 +5205,6 @@ export type EventGroup_TypeVar_ = {
     | RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
-    | WorkflowAgentTurnInput
     | UnreadableTemporalPayload
   action_result?: unknown | null
   current_attempt?: number | null
@@ -8635,12 +8619,6 @@ export type PresetToolSourceRead = {
   skill_name?: string | null
 }
 
-export type Priority = {
-  priority_key?: number | null
-  fairness_key?: string | null
-  fairness_weight?: number | null
-}
-
 /**
  * Event for when a case priority is changed.
  */
@@ -9370,14 +9348,6 @@ export type ResultMessage = {
   uuid?: string | null
   terminal_reason?: string | null
   origin?: MessageOrigin | null
-}
-
-export type RetryPolicy = {
-  initial_interval?: string
-  backoff_coefficient?: number
-  maximum_interval?: string | null
-  maximum_attempts?: number
-  non_retryable_error_types?: Array<string> | null
 }
 
 /**
@@ -12981,13 +12951,6 @@ export type WebhookWaitFailureDetail = {
   code: RuntimeErrorKind
   wf_exec_id: string
   message?: string
-}
-
-/**
- * A prepared workflow agent action turn on an installed backend.
- */
-export type WorkflowAgentTurnInput = {
-  turn: ChildAgentTurn
 }
 
 export type WorkflowAlias = {

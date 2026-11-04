@@ -50,3 +50,6 @@ class WorkflowAgentTurnInput(BaseModel):
     """A prepared workflow agent action turn on an installed backend."""
 
     turn: ChildAgentTurn
+    # The action's own arguments, as the built-in workflow would take them.
+    # Run views show these, so both paths read the same.
+    args: AgentWorkflowArgs

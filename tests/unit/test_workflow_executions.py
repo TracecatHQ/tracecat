@@ -32,7 +32,9 @@ from temporalio.client import Client, WorkflowHandle
 from temporalio.common import Priority, RetryPolicy
 from temporalio.converter import DefaultPayloadConverter
 
-from tracecat.agent.backends.schemas import ChildAgentTurn
+from tracecat.agent.backends.schemas import AgentWorkflowArgs, ChildAgentTurn
+from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.workflow_turns.schemas import WorkflowAgentTurnInput
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -1292,6 +1294,15 @@ class TestWorkflowExecutionEvents:
             workflow_id=cast(WorkflowExecutionID, f"workflow-agent-turn/{run_id}"),
         )
         memo = AgentActionMemo(action_ref="triage", mask_output=True)
+        action_args = AgentWorkflowArgs(
+            role=Role(type="service", service_id="tracecat-runner"),
+            agent_args=RunAgentArgs(
+                user_prompt="Investigate", session_id=session_id, preset_slug="triage"
+            ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            agent_preset_id=uuid.uuid4(),
+        )
         with (
             patch(
                 "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
@@ -1300,9 +1311,9 @@ class TestWorkflowExecutionEvents:
             patch(
                 "tracecat.workflow.executions.schemas.extract_first",
                 AsyncMock(
-                    return_value=WorkflowAgentTurnInput(turn=turn).model_dump(
-                        mode="json"
-                    )
+                    return_value=WorkflowAgentTurnInput(
+                        turn=turn, args=action_args
+                    ).model_dump(mode="json")
                 ),
             ),
         ):
@@ -1314,11 +1325,13 @@ class TestWorkflowExecutionEvents:
         assert event is not None
         assert event.action_name == "ai.agent"
         assert event.action_ref == "triage"
-        assert event.action_input == WorkflowAgentTurnInput(turn=turn)
+        # The action's own arguments, as for the built-in workflow, so the run
+        # view shows the same input, preset link included.
+        assert event.action_input == action_args
         assert event.session is not None and event.session.id == session_id
         assert event.should_mask_output is True
         assert group.udf_key == "ai.agent"
-        assert group.action_input == WorkflowAgentTurnInput(turn=turn)
+        assert group.action_input == action_args
 
     async def test_unknown_child_workflow_type_is_still_rejected(self) -> None:
         initiated = create_mock_child_workflow_initiated_event(

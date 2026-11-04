@@ -370,7 +370,6 @@ EventInput = (
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
     | AgentWorkflowArgs
-    | WorkflowAgentTurnInput
     | UnreadableTemporalPayload
 )
 
@@ -556,12 +555,12 @@ class EventGroup[T: EventInput](BaseModel):
                 agent_group.set_mask_output(memo.mask_output)
                 return agent_group
             case "WorkflowAgentTurnWorkflow":
-                # An agent action on an installed backend. The backend's own
-                # input stays opaque inside the prepared turn.
+                # An agent action on an installed backend. Show the action's
+                # own arguments, as for the built-in workflow.
                 memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
                 input = await extract_first(attrs.input)
                 if not is_unreadable_temporal_payload(input):
-                    input = WorkflowAgentTurnInput.model_validate(input)
+                    input = WorkflowAgentTurnInput.model_validate(input).args
                 namespace, name = PlatformAction.AI_AGENT.value.split(".", 1)
                 agent_group = EventGroup(
                     event_id=event.event_id,
@@ -1018,8 +1017,10 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 input_data = await extract_first(attrs.input)
                 session = None
                 if not is_unreadable_temporal_payload(input_data):
-                    input_data = WorkflowAgentTurnInput.model_validate(input_data)
-                    session = Session(id=input_data.turn.session_id)
+                    turn_input = WorkflowAgentTurnInput.model_validate(input_data)
+                    # The action's own arguments, as for the built-in workflow.
+                    input_data = turn_input.args
+                    session = Session(id=turn_input.turn.session_id)
                 compact_event = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(UTC),

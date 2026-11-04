@@ -13320,61 +13320,6 @@ export const $ChatReadVercel = {
   description: "Model for chat metadata with message history in Vercel format.",
 } as const
 
-export const $ChildAgentTurn = {
-  properties: {
-    backend_id: {
-      type: "string",
-      title: "Backend Id",
-    },
-    session_id: {
-      type: "string",
-      format: "uuid",
-      title: "Session Id",
-    },
-    run_id: {
-      type: "string",
-      format: "uuid",
-      title: "Run Id",
-    },
-    workflow_type: {
-      type: "string",
-      title: "Workflow Type",
-    },
-    workflow_id: {
-      type: "string",
-      title: "Workflow Id",
-    },
-    task_queue: {
-      type: "string",
-      title: "Task Queue",
-    },
-    priority: {
-      $ref: "#/components/schemas/Priority",
-    },
-    retry_policy: {
-      $ref: "#/components/schemas/RetryPolicy",
-    },
-    args: {
-      title: "Args",
-    },
-  },
-  type: "object",
-  required: [
-    "backend_id",
-    "session_id",
-    "run_id",
-    "workflow_type",
-    "workflow_id",
-    "task_queue",
-    "priority",
-    "retry_policy",
-    "args",
-  ],
-  title: "ChildAgentTurn",
-  description:
-    "A prepared turn that its caller starts as a child workflow by type name.",
-} as const
-
 export const $ClosedEventRead = {
   properties: {
     wf_exec_id: {
@@ -17324,9 +17269,6 @@ export const $EventGroup_TypeVar_ = {
         },
         {
           $ref: "#/components/schemas/GetWorkflowDefinitionActivityInputs",
-        },
-        {
-          $ref: "#/components/schemas/WorkflowAgentTurnInput",
         },
         {
           $ref: "#/components/schemas/UnreadableTemporalPayload",
@@ -28306,46 +28248,6 @@ export const $PresetToolSourceRead = {
   description: "The authored or skill origin of a policy-affected tool.",
 } as const
 
-export const $Priority = {
-  properties: {
-    priority_key: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Priority Key",
-    },
-    fairness_key: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Fairness Key",
-    },
-    fairness_weight: {
-      anyOf: [
-        {
-          type: "number",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Fairness Weight",
-    },
-  },
-  type: "object",
-  title: "Priority",
-} as const
-
 export const $PriorityChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -30597,55 +30499,6 @@ export const $ResultMessage = {
     "session_id",
   ],
   title: "ResultMessage",
-} as const
-
-export const $RetryPolicy = {
-  properties: {
-    initial_interval: {
-      type: "string",
-      format: "duration",
-      title: "Initial Interval",
-      default: "PT1S",
-    },
-    backoff_coefficient: {
-      type: "number",
-      title: "Backoff Coefficient",
-      default: 2,
-    },
-    maximum_interval: {
-      anyOf: [
-        {
-          type: "string",
-          format: "duration",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Maximum Interval",
-    },
-    maximum_attempts: {
-      type: "integer",
-      title: "Maximum Attempts",
-      default: 0,
-    },
-    non_retryable_error_types: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Non Retryable Error Types",
-    },
-  },
-  type: "object",
-  title: "RetryPolicy",
 } as const
 
 export const $Role = {
@@ -42913,18 +42766,6 @@ export const $WebhookWaitFailureDetail = {
   required: ["code", "wf_exec_id"],
   title: "WebhookWaitFailureDetail",
   description: "Public metadata for a user-owned workflow failure.",
-} as const
-
-export const $WorkflowAgentTurnInput = {
-  properties: {
-    turn: {
-      $ref: "#/components/schemas/ChildAgentTurn",
-    },
-  },
-  type: "object",
-  required: ["turn"],
-  title: "WorkflowAgentTurnInput",
-  description: "A prepared workflow agent action turn on an installed backend.",
 } as const
 
 export const $WorkflowAlias = {

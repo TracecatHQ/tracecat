@@ -286,6 +286,7 @@ async def test_existing_session_keeps_its_own_backend() -> None:
         backend_id="external",
         entity_type=AgentSessionEntity.WORKFLOW.value,
         forked_from_session_id=None,
+        created_by=None,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -306,6 +307,7 @@ async def test_existing_builtin_session_keeps_the_durable_workflow_path(
         id=uuid.uuid4(),
         backend_id=existing_backend,
         entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+        created_by=None,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -388,6 +390,7 @@ async def test_action_cannot_continue_another_surfaces_session_on_a_backend(
         backend_id="external",
         entity_type=entity_type.value,
         forked_from_session_id=None,
+        created_by=None,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -409,6 +412,7 @@ async def test_action_cannot_continue_a_reviewer_fork_on_a_backend() -> None:
         backend_id="external",
         entity_type=AgentSessionEntity.WORKFLOW.value,
         forked_from_session_id=uuid.uuid4(),
+        created_by=None,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -419,6 +423,42 @@ async def test_action_cannot_continue_a_reviewer_fork_on_a_backend() -> None:
         await _prepare(args)
     assert exc_info.value.non_retryable
     service.prepare_new_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("creator", "refused"),
+    [
+        # A teammate's session stays theirs, as in the API.
+        ("teammate", True),
+        ("self", False),
+        # Background runs leave no user creator; later runs may continue them.
+        (None, False),
+    ],
+)
+async def test_action_continues_only_sessions_its_user_may_write(
+    creator: str | None, refused: bool
+) -> None:
+    role = _role().model_copy(update={"type": "user", "user_id": uuid.uuid4()})
+    created_by = {"teammate": uuid.uuid4(), "self": role.user_id, None: None}[creator]
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        title="Earlier",
+        backend_id="external",
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+        forked_from_session_id=None,
+        created_by=created_by,
+    )
+    service = _service(existing=existing)
+    service.role = role
+    args = _args(session_id=existing.id, continue_existing_session=True)
+    with _activity_env(service, selected="external"):
+        if refused:
+            with pytest.raises(ApplicationError):
+                await _prepare(args)
+            service.prepare_new_turn.assert_not_awaited()
+        else:
+            assert (await _prepare(args)).turn is not None
 
 
 @pytest.mark.anyio
@@ -571,8 +611,11 @@ def _held_session() -> AgentSession:
 
 @contextlib.contextmanager
 def _holder_env(
-    *, lifecycle: TurnLifecycle, parent: WorkflowExecutionStatus | RPCError
-) -> Iterator[None]:
+    *,
+    lifecycle: TurnLifecycle,
+    parent: WorkflowExecutionStatus | RPCError,
+    claimed: bool,
+) -> Iterator[AsyncMock]:
     backend = InstalledBackend()
     handle = Mock(
         describe=AsyncMock(side_effect=parent)
@@ -584,32 +627,46 @@ def _holder_env(
         patch(f"{ACTIVITIES}.find_agent_backend", return_value=backend),
         patch.object(backend, "get_turn_lifecycle", AsyncMock(return_value=lifecycle)),
         patch(f"{ACTIVITIES}.get_temporal_client", AsyncMock(return_value=client)),
+        patch(
+            f"{ACTIVITIES}.claim_unstarted_workflow_id",
+            AsyncMock(return_value=claimed),
+        ) as claim,
     ):
-        yield
+        yield claim
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("lifecycle", "parent", "outlived", "ended"),
+    ("lifecycle", "parent", "outlived", "claimed", "ended"),
     [
         # The backend's turn is still running.
-        (TurnLifecycle.RUNNING, WorkflowExecutionStatus.COMPLETED, True, False),
+        (TurnLifecycle.RUNNING, WorkflowExecutionStatus.COMPLETED, True, True, False),
         # Its parent is still reading the result.
-        (TurnLifecycle.COMPLETED, WorkflowExecutionStatus.RUNNING, True, False),
+        (TurnLifecycle.COMPLETED, WorkflowExecutionStatus.RUNNING, True, True, False),
         # Both closed; with the parent gone its child cannot run either.
-        (TurnLifecycle.COMPLETED, WorkflowExecutionStatus.COMPLETED, False, True),
-        (TurnLifecycle.FAILED, WorkflowExecutionStatus.TERMINATED, False, True),
-        # Never started: only a reservation past the start grace is given up.
-        (TurnLifecycle.FAILED, "not_found", False, False),
-        (TurnLifecycle.FAILED, "not_found", True, True),
+        (
+            TurnLifecycle.COMPLETED,
+            WorkflowExecutionStatus.COMPLETED,
+            False,
+            False,
+            True,
+        ),
+        (TurnLifecycle.FAILED, WorkflowExecutionStatus.TERMINATED, False, False, True),
+        # Never started: only a reservation past the start grace is given up,
+        (TurnLifecycle.FAILED, "not_found", False, True, False),
+        # and only once its parent's ID is claimed, so a late start of that
+        # parent is rejected instead of running beside the new turn.
+        (TurnLifecycle.FAILED, "not_found", True, True, True),
+        (TurnLifecycle.FAILED, "not_found", True, False, False),
         # An unknown lookup failure is never taken as an end.
-        (TurnLifecycle.FAILED, "unavailable", True, False),
+        (TurnLifecycle.FAILED, "unavailable", True, True, False),
     ],
 )
 async def test_holder_ends_only_when_its_turn_can_never_finish(
     lifecycle: TurnLifecycle,
     parent: WorkflowExecutionStatus | str,
     outlived: bool,
+    claimed: bool,
     ended: bool,
 ) -> None:
     db = AsyncMock()
@@ -625,5 +682,12 @@ async def test_holder_ends_only_when_its_turn_can_never_finish(
             status = parent
         case _:
             raise AssertionError(parent)
-    with _holder_env(lifecycle=lifecycle, parent=status):
-        assert await _holder_ended(db)(_held_session()) is ended
+    held = _held_session()
+    with _holder_env(lifecycle=lifecycle, parent=status, claimed=claimed) as claim:
+        assert await _holder_ended(db)(held) is ended
+    if parent == "not_found" and outlived:
+        claim.assert_awaited_once()
+        assert claim.await_args is not None
+        assert claim.await_args.args[1] == f"workflow-agent-turn/{held.curr_run_id}"
+    else:
+        claim.assert_not_awaited()
