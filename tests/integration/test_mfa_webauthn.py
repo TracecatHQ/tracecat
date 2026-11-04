@@ -422,6 +422,16 @@ async def test_without_policy_or_key_sessions_are_unchanged() -> None:
 
 
 @pytest.mark.anyio
+async def test_authentication_options_without_a_key_is_a_client_error() -> None:
+    user = await _create_user()
+    token = await _new_session(user)
+    async with _client(token) as client:
+        response = await client.post("/auth/mfa/webauthn/authenticate/options")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "No security keys are registered."
+
+
+@pytest.mark.anyio
 async def test_org_policy_forces_enrollment_then_challenge_on_next_login() -> None:
     user = await _create_user()
     await _create_org(members=[user], mfa_required=True)
