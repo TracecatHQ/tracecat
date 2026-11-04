@@ -3283,6 +3283,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         kinds: Sequence[MessageKind] | None = None,
         include_active: bool = False,
+        through_run_id: uuid.UUID | None = None,
     ) -> list[ChatMessage]:
         """Retrieve session messages, optionally filtered by message kind.
 
@@ -3297,6 +3298,10 @@ class AgentSessionService(BaseWorkspaceService):
                 this True: they run before ``finalize_turn`` clears
                 ``curr_run_id``, so the default filter would otherwise omit the
                 just-completed turn from the returned ``message_history``.
+            through_run_id: When set, drop the rows written after this run's
+                last row. A terminal load that runs after its turn released the
+                session uses it, so a run that took the session over since does
+                not appear, whether or not it has finished.
 
         Returns:
             List of ChatMessage objects (parent messages + current if forked).
@@ -3355,6 +3360,14 @@ class AgentSessionService(BaseWorkspaceService):
                 forked_from_session_id=agent_session.forked_from_session_id,
                 forked_from_history_id=agent_session.forked_from_history_id,
             )
+
+        if through_run_id is not None:
+            last_row = max(
+                (e.surrogate_id for e in entries if e.curr_run_id == through_run_id),
+                default=None,
+            )
+            if last_row is not None:
+                entries = [e for e in entries if e.surrogate_id <= last_row]
 
         return self._render_history_entries(
             entries,

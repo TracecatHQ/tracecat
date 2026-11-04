@@ -426,6 +426,64 @@ async def test_list_messages_sql_owns_active_run_visibility(
     }
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("later_run_active", [True, False], ids=["active", "finished"])
+async def test_list_messages_through_a_run_drops_later_runs(
+    session: AsyncSession,
+    svc_role: Role,
+    later_run_active: bool,
+) -> None:
+    """A turn's history loaded after the turn released its session ends at the
+    turn's own last row, whether the run that took the session over since is
+    still running or has finished."""
+    prior_run_id, turn_run_id, later_run_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Workflow session",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+        entity_id=uuid.uuid4(),
+        curr_run_id=later_run_id if later_run_active else None,
+    )
+    session.add(agent_session)
+    await session.flush()
+
+    entries: dict[str, AgentSessionHistory] = {}
+    for name, run_id in [
+        ("prior", prior_run_id),
+        ("turn prompt", turn_run_id),
+        ("turn answer", turn_run_id),
+        ("later prompt", later_run_id),
+    ]:
+        entries[name] = AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            curr_run_id=run_id,
+            content={
+                "type": "assistant",
+                "uuid": str(uuid.uuid4()),
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": name}],
+                },
+            },
+        )
+        # One row at a time, so the rows keep the order they were written in.
+        session.add(entries[name])
+        await session.flush()
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    messages = await service.list_messages(
+        agent_session.id, include_active=True, through_run_id=turn_run_id
+    )
+
+    assert [message.id for message in messages if message.message is not None] == [
+        str(entries[name].id) for name in ("prior", "turn prompt", "turn answer")
+    ]
+
+
 def _assistant_tool_use(
     tool_call_id: str,
     *,
