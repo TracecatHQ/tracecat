@@ -537,6 +537,19 @@ class TestCaseFieldsService:
         with pytest.raises(ValueError, match="Field case_id is a reserved field"):
             await case_fields_service.delete_field("case_id")
 
+    async def test_delete_field_missing_column_raises_not_found(
+        self, session: AsyncSession, case_fields_service: CaseFieldsService
+    ) -> None:
+        """Deleting a field whose column is already gone is a 404, not a 500."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="notes", type=SqlType.TEXT)
+        )
+        await case_fields_service.delete_field("notes")
+
+        with pytest.raises(TracecatNotFoundError, match="Column not found"):
+            async with session.begin_nested():
+                await case_fields_service.delete_field("notes")
+
     async def test_get_fields_none(
         self, case_fields_service: CaseFieldsService, test_case: Case
     ) -> None:
