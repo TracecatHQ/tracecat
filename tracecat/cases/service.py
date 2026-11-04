@@ -167,6 +167,8 @@ from tracecat.tables.common import (
     coerce_multi_select_value,
     coerce_numeric_value,
     coerce_select_value,
+    coerce_to_date,
+    coerce_to_utc_datetime,
     normalize_column_options,
 )
 from tracecat.tables.enums import SqlType
@@ -1526,6 +1528,20 @@ class CaseFieldsService(CustomFieldsService):
                 normalized[field_name] = coerce_multi_select_value(
                     value, options=field_options
                 )
+            elif field_type is SqlType.TIMESTAMPTZ:
+                try:
+                    normalized[field_name] = coerce_to_utc_datetime(value)
+                except (TypeError, ValueError, OverflowError, OSError) as e:
+                    raise ValueError(
+                        f"Custom field '{field_name}' expects an ISO 8601 timestamp."
+                    ) from e
+            elif field_type is SqlType.DATE:
+                try:
+                    normalized[field_name] = coerce_to_date(value)
+                except (TypeError, ValueError, OverflowError, OSError) as e:
+                    raise ValueError(
+                        f"Custom field '{field_name}' expects an ISO 8601 date."
+                    ) from e
             else:
                 normalized[field_name] = value
 
