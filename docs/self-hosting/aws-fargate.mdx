@@ -119,7 +119,7 @@ If you are using Temporal Cloud or another external Temporal cluster, set `disab
 
 ## AWS role assumption
 
-The executor assumes the role in an `AWS_ROLE_ARN` secret or an external secret store with its ECS task role. By default, `executor_deny_same_account_assume_role` denies it any role in the deployment's own AWS account, so workflows reach AWS only through roles in other accounts.
+The executor assumes the role in a workflow's `AWS_ROLE_ARN` secret or an external secret store with its ECS task role. By default, `executor_deny_same_account_assume_role` denies it any role in the deployment's own AWS account, so workflows reach AWS only through roles in other accounts.
 
 If your AWS integration roles live in the same account as Tracecat, turn the Deny off:
 
