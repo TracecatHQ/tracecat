@@ -551,6 +551,29 @@ async def test_unreachable_provider_error_omits_key(fake_fetch: _FakeFetch) -> N
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "api_key",
+    [
+        pytest.param("sk-valid\u200b", id="zero-width-space"),
+        pytest.param("sk-vålid", id="accented"),
+    ],
+)
+async def test_non_ascii_key_is_rejected_without_provider_call(
+    fake_fetch: _FakeFetch, api_key: str
+) -> None:
+    with pytest.raises(ProviderKeyCheckError) as exc_info:
+        await check_provider_key("openai", {"OPENAI_API_KEY": api_key})
+
+    assert exc_info.value.detail == {
+        "code": ProviderKeyCheckErrorCode.INVALID_KEY,
+        "message": "OpenAI didn't accept this API key. Please check the key and "
+        "try again.",
+        "field": "OPENAI_API_KEY",
+    }
+    assert fake_fetch.calls == []
+
+
+@pytest.mark.anyio
 async def test_openai_restricted_key_without_model_read_is_not_rejected(
     fake_fetch: _FakeFetch,
 ) -> None:

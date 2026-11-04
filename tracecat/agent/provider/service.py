@@ -542,10 +542,18 @@ async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> N
     if (models_base_url := _key_check_base_url(check, base_url)) is None:
         return
     label = PROVIDER_CREDENTIAL_CONFIGS[provider].label
+    api_key = credentials.get(check.api_key_field)
+    # Header values must be ASCII; httpx raises UnicodeEncodeError otherwise.
+    if api_key is not None and not api_key.isascii():
+        raise ProviderKeyCheckError(
+            _key_check_message(ProviderKeyCheckErrorCode.INVALID_KEY, label),
+            code=ProviderKeyCheckErrorCode.INVALID_KEY,
+            field=check.api_key_field,
+        )
     try:
         response = await fetch_openai_compatible_models(
             base_url=models_base_url,
-            api_key=credentials.get(check.api_key_field),
+            api_key=api_key,
             api_key_header=check.api_key_header,
             custom_headers=dict(check.extra_headers),
             timeout=10.0,
