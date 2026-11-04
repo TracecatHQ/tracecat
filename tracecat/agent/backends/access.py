@@ -116,8 +116,9 @@ async def require_session_backend_entitlement(
 
     Raises:
         EntitlementRequired: If the organization lost an entitlement the
-            session's backend needs (403), with a message telling the user to
-            start a new chat.
+            session's backend needs (403). The message tells a chat user to
+            start a new chat, and a workflow action to run without its session
+            ID to start a new session.
     """
     if missing := await missing_backend_entitlement(
         session, organization_id, backend_id, entity_type=entity_type

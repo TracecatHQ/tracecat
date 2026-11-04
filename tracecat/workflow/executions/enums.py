@@ -139,7 +139,8 @@ class WorkflowRunExcludedWorkflowType(StrEnum):
     DURABLE_AGENT = "DurableAgentWorkflow"
     EXECUTE_REGISTRY_TOOL = "ExecuteRegistryToolWorkflow"
     # The parent of a workflow agent action's turn on an installed backend.
-    # The backends' own turn workflows are excluded by their registered types.
+    # The backend's own turn workflow carries no workspace search attributes,
+    # so run listings never match it.
     WORKFLOW_AGENT_TURN = "WorkflowAgentTurnWorkflow"
 
 

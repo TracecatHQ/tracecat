@@ -192,13 +192,6 @@ def get_workflow_type(backend: AgentBackend[Any, Any]) -> str:
     return name
 
 
-def agent_turn_workflow_types() -> frozenset[str]:
-    """Return the turn workflow types of every installed backend."""
-    return frozenset(
-        get_workflow_type(backend) for backend in get_agent_backends().values()
-    )
-
-
 def agent_backend_available(identifier: str | None, harness_type: str | None) -> bool:
     """Whether the installed provider can execute this session."""
     backend = find_agent_backend(identifier)

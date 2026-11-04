@@ -64,7 +64,9 @@ class WorkflowAgentTurnWorkflow:
             priority=turn.priority,
             execution_timeout=info.execution_timeout,
             task_timeout=info.task_timeout,
-            search_attributes=info.typed_search_attributes,
+            # No workspace search attributes, like case-comment turns: the
+            # turn is not a workflow run, and run listings must never match it,
+            # even after its backend is uninstalled.
         )
         read = await workflow.execute_activity(
             read_workflow_agent_turn_activity,

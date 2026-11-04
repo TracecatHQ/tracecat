@@ -56,6 +56,7 @@ from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 pytestmark = [
     pytest.mark.temporal,
@@ -237,6 +238,9 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
             return
         result = await handle.result()
         memo = await (await parent.describe()).memo()
+        backend_turn = await temporal_client.get_workflow_handle(
+            f"agent/{run_id}"
+        ).describe()
 
     data = await to_data(result)
     assert data["output"] == {
@@ -247,6 +251,12 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
     assert uuid.UUID(str(data["session_id"])) == turn.args.agent_args.session_id
     # The run view attributes the turn to its action through this memo.
     assert memo["action_ref"] == "agent"
+    # The backend's own turn is not a workflow run: without the workspace
+    # attribute, run listings never match it, even after its backend is gone.
+    assert (
+        backend_turn.typed_search_attributes.get(TemporalSearchAttr.WORKSPACE_ID.key)
+        is None
+    )
 
 
 @pytest.mark.anyio

@@ -11,7 +11,6 @@ from temporalio.client import WorkflowExecution
 
 import tracecat.agent.adapter.vercel
 from tracecat import config
-from tracecat.agent.backends.registry import agent_turn_workflow_types
 from tracecat.agent.schemas import AgentOutput
 from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.auth.dependencies import (
@@ -350,15 +349,6 @@ def _to_workflow_run_read_minimal(
     )
 
 
-def _run_listing_excluded_workflow_types() -> set[str]:
-    """Workflow types the runs UI hides, including installed backends' turns.
-
-    A workflow agent action's turn on an installed backend inherits the
-    workspace search attributes, and its parent is not a workflow run.
-    """
-    return set(WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES) | agent_turn_workflow_types()
-
-
 @router.get("")
 @require_scope("workflow:read")
 async def list_workflow_executions(
@@ -391,7 +381,7 @@ async def list_workflow_executions(
         workflow_id=workflow_id,
         trigger_types=trigger_types,
         triggered_by_user_id=triggered_by_user_id,
-        exclude_workflow_types=_run_listing_excluded_workflow_types(),
+        exclude_workflow_types=set(WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES),
         limit=effective_limit,
     )
     return [
@@ -485,7 +475,7 @@ async def search_workflow_executions(
             statuses=statuses,
             status_mode=status_mode,
             execution_types={ExecutionType.PUBLISHED},
-            exclude_workflow_types=_run_listing_excluded_workflow_types(),
+            exclude_workflow_types=set(WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES),
             start_time_from=start_time_from,
             start_time_to=start_time_to,
             close_time_from=close_time_from,
