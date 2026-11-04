@@ -38,6 +38,11 @@ from tracecat.agent.backends.schemas import (
     ChildAgentTurn,
     WorkflowApprovalSubmission,
 )
+from tracecat.agent.session.activities import (
+    LoadSessionMessagesInput,
+    LoadSessionMessagesResult,
+    load_session_messages_activity,
+)
 from tracecat.agent.worker import get_activities as get_agent_worker_activities
 from tracecat.agent.worker import new_sandbox_runner as new_agent_sandbox_runner
 from tracecat.agent.workflow_turns.activities import (
@@ -50,6 +55,7 @@ from tracecat.agent.workflow_turns.schemas import (
 )
 from tracecat.agent.workflow_turns.workflows import WorkflowAgentTurnWorkflow
 from tracecat.auth.types import Role
+from tracecat.chat.schemas import ChatMessage
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
@@ -88,7 +94,8 @@ def _agent_action_dsl(**args: Any) -> DSLInput:
 def _installed_backend_activities(
     prepared: list[WorkflowAgentTurnInput], *, task_queue: str
 ) -> list[Callable[..., Any]]:
-    """Select the installed backend for every action and prepare its turn there."""
+    """Select the installed backend for every action, prepare its turn there,
+    and load a one-message session history."""
 
     @activity.defn(name="select_workflow_agent_backend_activity")
     async def select(args: AgentWorkflowArgs) -> SelectWorkflowAgentBackendResult:
@@ -116,7 +123,14 @@ def _installed_backend_activities(
             },
         )
 
-    return [select, prepare]
+    @activity.defn(name="load_session_messages_activity")
+    async def load_messages(
+        input: LoadSessionMessagesInput,
+    ) -> LoadSessionMessagesResult:
+        assert prepared and input.session_id == prepared[0].args.agent_args.session_id
+        return LoadSessionMessagesResult(messages=[ChatMessage(id="msg-1")])
+
+    return [select, prepare, load_messages]
 
 
 # The agent actions resolve through this lock, so no registry sync is needed.
@@ -148,6 +162,7 @@ def _with_activities(
     replacements: Sequence[Callable[..., Any]],
 ) -> list[Callable[..., Any]]:
     replaced = {
+        load_session_messages_activity,
         prepare_workflow_agent_turn_activity,
         select_workflow_agent_backend_activity,
     }
@@ -247,6 +262,9 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
         "output_type": output_type,
     }
     assert uuid.UUID(str(data["session_id"])) == turn.args.agent_args.session_id
+    # The session's history, as the built-in workflow returns it: the run view
+    # renders the finished transcript from it.
+    assert [message["id"] for message in data["message_history"]] == ["msg-1"]
     # The run view attributes the turn to its action through this memo.
     assert memo["action_ref"] == "agent"
     # The backend's own turn is not a workflow run: without the workspace

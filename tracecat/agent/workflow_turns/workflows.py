@@ -4,10 +4,14 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat.agent.schemas import AgentOutput
+    from tracecat.agent.session.activities import (
+        LoadSessionMessagesInput,
+        load_session_messages_activity,
+    )
     from tracecat.agent.workflow_turns.activities import (
         prepare_workflow_agent_turn_activity,
         read_workflow_agent_turn_activity,
@@ -69,8 +73,25 @@ class WorkflowAgentTurnWorkflow:
         )
         if read.error is not None:
             raise ApplicationError(read.error, non_retryable=True)
+        # The session's history, as the built-in workflow returns it: run
+        # views render the finished transcript from it. The turn already
+        # succeeded, so a failed load leaves the history out.
+        message_history = None
+        try:
+            loaded = await workflow.execute_activity(
+                load_session_messages_activity,
+                LoadSessionMessagesInput(
+                    role=input.args.role, session_id=turn.session_id
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            message_history = loaded.messages
+        except ActivityError as e:
+            workflow.logger.warning("Failed to load workflow agent turn history: %s", e)
         return AgentOutput(
             output=read.output,
+            message_history=message_history,
             duration=(workflow.now() - started_at).total_seconds(),
             session_id=turn.session_id,
         )
