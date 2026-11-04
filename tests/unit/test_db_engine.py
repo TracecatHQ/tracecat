@@ -301,12 +301,11 @@ def test_auth_session_withholds_transactional_surface() -> None:
     """Misuse of the auth pool for long-lived work is unexpressible."""
     handle = AuthSession(AsyncMock())
 
-    for attr in ("begin", "flush", "delete", "merge", "refresh", "get"):
+    for attr in ("add", "begin", "flush", "delete", "merge", "refresh", "get"):
         assert not hasattr(handle, attr), f"AuthSession must not expose {attr}"
 
     # Only the surface today's auth callsites need.
     assert hasattr(handle, "execute")
-    assert hasattr(handle, "add")
     assert hasattr(handle, "commit")
 
 
@@ -321,10 +320,6 @@ async def test_auth_session_delegates_to_wrapped_session() -> None:
     statement = select(1)
     assert await handle.execute(statement) is sentinel
     underlying.execute.assert_awaited_once_with(statement)
-
-    record = object()
-    handle.add(record)
-    underlying.add.assert_called_once_with(record)
 
     await handle.commit()
     underlying.commit.assert_awaited_once()
