@@ -6,10 +6,16 @@ prepare the turn on that backend and read its result, and the workflow starts
 the backend's turn workflow as its own child by type name.
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from datetime import timedelta
 
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.agent.backends.registry import (
     DEFAULT_AGENT_BACKEND,
@@ -31,7 +37,7 @@ from tracecat.agent.preset.activities import (
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.types import (
     AgentConfig,
     apply_preset_overrides,
@@ -42,9 +48,12 @@ from tracecat.agent.workflow_turns.schemas import (
     PrepareWorkflowAgentTurnResult,
     ReadWorkflowAgentTurnInput,
     ReadWorkflowAgentTurnResult,
+    workflow_agent_turn_workflow_id,
 )
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
+from tracecat.db.models import AgentSession
+from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
@@ -123,6 +132,50 @@ async def _with_gateway_provider_config(role: Role, config: AgentConfig) -> Agen
     )
 
 
+# A reserved turn whose workflows never appear is still on its way to starting
+# them until this long after the reservation; only then is it given up.
+_UNSTARTED_TURN_GRACE = timedelta(minutes=10)
+_RUNNING = frozenset(
+    {WorkflowExecutionStatus.RUNNING, WorkflowExecutionStatus.CONTINUED_AS_NEW}
+)
+
+
+def _holder_ended(db: AsyncSession) -> Callable[[AgentSession], Awaitable[bool]]:
+    """Decide whether the run holding a workflow session has ended for good.
+
+    Only then may another workflow agent action take the session over. A run
+    has ended when its backend turn is not running and its parent workflow has
+    closed, or, when neither ever started, once the reservation has outlived
+    the start grace period.
+    """
+
+    async def ended(session: AgentSession) -> bool:
+        run_id = session.curr_run_id
+        backend = find_agent_backend(session.backend_id)
+        if run_id is None or backend is None:
+            return False
+        if await backend.get_turn_lifecycle(run_id) is TurnLifecycle.RUNNING:
+            return False
+        client = await get_temporal_client()
+        parent = client.get_workflow_handle(workflow_agent_turn_workflow_id(run_id))
+        try:
+            description = await parent.describe()
+        except RPCError as e:
+            if e.status != RPCStatusCode.NOT_FOUND:
+                return False
+            # Every reservation write bumps updated_at, so this is its age.
+            outlived = await db.scalar(
+                select(AgentSession.id).where(
+                    AgentSession.id == session.id,
+                    AgentSession.updated_at <= func.now() - _UNSTARTED_TURN_GRACE,
+                )
+            )
+            return outlived is not None
+        return description.status not in _RUNNING
+
+    return ended
+
+
 @activity.defn
 async def prepare_workflow_agent_turn_activity(
     input: PrepareWorkflowAgentTurnInput,
@@ -169,6 +222,7 @@ async def prepare_workflow_agent_turn_activity(
                 agent_args.user_prompt,
                 config=config,
                 caller_run_id=input.run_id,
+                holder_ended=_holder_ended(service.session),
             )
         except EntitlementRequired as e:
             # Retrying cannot help until the entitlement is restored.
@@ -192,30 +246,38 @@ async def prepare_workflow_agent_turn_activity(
             TracecatValidationError,
         ) as e:
             raise_application_error_from_classification(invalid_agent_configuration(e))
-        backend = get_agent_backend(
-            prepared.backend_id, harness_type=prepared.harness_type
-        )
-        workflow_args = await backend.build_workflow_args(
-            SessionWorkflowContext(
-                session_id=prepared.session_id,
-                backend_id=prepared.backend_id,
-                harness_type=prepared.harness_type,
-                title=prepared.title,
-                entity_type=prepared.entity_type,
-                entity_id=prepared.entity_id,
-                tools=tuple(prepared.tools) if prepared.tools is not None else None,
-                agent_preset_id=prepared.agent_preset_id,
-                agent_preset_version_id=prepared.agent_preset_version_id,
-                role=service.execution_role,
-                config=prepared.config,
-                prompt=prepared.prompt,
-                run_id=prepared.run_id,
-                stream_id=prepared.active_stream_id,
-                timeout_seconds=clamp_agent_timeout_seconds(agent_args.timeout_seconds),
-                max_requests=agent_args.max_requests,
-                max_tool_calls=agent_args.max_tool_calls,
+        try:
+            backend = get_agent_backend(
+                prepared.backend_id, harness_type=prepared.harness_type
             )
-        )
+            workflow_args = await backend.build_workflow_args(
+                SessionWorkflowContext(
+                    session_id=prepared.session_id,
+                    backend_id=prepared.backend_id,
+                    harness_type=prepared.harness_type,
+                    title=prepared.title,
+                    entity_type=prepared.entity_type,
+                    entity_id=prepared.entity_id,
+                    tools=tuple(prepared.tools) if prepared.tools is not None else None,
+                    agent_preset_id=prepared.agent_preset_id,
+                    agent_preset_version_id=prepared.agent_preset_version_id,
+                    role=service.execution_role,
+                    config=prepared.config,
+                    prompt=prepared.prompt,
+                    run_id=prepared.run_id,
+                    stream_id=prepared.active_stream_id,
+                    timeout_seconds=clamp_agent_timeout_seconds(
+                        agent_args.timeout_seconds
+                    ),
+                    max_requests=agent_args.max_requests,
+                    max_tool_calls=agent_args.max_tool_calls,
+                )
+            )
+        except Exception:
+            # No workflow will start for this reservation, so free the session
+            # now. A retry reserves it again.
+            await service.release_prepared_turn(prepared.session_id, prepared.run_id)
+            raise
     return PrepareWorkflowAgentTurnResult(
         turn=ChildAgentTurn(
             backend_id=prepared.backend_id,

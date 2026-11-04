@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import hashlib
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
@@ -2111,6 +2111,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         config: AgentConfig | None = None,
         caller_run_id: uuid.UUID | None = None,
+        holder_ended: Callable[[AgentSession], Awaitable[bool]] | None = None,
     ) -> PreparedAgentTurn:
         """Prepare a new turn for a caller-owned Temporal workflow.
 
@@ -2131,6 +2132,10 @@ class AgentSessionService(BaseWorkspaceService):
                 run holds it, and a retry adopts this caller's own run. When
                 omitted, the caller serializes its turns and any persisted run
                 is adopted.
+            holder_ended: With ``caller_run_id``, decides whether another run
+                that holds the session has ended for good. Called under the
+                row lock with the locked session; when it returns True, this
+                caller takes the session over.
 
         Raises:
             TracecatConflictError: If ``caller_run_id`` is given and another
@@ -2138,17 +2143,25 @@ class AgentSessionService(BaseWorkspaceService):
         """
         if caller_run_id is not None:
             # Lock the row until the reservation commits, so concurrent
-            # callers cannot both see the session idle.
-            held_by = await self.session.scalar(
-                select(AgentSession.curr_run_id)
+            # callers cannot both see the session idle. Refresh any copy
+            # loaded earlier, so this admission and the reservation below
+            # both read the row as locked.
+            locked = await self.session.scalar(
+                select(AgentSession)
                 .where(
                     AgentSession.id == session_id,
                     AgentSession.workspace_id == self.workspace_id,
                 )
                 .with_for_update(key_share=True)
+                .execution_options(populate_existing=True)
             )
-            if held_by is not None and held_by != caller_run_id:
-                raise TracecatConflictError("This chat already has an active turn")
+            held_by = locked.curr_run_id if locked is not None else None
+            if locked is not None and held_by not in (None, caller_run_id):
+                if holder_ended is None or not await holder_ended(locked):
+                    raise TracecatConflictError("This chat already has an active turn")
+                # Its run will never release the session, so take it over.
+                locked.curr_run_id = None
+                locked.active_stream_id = None
         agent_session = await self.validate_turn_request(
             session_id,
             BasicChatRequest(message=prompt),
@@ -2169,7 +2182,13 @@ class AgentSessionService(BaseWorkspaceService):
         )
         async with session_config as agent_config:
             run_id = agent_session.curr_run_id or caller_run_id or uuid.uuid4()
-            stream_id = agent_session.active_stream_id or uuid.uuid4()
+            # Reuse a stream only with the run it belongs to.
+            adopted_stream = (
+                agent_session.active_stream_id
+                if agent_session.curr_run_id is not None
+                else None
+            )
+            stream_id = adopted_stream or uuid.uuid4()
             prepared_turn = PreparedAgentTurn(
                 prompt=prompt,
                 session_id=session_id,
@@ -2206,6 +2225,24 @@ class AgentSessionService(BaseWorkspaceService):
             await self.session.commit()
 
         return prepared_turn
+
+    async def release_prepared_turn(
+        self, session_id: uuid.UUID, run_id: uuid.UUID
+    ) -> None:
+        """Release a caller-owned reservation whose workflow will never start.
+
+        Clears the turn pointers only while ``run_id`` still holds them.
+        """
+        await self.session.execute(
+            update(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.curr_run_id == run_id,
+            )
+            .values(curr_run_id=None, active_stream_id=None)
+        )
+        await self.session.commit()
 
     async def run_turn(
         self,

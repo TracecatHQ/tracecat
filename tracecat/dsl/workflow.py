@@ -1918,7 +1918,7 @@ class DSLWorkflow:
         return await workflow.execute_child_workflow(
             WorkflowAgentTurnWorkflow.run,
             WorkflowAgentTurnInput(turn=turn),
-            id=workflow_agent_turn_workflow_id(turn),
+            id=workflow_agent_turn_workflow_id(turn.run_id),
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # The agent worker has the installed backends.
             task_queue=config.TRACECAT__AGENT_QUEUE,

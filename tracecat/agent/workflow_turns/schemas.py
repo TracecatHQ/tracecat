@@ -11,9 +11,9 @@ from tracecat.auth.types import Role
 WORKFLOW_AGENT_TURN_WORKFLOW = "WorkflowAgentTurnWorkflow"
 
 
-def workflow_agent_turn_workflow_id(turn: ChildAgentTurn) -> str:
+def workflow_agent_turn_workflow_id(run_id: uuid.UUID) -> str:
     """Return the stable workflow ID of the parent of one backend turn."""
-    return f"workflow-agent-turn/{turn.run_id}"
+    return f"workflow-agent-turn/{run_id}"
 
 
 class PrepareWorkflowAgentTurnInput(BaseModel):

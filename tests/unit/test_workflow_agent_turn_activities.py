@@ -18,8 +18,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from temporalio import workflow
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import Priority, RetryPolicy
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.schemas import (
@@ -35,13 +37,14 @@ from tracecat.agent.backends.types import (
 from tracecat.agent.preset.activities import CustomModelProviderConfigResult
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.schemas import AgentSessionCreate
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.types import (
     AgentConfig,
     apply_preset_overrides,
     clamp_agent_timeout_seconds,
 )
 from tracecat.agent.workflow_turns.activities import (
+    _holder_ended,
     prepare_workflow_agent_turn_activity,
     read_workflow_agent_turn_activity,
 )
@@ -50,6 +53,7 @@ from tracecat.agent.workflow_turns.schemas import (
     ReadWorkflowAgentTurnInput,
 )
 from tracecat.auth.types import Role
+from tracecat.db.models import AgentSession
 from tracecat.exceptions import EntitlementRequired, TracecatConflictError
 
 ACTIVITIES = "tracecat.agent.workflow_turns.activities"
@@ -166,7 +170,9 @@ def _service(
         *,
         config: AgentConfig,
         caller_run_id: uuid.UUID,
+        holder_ended: object,
     ) -> SimpleNamespace:
+        del holder_ended
         return SimpleNamespace(
             prompt=prompt,
             session_id=session_id,
@@ -192,6 +198,7 @@ def _service(
         get_or_create_session=AsyncMock(side_effect=get_or_create_session),
         auto_title_session_on_first_prompt=AsyncMock(),
         prepare_new_turn=AsyncMock(side_effect=prepare_new_turn),
+        release_prepared_turn=AsyncMock(),
     )
 
 
@@ -527,3 +534,96 @@ def test_preset_overrides_match_the_builtin_workflow() -> None:
     # The preset's own configuration is left as resolved.
     assert preset.actions == ["a", "b"]
     assert apply_preset_overrides(preset, None).tool_tunnels == {"a": "t1", "b": "t2"}
+
+
+@pytest.mark.anyio
+async def test_failed_preparation_releases_its_reservation() -> None:
+    """No workflow starts for it, so the session must not stay held."""
+    service = _service()
+    failing = InstalledBackend()
+    with (
+        _activity_env(service, selected="external"),
+        patch(f"{ACTIVITIES}.get_agent_backend", return_value=failing),
+        patch.object(
+            failing, "build_workflow_args", AsyncMock(side_effect=ValueError("x"))
+        ),
+        pytest.raises(ValueError),
+    ):
+        await _prepare(_args())
+    prepared = service.prepare_new_turn.await_args
+    assert prepared is not None
+    service.release_prepared_turn.assert_awaited_once_with(
+        prepared.args[0], prepared.kwargs["caller_run_id"]
+    )
+
+
+def _held_session() -> AgentSession:
+    return AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        title="Held",
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+        entity_id=uuid.uuid4(),
+        backend_id="external",
+        curr_run_id=uuid.uuid4(),
+    )
+
+
+@contextlib.contextmanager
+def _holder_env(
+    *, lifecycle: TurnLifecycle, parent: WorkflowExecutionStatus | RPCError
+) -> Iterator[None]:
+    backend = InstalledBackend()
+    handle = Mock(
+        describe=AsyncMock(side_effect=parent)
+        if isinstance(parent, RPCError)
+        else AsyncMock(return_value=SimpleNamespace(status=parent))
+    )
+    client = Mock(get_workflow_handle=Mock(return_value=handle))
+    with (
+        patch(f"{ACTIVITIES}.find_agent_backend", return_value=backend),
+        patch.object(backend, "get_turn_lifecycle", AsyncMock(return_value=lifecycle)),
+        patch(f"{ACTIVITIES}.get_temporal_client", AsyncMock(return_value=client)),
+    ):
+        yield
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("lifecycle", "parent", "outlived", "ended"),
+    [
+        # The backend's turn is still running.
+        (TurnLifecycle.RUNNING, WorkflowExecutionStatus.COMPLETED, True, False),
+        # Its parent is still reading the result.
+        (TurnLifecycle.COMPLETED, WorkflowExecutionStatus.RUNNING, True, False),
+        # Both closed; with the parent gone its child cannot run either.
+        (TurnLifecycle.COMPLETED, WorkflowExecutionStatus.COMPLETED, False, True),
+        (TurnLifecycle.FAILED, WorkflowExecutionStatus.TERMINATED, False, True),
+        # Never started: only a reservation past the start grace is given up.
+        (TurnLifecycle.FAILED, "not_found", False, False),
+        (TurnLifecycle.FAILED, "not_found", True, True),
+        # An unknown lookup failure is never taken as an end.
+        (TurnLifecycle.FAILED, "unavailable", True, False),
+    ],
+)
+async def test_holder_ends_only_when_its_turn_can_never_finish(
+    lifecycle: TurnLifecycle,
+    parent: WorkflowExecutionStatus | str,
+    outlived: bool,
+    ended: bool,
+) -> None:
+    db = AsyncMock()
+    db.scalar.return_value = uuid.uuid4() if outlived else None
+    match parent:
+        case "not_found":
+            status: WorkflowExecutionStatus | RPCError = RPCError(
+                "missing", RPCStatusCode.NOT_FOUND, b""
+            )
+        case "unavailable":
+            status = RPCError("down", RPCStatusCode.UNAVAILABLE, b"")
+        case WorkflowExecutionStatus():
+            status = parent
+        case _:
+            raise AssertionError(parent)
+    with _holder_env(lifecycle=lifecycle, parent=status):
+        assert await _holder_ended(db)(_held_session()) is ended
