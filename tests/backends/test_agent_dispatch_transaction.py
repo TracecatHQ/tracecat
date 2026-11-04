@@ -938,6 +938,46 @@ async def test_caller_owned_reservation_is_never_tombstoned(
     assert saved.reserved_at is None
 
 
+async def test_named_caller_runs_are_admitted_one_at_a_time(
+    connection: AsyncConnection,
+) -> None:
+    """Callers that name their run, such as workflow agent actions, share no queue.
+
+    So admission refuses a second run while one holds the session, and a retry
+    of the first caller adopts its own reservation.
+    """
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        service = AgentSessionService(db, context.role)
+        first, second = uuid4(), uuid4()
+
+        async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
+            loaded = await db.scalar(
+                select(AgentSession)
+                .where(AgentSession.id == session_id)
+                .execution_options(populate_existing=True)
+            )
+            assert loaded is not None
+            return loaded
+
+        with patch.object(service, "validate_turn_request", load_session):
+            prepared = await service.prepare_new_turn(
+                session_id, "Investigate", config=context.config, caller_run_id=first
+            )
+            with pytest.raises(TracecatConflictError):
+                await service.prepare_new_turn(
+                    session_id, "Also", config=context.config, caller_run_id=second
+                )
+            await db.rollback()
+            retried = await service.prepare_new_turn(
+                session_id, "Investigate", config=context.config, caller_run_id=first
+            )
+
+    assert prepared.run_id == retried.run_id == first
+    await assert_reserved_by(connection, session_id, first)
+
+
 async def test_stale_preparation_keeps_a_newer_reservation_recoverable(
     connection: AsyncConnection,
 ) -> None:

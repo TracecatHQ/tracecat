@@ -2110,6 +2110,7 @@ class AgentSessionService(BaseWorkspaceService):
         prompt: str,
         *,
         config: AgentConfig | None = None,
+        caller_run_id: uuid.UUID | None = None,
     ) -> PreparedAgentTurn:
         """Prepare a new turn for a caller-owned Temporal workflow.
 
@@ -2124,7 +2125,30 @@ class AgentSessionService(BaseWorkspaceService):
             config: The turn's agent configuration, for callers that own it,
                 such as workflow agent actions. Built from the session when
                 omitted.
+            caller_run_id: The run ID this caller reserves, for callers that
+                do not serialize their turns per session, such as workflow
+                agent actions. The session is admitted only while no other
+                run holds it, and a retry adopts this caller's own run. When
+                omitted, the caller serializes its turns and any persisted run
+                is adopted.
+
+        Raises:
+            TracecatConflictError: If ``caller_run_id`` is given and another
+                run holds the session.
         """
+        if caller_run_id is not None:
+            # Lock the row until the reservation commits, so concurrent
+            # callers cannot both see the session idle.
+            held_by = await self.session.scalar(
+                select(AgentSession.curr_run_id)
+                .where(
+                    AgentSession.id == session_id,
+                    AgentSession.workspace_id == self.workspace_id,
+                )
+                .with_for_update(key_share=True)
+            )
+            if held_by is not None and held_by != caller_run_id:
+                raise TracecatConflictError("This chat already has an active turn")
         agent_session = await self.validate_turn_request(
             session_id,
             BasicChatRequest(message=prompt),
@@ -2144,7 +2168,7 @@ class AgentSessionService(BaseWorkspaceService):
             else self._build_agent_config(agent_session)
         )
         async with session_config as agent_config:
-            run_id = agent_session.curr_run_id or uuid.uuid4()
+            run_id = agent_session.curr_run_id or caller_run_id or uuid.uuid4()
             stream_id = agent_session.active_stream_id or uuid.uuid4()
             prepared_turn = PreparedAgentTurn(
                 prompt=prompt,

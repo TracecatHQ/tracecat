@@ -153,6 +153,10 @@ class AgentBackend[InputT, OutputT](ABC):
         transactions, or dispatch work. Persist turn data in workflow activities
         after execution starts, idempotently across activity retries. The shared
         lifecycle alone commits session ownership before the start RPC.
+
+        The returned input is recorded in Temporal history and, for workflow
+        agent actions, shown to workspace members in the workflow run view.
+        Never put credentials or other secrets in it.
         """
 
     async def start_turn(self, context: SessionTurnContext) -> None:

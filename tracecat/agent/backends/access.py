@@ -36,7 +36,8 @@ def required_backend_entitlements(
     """
     if backend_id is None or backend_id == DEFAULT_AGENT_BACKEND:
         return ()
-    if entity_type is AgentSessionEntity.WORKFLOW:
+    # Compare by value so a caller passing the raw string keeps the gate.
+    if entity_type == AgentSessionEntity.WORKFLOW:
         return (
             Entitlement.AGENT_RUNTIME_PREVIEW,
             Entitlement.AGENT_RUNTIME_WORKFLOWS,

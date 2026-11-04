@@ -49,6 +49,7 @@ from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -62,13 +63,13 @@ async def _turn_backend_id(
 
     A workflow action continues only workflow sessions on another backend.
     Chat, channel and approval sessions keep their own surface's rules, such
-    as the entitlements it needs and an approval fork having no tools.
+    as the entitlements it needs, and reviewer forks keep having no tools.
     """
     if session := await service.get_session(args.agent_args.session_id):
         backend_id = session.backend_id or DEFAULT_AGENT_BACKEND
-        if (
-            backend_id != DEFAULT_AGENT_BACKEND
-            and session.entity_type != AgentSessionEntity.WORKFLOW.value
+        if backend_id != DEFAULT_AGENT_BACKEND and (
+            session.entity_type != AgentSessionEntity.WORKFLOW.value
+            or session.forked_from_session_id is not None
         ):
             raise_application_error_from_classification(invalid_agent_configuration())
         return backend_id
@@ -105,8 +106,9 @@ async def _turn_config(
 async def _with_gateway_provider_config(role: Role, config: AgentConfig) -> AgentConfig:
     """Point a gateway provider at the organization's configured endpoint.
 
-    Like the built-in workflow, this replaces any base URL the action supplied,
-    so a workflow cannot send the organization's provider credentials elsewhere.
+    Like the built-in workflow, this replaces any base URL the action supplied
+    for a gateway provider. Other providers keep the action's base URL, as on
+    the built-in workflow.
     """
     if not is_gateway_provider(config.model_provider):
         return config
@@ -163,12 +165,21 @@ async def prepare_workflow_agent_turn_activity(
                     expected_title=agent_session.title,
                 )
             prepared = await service.prepare_new_turn(
-                agent_session.id, agent_args.user_prompt, config=config
+                agent_session.id,
+                agent_args.user_prompt,
+                config=config,
+                caller_run_id=input.run_id,
             )
         except EntitlementRequired as e:
             # Retrying cannot help until the entitlement is restored.
             raise ApplicationError(
                 str(e), e.detail, type=e.__class__.__name__, non_retryable=True
+            ) from e
+        except TracecatConflictError as e:
+            # Another action holds the session, like the built-in workflow
+            # refusing a second run of the same session.
+            raise ApplicationError(
+                str(e), type=e.__class__.__name__, non_retryable=True
             ) from e
         except AgentProviderCredentialsNotFoundError as e:
             # The organization must add credentials; retrying cannot help.

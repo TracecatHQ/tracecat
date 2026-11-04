@@ -1,5 +1,6 @@
 """Temporal payloads for running workflow agent actions on an agent backend."""
 
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -17,6 +18,9 @@ def workflow_agent_turn_workflow_id(turn: ChildAgentTurn) -> str:
 
 class PrepareWorkflowAgentTurnInput(BaseModel):
     role: Role
+    # Minted by the action, so a retry adopts this action's own reservation
+    # and a concurrent action on the same session is refused.
+    run_id: uuid.UUID
     # The built-in workflow's input, which the action builds either way. Its
     # session, prompt, configuration and limits describe the turn on any
     # backend.

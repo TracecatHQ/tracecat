@@ -50,7 +50,7 @@ from tracecat.agent.workflow_turns.schemas import (
     ReadWorkflowAgentTurnInput,
 )
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired
+from tracecat.exceptions import EntitlementRequired, TracecatConflictError
 
 ACTIVITIES = "tracecat.agent.workflow_turns.activities"
 
@@ -161,12 +161,16 @@ def _service(
         return created, True
 
     async def prepare_new_turn(
-        session_id: uuid.UUID, prompt: str, *, config: AgentConfig
+        session_id: uuid.UUID,
+        prompt: str,
+        *,
+        config: AgentConfig,
+        caller_run_id: uuid.UUID,
     ) -> SimpleNamespace:
         return SimpleNamespace(
             prompt=prompt,
             session_id=session_id,
-            run_id=uuid.uuid4(),
+            run_id=caller_run_id,
             active_stream_id=uuid.uuid4(),
             config=config,
             title="Alert triage",
@@ -210,7 +214,7 @@ def _activity_env(service: SimpleNamespace, *, selected: str) -> Iterator[AsyncM
 
 async def _prepare(args: AgentWorkflowArgs):
     return await prepare_workflow_agent_turn_activity(
-        PrepareWorkflowAgentTurnInput(role=args.role, args=args)
+        PrepareWorkflowAgentTurnInput(role=args.role, run_id=uuid.uuid4(), args=args)
     )
 
 
@@ -247,6 +251,8 @@ async def test_selected_backend_runs_the_action_with_its_own_config() -> None:
 
     turn = result.turn
     assert turn is not None
+    # The action's own run ID reserves the session.
+    assert turn.run_id == service.prepare_new_turn.await_args.kwargs["caller_run_id"]
     assert turn.backend_id == "external"
     assert turn.session_id == args.agent_args.session_id
     assert turn.workflow_type == "InstalledTurnWorkflow"
@@ -272,6 +278,7 @@ async def test_existing_session_keeps_its_own_backend() -> None:
         title="Earlier",
         backend_id="external",
         entity_type=AgentSessionEntity.WORKFLOW.value,
+        forked_from_session_id=None,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -370,7 +377,10 @@ async def test_action_cannot_continue_another_surfaces_session_on_a_backend(
     """Otherwise a workflow action would skip the workflow entitlement, or the
     other surface's own rules, by naming that surface's session."""
     existing = SimpleNamespace(
-        id=uuid.uuid4(), backend_id="external", entity_type=entity_type.value
+        id=uuid.uuid4(),
+        backend_id="external",
+        entity_type=entity_type.value,
+        forked_from_session_id=None,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -381,6 +391,43 @@ async def test_action_cannot_continue_another_surfaces_session_on_a_backend(
         await _prepare(args)
     assert exc_info.value.non_retryable
     service.prepare_new_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_action_cannot_continue_a_reviewer_fork_on_a_backend() -> None:
+    """A reviewer fork of a workflow session has no tools; an action's config
+    would give it some."""
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        backend_id="external",
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+        forked_from_session_id=uuid.uuid4(),
+    )
+    service = _service(existing=existing)
+    args = _args(session_id=existing.id, continue_existing_session=True)
+    with (
+        _activity_env(service, selected="external"),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await _prepare(args)
+    assert exc_info.value.non_retryable
+    service.prepare_new_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_busy_session_fails_the_action_without_retry() -> None:
+    """Like the built-in workflow refusing a second run of the same session."""
+    service = _service()
+    service.prepare_new_turn.side_effect = TracecatConflictError(
+        "This chat already has an active turn"
+    )
+    with (
+        _activity_env(service, selected="external"),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await _prepare(_args())
+    assert exc_info.value.non_retryable
+    assert exc_info.value.type == "TracecatConflictError"
 
 
 @pytest.mark.anyio

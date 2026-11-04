@@ -1876,7 +1876,9 @@ class DSLWorkflow:
         if workflow.patched(WorkflowPatch.AGENT_ACTIONS_ON_SESSION_BACKEND):
             prepared = await workflow.execute_activity(
                 prepare_workflow_agent_turn_activity,
-                PrepareWorkflowAgentTurnInput(role=self.role, args=arg),
+                PrepareWorkflowAgentTurnInput(
+                    role=self.role, run_id=workflow.uuid4(), args=arg
+                ),
                 # The agent worker has the installed backends.
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 start_to_close_timeout=timedelta(seconds=60),
