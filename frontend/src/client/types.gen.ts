@@ -11356,6 +11356,10 @@ export type TableCreate = {
    * The columns of the table
    */
   columns?: Array<TableColumnCreate>
+  /**
+   * Folder to create the table in. Defaults to the workspace root.
+   */
+  folder_path?: string | null
 }
 
 /**
