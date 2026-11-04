@@ -1,7 +1,12 @@
 "use client"
 
-import { ArrowDownAZIcon, ArrowDownZAIcon } from "lucide-react"
+import { ArrowDownAZIcon, ArrowDownZAIcon, ArrowUpDownIcon } from "lucide-react"
 import type { SortDirection } from "@/components/tables/table-row-query-context"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { SortingState } from "@/hooks/pagination/use-cursor-pagination"
 import { cn } from "@/lib/utils"
 
@@ -35,34 +40,45 @@ export function ColumnSortButton({
 }: ColumnSortButtonProps) {
   const direction = sort.orderBy === columnName ? sort.sort : null
 
-  let SortIcon = ArrowDownAZIcon
+  let SortIcon = ArrowUpDownIcon
   let label = `Sort by ${columnName}`
+  let hint = "Sort ascending"
   if (direction === "asc") {
+    SortIcon = ArrowDownAZIcon
     label = `${columnName}, sorted ascending. Activate to sort descending.`
+    hint = "Sort descending"
   } else if (direction === "desc") {
     SortIcon = ArrowDownZAIcon
     label = `${columnName}, sorted descending. Activate to remove sorting.`
+    hint = "Clear sort"
   }
 
   return (
-    <button
-      type="button"
-      aria-label={label}
-      data-sort={direction ?? "none"}
-      onClick={() => onSortChange(columnName, nextSortDirection(direction))}
-      className={cn(
-        "flex min-w-0 items-center gap-1 rounded-sm text-xs font-medium",
-        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-        className
-      )}
-    >
-      <span className="truncate">{columnName}</span>
-      <SortIcon
-        className={cn(
-          "size-3 shrink-0",
-          direction ? "text-foreground" : "text-muted-foreground/50"
-        )}
-      />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          data-sort={direction ?? "none"}
+          onClick={() => onSortChange(columnName, nextSortDirection(direction))}
+          className={cn(
+            "group/sort flex min-w-0 items-center gap-1 rounded-sm text-xs font-medium",
+            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+            className
+          )}
+        >
+          <span className="truncate">{columnName}</span>
+          <SortIcon
+            className={cn(
+              "size-3 shrink-0 transition-colors",
+              direction
+                ? "text-foreground"
+                : "text-muted-foreground/50 group-hover/sort:text-foreground"
+            )}
+          />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{hint}</TooltipContent>
+    </Tooltip>
   )
 }
