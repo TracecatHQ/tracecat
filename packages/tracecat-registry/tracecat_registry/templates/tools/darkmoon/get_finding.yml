@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get finding
+  description: >-
+    Get one Darkmoon finding by id, including its description, CVSS vector, MITRE ATT&CK
+    technique and remediation advice. Calls GET /api/v1/vulnerabilities/{id} on the Darkmoon
+    dashboard API (Darkmoon Pro).
+  display_group: Darkmoon
+  doc_url: https://github.com/ASCIT31/Dark-Moon
+  namespace: tools.darkmoon
+  name: get_finding
+  secrets:
+    - name: darkmoon
+      keys: ["DARKMOON_API_TOKEN"]
+  expects:
+    finding_id:
+      type: str
+      description: Finding id, as returned by List findings.
+    base_url:
+      type: str | None
+      description: >-
+        Darkmoon dashboard API root, for example https://darkmoon.example.org:8000.
+        Defaults to VARS.darkmoon.base_url.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.darkmoon.base_url }}/api/v1/vulnerabilities/${{ FN.url_encode(inputs.finding_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.darkmoon.DARKMOON_API_TOKEN }}
+          Accept: application/json
+  returns: ${{ steps.request.result }}

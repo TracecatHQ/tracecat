@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: List findings
+  description: >-
+    List the vulnerabilities found by Darkmoon, optionally filtered by campaign, severity,
+    category or status (exploited, confirmed, unconfirmed or remediated). Each finding carries
+    title, severity, CVSS score, category, endpoint and remediation advice. Calls
+    GET /api/v1/vulnerabilities on the Darkmoon dashboard API (Darkmoon Pro).
+  display_group: Darkmoon
+  doc_url: https://github.com/ASCIT31/Dark-Moon
+  namespace: tools.darkmoon
+  name: list_findings
+  secrets:
+    - name: darkmoon
+      keys: ["DARKMOON_API_TOKEN"]
+  expects:
+    campaign_id:
+      type: str | None
+      description: Only return findings of this campaign.
+      default: null
+    severity:
+      type: str | None
+      description: Only return findings of this severity (critical, high, medium, low or info).
+      default: null
+    category:
+      type: str | None
+      description: Only return findings of this category, for example sql_injection or ssrf.
+      default: null
+    status:
+      type: str | None
+      description: Only return findings with this status (exploited, confirmed, unconfirmed or remediated).
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Darkmoon dashboard API root, for example https://darkmoon.example.org:8000.
+        Defaults to VARS.darkmoon.base_url.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.darkmoon.base_url }}/api/v1/vulnerabilities
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.darkmoon.DARKMOON_API_TOKEN }}
+          Accept: application/json
+        params:
+          campaign_id: ${{ inputs.campaign_id }}
+          severity: ${{ inputs.severity }}
+          category: ${{ inputs.category }}
+          status: ${{ inputs.status }}
+  returns: ${{ steps.request.result }}
