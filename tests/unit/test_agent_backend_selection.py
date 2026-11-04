@@ -13,6 +13,7 @@ from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
+from tracecat.tiers.enums import Entitlement
 
 IS_ORG_ENTITLED = "tracecat.agent.backends.access.is_org_entitled"
 CONFIGURED_BACKEND = (
@@ -35,8 +36,11 @@ CONFIGURED_BACKEND = (
         (AgentSessionEntity.CASE, False, "oss"),
         (AgentSessionEntity.EXTERNAL_CHANNEL, False, "oss"),
         (AgentSessionEntity.AGENT_PRESET_BUILDER, False, "oss"),
-        # Workflow agent actions need the built-in workflow.
-        (AgentSessionEntity.WORKFLOW, True, "oss"),
+        # Workflow agent actions also need the workflow entitlement.
+        (AgentSessionEntity.WORKFLOW, True, "external"),
+        (AgentSessionEntity.WORKFLOW, False, "oss"),
+        # Approval forks inherit their source's backend instead.
+        (AgentSessionEntity.APPROVAL, True, "oss"),
     ],
 )
 async def test_select_backend_id_follows_surface_and_entitlement(
@@ -48,6 +52,29 @@ async def test_select_backend_id_follows_surface_and_entitlement(
     ):
         selected = await select_backend_id(AsyncMock(), uuid.uuid4(), entity_type)
     assert selected == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_actions_stay_builtin_with_only_the_preview_entitlement() -> (
+    None
+):
+    """Chat surfaces move first; workflow actions follow with their own entitlement."""
+
+    async def preview_only(_db: object, _org: object, entitlement: Entitlement) -> bool:
+        return entitlement is Entitlement.AGENT_RUNTIME_PREVIEW
+
+    org_id = uuid.uuid4()
+    with (
+        patch(CONFIGURED_BACKEND, "external"),
+        patch(IS_ORG_ENTITLED, AsyncMock(side_effect=preview_only)),
+    ):
+        chat = await select_backend_id(
+            AsyncMock(), org_id, AgentSessionEntity.WORKSPACE_CHAT
+        )
+        workflow = await select_backend_id(
+            AsyncMock(), org_id, AgentSessionEntity.WORKFLOW
+        )
+    assert (chat, workflow) == ("external", "oss")
 
 
 @pytest.mark.anyio

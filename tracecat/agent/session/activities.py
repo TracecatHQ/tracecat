@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
 from tracecat.agent.error_policy import invalid_agent_configuration
 from tracecat.agent.executor.schemas import ToolExecutionResult
@@ -155,6 +156,9 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 agent_session, created = await service.get_or_create_session(
                     AgentSessionCreate(
                         id=input.session_id,
+                        # This activity belongs to the built-in durable workflow,
+                        # so the sessions it creates run on that backend.
+                        backend_id=DEFAULT_AGENT_BACKEND,
                         title=input.title,
                         created_by=input.created_by,
                         entity_type=input.entity_type,
@@ -170,7 +174,9 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
             # This activity belongs to the built-in durable workflow. Never let
             # a caller-supplied session ID redirect a different backend's session.
-            if (agent_session.backend_id or "oss") != "oss" or (
+            if (
+                agent_session.backend_id or DEFAULT_AGENT_BACKEND
+            ) != DEFAULT_AGENT_BACKEND or (
                 agent_session.harness_type is not None
                 and agent_session.harness_type != input.harness_type
             ):

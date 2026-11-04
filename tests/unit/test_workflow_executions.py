@@ -56,7 +56,9 @@ from tracecat.workflow.executions.enums import (
     WorkflowExecutionEventStatus,
 )
 from tracecat.workflow.executions.schemas import (
+    AgentBackendTurnInput,
     EventFailure,
+    EventGroup,
     WorkflowExecutionEventCompact,
 )
 from tracecat.workflow.executions.service import (
@@ -1262,6 +1264,58 @@ class TestWorkflowExecutionEvents:
         assert event is not None
         assert event.action_ref == expected_ref
         assert event.should_mask_output is True
+
+    async def test_backend_agent_child_shows_as_an_agent_action(self) -> None:
+        """An agent action on an installed backend shows in the run view.
+
+        Its workflow type is the backend's own, and only the memo names the
+        session, since the input is the backend's own type.
+        """
+        session_id = uuid.uuid4()
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="InstalledTurnWorkflow",
+            workflow_id=cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}"),
+        )
+        memo = AgentActionMemo(
+            action_ref="triage", mask_output=True, session_id=session_id
+        )
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.is_agent_turn_workflow_type",
+                lambda name: name == "InstalledTurnWorkflow",
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
+                AsyncMock(return_value=memo),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value={"prompt": "Investigate"}),
+            ),
+        ):
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+            group = await EventGroup.from_initiated_child_workflow(initiated)
+
+        assert event is not None
+        assert event.action_name == "ai.agent"
+        assert event.action_ref == "triage"
+        assert event.action_input == {"prompt": "Investigate"}
+        assert event.session is not None and event.session.id == session_id
+        assert event.should_mask_output is True
+        assert group.udf_key == "ai.agent"
+        assert group.action_input == AgentBackendTurnInput(
+            backend_input={"prompt": "Investigate"}
+        )
+
+    async def test_unknown_child_workflow_type_is_still_rejected(self) -> None:
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1, workflow_type_name="SomethingElse"
+        )
+        with pytest.raises(ValueError, match="Unexpected child workflow type"):
+            await WorkflowExecutionEventCompact.from_initiated_child_workflow(initiated)
 
     async def test_compact_masked_action_result_redacts_leaf_values(
         self,

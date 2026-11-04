@@ -582,7 +582,10 @@ class AgentSessionService(BaseWorkspaceService):
             )
             args = args.model_copy(update={"backend_id": backend_id})
         await require_backend_entitlement(
-            self.session, self.organization_id, args.backend_id
+            self.session,
+            self.organization_id,
+            args.backend_id,
+            entity_type=args.entity_type,
         )
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
         if args.spawned_by_session_id is not None:
@@ -2105,6 +2108,8 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         prompt: str,
+        *,
+        config: AgentConfig | None = None,
     ) -> PreparedAgentTurn:
         """Prepare a new turn for a caller-owned Temporal workflow.
 
@@ -2112,6 +2117,13 @@ class AgentSessionService(BaseWorkspaceService):
         same session configuration and persists the run pointers, but leaves
         child-workflow execution to the caller. Reusing persisted pointers makes
         an activity retry after commit return the same workflow identity.
+
+        Args:
+            session_id: The session to run the turn in.
+            prompt: The user prompt for the turn.
+            config: The turn's agent configuration, for callers that own it,
+                such as workflow agent actions. Built from the session when
+                omitted.
         """
         agent_session = await self.validate_turn_request(
             session_id,
@@ -2126,7 +2138,12 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "This backend does not support caller-owned workflows"
             )
-        async with self._build_agent_config(agent_session) as agent_config:
+        session_config = (
+            contextlib.nullcontext(config)
+            if config is not None
+            else self._build_agent_config(agent_session)
+        )
+        async with session_config as agent_config:
             run_id = agent_session.curr_run_id or uuid.uuid4()
             stream_id = agent_session.active_stream_id or uuid.uuid4()
             prepared_turn = PreparedAgentTurn(
@@ -2427,7 +2444,10 @@ class AgentSessionService(BaseWorkspaceService):
                 )
                 if not adopts_prepared_turn:
                     await require_session_backend_entitlement(
-                        self.session, self.organization_id, agent_session.backend_id
+                        self.session,
+                        self.organization_id,
+                        agent_session.backend_id,
+                        entity_type=AgentSessionEntity(agent_session.entity_type),
                     )
                 return agent_session
             case _:
@@ -2875,7 +2895,10 @@ class AgentSessionService(BaseWorkspaceService):
                 # so it needs the entitlement like a new message. Withdrawing
                 # only takes input back and stays allowed.
                 await require_session_backend_entitlement(
-                    self.session, self.organization_id, agent_session.backend_id
+                    self.session,
+                    self.organization_id,
+                    agent_session.backend_id,
+                    entity_type=AgentSessionEntity(agent_session.entity_type),
                 )
                 supported, feature = backend.steering, "steering"
             case "withdraw":
@@ -3846,8 +3869,14 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
 
+        # An approval fork inherits its source's backend under the preview
+        # entitlement alone; a fork that stays on its source's surface needs
+        # what that surface needs.
         await require_backend_entitlement(
-            self.session, self.organization_id, source.backend_id
+            self.session,
+            self.organization_id,
+            source.backend_id,
+            entity_type=entity_type or AgentSessionEntity(source.entity_type),
         )
         backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 

@@ -183,7 +183,10 @@ async def _can_use_backend(
 ) -> bool:
     if role.organization_id is None:
         return False
-    return await can_use_backend(session, role.organization_id, backend_id)
+    # Lists backends for any surface; workflow actions are gated per session.
+    return await can_use_backend(
+        session, role.organization_id, backend_id, entity_type=None
+    )
 
 
 @router.get("/backends")

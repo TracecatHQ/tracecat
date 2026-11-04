@@ -123,6 +123,11 @@ class SessionWorkflowContext:
     prompt: str
     run_id: UUID
     stream_id: UUID
+    # Limits a workflow agent action sets for its turn. None leaves the
+    # backend's default; chat turns never set them.
+    timeout_seconds: int | None = None
+    max_requests: int | None = None
+    max_tool_calls: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

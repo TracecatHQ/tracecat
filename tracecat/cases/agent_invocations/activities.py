@@ -12,6 +12,7 @@ from tracecat.agent.backends.registry import (
     get_agent_backend,
     get_workflow_type,
 )
+from tracecat.agent.backends.schemas import ChildAgentTurn
 from tracecat.agent.backends.types import SessionWorkflowContext
 from tracecat.agent.error_policy import agent_provider_credentials_missing
 from tracecat.agent.session.service import AgentSessionService
@@ -22,7 +23,6 @@ from tracecat.cases.agent_invocations.dispatcher import (
     CaseCommentAgentInvocationDispatcher,
 )
 from tracecat.cases.agent_invocations.schemas import (
-    CommentAgentTurn,
     CompleteCommentAgentInvocationInput,
     CompleteCommentAgentInvocationResult,
     FailCommentAgentInvocationInput,
@@ -112,7 +112,7 @@ async def prepare_comment_agent_invocation_activity(
                 stream_id=prepared_turn.active_stream_id,
             )
         )
-    turn = CommentAgentTurn(
+    turn = ChildAgentTurn(
         backend_id=prepared_turn.backend_id,
         session_id=prepared_turn.session_id,
         run_id=prepared_turn.run_id,

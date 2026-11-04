@@ -30,6 +30,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
+from tracecat.agent.backends.registry import is_agent_turn_workflow_type
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import ScatterActionInput
@@ -364,11 +365,18 @@ def destructure_slugified_namespace(s: str, delimiter: str = "__") -> tuple[str,
     return (".".join(stem), leaf)
 
 
+class AgentBackendTurnInput(BaseModel):
+    """An agent action's input on an installed backend, in that backend's shape."""
+
+    backend_input: Any
+
+
 EventInput = (
     RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
     | AgentWorkflowArgs
+    | AgentBackendTurnInput
     | UnreadableTemporalPayload
 )
 
@@ -550,6 +558,27 @@ class EventGroup[T: EventInput](BaseModel):
                     action_description="AI Agent",
                     action_input=cast(EventInput, agent_run_args),
                     related_wf_exec_id=agent_wf_id,
+                )
+                agent_group.set_mask_output(memo.mask_output)
+                return agent_group
+            case workflow_type if is_agent_turn_workflow_type(workflow_type):
+                # An agent action on an installed backend. Its input is the
+                # backend's own type, so show it as recorded.
+                memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
+                input = await extract_first(attrs.input)
+                if not is_unreadable_temporal_payload(input):
+                    input = AgentBackendTurnInput(backend_input=input)
+                namespace, name = PlatformAction.AI_AGENT.value.split(".", 1)
+                agent_group = EventGroup(
+                    event_id=event.event_id,
+                    udf_namespace=namespace,
+                    udf_name=name,
+                    udf_key=PlatformAction.AI_AGENT.value,
+                    action_id=attrs.workflow_id,
+                    action_ref=None,
+                    action_title="AI Agent",
+                    action_description="AI Agent",
+                    action_input=cast(EventInput, input),
                 )
                 agent_group.set_mask_output(memo.mask_output)
                 return agent_group
@@ -986,6 +1015,27 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     loop_index=memo.loop_index,
                     stream_id=memo.stream_id,
                     session=session,
+                )
+                compact_event.set_mask_output(memo.mask_output)
+                return compact_event
+            case workflow_type if is_agent_turn_workflow_type(workflow_type):
+                # An agent action on an installed backend. Its input is the
+                # backend's own type; the memo names the session.
+                memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
+                compact_event = WorkflowExecutionEventCompact(
+                    source_event_id=event.event_id,
+                    schedule_time=event.event_time.ToDatetime(UTC),
+                    curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                    status=WorkflowExecutionEventStatus.SCHEDULED,
+                    action_name=PlatformAction.AI_AGENT.value,
+                    action_ref=memo.action_ref,
+                    action_input=await extract_first(attrs.input),
+                    child_wf_exec_id=None,
+                    loop_index=memo.loop_index,
+                    stream_id=memo.stream_id,
+                    session=Session(id=memo.session_id)
+                    if memo.session_id is not None
+                    else None,
                 )
                 compact_event.set_mask_output(memo.mask_output)
                 return compact_event

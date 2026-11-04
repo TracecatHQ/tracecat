@@ -17,6 +17,7 @@ from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat import config
 from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.backends.schemas import ChildAgentTurn
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
     agent_provider_credentials_missing,
@@ -235,7 +236,7 @@ def _backend_turn_preparer(queue: str):
         _EVENTS.append("prepare")
         run_id = input.invocation_id
         return schemas.PrepareCommentAgentInvocationResult(
-            turn=schemas.CommentAgentTurn(
+            turn=ChildAgentTurn(
                 backend_id="external",
                 session_id=uuid.uuid4(),
                 run_id=run_id,

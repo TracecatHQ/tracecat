@@ -12,6 +12,7 @@ from temporalio.common import (
     RetryPolicy,
     SearchAttributePair,
     TypedSearchAttributes,
+    WorkflowIDReusePolicy,
 )
 from temporalio.exceptions import (
     ActivityError,
@@ -42,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
+    from tracecat.agent.backends.schemas import ChildAgentTurn
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
@@ -49,6 +51,14 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.schemas import AgentOutput, RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
+    from tracecat.agent.workflow_turns.activities import (
+        prepare_workflow_agent_turn_activity,
+        read_workflow_agent_turn_activity,
+    )
+    from tracecat.agent.workflow_turns.schemas import (
+        PrepareWorkflowAgentTurnInput,
+        ReadWorkflowAgentTurnInput,
+    )
     from tracecat.contexts import (
         ctx_logical_time,
         ctx_role,
@@ -1080,10 +1090,6 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
-                    wf_info = workflow.info()
-                    child_search_attributes = _build_agent_child_search_attributes(
-                        wf_info, task.ref
-                    )
                     session_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
@@ -1115,23 +1121,7 @@ class DSLWorkflow:
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
                     )
-                    action_result = await workflow.execute_child_workflow(
-                        DurableAgentWorkflow.run,
-                        arg=arg,
-                        id=AgentWorkflowID(session_id),
-                        retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                        # Route to agent worker queue for session activities
-                        task_queue=config.TRACECAT__AGENT_QUEUE,
-                        execution_timeout=wf_info.execution_timeout,
-                        task_timeout=wf_info.task_timeout,
-                        search_attributes=child_search_attributes,
-                        memo=AgentActionMemo(
-                            action_ref=task.ref,
-                            action_title=task.title,
-                            stream_id=stream_id or ROOT_STREAM,
-                            mask_output=task.mask_output,
-                        ).model_dump(),
-                    )
+                    action_result = await self._run_agent_turn(task, arg, stream_id)
                 case PlatformAction.AI_PRESET_AGENT:
                     self.logger.debug("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
@@ -1177,10 +1167,6 @@ class DSLWorkflow:
                             output_type=preset_action_args.output_type,
                         )
 
-                    wf_info = workflow.info()
-                    child_search_attributes = _build_agent_child_search_attributes(
-                        wf_info, task.ref
-                    )
                     session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
@@ -1202,23 +1188,7 @@ class DSLWorkflow:
                         continue_existing_session=preset_action_args.session_id
                         is not None,
                     )
-                    action_result = await workflow.execute_child_workflow(
-                        DurableAgentWorkflow.run,
-                        arg=arg,
-                        id=AgentWorkflowID(session_id),
-                        retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                        # Route to agent worker queue for session activities
-                        task_queue=config.TRACECAT__AGENT_QUEUE,
-                        execution_timeout=wf_info.execution_timeout,
-                        task_timeout=wf_info.task_timeout,
-                        search_attributes=child_search_attributes,
-                        memo=AgentActionMemo(
-                            action_ref=task.ref,
-                            action_title=task.title,
-                            stream_id=stream_id or ROOT_STREAM,
-                            mask_output=task.mask_output,
-                        ).model_dump(),
-                    )
+                    action_result = await self._run_agent_turn(task, arg, stream_id)
                 case _:
                     # Below this point, we're executing the task
                     self.logger.trace(
@@ -1856,11 +1826,7 @@ class DSLWorkflow:
         action_args: AgentActionArgs,
         stream_id: StreamID,
     ) -> AgentOutput:
-        """Launch the durable agent child workflow for an agent action."""
-        wf_info = workflow.info()
-        child_search_attributes = _build_agent_child_search_attributes(
-            wf_info, task.ref
-        )
+        """Run an agent action built from agent action arguments."""
         session_id = action_args.session_id or workflow.uuid4()
         arg = AgentWorkflowArgs(
             role=self.role,
@@ -1892,22 +1858,97 @@ class DSLWorkflow:
             entity_id=self.run_context.wf_id,
             continue_existing_session=action_args.session_id is not None,
         )
+        return await self._run_agent_turn(task, arg, stream_id)
+
+    async def _run_agent_turn(
+        self,
+        task: ActionStatement,
+        arg: AgentWorkflowArgs,
+        stream_id: StreamID,
+    ) -> AgentOutput:
+        """Run an agent action's turn on its session's backend.
+
+        The built-in backend runs the durable agent workflow directly. Another
+        backend's turn workflow starts as a child by type name, the way case
+        comments run theirs, and its result is read back into an AgentOutput.
+        """
+        if workflow.patched(WorkflowPatch.AGENT_ACTIONS_ON_SESSION_BACKEND):
+            prepared = await workflow.execute_activity(
+                prepare_workflow_agent_turn_activity,
+                PrepareWorkflowAgentTurnInput(role=self.role, args=arg),
+                # The agent worker has the installed backends.
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RETRY_POLICIES["activity:fail_slow"],
+            )
+            if prepared.turn is not None:
+                return await self._run_backend_agent_turn(
+                    task, prepared.turn, stream_id
+                )
+        wf_info = workflow.info()
         return await workflow.execute_child_workflow(
             DurableAgentWorkflow.run,
             arg=arg,
-            id=AgentWorkflowID(session_id),
+            id=AgentWorkflowID(arg.agent_args.session_id),
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # Route to agent worker queue for session activities
             task_queue=config.TRACECAT__AGENT_QUEUE,
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
-            search_attributes=child_search_attributes,
+            search_attributes=_build_agent_child_search_attributes(wf_info, task.ref),
             memo=AgentActionMemo(
                 action_ref=task.ref,
                 action_title=task.title,
                 stream_id=stream_id or ROOT_STREAM,
                 mask_output=task.mask_output,
             ).model_dump(),
+        )
+
+    async def _run_backend_agent_turn(
+        self,
+        task: ActionStatement,
+        turn: ChildAgentTurn,
+        stream_id: StreamID,
+    ) -> AgentOutput:
+        """Run a prepared turn on an installed backend and read its output."""
+        wf_info = workflow.info()
+        started_at = workflow.now()
+        # Started by type name: the backend's workflow and output types are
+        # never imported here.
+        result = await workflow.execute_child_workflow(
+            turn.workflow_type,
+            turn.args,
+            id=turn.workflow_id,
+            task_queue=turn.task_queue,
+            retry_policy=turn.retry_policy,
+            # The turn's run ID was persisted before this start, so recovery
+            # may have tombstoned it. Never run it then.
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            priority=turn.priority,
+            execution_timeout=wf_info.execution_timeout,
+            task_timeout=wf_info.task_timeout,
+            search_attributes=_build_agent_child_search_attributes(wf_info, task.ref),
+            memo=AgentActionMemo(
+                action_ref=task.ref,
+                action_title=task.title,
+                stream_id=stream_id or ROOT_STREAM,
+                mask_output=task.mask_output,
+                session_id=turn.session_id,
+            ).model_dump(),
+        )
+        read = await workflow.execute_activity(
+            read_workflow_agent_turn_activity,
+            ReadWorkflowAgentTurnInput(backend_id=turn.backend_id, result=result),
+            task_queue=config.TRACECAT__AGENT_QUEUE,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
+        )
+        if read.error is not None:
+            raise ApplicationError(read.error, non_retryable=True)
+        return AgentOutput(
+            output=read.output,
+            duration=(workflow.now() - started_at).total_seconds(),
+            session_id=turn.session_id,
         )
 
     def _build_action_context(

@@ -183,4 +183,5 @@ class TierService(BaseService):
             forms=resolve_entitlement("forms"),
             tunnels=resolve_entitlement("tunnels"),
             agent_runtime_preview=resolve_entitlement("agent_runtime_preview"),
+            agent_runtime_workflows=resolve_entitlement("agent_runtime_workflows"),
         )

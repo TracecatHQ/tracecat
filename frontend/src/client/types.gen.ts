@@ -425,6 +425,13 @@ export type AgentBackendRead = {
 }
 
 /**
+ * An agent action's input on an installed backend, in that backend's shape.
+ */
+export type AgentBackendTurnInput = {
+  backend_input: unknown
+}
+
+/**
  * Cancel the running turn.
  */
 export type AgentCancelControl = {
@@ -5029,6 +5036,10 @@ export type EffectiveEntitlements = {
    * Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions
    */
   agent_runtime_preview?: boolean
+  /**
+   * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
+   */
+  agent_runtime_workflows?: boolean
 }
 
 /**
@@ -5166,6 +5177,10 @@ export type EntitlementsDict = {
    * Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions
    */
   agent_runtime_preview?: boolean
+  /**
+   * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
+   */
+  agent_runtime_workflows?: boolean
 }
 
 export type ErrorModel = {
@@ -5197,6 +5212,7 @@ export type EventGroup_TypeVar_ = {
     | RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
+    | AgentBackendTurnInput
     | UnreadableTemporalPayload
   action_result?: unknown | null
   current_attempt?: number | null

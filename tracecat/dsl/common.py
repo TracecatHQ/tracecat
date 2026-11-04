@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections import deque
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -1152,6 +1153,13 @@ class AgentActionMemo(BaseModel):
     mask_output: bool = Field(
         default=False,
         description="Whether to redact the child workflow result in execution APIs.",
+    )
+    session_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "The agent session. Set for turns on an installed agent backend,"
+            " whose workflow input is the backend's own type."
+        ),
     )
 
     @classmethod
