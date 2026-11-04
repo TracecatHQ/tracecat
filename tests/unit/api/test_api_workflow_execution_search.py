@@ -25,6 +25,10 @@ def _empty_page() -> WorkflowExecutionsPage:
     )
 
 
+# An installed backend's turn workflow type.
+INSTALLED_TURN_WORKFLOW = "InstalledTurnWorkflow"
+
+
 @pytest.mark.anyio
 async def test_search_workflow_executions_accepts_limit_500(
     client: TestClient,
@@ -33,10 +37,17 @@ async def test_search_workflow_executions_accepts_limit_500(
     mock_service = AsyncMock()
     mock_service.list_executions_paginated = AsyncMock(return_value=_empty_page())
 
-    with patch.object(
-        executions_router.WorkflowExecutionsService,
-        "connect",
-        AsyncMock(return_value=mock_service),
+    with (
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            AsyncMock(return_value=mock_service),
+        ),
+        patch.object(
+            executions_router,
+            "agent_turn_workflow_types",
+            return_value=frozenset({INSTALLED_TURN_WORKFLOW}),
+        ),
     ):
         response = client.get("/workflow-executions/search", params={"limit": 500})
 
@@ -51,9 +62,14 @@ async def test_search_workflow_executions_accepts_limit_500(
     pagination = await_args.kwargs["pagination"]
     assert pagination.limit == 500
     assert await_args.kwargs["execution_types"] == {ExecutionType.PUBLISHED}
-    assert await_args.kwargs["exclude_workflow_types"] == set(
-        WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES
-    )
+    assert await_args.kwargs["exclude_workflow_types"] == {
+        *WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES,
+        INSTALLED_TURN_WORKFLOW,
+    }
+    # Workflow agent actions' turns are not workflow runs.
+    assert {"WorkflowAgentTurnWorkflow", "DurableAgentWorkflow"} <= await_args.kwargs[
+        "exclude_workflow_types"
+    ]
 
 
 @pytest.mark.anyio
@@ -72,6 +88,11 @@ async def test_list_workflow_executions_excludes_agent_workflow_types(
         ),
         patch.object(
             executions_router,
+            "agent_turn_workflow_types",
+            return_value=frozenset({INSTALLED_TURN_WORKFLOW}),
+        ),
+        patch.object(
+            executions_router,
             "get_setting",
             AsyncMock(return_value=None),
         ),
@@ -82,9 +103,14 @@ async def test_list_workflow_executions_excludes_agent_workflow_types(
 
     await_args = mock_service.list_executions.await_args
     assert await_args is not None
-    assert await_args.kwargs["exclude_workflow_types"] == set(
-        WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES
-    )
+    assert await_args.kwargs["exclude_workflow_types"] == {
+        *WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES,
+        INSTALLED_TURN_WORKFLOW,
+    }
+    # Workflow agent actions' turns are not workflow runs.
+    assert {"WorkflowAgentTurnWorkflow", "DurableAgentWorkflow"} <= await_args.kwargs[
+        "exclude_workflow_types"
+    ]
 
 
 @pytest.mark.anyio

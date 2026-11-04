@@ -1007,6 +1007,9 @@ async def test_named_caller_never_reuses_a_finished_runs_pointers(
         assert stale is not None
         await db.refresh(stale)
         assert stale.curr_run_id == finished
+        # End this read, keeping the loaded copy, so the release below commits
+        # in a transaction of its own.
+        await db.commit()
         # That run's workflow then releases it.
         async with AsyncSession(connection) as other:
             await other.execute(

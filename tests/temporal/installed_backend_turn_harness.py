@@ -67,7 +67,7 @@ class InstalledBackend(AgentBackend[dict[str, Any], dict[str, Any]]):
     async def build_workflow_args(
         self, context: SessionWorkflowContext
     ) -> dict[str, Any]:
-        return {"prompt": context.prompt}
+        return {"prompt": context.prompt, "output_type": context.config.output_type}
 
     def parse_turn_result(self, result: object) -> TurnResult:
         match result:

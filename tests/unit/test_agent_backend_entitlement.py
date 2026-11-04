@@ -16,6 +16,7 @@ import pytest
 from tracecat.agent.adapter.vercel import TextUIPart, UIMessage
 from tracecat.agent.backends.access import (
     SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
+    WORKFLOW_SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
     can_use_backend,
 )
 from tracecat.agent.backends.default import DefaultBackend
@@ -520,6 +521,8 @@ async def test_revoked_workflow_entitlement_refuses_a_new_workflow_turn() -> Non
     assert exc_info.value.detail == {
         "entitlement": Entitlement.AGENT_RUNTIME_WORKFLOWS.value
     }
+    # A workflow action cannot start a new chat; the message says what it can do.
+    assert str(exc_info.value) == WORKFLOW_SESSION_BACKEND_NOT_ENTITLED_MESSAGE
     db.commit.assert_not_awaited()
     assert agent_session.curr_run_id is None
 

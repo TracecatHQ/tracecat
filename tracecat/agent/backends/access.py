@@ -21,6 +21,10 @@ from tracecat.tiers.enums import Entitlement
 SESSION_BACKEND_NOT_ENTITLED_MESSAGE = (
     "This chat uses a feature your workspace no longer has. Start a new chat."
 )
+WORKFLOW_SESSION_BACKEND_NOT_ENTITLED_MESSAGE = (
+    "This agent session uses a feature your workspace no longer has. Run the"
+    " action without its session ID to start a new session."
+)
 
 
 def required_backend_entitlements(
@@ -120,5 +124,8 @@ async def require_session_backend_entitlement(
     ):
         raise EntitlementRequired(
             missing.value,
-            message=SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
+            # A workflow action cannot start a new chat; it starts a new session.
+            message=WORKFLOW_SESSION_BACKEND_NOT_ENTITLED_MESSAGE
+            if entity_type == AgentSessionEntity.WORKFLOW
+            else SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
         )
