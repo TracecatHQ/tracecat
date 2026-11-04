@@ -32,13 +32,14 @@ from tracecat.agent.backends.schemas import (
 )
 from tracecat.agent.backends.types import (
     SessionForkContext,
+    SessionTurnContext,
     SessionWorkflowContext,
     TurnResult,
 )
 from tracecat.agent.preset.activities import CustomModelProviderConfigResult
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.schemas import AgentSessionCreate
-from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import (
     AgentConfig,
     apply_preset_overrides,
@@ -123,8 +124,13 @@ def _role() -> Role:
     )
 
 
+# The workflow the actions belong to; its sessions are continued within it.
+_WORKFLOW_ID = uuid.uuid4()
+
+
 def _args(
     *,
+    entity_id: uuid.UUID = _WORKFLOW_ID,
     session_id: uuid.UUID | None = None,
     continue_existing_session: bool = False,
     config: AgentConfig | None = None,
@@ -150,7 +156,7 @@ def _args(
         ),
         title="Alert triage",
         entity_type=AgentSessionEntity.WORKFLOW,
-        entity_id=uuid.uuid4(),
+        entity_id=entity_id,
         continue_existing_session=continue_existing_session,
     )
 
@@ -300,6 +306,7 @@ async def test_existing_session_keeps_its_own_backend() -> None:
         entity_type=AgentSessionEntity.WORKFLOW.value,
         forked_from_session_id=None,
         created_by=None,
+        entity_id=_WORKFLOW_ID,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -320,6 +327,7 @@ async def test_existing_builtin_session_keeps_the_durable_workflow_path(
         backend_id=existing_backend,
         entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
         created_by=None,
+        entity_id=_WORKFLOW_ID,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -400,6 +408,7 @@ async def test_action_cannot_continue_another_surfaces_session_on_a_backend(
         entity_type=entity_type.value,
         forked_from_session_id=None,
         created_by=None,
+        entity_id=_WORKFLOW_ID,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -422,6 +431,7 @@ async def test_action_cannot_continue_a_reviewer_fork_on_a_backend() -> None:
         entity_type=AgentSessionEntity.WORKFLOW.value,
         forked_from_session_id=uuid.uuid4(),
         created_by=None,
+        entity_id=_WORKFLOW_ID,
     )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
@@ -461,6 +471,7 @@ async def test_action_continues_only_sessions_its_user_may_write(
         entity_type=AgentSessionEntity.WORKFLOW.value,
         forked_from_session_id=None,
         created_by=created_by,
+        entity_id=_WORKFLOW_ID,
     )
     service = _service(existing=existing)
     service.role = role
@@ -472,6 +483,27 @@ async def test_action_continues_only_sessions_its_user_may_write(
             service.prepare_new_turn.assert_not_awaited()
         else:
             assert (await _prepare(args)).session_id == existing.id
+
+
+@pytest.mark.anyio
+async def test_action_cannot_continue_another_workflows_session_on_a_backend() -> None:
+    """A session belongs to its workflow, even one no user started."""
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        backend_id="external",
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+        forked_from_session_id=None,
+        created_by=None,
+        entity_id=uuid.uuid4(),
+    )
+    service = _service(existing=existing)
+    args = _args(session_id=existing.id, continue_existing_session=True)
+    with (
+        _activity_env(service, selected="external"),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await _select(args)
+    assert exc_info.value.non_retryable
 
 
 @pytest.mark.anyio
@@ -614,85 +646,83 @@ def _held_session() -> AgentSession:
     )
 
 
-@contextlib.contextmanager
-def _holder_env(
-    *,
-    lifecycle: TurnLifecycle,
-    parent: WorkflowExecutionStatus | RPCError,
-    claimed: bool,
-) -> Iterator[AsyncMock]:
-    backend = InstalledBackend()
-    handle = Mock(
-        describe=AsyncMock(side_effect=parent)
-        if isinstance(parent, RPCError)
-        else AsyncMock(return_value=SimpleNamespace(status=parent))
-    )
-    client = Mock(get_workflow_handle=Mock(return_value=handle))
-    with (
-        patch(f"{ACTIVITIES}.find_agent_backend", return_value=backend),
-        patch.object(backend, "get_turn_lifecycle", AsyncMock(return_value=lifecycle)),
-        patch(f"{ACTIVITIES}.get_temporal_client", AsyncMock(return_value=client)),
-        patch(
-            f"{ACTIVITIES}.claim_unstarted_workflow_id",
-            AsyncMock(return_value=claimed),
-        ) as claim,
-    ):
-        yield claim
+_MISSING = RPCError("missing", RPCStatusCode.NOT_FOUND, b"")
+_DOWN = RPCError("down", RPCStatusCode.UNAVAILABLE, b"")
+
+
+def _handle(state: WorkflowExecutionStatus | RPCError) -> Mock:
+    if isinstance(state, RPCError):
+        return Mock(describe=AsyncMock(side_effect=state))
+    return Mock(describe=AsyncMock(return_value=SimpleNamespace(status=state)))
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("lifecycle", "parent", "outlived", "claimed", "ended"),
+    ("native", "parent", "outlived", "claims", "retained", "ended"),
     [
-        # The backend's turn is still running.
-        (TurnLifecycle.RUNNING, WorkflowExecutionStatus.COMPLETED, True, True, False),
-        # Its parent is still reading the result.
-        (TurnLifecycle.COMPLETED, WorkflowExecutionStatus.RUNNING, True, True, False),
-        # Both closed; with the parent gone its child cannot run either.
-        (
-            TurnLifecycle.COMPLETED,
-            WorkflowExecutionStatus.COMPLETED,
-            False,
-            False,
-            True,
-        ),
-        (TurnLifecycle.FAILED, WorkflowExecutionStatus.TERMINATED, False, False, True),
-        # Never started: only a reservation past the start grace is given up,
-        (TurnLifecycle.FAILED, "not_found", False, True, False),
-        # and only once its parent's ID is claimed, so a late start of that
-        # parent is rejected instead of running beside the new turn.
-        (TurnLifecycle.FAILED, "not_found", True, True, True),
-        (TurnLifecycle.FAILED, "not_found", True, False, False),
-        # An unknown lookup failure is never taken as an end.
-        (TurnLifecycle.FAILED, "unavailable", True, True, False),
+        # Either workflow still running keeps the session held.
+        (WorkflowExecutionStatus.RUNNING, _MISSING, True, (), False, False),
+        (_MISSING, WorkflowExecutionStatus.RUNNING, True, (), False, False),
+        # A failed lookup proves nothing, even for a direct API turn.
+        (_DOWN, _MISSING, True, (), False, False),
+        (WorkflowExecutionStatus.COMPLETED, _DOWN, True, (), False, False),
+        # Closed: the backend's turn, or the parent that alone would start it.
+        (WorkflowExecutionStatus.COMPLETED, _MISSING, False, (), False, True),
+        (_MISSING, WorkflowExecutionStatus.FAILED, False, (), False, True),
+        # Unless the backend keeps that turn's reservation to reconcile it.
+        (WorkflowExecutionStatus.FAILED, _MISSING, False, (), True, False),
+        # Never started: only past the grace period, and only once both IDs are
+        # claimed so neither a late parent nor a late direct start can run.
+        (_MISSING, _MISSING, False, (), False, False),
+        (_MISSING, _MISSING, True, (True, True), False, True),
+        (_MISSING, _MISSING, True, (True, False), False, False),
+        (_MISSING, _MISSING, True, (False,), False, False),
     ],
 )
 async def test_holder_ends_only_when_its_turn_can_never_finish(
-    lifecycle: TurnLifecycle,
-    parent: WorkflowExecutionStatus | str,
+    native: WorkflowExecutionStatus | RPCError,
+    parent: WorkflowExecutionStatus | RPCError,
     outlived: bool,
-    claimed: bool,
+    claims: tuple[bool, ...],
+    retained: bool,
     ended: bool,
 ) -> None:
     db = AsyncMock()
     db.scalar.return_value = uuid.uuid4() if outlived else None
-    match parent:
-        case "not_found":
-            status: WorkflowExecutionStatus | RPCError = RPCError(
-                "missing", RPCStatusCode.NOT_FOUND, b""
-            )
-        case "unavailable":
-            status = RPCError("down", RPCStatusCode.UNAVAILABLE, b"")
-        case WorkflowExecutionStatus():
-            status = parent
-        case _:
-            raise AssertionError(parent)
     held = _held_session()
-    with _holder_env(lifecycle=lifecycle, parent=status, claimed=claimed) as claim:
-        assert await _holder_ended(db)(held) is ended
-    if parent == "not_found" and outlived:
-        claim.assert_awaited_once()
-        assert claim.await_args is not None
-        assert claim.await_args.args[1] == f"workflow-agent-turn/{held.curr_run_id}"
-    else:
-        claim.assert_not_awaited()
+    assert held.curr_run_id is not None
+    backend = InstalledBackend()
+    client = Mock(get_workflow_handle=Mock(return_value=_handle(parent)))
+    claim = AsyncMock(side_effect=list(claims))
+    retains = AsyncMock(return_value=retained)
+    admitting = SessionTurnContext(
+        db=db,
+        session=_held_session(),
+        role=_role(),
+        config=AgentConfig(model_name="test-model", model_provider="openai"),
+        prompt="Triage this alert",
+        run_id=uuid.uuid4(),
+        stream_id=uuid.uuid4(),
+    )
+    with (
+        patch(f"{ACTIVITIES}.find_agent_backend", return_value=backend),
+        patch.object(backend, "handle", AsyncMock(return_value=_handle(native))),
+        patch.object(backend, "retains_terminal_ownership", retains),
+        patch(f"{ACTIVITIES}.get_temporal_client", AsyncMock(return_value=client)),
+        patch(f"{ACTIVITIES}.claim_unstarted_workflow_id", claim),
+    ):
+        assert await _holder_ended(db, admitting)(held) is ended
+
+    claimed = [call.args[1] for call in claim.await_args_list]
+    expected = [
+        f"workflow-agent-turn/{held.curr_run_id}",
+        f"agent/{held.curr_run_id}",
+    ][: len(claims)]
+    assert claimed == expected
+    # The backend's veto is asked only once the turn is proven over, about the
+    # held session.
+    proven = ended or retained
+    assert retains.await_count == int(proven)
+    if proven:
+        assert retains.await_args is not None
+        assert retains.await_args.args[0].session is held

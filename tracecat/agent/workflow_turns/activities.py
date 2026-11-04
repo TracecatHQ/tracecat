@@ -6,14 +6,17 @@ built-in one, the turn's parent workflow prepares the turn there, starts the
 backend's turn workflow as its own child by type name, and reads its result.
 """
 
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import timedelta
+from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
-from temporalio.client import WorkflowExecutionStatus
+from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -26,7 +29,7 @@ from tracecat.agent.backends.registry import (
 )
 from tracecat.agent.backends.schemas import AgentWorkflowArgs, ChildAgentTurn
 from tracecat.agent.backends.selection import select_backend_id
-from tracecat.agent.backends.types import SessionWorkflowContext
+from tracecat.agent.backends.types import SessionTurnContext, SessionWorkflowContext
 from tracecat.agent.error_policy import (
     agent_provider_credentials_missing,
     invalid_agent_configuration,
@@ -38,7 +41,7 @@ from tracecat.agent.preset.activities import (
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import (
     AgentConfig,
     apply_preset_overrides,
@@ -75,9 +78,9 @@ async def _turn_backend_id(
     A workflow action continues only workflow sessions on another backend.
     Chat, channel and approval sessions keep their own surface's rules, such
     as the entitlements it needs, and reviewer forks keep having no tools. A
-    session a user started continues only under runs attributed to that user,
-    so a teammate's or a background run cannot write into it; sessions
-    started by background runs have no user creator and stay open.
+    session continues only within the workflow that owns it, and a session a
+    user started only under runs attributed to that user, so neither another
+    workflow nor a teammate's or a background run can write into it.
     """
     if session := await service.get_session(args.agent_args.session_id):
         backend_id = session.backend_id or DEFAULT_AGENT_BACKEND
@@ -87,6 +90,8 @@ async def _turn_backend_id(
         )
         if backend_id != DEFAULT_AGENT_BACKEND and (
             session.entity_type != AgentSessionEntity.WORKFLOW.value
+            # Another workflow's session, which may have no user creator.
+            or session.entity_id != args.entity_id
             or session.forked_from_session_id is not None
             or teammates
         ):
@@ -150,13 +155,47 @@ _RUNNING = frozenset(
 )
 
 
-def _holder_ended(db: AsyncSession) -> Callable[[AgentSession], Awaitable[bool]]:
+class _Execution(StrEnum):
+    """What a workflow lookup proves about one execution."""
+
+    RUNNING = "running"
+    CLOSED = "closed"
+    MISSING = "missing"
+    # The lookup failed; nothing is proven.
+    UNKNOWN = "unknown"
+
+
+async def _execution(handle: WorkflowHandle[Any, Any]) -> _Execution:
+    try:
+        description = await handle.describe(rpc_timeout=timedelta(seconds=5))
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return _Execution.MISSING
+        return _Execution.UNKNOWN
+    except Exception:
+        return _Execution.UNKNOWN
+    if description.status in _RUNNING:
+        return _Execution.RUNNING
+    return _Execution.CLOSED
+
+
+def _holder_ended(
+    db: AsyncSession, turn: SessionTurnContext
+) -> Callable[[AgentSession], Awaitable[bool]]:
     """Decide whether the run holding a workflow session has ended for good.
 
-    Only then may another workflow agent action take the session over. A run
-    has ended when its backend turn is not running and its parent workflow has
-    closed, or, when neither ever started, once the reservation has outlived
-    the start grace period.
+    Only then may another workflow agent action take the session over. The run
+    may be a workflow agent action's, whose parent starts the backend's turn,
+    or a direct turn the API started on the backend's own workflow ID, so both
+    workflows are checked. The run has ended when neither runs and at least
+    one of them closed, or when neither ever started and the reservation has
+    outlived the start grace period, after both IDs are claimed so neither can
+    start late. Any failed lookup proves nothing, and the backend may still
+    keep a terminal turn's reservation for reconciliation.
+
+    Args:
+        db: The admission's database session, which holds the row lock.
+        turn: The admitting turn, for the backend's reconciliation check.
     """
 
     async def ended(session: AgentSession) -> bool:
@@ -164,15 +203,15 @@ def _holder_ended(db: AsyncSession) -> Callable[[AgentSession], Awaitable[bool]]
         backend = find_agent_backend(session.backend_id)
         if run_id is None or backend is None:
             return False
-        if await backend.get_turn_lifecycle(run_id) is TurnLifecycle.RUNNING:
-            return False
         client = await get_temporal_client()
-        parent = client.get_workflow_handle(workflow_agent_turn_workflow_id(run_id))
-        try:
-            description = await parent.describe()
-        except RPCError as e:
-            if e.status != RPCStatusCode.NOT_FOUND:
-                return False
+        native = await _execution(await backend.handle(run_id, client=client))
+        if native in (_Execution.RUNNING, _Execution.UNKNOWN):
+            return False
+        parent_id = workflow_agent_turn_workflow_id(run_id)
+        parent = await _execution(client.get_workflow_handle(parent_id))
+        if parent in (_Execution.RUNNING, _Execution.UNKNOWN):
+            return False
+        if native is _Execution.MISSING and parent is _Execution.MISSING:
             # Every reservation write bumps updated_at, so this is its age.
             outlived = await db.scalar(
                 select(AgentSession.id).where(
@@ -182,13 +221,14 @@ def _holder_ended(db: AsyncSession) -> Callable[[AgentSession], Awaitable[bool]]
             )
             if outlived is None:
                 return False
-            # Its action may still wake up and start the parent. Claim the
-            # parent's ID first, so that start is rejected and never runs
-            # beside the new turn; the parent alone starts the backend turn.
-            return await claim_unstarted_workflow_id(
-                client, workflow_agent_turn_workflow_id(run_id)
-            )
-        return description.status not in _RUNNING
+            # Either start may still arrive late. Claim both IDs first, so a
+            # late start is rejected and never runs beside the new turn.
+            for workflow_id in (parent_id, backend.workflow_id(run_id)):
+                if not await claim_unstarted_workflow_id(client, workflow_id):
+                    return False
+        return not await backend.retains_terminal_ownership(
+            replace(turn, session=session), run_id
+        )
 
     return ended
 
@@ -256,12 +296,22 @@ async def prepare_workflow_agent_turn_activity(
                     agent_args.user_prompt,
                     expected_title=agent_session.title,
                 )
+            admitting = SessionTurnContext(
+                db=service.session,
+                session=agent_session,
+                role=service.role,
+                config=config,
+                prompt=agent_args.user_prompt,
+                run_id=input.run_id,
+                # The stream is assigned on reservation; only the run counts here.
+                stream_id=uuid.uuid4(),
+            )
             prepared = await service.prepare_new_turn(
                 agent_session.id,
                 agent_args.user_prompt,
                 config=config,
                 caller_run_id=input.run_id,
-                holder_ended=_holder_ended(service.session),
+                holder_ended=_holder_ended(service.session, admitting),
             )
         except EntitlementRequired as e:
             # Retrying cannot help until the entitlement is restored.
