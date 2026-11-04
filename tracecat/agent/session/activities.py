@@ -121,6 +121,9 @@ class LoadSessionMessagesInput(BaseModel):
 
     role: Role
     session_id: uuid.UUID
+    # Set by a caller that loads after its turn released the session: another
+    # run may hold it by then, and that run's in-flight rows stay hidden.
+    run_id: uuid.UUID | None = Field(default=None)
 
 
 class LoadSessionMessagesResult(BaseModel):
@@ -359,10 +362,18 @@ async def load_session_messages_activity(
 
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
-            # Terminal load: this runs before finalize_turn clears curr_run_id,
-            # so include the just-completed turn's rows in message_history.
+            # Terminal load: the built-in workflow runs this before
+            # finalize_turn clears curr_run_id, so include the just-completed
+            # turn's rows in message_history.
+            include_active = True
+            if input.run_id is not None:
+                agent_session = await service.get_session(input.session_id)
+                include_active = (
+                    agent_session is not None
+                    and agent_session.curr_run_id == input.run_id
+                )
             messages = await service.list_messages(
-                input.session_id, include_active=True
+                input.session_id, include_active=include_active
             )
         return LoadSessionMessagesResult(messages=messages)
 

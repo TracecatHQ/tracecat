@@ -39,6 +39,10 @@ from tracecat.agent.backends.types import (
 )
 from tracecat.agent.preset.activities import CustomModelProviderConfigResult
 from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.session.activities import (
+    LoadSessionMessagesInput,
+    load_session_messages_activity,
+)
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import (
@@ -563,6 +567,43 @@ async def test_read_fails_without_retry_when_the_backend_is_gone() -> None:
             ReadWorkflowAgentTurnInput(backend_id="external", result={})
         )
     assert exc_info.value.non_retryable
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("holder", "include_active"),
+    [("this turn", True), ("another run", False), ("nobody", False)],
+)
+async def test_history_after_a_turn_hides_another_runs_rows(
+    holder: str, include_active: bool
+) -> None:
+    """A backend turn's history is loaded after the turn released its session,
+    so a run that took the session over in between must not show up in it."""
+    run_id = uuid.uuid4()
+    curr_run_id = {"this turn": run_id, "another run": uuid.uuid4(), "nobody": None}
+    service = SimpleNamespace(
+        get_session=AsyncMock(
+            return_value=SimpleNamespace(curr_run_id=curr_run_id[holder])
+        ),
+        list_messages=AsyncMock(return_value=[]),
+    )
+
+    @contextlib.asynccontextmanager
+    async def with_session(*, role: Role) -> AsyncIterator[SimpleNamespace]:
+        del role
+        yield service
+
+    session_id = uuid.uuid4()
+    with patch(
+        "tracecat.agent.session.activities.AgentSessionService.with_session",
+        with_session,
+    ):
+        await load_session_messages_activity(
+            LoadSessionMessagesInput(role=_role(), session_id=session_id, run_id=run_id)
+        )
+    service.list_messages.assert_awaited_once_with(
+        session_id, include_active=include_active
+    )
 
 
 def test_preset_overrides_match_the_builtin_workflow() -> None:

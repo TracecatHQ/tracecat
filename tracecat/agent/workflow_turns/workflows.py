@@ -81,7 +81,9 @@ class WorkflowAgentTurnWorkflow:
             loaded = await workflow.execute_activity(
                 load_session_messages_activity,
                 LoadSessionMessagesInput(
-                    role=input.args.role, session_id=turn.session_id
+                    role=input.args.role,
+                    session_id=turn.session_id,
+                    run_id=turn.run_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
