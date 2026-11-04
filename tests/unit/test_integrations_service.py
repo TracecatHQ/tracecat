@@ -9,7 +9,7 @@ import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, SecretStr, ValidationError
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -265,6 +265,55 @@ class TestIntegrationService:
         assert updated.scope == "read"
         assert updated.expires_at is not None
         assert updated.expires_at >= initial_expires_at
+
+    async def test_store_integration_expires_at_is_utc_aware(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test that expires_at is calculated in UTC, not naive local time.
+
+        Regression test for #3202: datetime.now() without UTC caused tokens
+        to be instantly expired on non-UTC servers.
+        """
+        provider_key = ProviderKey(
+            id="test_utc_expiry",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        expires_in = 3600  # 1 hour
+
+        # Inspect the value handed to the database driver. The test driver
+        # (asyncpg) reads a naive datetime as local time, so the value read back
+        # after the insert is correct even when the service passes a naive one.
+        inserted_expires_at: list[datetime | None] = []
+
+        def capture_expires_at(
+            mapper: object, connection: object, target: OAuthIntegration
+        ) -> None:
+            inserted_expires_at.append(target.expires_at)
+
+        event.listen(OAuthIntegration, "before_insert", capture_expires_at)
+        try:
+            before = datetime.now(UTC)
+            integration = await integration_service.store_integration(
+                provider_key=provider_key,
+                access_token=SecretStr("test_token"),
+                expires_in=expires_in,
+            )
+            after = datetime.now(UTC)
+        finally:
+            event.remove(OAuthIntegration, "before_insert", capture_expires_at)
+
+        assert len(inserted_expires_at) == 1
+        pending_expires_at = inserted_expires_at[0]
+        assert pending_expires_at is not None
+        # expires_at must be timezone-aware UTC (not naive local time)
+        assert pending_expires_at.utcoffset() == timedelta(0)
+        # expires_at should be approximately now + expires_in
+        expected_min = before + timedelta(seconds=expires_in)
+        expected_max = after + timedelta(seconds=expires_in)
+        assert expected_min <= pending_expires_at <= expected_max
+        assert integration.expires_at is not None
+        assert expected_min <= integration.expires_at <= expected_max
 
     async def test_get_integration_with_filters(
         self,
