@@ -4042,7 +4042,7 @@ async def create_workflow(
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create workflow", error=str(e))
@@ -4564,7 +4564,7 @@ async def update_workflow(
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to update workflow", error=str(e))
