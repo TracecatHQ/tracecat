@@ -1,4 +1,6 @@
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.expressions.common import ExprContext
+from tracecat.validation.schemas import ValidationDetail
 
 
 class CauseError(Exception):
@@ -39,3 +41,25 @@ def test_unwrap_temporal_failure_cause_handles_cyclic_causes() -> None:
 
     assert deepest_error is first
     assert message == "first"
+
+
+def test_trigger_validation_error_info_is_action_compatible() -> None:
+    error_info = DSLWorkflow._trigger_validation_error_info(
+        "Failed to validate trigger inputs",
+        [
+            ValidationDetail(
+                type="pydantic.string_type",
+                msg="Input should be a valid string",
+                loc=("ticket_key",),
+            )
+        ],
+    )
+
+    assert error_info.ref == "<root>"
+    assert error_info.type == "ValidationError"
+    assert error_info.expr_context == ExprContext.TRIGGER
+    assert error_info.children is not None
+    assert len(error_info.children) == 1
+    assert error_info.children[0].ref == "ticket_key"
+    assert error_info.children[0].type == "pydantic.string_type"
+    assert error_info.children[0].expr_context == ExprContext.TRIGGER
