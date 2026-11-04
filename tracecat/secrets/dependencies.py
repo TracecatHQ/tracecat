@@ -3,13 +3,29 @@
 from typing import Annotated
 
 from fastapi import Depends
+from fastapi.exceptions import RequestValidationError
 
 from tracecat.identifiers.secret import SecretUUID
 
 
 def secret_id_path_dependency(secret_id: str) -> SecretUUID:
     """Convert any secret ID format (UUID, short, legacy) to SecretUUID."""
-    return SecretUUID.new(secret_id)
+    try:
+        return SecretUUID.new(secret_id)
+    except ValueError as exc:
+        raise RequestValidationError(
+            [
+                {
+                    "type": "value_error",
+                    "loc": ("path", "secret_id"),
+                    "msg": (
+                        "Invalid secret ID. Expected a UUID, a short ID "
+                        "(secret_<base62>), or a legacy ID (secret-<hex>)."
+                    ),
+                    "input": secret_id,
+                }
+            ]
+        ) from exc
 
 
 AnySecretIDPath = Annotated[SecretUUID, Depends(secret_id_path_dependency)]
