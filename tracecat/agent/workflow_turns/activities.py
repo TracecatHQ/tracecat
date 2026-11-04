@@ -6,6 +6,8 @@ prepare the turn on that backend and read its result, and the workflow starts
 the backend's turn workflow as its own child by type name.
 """
 
+from dataclasses import replace
+
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -22,6 +24,10 @@ from tracecat.agent.error_policy import (
     agent_provider_credentials_missing,
     invalid_agent_configuration,
 )
+from tracecat.agent.gateway_providers import is_gateway_provider
+from tracecat.agent.preset.activities import (
+    resolve_custom_model_provider_config_activity,
+)
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
@@ -37,6 +43,7 @@ from tracecat.agent.workflow_turns.schemas import (
     ReadWorkflowAgentTurnInput,
     ReadWorkflowAgentTurnResult,
 )
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
@@ -51,9 +58,20 @@ from tracecat.temporal.errors import raise_application_error_from_classification
 async def _turn_backend_id(
     service: AgentSessionService, args: AgentWorkflowArgs
 ) -> str:
-    """Pick the turn's backend. A session that exists keeps its own."""
+    """Pick the turn's backend. A session that exists keeps its own.
+
+    A workflow action continues only workflow sessions on another backend.
+    Chat, channel and approval sessions keep their own surface's rules, such
+    as the entitlements it needs and an approval fork having no tools.
+    """
     if session := await service.get_session(args.agent_args.session_id):
-        return session.backend_id or DEFAULT_AGENT_BACKEND
+        backend_id = session.backend_id or DEFAULT_AGENT_BACKEND
+        if (
+            backend_id != DEFAULT_AGENT_BACKEND
+            and session.entity_type != AgentSessionEntity.WORKFLOW.value
+        ):
+            raise_application_error_from_classification(invalid_agent_configuration())
+        return backend_id
     if args.continue_existing_session:
         # The built-in workflow reports the missing session, as before.
         return DEFAULT_AGENT_BACKEND
@@ -84,6 +102,25 @@ async def _turn_config(
         return apply_preset_overrides(preset_config, agent_args.config)
 
 
+async def _with_gateway_provider_config(role: Role, config: AgentConfig) -> AgentConfig:
+    """Point a gateway provider at the organization's configured endpoint.
+
+    Like the built-in workflow, this replaces any base URL the action supplied,
+    so a workflow cannot send the organization's provider credentials elsewhere.
+    """
+    if not is_gateway_provider(config.model_provider):
+        return config
+    resolved = await resolve_custom_model_provider_config_activity(
+        role, config.catalog_id, False, config.model_provider
+    )
+    return replace(
+        config,
+        base_url=resolved.base_url,
+        passthrough=resolved.passthrough,
+        model_name=resolved.model_name or config.model_name,
+    )
+
+
 @activity.defn
 async def prepare_workflow_agent_turn_activity(
     input: PrepareWorkflowAgentTurnInput,
@@ -103,7 +140,9 @@ async def prepare_workflow_agent_turn_activity(
         if backend_id == DEFAULT_AGENT_BACKEND:
             return PrepareWorkflowAgentTurnResult()
         try:
-            config = await _turn_config(service, args)
+            config = await _with_gateway_provider_config(
+                input.role, await _turn_config(service, args)
+            )
             agent_session, created = await service.get_or_create_session(
                 AgentSessionCreate(
                     id=agent_args.session_id,

@@ -32,6 +32,7 @@ from tracecat.agent.backends.types import (
     SessionWorkflowContext,
     TurnResult,
 )
+from tracecat.agent.preset.activities import CustomModelProviderConfigResult
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.types import AgentSessionEntity
@@ -266,7 +267,12 @@ async def test_selected_backend_runs_the_action_with_its_own_config() -> None:
 @pytest.mark.anyio
 async def test_existing_session_keeps_its_own_backend() -> None:
     """Continuing a session never re-selects: its backend is part of it."""
-    existing = SimpleNamespace(id=uuid.uuid4(), title="Earlier", backend_id="external")
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        title="Earlier",
+        backend_id="external",
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+    )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
     with _activity_env(service, selected="oss") as select:
@@ -282,7 +288,11 @@ async def test_existing_session_keeps_its_own_backend() -> None:
 async def test_existing_builtin_session_keeps_the_durable_workflow_path(
     existing_backend: str | None,
 ) -> None:
-    existing = SimpleNamespace(id=uuid.uuid4(), backend_id=existing_backend)
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        backend_id=existing_backend,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+    )
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
     with _activity_env(service, selected="external"):
@@ -341,6 +351,71 @@ async def test_preset_action_layers_its_overrides_on_the_preset() -> None:
     assert config.output_type == "str"
     assert config.tool_tunnels == {"core.http_request": "tunnel-a"}
     assert result.turn is not None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "entity_type",
+    [
+        AgentSessionEntity.WORKSPACE_CHAT,
+        AgentSessionEntity.CASE,
+        AgentSessionEntity.EXTERNAL_CHANNEL,
+        # Approval forks have no tools; an action's config would give them some.
+        AgentSessionEntity.APPROVAL,
+    ],
+)
+async def test_action_cannot_continue_another_surfaces_session_on_a_backend(
+    entity_type: AgentSessionEntity,
+) -> None:
+    """Otherwise a workflow action would skip the workflow entitlement, or the
+    other surface's own rules, by naming that surface's session."""
+    existing = SimpleNamespace(
+        id=uuid.uuid4(), backend_id="external", entity_type=entity_type.value
+    )
+    service = _service(existing=existing)
+    args = _args(session_id=existing.id, continue_existing_session=True)
+    with (
+        _activity_env(service, selected="external"),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await _prepare(args)
+    assert exc_info.value.non_retryable
+    service.prepare_new_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_gateway_provider_uses_the_organizations_endpoint() -> None:
+    """An action's base URL never reaches a gateway provider, as on the
+    built-in path, so a workflow cannot redirect the organization's key."""
+    service = _service()
+    catalog_id = uuid.uuid4()
+    args = _args(
+        config=AgentConfig(
+            model_name="action-model",
+            model_provider="custom-model-provider",
+            catalog_id=catalog_id,
+            base_url="https://elsewhere.invalid",
+        )
+    )
+    resolve = AsyncMock(
+        return_value=CustomModelProviderConfigResult(
+            base_url="https://gateway.internal.invalid",
+            passthrough=True,
+            model_name="org-model",
+        )
+    )
+    with (
+        _activity_env(service, selected="external"),
+        patch(f"{ACTIVITIES}.resolve_custom_model_provider_config_activity", resolve),
+    ):
+        await _prepare(args)
+    resolve.assert_awaited_once_with(
+        args.role, catalog_id, False, "custom-model-provider"
+    )
+    config = service.prepare_new_turn.await_args.kwargs["config"]
+    assert config.base_url == "https://gateway.internal.invalid"
+    assert config.passthrough is True
+    assert config.model_name == "org-model"
 
 
 @pytest.mark.anyio
