@@ -204,9 +204,17 @@ def _assume_bedrock_role(
 
 
 def _is_sts_access_denied(exc: Exception) -> bool:
-    """Return whether STS returned the typed ``AccessDenied`` error code."""
+    """Return whether STS denied the workspace ``AssumeRole`` request itself.
+
+    The operation check excludes failures refreshing the gateway's own source
+    credentials (such as ``AssumeRoleWithWebIdentity``), which surface from the
+    same call before AWS evaluates the workspace role.
+    """
     match exc:
-        case ClientError(response={"Error": {"Code": "AccessDenied"}}):
+        case ClientError(
+            operation_name="AssumeRole",
+            response={"Error": {"Code": "AccessDenied"}},
+        ):
             return True
     return False
 
@@ -239,9 +247,11 @@ async def _resolve_bedrock_runtime_credentials(
             )
         except (BotoCoreError, ClientError, KeyError) as exc:
             if _is_sts_access_denied(exc):
-                # STS refused this caller for the configured role. The role's
-                # trust policy belongs to the workspace and must change before
-                # a retry can succeed.
+                # STS refused this caller for the configured role. Usually the
+                # workspace-owned trust policy must change before a retry can
+                # succeed, but a deny on Tracecat's own principal returns the
+                # same code, so keep a platform-visible log line.
+                logger.warning("Bedrock AssumeRole denied by STS")
                 raise ProxyException(
                     message=(
                         "AWS denied assuming the configured Bedrock role. Check "

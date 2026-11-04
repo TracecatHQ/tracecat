@@ -291,10 +291,11 @@ async def test_bedrock_role_credentials_require_external_id() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("error_code", "status_code", "wire_type", "kind", "owner", "retry"),
+    ("error_code", "operation", "status_code", "wire_type", "kind", "owner", "retry"),
     [
         pytest.param(
             "AccessDenied",
+            "AssumeRole",
             403,
             "tracecat_llm_provider_role_denied",
             RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
@@ -303,7 +304,18 @@ async def test_bedrock_role_credentials_require_external_id() -> None:
             id="trust-policy-denial-is-user-owned",
         ),
         pytest.param(
+            "AccessDenied",
+            "AssumeRoleWithWebIdentity",
+            401,
+            "auth_error",
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            id="gateway-source-credential-denial-stays-platform",
+        ),
+        pytest.param(
             "Throttling",
+            "AssumeRole",
             401,
             "auth_error",
             RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
@@ -316,16 +328,18 @@ async def test_bedrock_role_credentials_require_external_id() -> None:
 async def test_bedrock_assume_role_failure_classification(
     monkeypatch: pytest.MonkeyPatch,
     error_code: str,
+    operation: str,
     status_code: int,
     wire_type: str,
     kind: RuntimeErrorKind,
     owner: RuntimeErrorOwner,
     retry: RetryDisposition,
 ) -> None:
-    """Only STS AccessDenied establishes a workspace-owned role misconfiguration.
+    """Only AccessDenied on the workspace AssumeRole is workspace-owned.
 
-    Other STS failures can be transport or service faults, so they keep the
-    platform-owned retryable classification. Neither path echoes the role ARN
+    Other STS failures can be transport or service faults, and an AccessDenied
+    while refreshing the gateway's own source credentials never reached the
+    workspace role, so both keep the platform-owned retryable classification. Neither path echoes the role ARN
     or the STS error message.
     """
     role_arn = "arn:aws:iam::123456789012:role/synthetic-role"
@@ -334,7 +348,7 @@ async def test_bedrock_assume_role_failure_classification(
     def mock_assume_bedrock_role(*_: object, **__: object) -> dict[str, str]:
         raise ClientError(
             {"Error": {"Code": error_code, "Message": f"{sts_message} {role_arn}"}},
-            "AssumeRole",
+            operation,
         )
 
     monkeypatch.setattr(
