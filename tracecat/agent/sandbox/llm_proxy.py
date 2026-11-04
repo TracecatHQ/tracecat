@@ -51,10 +51,12 @@ from tracecat.agent.error_policy import (
     agent_executor_unclassified,
     agent_llm_budget_exceeded,
     agent_llm_gateway_auth_failed,
+    agent_llm_gateway_unavailable,
     agent_llm_model_not_enabled,
     agent_llm_provider_auth_failed,
     agent_llm_provider_rejected_request,
     agent_llm_provider_subscription_required,
+    agent_llm_provider_unavailable,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
     agent_llm_stream_interrupted,
@@ -361,6 +363,10 @@ def _http_error_classification(
         )
     if status_code in {408, 504}:
         return agent_executor_timed_out()
+    if error_type == "tracecat_llm_provider_unavailable" and status_code >= 500:
+        return agent_llm_provider_unavailable(status_code=status_code)
+    if error_type == "tracecat_llm_deployment_unavailable" and status_code >= 500:
+        return agent_llm_gateway_unavailable(status_code=status_code)
     if status_code >= 500:
         return _managed_unclassified(status_code, body)
     return agent_llm_provider_rejected_request(
@@ -1022,6 +1028,8 @@ _STREAM_ERROR_STATUS_CODES = {
     "insufficient_quota": 429,
     "rate_limit_error": 429,
     "throttling_error": 429,
+    "tracecat_llm_deployment_unavailable": 503,
+    "tracecat_llm_provider_unavailable": 502,
 }
 
 
