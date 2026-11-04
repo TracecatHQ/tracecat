@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from tracecat.agent.delivery import deliver_channel_notice
 from tracecat.agent.executor.activity import (
     probe_stdio_mcp_connection_activity,
     run_agent_activity,
@@ -127,6 +128,8 @@ def test_agent_worker_registers_preset_resolution_activities() -> None:
     assert _activity_name(resolve_agent_preset_config_activity) in names
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
     assert _activity_name(persist_stdio_mcp_connection_activity) in names
+    # Open-source installs must answer the delivery call the workflow schedules.
+    assert _activity_name(deliver_channel_notice) in names
 
 
 def test_agent_executor_worker_registers_runtime_execution_activities() -> None:

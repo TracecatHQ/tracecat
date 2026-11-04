@@ -16,6 +16,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
+from tracecat.agent.delivery import linked_thread_hint
 from tracecat.agent.error_policy import invalid_agent_configuration
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
@@ -67,6 +68,7 @@ class CreateSessionResult(BaseModel):
     session_id: uuid.UUID
     success: bool
     error: str | None = None
+    channel_thread_linked: bool = False
 
 
 class PendingToolResult(BaseModel):
@@ -288,7 +290,10 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 stream_id=stream_id,
             )
 
-        return CreateSessionResult(session_id=input.session_id, success=True)
+        linked = await linked_thread_hint(input.role, input.session_id)
+        return CreateSessionResult(
+            session_id=input.session_id, success=True, channel_thread_linked=linked
+        )
 
     except ApplicationError:
         raise
