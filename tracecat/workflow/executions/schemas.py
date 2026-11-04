@@ -1017,10 +1017,9 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 input_data = await extract_first(attrs.input)
                 session = None
                 if not is_unreadable_temporal_payload(input_data):
-                    turn_input = WorkflowAgentTurnInput.model_validate(input_data)
                     # The action's own arguments, as for the built-in workflow.
-                    input_data = turn_input.args
-                    session = Session(id=turn_input.turn.session_id)
+                    input_data = WorkflowAgentTurnInput.model_validate(input_data).args
+                    session = Session(id=input_data.agent_args.session_id)
                 compact_event = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(UTC),

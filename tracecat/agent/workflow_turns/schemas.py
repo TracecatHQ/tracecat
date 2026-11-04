@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tracecat.agent.backends.schemas import AgentWorkflowArgs, ChildAgentTurn
+from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.auth.types import Role
 
 WORKFLOW_AGENT_TURN_WORKFLOW = "WorkflowAgentTurnWorkflow"
@@ -16,21 +16,27 @@ def workflow_agent_turn_workflow_id(run_id: uuid.UUID) -> str:
     return f"workflow-agent-turn/{run_id}"
 
 
+class SelectWorkflowAgentBackendInput(BaseModel):
+    role: Role
+    # The built-in workflow's input, which the action builds either way.
+    args: AgentWorkflowArgs
+
+
+class SelectWorkflowAgentBackendResult(BaseModel):
+    # None when the action runs on the built-in backend: the workflow then
+    # starts the built-in durable workflow with the same arguments.
+    backend_id: str | None = None
+
+
 class PrepareWorkflowAgentTurnInput(BaseModel):
     role: Role
     # Minted by the action, so a retry adopts this action's own reservation
     # and a concurrent action on the same session is refused.
     run_id: uuid.UUID
-    # The built-in workflow's input, which the action builds either way. Its
-    # session, prompt, configuration and limits describe the turn on any
-    # backend.
+    # The backend the action selected; preparation refuses any other.
+    backend_id: str
+    # The session, prompt, configuration and limits of the turn.
     args: AgentWorkflowArgs
-
-
-class PrepareWorkflowAgentTurnResult(BaseModel):
-    # None when the action runs on the built-in backend: the workflow then
-    # starts the built-in durable workflow with the same arguments.
-    turn: ChildAgentTurn | None = None
 
 
 class ReadWorkflowAgentTurnInput(BaseModel):
@@ -47,9 +53,10 @@ class ReadWorkflowAgentTurnResult(BaseModel):
 
 
 class WorkflowAgentTurnInput(BaseModel):
-    """A prepared workflow agent action turn on an installed backend."""
+    """A workflow agent action's turn on an installed backend."""
 
-    turn: ChildAgentTurn
+    run_id: uuid.UUID
+    backend_id: str
     # The action's own arguments, as the built-in workflow would take them.
-    # Run views show these, so both paths read the same.
+    # The parent prepares the turn from them, and run views show them.
     args: AgentWorkflowArgs

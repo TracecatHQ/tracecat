@@ -26,6 +26,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.schemas import (
     AgentWorkflowArgs,
+    ChildAgentTurn,
     WorkflowApprovalSubmission,
     WorkflowCancelRequest,
 )
@@ -47,10 +48,12 @@ from tracecat.agent.workflow_turns.activities import (
     _holder_ended,
     prepare_workflow_agent_turn_activity,
     read_workflow_agent_turn_activity,
+    select_workflow_agent_backend_activity,
 )
 from tracecat.agent.workflow_turns.schemas import (
     PrepareWorkflowAgentTurnInput,
     ReadWorkflowAgentTurnInput,
+    SelectWorkflowAgentBackendInput,
 )
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
@@ -198,7 +201,6 @@ def _service(
         get_or_create_session=AsyncMock(side_effect=get_or_create_session),
         auto_title_session_on_first_prompt=AsyncMock(),
         prepare_new_turn=AsyncMock(side_effect=prepare_new_turn),
-        release_prepared_turn=AsyncMock(),
     )
 
 
@@ -219,9 +221,20 @@ def _activity_env(service: SimpleNamespace, *, selected: str) -> Iterator[AsyncM
         yield select
 
 
-async def _prepare(args: AgentWorkflowArgs):
+async def _select(args: AgentWorkflowArgs) -> str | None:
+    selected = await select_workflow_agent_backend_activity(
+        SelectWorkflowAgentBackendInput(role=args.role, args=args)
+    )
+    return selected.backend_id
+
+
+async def _prepare(
+    args: AgentWorkflowArgs, *, backend_id: str = "external"
+) -> ChildAgentTurn:
     return await prepare_workflow_agent_turn_activity(
-        PrepareWorkflowAgentTurnInput(role=args.role, run_id=uuid.uuid4(), args=args)
+        PrepareWorkflowAgentTurnInput(
+            role=args.role, run_id=uuid.uuid4(), backend_id=backend_id, args=args
+        )
     )
 
 
@@ -229,8 +242,7 @@ async def _prepare(args: AgentWorkflowArgs):
 async def test_builtin_backend_keeps_the_durable_workflow_path() -> None:
     service = _service()
     with _activity_env(service, selected="oss") as select:
-        result = await _prepare(_args())
-    assert result.turn is None
+        assert await _select(_args()) is None
     select.assert_awaited_once()
     assert select.await_args is not None
     assert select.await_args.args[2] is AgentSessionEntity.WORKFLOW
@@ -243,7 +255,10 @@ async def test_selected_backend_runs_the_action_with_its_own_config() -> None:
     service = _service()
     args = _args()
     with _activity_env(service, selected="external"):
-        result = await _prepare(args)
+        assert await _select(args) == "external"
+        # Selection writes nothing; the turn's parent prepares it.
+        service.get_or_create_session.assert_not_awaited()
+        turn = await _prepare(args)
 
     created = service.get_or_create_session.await_args.args[0]
     assert created.id == args.agent_args.session_id
@@ -256,8 +271,6 @@ async def test_selected_backend_runs_the_action_with_its_own_config() -> None:
         args.agent_args.config
     )
 
-    turn = result.turn
-    assert turn is not None
     # The action's own run ID reserves the session.
     assert turn.run_id == service.prepare_new_turn.await_args.kwargs["caller_run_id"]
     assert turn.backend_id == "external"
@@ -291,11 +304,10 @@ async def test_existing_session_keeps_its_own_backend() -> None:
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
     with _activity_env(service, selected="oss") as select:
-        result = await _prepare(args)
+        turn = await _prepare(args)
     select.assert_not_awaited()
     service.auto_title_session_on_first_prompt.assert_not_awaited()
-    assert result.turn is not None
-    assert result.turn.session_id == existing.id
+    assert turn.session_id == existing.id
 
 
 @pytest.mark.anyio
@@ -312,8 +324,7 @@ async def test_existing_builtin_session_keeps_the_durable_workflow_path(
     service = _service(existing=existing)
     args = _args(session_id=existing.id, continue_existing_session=True)
     with _activity_env(service, selected="external"):
-        result = await _prepare(args)
-    assert result.turn is None
+        assert await _select(args) is None
     service.prepare_new_turn.assert_not_awaited()
 
 
@@ -322,8 +333,7 @@ async def test_missing_session_to_continue_keeps_the_durable_workflow_path() -> 
     """The built-in workflow reports the missing session, as before."""
     service = _service()
     with _activity_env(service, selected="external") as select:
-        result = await _prepare(_args(continue_existing_session=True))
-    assert result.turn is None
+        assert await _select(_args(continue_existing_session=True)) is None
     select.assert_not_awaited()
     service.get_or_create_session.assert_not_awaited()
 
@@ -359,14 +369,13 @@ async def test_preset_action_layers_its_overrides_on_the_preset() -> None:
         _activity_env(service, selected="external"),
         patch(f"{ACTIVITIES}.AgentManagementService", return_value=agents),
     ):
-        result = await _prepare(args)
+        await _prepare(args)
 
     config = service.prepare_new_turn.await_args.kwargs["config"]
     assert config.model_name == "preset-model"
     assert config.instructions == "Preset instructions\nAction instructions"
     assert config.output_type == "str"
     assert config.tool_tunnels == {"core.http_request": "tunnel-a"}
-    assert result.turn is not None
 
 
 @pytest.mark.anyio
@@ -427,20 +436,24 @@ async def test_action_cannot_continue_a_reviewer_fork_on_a_backend() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("creator", "refused"),
+    ("actor", "creator", "refused"),
     [
-        # A teammate's session stays theirs, as in the API.
-        ("teammate", True),
-        ("self", False),
+        # A session a user started stays theirs, as in the API,
+        ("user", "teammate", True),
+        ("user", "self", False),
+        # including against runs no user is attributed to, such as webhooks.
+        ("background", "teammate", True),
         # Background runs leave no user creator; later runs may continue them.
-        (None, False),
+        ("user", None, False),
+        ("background", None, False),
     ],
 )
 async def test_action_continues_only_sessions_its_user_may_write(
-    creator: str | None, refused: bool
+    actor: str, creator: str | None, refused: bool
 ) -> None:
-    role = _role().model_copy(update={"type": "user", "user_id": uuid.uuid4()})
-    created_by = {"teammate": uuid.uuid4(), "self": role.user_id, None: None}[creator]
+    user_id = uuid.uuid4() if actor == "user" else None
+    role = _role().model_copy(update={"user_id": user_id})
+    created_by = {"teammate": uuid.uuid4(), "self": user_id, None: None}[creator]
     existing = SimpleNamespace(
         id=uuid.uuid4(),
         title="Earlier",
@@ -455,10 +468,23 @@ async def test_action_continues_only_sessions_its_user_may_write(
     with _activity_env(service, selected="external"):
         if refused:
             with pytest.raises(ApplicationError):
-                await _prepare(args)
+                await _select(args)
             service.prepare_new_turn.assert_not_awaited()
         else:
-            assert (await _prepare(args)).turn is not None
+            assert (await _prepare(args)).session_id == existing.id
+
+
+@pytest.mark.anyio
+async def test_preparation_refuses_a_backend_other_than_the_selected_one() -> None:
+    """The turn runs only where the action selected it."""
+    service = _service()
+    with (
+        _activity_env(service, selected="oss"),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await _prepare(_args(), backend_id="external")
+    assert exc_info.value.non_retryable
+    service.prepare_new_turn.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -574,27 +600,6 @@ def test_preset_overrides_match_the_builtin_workflow() -> None:
     # The preset's own configuration is left as resolved.
     assert preset.actions == ["a", "b"]
     assert apply_preset_overrides(preset, None).tool_tunnels == {"a": "t1", "b": "t2"}
-
-
-@pytest.mark.anyio
-async def test_failed_preparation_releases_its_reservation() -> None:
-    """No workflow starts for it, so the session must not stay held."""
-    service = _service()
-    failing = InstalledBackend()
-    with (
-        _activity_env(service, selected="external"),
-        patch(f"{ACTIVITIES}.get_agent_backend", return_value=failing),
-        patch.object(
-            failing, "build_workflow_args", AsyncMock(side_effect=ValueError("x"))
-        ),
-        pytest.raises(ValueError),
-    ):
-        await _prepare(_args())
-    prepared = service.prepare_new_turn.await_args
-    assert prepared is not None
-    service.release_prepared_turn.assert_awaited_once_with(
-        prepared.args[0], prepared.kwargs["caller_run_id"]
-    )
 
 
 def _held_session() -> AgentSession:

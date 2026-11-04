@@ -1,9 +1,9 @@
 """Run workflow agent actions on the session's agent backend.
 
 A workflow agent action builds the built-in durable workflow's arguments
-either way. When its session belongs to another backend, these activities
-prepare the turn on that backend and read its result, and the workflow starts
-the backend's turn workflow as its own child by type name.
+either way. The action first selects its backend. On another backend than the
+built-in one, the turn's parent workflow prepares the turn there, starts the
+backend's turn workflow as its own child by type name, and reads its result.
 """
 
 from collections.abc import Awaitable, Callable
@@ -38,11 +38,7 @@ from tracecat.agent.preset.activities import (
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import (
-    AgentSessionEntity,
-    TurnLifecycle,
-    is_session_readonly,
-)
+from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.types import (
     AgentConfig,
     apply_preset_overrides,
@@ -50,9 +46,10 @@ from tracecat.agent.types import (
 )
 from tracecat.agent.workflow_turns.schemas import (
     PrepareWorkflowAgentTurnInput,
-    PrepareWorkflowAgentTurnResult,
     ReadWorkflowAgentTurnInput,
     ReadWorkflowAgentTurnResult,
+    SelectWorkflowAgentBackendInput,
+    SelectWorkflowAgentBackendResult,
     workflow_agent_turn_workflow_id,
 )
 from tracecat.auth.types import Role
@@ -78,13 +75,15 @@ async def _turn_backend_id(
     A workflow action continues only workflow sessions on another backend.
     Chat, channel and approval sessions keep their own surface's rules, such
     as the entitlements it needs, and reviewer forks keep having no tools. A
-    session a teammate started stays theirs, as in the API; sessions started
-    by background runs have no user creator and stay open to later runs.
+    session a user started continues only under runs attributed to that user,
+    so a teammate's or a background run cannot write into it; sessions
+    started by background runs have no user creator and stay open.
     """
     if session := await service.get_session(args.agent_args.session_id):
         backend_id = session.backend_id or DEFAULT_AGENT_BACKEND
-        teammates = session.created_by is not None and is_session_readonly(
-            service.role, session.created_by
+        teammates = (
+            session.created_by is not None
+            and session.created_by != service.role.user_id
         )
         if backend_id != DEFAULT_AGENT_BACKEND and (
             session.entity_type != AgentSessionEntity.WORKFLOW.value
@@ -195,23 +194,45 @@ def _holder_ended(db: AsyncSession) -> Callable[[AgentSession], Awaitable[bool]]
 
 
 @activity.defn
+async def select_workflow_agent_backend_activity(
+    input: SelectWorkflowAgentBackendInput,
+) -> SelectWorkflowAgentBackendResult:
+    """Pick the backend a workflow agent action runs on.
+
+    Returns no backend for the built-in one, whose workflow the action starts
+    as before. Writes nothing.
+    """
+    ctx_role.set(input.role)
+    async with AgentSessionService.with_session(role=input.role) as service:
+        backend_id = await _turn_backend_id(service, input.args)
+    if backend_id == DEFAULT_AGENT_BACKEND:
+        return SelectWorkflowAgentBackendResult()
+    return SelectWorkflowAgentBackendResult(backend_id=backend_id)
+
+
+@activity.defn
 async def prepare_workflow_agent_turn_activity(
     input: PrepareWorkflowAgentTurnInput,
-) -> PrepareWorkflowAgentTurnResult:
-    """Prepare a workflow agent action's turn on its session's backend.
+) -> ChildAgentTurn:
+    """Prepare a workflow agent action's turn on the backend selected for it.
 
-    Returns no turn when the action runs on the built-in backend. Otherwise
-    creates the workflow session on the selected backend if needed, reserves
-    the turn, and builds the backend's workflow input. A retry after the
-    reservation returns the same turn.
+    Creates the workflow session on that backend if needed, reserves the turn
+    under the action's run ID, and builds the backend's workflow input. A retry
+    adopts the same reservation and returns the same turn. Runs in the turn's
+    parent workflow, so a reservation never outlives a parent that is still
+    able to start its turn.
     """
     ctx_role.set(input.role)
     args = input.args
     agent_args = args.agent_args
     async with AgentSessionService.with_session(role=input.role) as service:
-        backend_id = await _turn_backend_id(service, args)
-        if backend_id == DEFAULT_AGENT_BACKEND:
-            return PrepareWorkflowAgentTurnResult()
+        # Check again under this attempt; the session's backend must not have
+        # changed since the action selected it.
+        if await _turn_backend_id(service, args) != input.backend_id:
+            raise ApplicationError(
+                "The agent session's backend changed", non_retryable=True
+            )
+        backend_id = input.backend_id
         try:
             config = await _with_gateway_provider_config(
                 input.role, await _turn_config(service, args)
@@ -264,50 +285,40 @@ async def prepare_workflow_agent_turn_activity(
             TracecatValidationError,
         ) as e:
             raise_application_error_from_classification(invalid_agent_configuration(e))
-        try:
-            backend = get_agent_backend(
-                prepared.backend_id, harness_type=prepared.harness_type
-            )
-            workflow_args = await backend.build_workflow_args(
-                SessionWorkflowContext(
-                    session_id=prepared.session_id,
-                    backend_id=prepared.backend_id,
-                    harness_type=prepared.harness_type,
-                    title=prepared.title,
-                    entity_type=prepared.entity_type,
-                    entity_id=prepared.entity_id,
-                    tools=tuple(prepared.tools) if prepared.tools is not None else None,
-                    agent_preset_id=prepared.agent_preset_id,
-                    agent_preset_version_id=prepared.agent_preset_version_id,
-                    role=service.execution_role,
-                    config=prepared.config,
-                    prompt=prepared.prompt,
-                    run_id=prepared.run_id,
-                    stream_id=prepared.active_stream_id,
-                    timeout_seconds=clamp_agent_timeout_seconds(
-                        agent_args.timeout_seconds
-                    ),
-                    max_requests=agent_args.max_requests,
-                    max_tool_calls=agent_args.max_tool_calls,
-                )
-            )
-        except Exception:
-            # No workflow will start for this reservation, so free the session
-            # now. A retry reserves it again.
-            await service.release_prepared_turn(prepared.session_id, prepared.run_id)
-            raise
-    return PrepareWorkflowAgentTurnResult(
-        turn=ChildAgentTurn(
-            backend_id=prepared.backend_id,
-            session_id=prepared.session_id,
-            run_id=prepared.run_id,
-            workflow_type=get_workflow_type(backend),
-            workflow_id=backend.workflow_id(prepared.run_id),
-            task_queue=backend.task_queue,
-            priority=backend.priority,
-            retry_policy=backend.retry_policy,
-            args=workflow_args,
+        backend = get_agent_backend(
+            prepared.backend_id, harness_type=prepared.harness_type
         )
+        workflow_args = await backend.build_workflow_args(
+            SessionWorkflowContext(
+                session_id=prepared.session_id,
+                backend_id=prepared.backend_id,
+                harness_type=prepared.harness_type,
+                title=prepared.title,
+                entity_type=prepared.entity_type,
+                entity_id=prepared.entity_id,
+                tools=tuple(prepared.tools) if prepared.tools is not None else None,
+                agent_preset_id=prepared.agent_preset_id,
+                agent_preset_version_id=prepared.agent_preset_version_id,
+                role=service.execution_role,
+                config=prepared.config,
+                prompt=prepared.prompt,
+                run_id=prepared.run_id,
+                stream_id=prepared.active_stream_id,
+                timeout_seconds=clamp_agent_timeout_seconds(agent_args.timeout_seconds),
+                max_requests=agent_args.max_requests,
+                max_tool_calls=agent_args.max_tool_calls,
+            )
+        )
+    return ChildAgentTurn(
+        backend_id=prepared.backend_id,
+        session_id=prepared.session_id,
+        run_id=prepared.run_id,
+        workflow_type=get_workflow_type(backend),
+        workflow_id=backend.workflow_id(prepared.run_id),
+        task_queue=backend.task_queue,
+        priority=backend.priority,
+        retry_policy=backend.retry_policy,
+        args=workflow_args,
     )
 
 

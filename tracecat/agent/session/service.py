@@ -2226,24 +2226,6 @@ class AgentSessionService(BaseWorkspaceService):
 
         return prepared_turn
 
-    async def release_prepared_turn(
-        self, session_id: uuid.UUID, run_id: uuid.UUID
-    ) -> None:
-        """Release a caller-owned reservation whose workflow will never start.
-
-        Clears the turn pointers only while ``run_id`` still holds them.
-        """
-        await self.session.execute(
-            update(AgentSession)
-            .where(
-                AgentSession.id == session_id,
-                AgentSession.workspace_id == self.workspace_id,
-                AgentSession.curr_run_id == run_id,
-            )
-            .values(curr_run_id=None, active_stream_id=None)
-        )
-        await self.session.commit()
-
     async def run_turn(
         self,
         session_id: uuid.UUID,

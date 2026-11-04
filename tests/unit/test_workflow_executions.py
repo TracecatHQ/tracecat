@@ -29,10 +29,9 @@ from temporalio.api.history.v1 import (
     WorkflowExecutionTerminatedEventAttributes,
 )
 from temporalio.client import Client, WorkflowHandle
-from temporalio.common import Priority, RetryPolicy
 from temporalio.converter import DefaultPayloadConverter
 
-from tracecat.agent.backends.schemas import AgentWorkflowArgs, ChildAgentTurn
+from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.workflow_turns.schemas import WorkflowAgentTurnInput
@@ -1272,22 +1271,11 @@ class TestWorkflowExecutionEvents:
     async def test_backend_agent_turn_shows_as_an_agent_action(self) -> None:
         """An agent action on an installed backend shows in the run view.
 
-        Its parent workflow is Tracecat's own, so the run view reads it, and
-        the session it names, without the backend installed.
+        Its parent workflow is Tracecat's own, so the run view reads the
+        action's arguments and session without the backend installed.
         """
         session_id = uuid.uuid4()
         run_id = uuid.uuid4()
-        turn = ChildAgentTurn(
-            backend_id="uninstalled",
-            session_id=session_id,
-            run_id=run_id,
-            workflow_type="UninstalledTurnWorkflow",
-            workflow_id=f"agent/{run_id}",
-            task_queue="uninstalled-queue",
-            priority=Priority(),
-            retry_policy=RetryPolicy(maximum_attempts=1),
-            args={"prompt": "Investigate"},
-        )
         initiated = create_mock_child_workflow_initiated_event(
             event_id=1,
             workflow_type_name="WorkflowAgentTurnWorkflow",
@@ -1312,7 +1300,7 @@ class TestWorkflowExecutionEvents:
                 "tracecat.workflow.executions.schemas.extract_first",
                 AsyncMock(
                     return_value=WorkflowAgentTurnInput(
-                        turn=turn, args=action_args
+                        run_id=run_id, backend_id="uninstalled", args=action_args
                     ).model_dump(mode="json")
                 ),
             ),

@@ -43,7 +43,6 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
-    from tracecat.agent.backends.schemas import ChildAgentTurn
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
@@ -52,10 +51,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_turns.activities import (
-        prepare_workflow_agent_turn_activity,
+        select_workflow_agent_backend_activity,
     )
     from tracecat.agent.workflow_turns.schemas import (
-        PrepareWorkflowAgentTurnInput,
+        SelectWorkflowAgentBackendInput,
         WorkflowAgentTurnInput,
         workflow_agent_turn_workflow_id,
     )
@@ -1875,19 +1874,17 @@ class DSLWorkflow:
         an AgentOutput.
         """
         if workflow.patched(WorkflowPatch.AGENT_ACTIONS_ON_SESSION_BACKEND):
-            prepared = await workflow.execute_activity(
-                prepare_workflow_agent_turn_activity,
-                PrepareWorkflowAgentTurnInput(
-                    role=self.role, run_id=workflow.uuid4(), args=arg
-                ),
+            selected = await workflow.execute_activity(
+                select_workflow_agent_backend_activity,
+                SelectWorkflowAgentBackendInput(role=self.role, args=arg),
                 # The agent worker has the installed backends.
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
-            if prepared.turn is not None:
+            if selected.backend_id is not None:
                 return await self._run_backend_agent_turn(
-                    task, prepared.turn, arg, stream_id
+                    task, selected.backend_id, arg, stream_id
                 )
         wf_info = workflow.info()
         return await workflow.execute_child_workflow(
@@ -1911,16 +1908,17 @@ class DSLWorkflow:
     async def _run_backend_agent_turn(
         self,
         task: ActionStatement,
-        turn: ChildAgentTurn,
+        backend_id: str,
         arg: AgentWorkflowArgs,
         stream_id: StreamID,
     ) -> AgentOutput:
         """Run a prepared turn on an installed backend through its parent workflow."""
         wf_info = workflow.info()
+        run_id = workflow.uuid4()
         return await workflow.execute_child_workflow(
             WorkflowAgentTurnWorkflow.run,
-            WorkflowAgentTurnInput(turn=turn, args=arg),
-            id=workflow_agent_turn_workflow_id(turn.run_id),
+            WorkflowAgentTurnInput(run_id=run_id, backend_id=backend_id, args=arg),
+            id=workflow_agent_turn_workflow_id(run_id),
             # A session taken over from this turn claims this ID first. Then
             # this start is rejected rather than running beside the new turn.
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,

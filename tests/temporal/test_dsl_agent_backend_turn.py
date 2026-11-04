@@ -1,10 +1,10 @@
 """DSL agent actions run on their session's agent backend.
 
-When the prepare activity hands back a turn on an installed backend, the DSL
-workflow starts that backend's turn workflow as a child by type name. The
-turn's approvals go through the backend's own control path, and its
-structured output becomes the action's result. Otherwise the built-in durable
-agent workflow runs, as before.
+When the action selects an installed backend, its turn's parent workflow
+prepares the turn there and starts that backend's turn workflow as a child by
+type name. The turn's approvals go through the backend's own control path, and
+its structured output becomes the action's result. Otherwise the built-in
+durable agent workflow runs, as before.
 """
 
 import asyncio
@@ -20,7 +20,6 @@ from temporalio.client import (
     Client,
     WorkflowExecutionStatus,
     WorkflowFailureError,
-    WorkflowHandle,
 )
 from temporalio.common import Priority, RetryPolicy
 from temporalio.service import RPCError
@@ -42,10 +41,12 @@ from tracecat.agent.worker import get_activities as get_agent_worker_activities
 from tracecat.agent.worker import new_sandbox_runner as new_agent_sandbox_runner
 from tracecat.agent.workflow_turns.activities import (
     prepare_workflow_agent_turn_activity,
+    select_workflow_agent_backend_activity,
 )
 from tracecat.agent.workflow_turns.schemas import (
     PrepareWorkflowAgentTurnInput,
-    PrepareWorkflowAgentTurnResult,
+    SelectWorkflowAgentBackendInput,
+    SelectWorkflowAgentBackendResult,
 )
 from tracecat.agent.workflow_turns.workflows import WorkflowAgentTurnWorkflow
 from tracecat.auth.types import Role
@@ -83,40 +84,40 @@ def _agent_action_dsl(**args: Any) -> DSLInput:
     )
 
 
-# Sessions the mocked preparation handed out, by run ID.
-_SESSION_IDS: dict[uuid.UUID, uuid.UUID] = {}
+def _installed_backend_activities(
+    prepared: list[PrepareWorkflowAgentTurnInput], *, task_queue: str
+) -> list[Callable[..., Any]]:
+    """Select the installed backend for every action and prepare its turn there."""
 
-
-def _prepare_on_installed_backend(
-    *, run_id: uuid.UUID, task_queue: str
-) -> Callable[..., Any]:
-    """Prepare every agent action's turn on the installed backend."""
+    @activity.defn(name="select_workflow_agent_backend_activity")
+    async def select(
+        input: SelectWorkflowAgentBackendInput,
+    ) -> SelectWorkflowAgentBackendResult:
+        del input
+        return SelectWorkflowAgentBackendResult(backend_id="installed")
 
     @activity.defn(name="prepare_workflow_agent_turn_activity")
-    async def prepare(
-        input: PrepareWorkflowAgentTurnInput,
-    ) -> PrepareWorkflowAgentTurnResult:
+    async def prepare(input: PrepareWorkflowAgentTurnInput) -> ChildAgentTurn:
+        assert input.backend_id == "installed"
         agent_args = input.args.agent_args
         assert agent_args.config is not None
-        _SESSION_IDS[run_id] = agent_args.session_id
-        return PrepareWorkflowAgentTurnResult(
-            turn=ChildAgentTurn(
-                backend_id="installed",
-                session_id=agent_args.session_id,
-                run_id=run_id,
-                workflow_type=INSTALLED_TURN_WORKFLOW,
-                workflow_id=f"agent/{run_id}",
-                task_queue=task_queue,
-                priority=Priority(),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                args={
-                    "prompt": agent_args.user_prompt,
-                    "output_type": agent_args.config.output_type,
-                },
-            )
+        prepared.append(input)
+        return ChildAgentTurn(
+            backend_id="installed",
+            session_id=agent_args.session_id,
+            run_id=input.run_id,
+            workflow_type=INSTALLED_TURN_WORKFLOW,
+            workflow_id=f"agent/{input.run_id}",
+            task_queue=task_queue,
+            priority=Priority(),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+            args={
+                "prompt": agent_args.user_prompt,
+                "output_type": agent_args.config.output_type,
+            },
         )
 
-    return prepare
+    return [select, prepare]
 
 
 # The agent actions resolve through this lock, so no registry sync is needed.
@@ -126,22 +127,34 @@ _REGISTRY_LOCK = RegistryLock(
 )
 
 
-async def _wait_until_started(handle: WorkflowHandle[Any, Any]) -> None:
+async def _wait_for_turn(
+    client: Client, prepared: list[PrepareWorkflowAgentTurnInput]
+) -> PrepareWorkflowAgentTurnInput:
+    """Wait until the backend's turn workflow is running."""
     for _ in range(100):
-        try:
-            await handle.describe()
-            return
-        except RPCError:
-            await asyncio.sleep(0.1)
+        if prepared:
+            try:
+                await client.get_workflow_handle(
+                    f"agent/{prepared[0].run_id}"
+                ).describe()
+                return prepared[0]
+            except RPCError:
+                pass
+        await asyncio.sleep(0.1)
     raise AssertionError("The backend turn never started")
 
 
-def _with_activity(
-    activities: Sequence[Callable[..., Any]], replacement: Callable[..., Any]
+def _with_activities(
+    activities: Sequence[Callable[..., Any]],
+    replacements: Sequence[Callable[..., Any]],
 ) -> list[Callable[..., Any]]:
-    kept = [a for a in activities if a is not prepare_workflow_agent_turn_activity]
-    assert len(kept) == len(activities) - 1
-    return [*kept, replacement]
+    replaced = {
+        prepare_workflow_agent_turn_activity,
+        select_workflow_agent_backend_activity,
+    }
+    kept = [a for a in activities if a not in replaced]
+    assert len(kept) == len(activities) - len(replaced)
+    return [*kept, *replacements]
 
 
 @pytest.mark.anyio
@@ -157,7 +170,7 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
     """The action's history holds an AgentOutput, or a failure, never the
     backend's own result: reruns reuse that history, and a turn that ended
     without output must not count as a success."""
-    run_id = uuid.uuid4()
+    prepared: list[PrepareWorkflowAgentTurnInput] = []
     backend = InstalledBackend()
     agent_queue = config.TRACECAT__AGENT_QUEUE
     monkeypatch.setattr(
@@ -178,9 +191,9 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
     agent_worker = Worker(
         client=temporal_client,
         task_queue=agent_queue,
-        activities=_with_activity(
+        activities=_with_activities(
             get_agent_worker_activities(),
-            _prepare_on_installed_backend(run_id=run_id, task_queue=agent_queue),
+            _installed_backend_activities(prepared, task_queue=agent_queue),
         ),
         workflows=[WorkflowAgentTurnWorkflow, InstalledBackendTurnWorkflow],
         workflow_runner=new_agent_sandbox_runner(),
@@ -203,9 +216,10 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             execution_timeout=timedelta(seconds=60),
         )
-        await _wait_until_started(
-            temporal_client.get_workflow_handle(f"agent/{run_id}")
-        )
+        turn = await _wait_for_turn(temporal_client, prepared)
+        run_id = turn.run_id
+        # The parent prepares the turn from the action's own arguments.
+        assert turn.args.agent_args.user_prompt == "Investigate this alert"
         # The approvals inbox submits through the backend's control path.
         resumed = await backend.submit_approvals(
             run_id,
@@ -230,7 +244,7 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
         "prompt": "Investigate this alert",
         "output_type": output_type,
     }
-    assert uuid.UUID(str(data["session_id"])) == _SESSION_IDS[run_id]
+    assert uuid.UUID(str(data["session_id"])) == turn.args.agent_args.session_id
     # The run view attributes the turn to its action through this memo.
     assert memo["action_ref"] == "agent"
 

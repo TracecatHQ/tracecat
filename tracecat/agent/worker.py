@@ -36,6 +36,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.workflow_turns.activities import (
         prepare_workflow_agent_turn_activity,
         read_workflow_agent_turn_activity,
+        select_workflow_agent_backend_activity,
     )
     from tracecat.agent.workflow_turns.workflows import WorkflowAgentTurnWorkflow
     from tracecat.agent.workflows.mcp_probe import (
@@ -111,6 +112,7 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(prepare_comment_agent_invocation_activity)
     activities.append(prepare_workflow_agent_turn_activity)
     activities.append(read_workflow_agent_turn_activity)
+    activities.append(select_workflow_agent_backend_activity)
     return activities
 
 
