@@ -75,7 +75,7 @@ class AuthSession:
     need, and nothing more. Notably absent: `begin`, `flush`, `delete`,
     `merge`, `refresh`, `get`, and access to the wrapped session — long-lived
     or transactional work does not belong on this pool. `commit` exists only
-    for the API-key `last_used_at` write.
+    for the `last_used_at` writes on API-key and SCIM token lookups.
 
     The `_ctx_auth_pool_session` guard remains the runtime backstop for
     checkouts that static analysis cannot see.

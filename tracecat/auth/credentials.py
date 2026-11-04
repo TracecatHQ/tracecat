@@ -434,9 +434,13 @@ async def _authenticate_api_key(
             resolved_workspace_id = workspace_id or bound_workspace_id
 
         # Concurrent requests with the same key must not queue on this row's
-        # lock while holding an auth-pool connection. SKIP LOCKED lets them
-        # move on: the in-flight writer is recording a timestamp milliseconds
-        # older. GREATEST keeps a slower transaction from moving it backwards.
+        # lock while holding an auth-pool connection. `key_share=True` emits
+        # FOR NO KEY UPDATE, the mode this UPDATE takes anyway: it conflicts
+        # with another `last_used_at` writer, so SKIP LOCKED skips the row
+        # while one is in flight (it is recording a timestamp milliseconds
+        # older). It does not conflict with foreign-key FOR KEY SHARE locks, so
+        # those never cause a skip. GREATEST keeps a slower transaction from
+        # moving the timestamp backwards.
         locked_key = (
             select(ServiceAccountApiKey.surrogate_id)
             .where(ServiceAccountApiKey.surrogate_id == record.surrogate_id)
