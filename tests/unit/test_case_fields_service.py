@@ -419,6 +419,39 @@ class TestCaseFieldsService:
         assert default_sql is not None
         assert '["beta", "gamma"]' in default_sql or '["beta","gamma"]' in default_sql
 
+    async def test_field_defaults_round_trip_quotes_and_backslashes(
+        self, case_fields_service: CaseFieldsService, test_case: Case
+    ) -> None:
+        """Case field defaults keep quotes, backslashes and escaped JSON quotes."""
+        text_default = "C:\\temp\\new 'single' \"double\" \\' 100%"
+        json_default = {
+            "quote": 'say "hi"',
+            "path": "C:\\temp\\new",
+            "escaped": '{"inner": "\\"x\\""}',
+        }
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="text_default", type=SqlType.TEXT, default=text_default
+            )
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="json_default", type=SqlType.JSONB, default=json_default
+            )
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="updated_default", type=SqlType.TEXT)
+        )
+        await case_fields_service.update_field(
+            "updated_default", CaseFieldUpdate(default=text_default)
+        )
+
+        row = await case_fields_service.upsert_field_values(test_case, {})
+
+        assert row["text_default"] == text_default
+        assert row["json_default"] == json_default
+        assert row["updated_default"] == text_default
+
     async def test_update_field_rejects_internal_name(
         self, case_fields_service: CaseFieldsService
     ) -> None:

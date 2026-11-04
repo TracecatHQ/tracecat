@@ -205,6 +205,46 @@ def _compile_sql_literal(value: Any, sql_type: sa.types.TypeEngine) -> str:
     return str(compiled)
 
 
+def _render_string_literal(value: str) -> str:
+    """Render text as a PostgreSQL escape string literal.
+
+    Backslash is an escape character inside ``E''`` literals whatever
+    ``standard_conforming_strings`` is set to, so doubling every backslash and
+    single quote always yields one literal equal to ``value``.
+    """
+    if "\x00" in value:
+        raise InvalidDefaultValueError(
+            "Invalid text default value: NUL characters are not supported"
+        )
+    escaped = value.replace("\\", "\\\\").replace("'", "''")
+    return f"E'{escaped}'"
+
+
+def _contains_nul(value: Any) -> bool:
+    match value:
+        case str():
+            return "\x00" in value
+        case dict():
+            return any(_contains_nul(k) or _contains_nul(v) for k, v in value.items())
+        case list() | tuple():
+            return any(_contains_nul(item) for item in value)
+        case _:
+            return False
+
+
+def _render_jsonb_literal(value: Any) -> str:
+    # PostgreSQL jsonb cannot store the \u0000 escape that NUL serializes to.
+    if _contains_nul(value):
+        raise InvalidDefaultValueError(
+            "Invalid JSON default value: NUL characters are not supported"
+        )
+    try:
+        json_literal = orjson.dumps(value).decode()
+    except orjson.JSONEncodeError as exc:
+        raise InvalidDefaultValueError(f"Invalid JSON default value: {exc}") from exc
+    return f"{_render_string_literal(json_literal)}::jsonb"
+
+
 def coerce_default_value(type: SqlType, default: Any) -> Any:
     """Coerce a user-provided default into a validated Python value."""
     match type:
@@ -273,14 +313,10 @@ def render_default_value(type: SqlType, default: Any) -> str:
     SECURITY NOTICE: Only used in a SQL DDL statement where parameter binding is not supported.
     """
     match type:
-        case SqlType.MULTI_SELECT:
-            json_literal = orjson.dumps(default).decode()
-            return f"{_compile_sql_literal(json_literal, sa.String())}::jsonb"
-        case SqlType.JSONB:
-            json_literal = orjson.dumps(default).decode()
-            return f"{_compile_sql_literal(json_literal, sa.String())}::jsonb"
+        case SqlType.MULTI_SELECT | SqlType.JSONB:
+            return _render_jsonb_literal(default)
         case SqlType.TEXT | SqlType.SELECT:
-            return _compile_sql_literal(default, sa.String())
+            return _render_string_literal(default)
         case SqlType.DATE:
             return f"{_compile_sql_literal(default, sa.Date())}::date"
         case SqlType.TIMESTAMPTZ:
