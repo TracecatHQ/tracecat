@@ -105,6 +105,8 @@ def test_update_round_trip_decodes_with_alias_hint(update: RunUpdate) -> None:
 def test_approval_batch_id_ignores_tool_call_order() -> None:
     first = approval_batch_id(RUN_ID, ["call-b", "call-a"])
     assert first == approval_batch_id(RUN_ID, ["call-a", "call-b"])
+    # Approval rows are unique per tool call id.
+    assert first == approval_batch_id(RUN_ID, ["call-a", "call-b", "call-a"])
     assert first != approval_batch_id(RUN_ID, ["call-a"])
     assert first != approval_batch_id(uuid.uuid4(), ["call-a", "call-b"])
 

@@ -19,6 +19,7 @@ from tracecat.agent.types import ToolApproved, ToolDenied
 if TYPE_CHECKING:
     from tracecat_ee.agent.approvals.service import ApprovalResult
 
+    from tracecat.chat.schemas import ApprovalDecision
     from tracecat.db.models import Approval
 
 DEFAULT_DENY_MESSAGE = "Tool denied by user"
@@ -38,6 +39,18 @@ class SubmittedDecision:
 
     result: ApprovalResult
     metadata: ApprovalDecisionMetadata
+
+    @classmethod
+    def of(cls, decision: ApprovalDecision, *, source: str) -> SubmittedDecision:
+        """Map a clicked decision onto what the run receives, stamped with its source."""
+        return cls(
+            result=approval_result(
+                decision.action,
+                reason=decision.reason,
+                override_args=decision.override_args,
+            ),
+            metadata={**(decision.metadata or {}), "source": source},
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,13 +21,11 @@ from temporalio.client import (
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.submission import _approval_continuation_stream_id
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
 from tracecat.agent.executor.schemas import ToolExecutionResult
-from tracecat.agent.session.service import (
-    AgentSessionService,
-    _approval_continuation_stream_id,
-)
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.agent.types import AgentConfig, ToolApproved, ToolDenied
@@ -129,6 +127,7 @@ def _mock_approval_continuation_dependencies(
             AsyncMock(return_value=redis_client),
         ),
         patch("tracecat.agent.session.service.publish_session_event", publish),
+        patch("tracecat.agent.approvals.submission.publish_session_event", publish),
     ):
         yield publish
 

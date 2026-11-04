@@ -18,24 +18,29 @@ from tracecat_ee.agent.activities import (
     ToolApprovalPayload,
 )
 from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalService
+from tracecat_ee.agent.context import AgentContext
 
 from tests.unit.test_agent_session_approval_sink import (
     _ApprovalContinuationRedis,
     _mock_approval_continuation_dependencies,
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.submission import _approval_continuation_stream_id
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import AgentControlRejected
+from tracecat.agent.channel_publisher import (
+    ApprovalPending,
+    RunUpdate,
+    approval_batch_id,
+)
+from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.session.results import (
     DecisionRecorded,
     DecisionRejected,
     RunRef,
 )
-from tracecat.agent.session.service import (
-    AgentSessionService,
-    _approval_continuation_stream_id,
-)
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat import tokens
@@ -111,18 +116,21 @@ def _click(
     tool_call_id: str = "tool_call_123",
     user_id: uuid.UUID | None = None,
     batch_id: uuid.UUID | None = None,
+    source: str = "web",
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Keyword arguments for ``AgentSessionService.decide``."""
     assert agent_session.curr_run_id is not None
     return {
         "session_id": agent_session.id,
-        "batch_id": batch_id or agent_session.curr_run_id,
+        "batch_id": batch_id
+        or approval_batch_id(agent_session.curr_run_id, TOOL_CALLS),
         "decision": ApprovalDecision(
             tool_call_id=tool_call_id,
             action=action,
-            metadata=metadata or {"source": "web"},
+            metadata=metadata,
         ),
+        "source": source,
         "approved_by": user_id,
     }
 
@@ -181,7 +189,8 @@ async def test_decide_records_actor_and_channel_origin_without_provider_ids(
             **_click(
                 agent_session,
                 user_id=approver.id,
-                metadata={"source": "channel", "bot_id": str(bot_id)},
+                source="channel",
+                metadata={"bot_id": str(bot_id)},
             )
         )
 
@@ -205,7 +214,11 @@ async def test_decide_records_actor_and_channel_origin_without_provider_ids(
 @pytest.mark.parametrize(
     ("click", "reason"),
     [
-        pytest.param({"batch_id": uuid.uuid4()}, "no_longer_active", id="stale-run"),
+        pytest.param(
+            {"batch_id": approval_batch_id(uuid.uuid4(), TOOL_CALLS)},
+            "no_longer_active",
+            id="earlier-run",
+        ),
         pytest.param({"tool_call_id": "tool_call_unknown"}, "not_valid", id="unknown"),
     ],
 )
@@ -230,6 +243,97 @@ async def test_decide_validates_against_the_pending_row(
     for tool_call_id in TOOL_CALLS:
         row = await _row(session, agent_session, tool_call_id)
         assert row.status is ApprovalStatus.PENDING
+
+
+@pytest.mark.anyio
+async def test_decide_matches_the_card_batch_id_not_the_run_id(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    agent_session = await _seed_batch(session, svc_role)
+    service = AgentSessionService(session=session, role=svc_role)
+    run_id = agent_session.curr_run_id
+    assert run_id is not None
+    execute_update = AsyncMock(return_value=False)
+
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), execute_update
+    ):
+        run_as_batch = await service.decide(**_click(agent_session, batch_id=run_id))
+        earlier_pause = await service.decide(
+            **_click(
+                agent_session,
+                batch_id=approval_batch_id(run_id, ["tool_call_earlier"]),
+            )
+        )
+        execute_update.assert_not_awaited()
+        current = await service.decide(**_click(agent_session))
+
+    stale = DecisionRejected(reason="no_longer_active", tool_call_id="tool_call_123")
+    assert run_as_batch == stale
+    assert earlier_pause == stale
+    assert current == DecisionRecorded(
+        pending_tool_call_ids=["tool_call_456"], resumed=None
+    )
+
+
+@pytest.mark.anyio
+async def test_channel_card_batch_id_is_the_one_decide_accepts(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """Notify and persist one pause as the workflow does; the card's id decides."""
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Round trip",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+        active_stream_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    await session.commit()
+    assert agent_session.curr_run_id is not None
+    items = [
+        ToolCallContent(id=tool_call_id, name="core.http_request")
+        for tool_call_id in reversed(TOOL_CALLS)
+    ]
+    updates: list[RunUpdate] = []
+
+    class _Publisher:
+        async def publish(self, role: Role, update: RunUpdate) -> str | None:
+            del role
+            updates.append(update)
+            return "msg-1"
+
+    async def execute_activity(activity: Any, arg: Any, **_: Any) -> Any:
+        return await activity(arg)
+
+    AgentContext.set(session_id=agent_session.id)
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), handle.execute_update
+        ),
+        _approval_service_on(session, svc_role),
+        patch("temporalio.workflow.patched", return_value=True),
+        patch("temporalio.workflow.execute_activity", execute_activity),
+        patch(
+            "tracecat.agent.channel_publisher.get_channel_publisher",
+            return_value=_Publisher(),
+        ),
+    ):
+        await ApprovalManager(role=svc_role).prepare(
+            items, publish_to=agent_session.curr_run_id
+        )
+        assert isinstance(updates[0], ApprovalPending)
+        result = await service.decide(
+            **_click(agent_session, batch_id=updates[0].batch_id)
+        )
+
+    assert result == DecisionRecorded(
+        pending_tool_call_ids=["tool_call_456"], resumed=None
+    )
 
 
 @pytest.mark.anyio
@@ -629,7 +733,13 @@ async def test_concurrent_contradictory_clicks_keep_one_winner(svc_role: Role) -
     async def click(action: Literal["approve", "deny"]):
         async with get_async_session_context_manager() as db:
             service = AgentSessionService(session=db, role=svc_role)
-            return await service.decide(**_click(agent_session, action=action))
+            return await service.decide(
+                **_click(
+                    agent_session,
+                    action=action,
+                    batch_id=approval_batch_id(run_id, ["tool_call_123"]),
+                )
+            )
 
     execute_update = AsyncMock(return_value=True)
     try:
