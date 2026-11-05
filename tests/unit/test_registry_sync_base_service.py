@@ -576,7 +576,7 @@ async def test_sync_via_temporal_reads_actions_from_stored_manifest(
     mocker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The workflow result carries URIs only; actions come from the manifest."""
+    """The workflow result carries no actions; they come from the stored manifest."""
     monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", True)
 
     session.add(
@@ -605,13 +605,14 @@ async def test_sync_via_temporal_reads_actions_from_stored_manifest(
     artifact_uri = (
         "s3://registry/org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs"
     )
-    manifest_uri = "s3://registry/org/tarball-venvs/tracecat_registry/v1/manifest.json"
+
+    manifest_sha256 = "a" * 64
 
     mock_client = mocker.Mock()
     mock_client.execute_workflow = mocker.AsyncMock(
         return_value=RegistrySyncResult(
             artifact_uri=artifact_uri,
-            manifest_uri=manifest_uri,
+            manifest_sha256=manifest_sha256,
             action_count=len(actions),
         )
     )
@@ -628,7 +629,9 @@ async def test_sync_via_temporal_reads_actions_from_stored_manifest(
         repo, commit=False
     )
 
-    download_manifest.assert_awaited_once_with(manifest_uri)
+    download_manifest.assert_awaited_once_with(
+        artifact_uri=artifact_uri, manifest_sha256=manifest_sha256
+    )
     assert result.artifact_uri == artifact_uri
     assert result.actions == actions
     assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest

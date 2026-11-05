@@ -359,7 +359,7 @@ async def test_build_artifact_from_installed_environment_skips_unrelated_symlink
 
 @pytest.mark.anyio
 async def test_registry_manifest_round_trips_beside_artifact(mocker) -> None:
-    """The API reads back exactly the manifest the worker stored."""
+    """Each sync reads back its own manifest, even when syncs share a prefix."""
     stored: dict[tuple[str, str], bytes] = {}
 
     async def fake_upload_file(
@@ -399,19 +399,65 @@ async def test_registry_manifest_round_trips_beside_artifact(mocker) -> None:
         }
     )
 
-    manifest_uri = await artifact.upload_registry_manifest(
-        manifest,
-        artifact_uri=(
-            "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
-            "site-packages.squashfs"
-        ),
+    artifact_uri = (
+        "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
+        "site-packages.squashfs"
     )
 
-    assert manifest_uri == (
-        "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
-        "manifest.json"
+    other_manifest = manifest.model_copy(
+        update={
+            "actions": {
+                "tools.other.run": manifest.actions[
+                    "core.transform.reshape"
+                ].model_copy(update={"namespace": "tools.other", "name": "run"})
+            }
+        }
     )
-    assert await artifact.download_registry_manifest(manifest_uri) == manifest
+
+    # Two syncs of the same origin and commit share an artifact prefix.
+    digest = await artifact.upload_registry_manifest(
+        manifest, artifact_uri=artifact_uri
+    )
+    other_digest = await artifact.upload_registry_manifest(
+        other_manifest, artifact_uri=artifact_uri
+    )
+
+    assert digest != other_digest
+    assert sorted(stored) == sorted(
+        [
+            (
+                "tracecat-registry",
+                f"platform/tarball-venvs/tracecat_registry/v1/manifest-{d}.json",
+            )
+            for d in (digest, other_digest)
+        ]
+    )
+    assert (
+        await artifact.download_registry_manifest(
+            artifact_uri=artifact_uri, manifest_sha256=digest
+        )
+        == manifest
+    )
+    assert (
+        await artifact.download_registry_manifest(
+            artifact_uri=artifact_uri, manifest_sha256=other_digest
+        )
+        == other_manifest
+    )
+
+
+@pytest.mark.anyio
+async def test_download_registry_manifest_rejects_digest_mismatch(mocker) -> None:
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.download_file",
+        mocker.AsyncMock(return_value=b'{"actions": {}}'),
+    )
+
+    with pytest.raises(artifact.RegistryManifestIntegrityError):
+        await artifact.download_registry_manifest(
+            artifact_uri="s3://tracecat-registry/org/tarball-venvs/x/v1/site-packages.squashfs",
+            manifest_sha256="0" * 64,
+        )
 
 
 @pytest.mark.anyio

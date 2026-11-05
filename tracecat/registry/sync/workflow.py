@@ -18,7 +18,7 @@ Architecture:
          │                                     ├─ Action discovery (nsjail, NO network)
          │                                     ├─ Build execution artifact → upload to S3
          │                                     ├─ Upload action manifest → S3
-         │  ◄── RegistrySyncResult (URIs) ─────┤
+         │  ◄── RegistrySyncResult (URI) ──────┤
          │                                     │
          ├─ Read manifest from S3              │
          ├─ Create RegistryVersion             │
@@ -88,7 +88,7 @@ class RegistrySyncWorkflow:
             request: Sync request containing repository details and SSH credentials.
 
         Returns:
-            RegistrySyncResult with the artifact and manifest URIs.
+            RegistrySyncResult with the artifact URI and action count.
         """
         workflow.logger.info(
             "Starting RegistrySyncWorkflow",
@@ -210,7 +210,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
         request: Sync request containing repository details.
 
     Returns:
-        RegistrySyncResult with the artifact and manifest URIs.
+        RegistrySyncResult with the artifact URI and action count.
 
     Raises:
         ApplicationError: If sync fails at any phase.

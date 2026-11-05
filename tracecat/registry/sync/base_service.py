@@ -32,6 +32,7 @@ from tracecat.registry.constants import (
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
     RegistryArtifactBuildResult,
+    RegistryManifestIntegrityError,
     build_artifact_from_git,
     build_artifact_from_path,
     build_builtin_registry_artifact,
@@ -776,12 +777,20 @@ class BaseRegistrySyncService[
             "Workflow completed, processing results",
             num_actions=workflow_result.action_count,
             artifact_uri=artifact_uri,
-            manifest_uri=workflow_result.manifest_uri,
             commit_sha=commit_sha,
         )
 
-        # The workflow result carries only URIs; read the actions from storage.
-        manifest = await download_registry_manifest(workflow_result.manifest_uri)
+        # The workflow result carries no actions; read them from the manifest
+        # stored beside the artifact.
+        try:
+            manifest = await download_registry_manifest(
+                artifact_uri=artifact_uri,
+                manifest_sha256=workflow_result.manifest_sha256,
+            )
+        except (FileNotFoundError, RegistryManifestIntegrityError) as exc:
+            raise self._sync_error_cls()(
+                f"Failed to read registry manifest for repository {origin}: {exc}"
+            ) from exc
         actions = manifest.to_action_creates(repository_id=repo_id, origin=origin)
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")

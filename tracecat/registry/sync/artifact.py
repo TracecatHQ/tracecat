@@ -38,6 +38,10 @@ class RegistryArtifactBuildError(Exception):
     """Raised when registry venv (SquashFS) building fails."""
 
 
+class RegistryManifestIntegrityError(Exception):
+    """Raised when a stored registry manifest doesn't match its digest."""
+
+
 @dataclass
 class RegistryArtifactBuildResult:
     """Result of building a SquashFS venv image."""
@@ -696,31 +700,48 @@ async def upload_registry_manifest(
         artifact_uri: S3 URI of the uploaded execution artifact.
 
     Returns:
-        S3 URI of the uploaded manifest.
+        SHA-256 hex digest of the uploaded manifest, which names its key.
     """
     bucket, artifact_key = parse_s3_uri(artifact_uri)
-    key = get_artifact_manifest_key(artifact_key)
     content = manifest.model_dump_json().encode()
+    manifest_sha256 = hashlib.sha256(content).hexdigest()
+    key = get_artifact_manifest_key(artifact_key, manifest_sha256)
     await blob.upload_file(
         content=content,
         key=key,
         bucket=bucket,
         content_type="application/json",
     )
-    s3_uri = f"s3://{bucket}/{key}"
     logger.info(
         "Registry manifest uploaded",
-        s3_uri=s3_uri,
+        s3_uri=f"s3://{bucket}/{key}",
         num_actions=len(manifest.actions),
         size=len(content),
     )
-    return s3_uri
+    return manifest_sha256
 
 
-async def download_registry_manifest(manifest_uri: str) -> RegistryVersionManifest:
-    """Download and parse a registry version manifest from S3/MinIO."""
-    bucket, key = parse_s3_uri(manifest_uri)
+async def download_registry_manifest(
+    *,
+    artifact_uri: str,
+    manifest_sha256: str,
+) -> RegistryVersionManifest:
+    """Download, verify and parse the manifest stored beside an artifact.
+
+    Args:
+        artifact_uri: S3 URI of the execution artifact.
+        manifest_sha256: Digest returned by `upload_registry_manifest`.
+
+    Raises:
+        RegistryManifestIntegrityError: If the stored bytes don't match the digest.
+    """
+    bucket, artifact_key = parse_s3_uri(artifact_uri)
+    key = get_artifact_manifest_key(artifact_key, manifest_sha256)
     content = await blob.download_file(key=key, bucket=bucket)
+    if hashlib.sha256(content).hexdigest() != manifest_sha256:
+        raise RegistryManifestIntegrityError(
+            f"Registry manifest s3://{bucket}/{key} doesn't match its digest"
+        )
     return RegistryVersionManifest.model_validate_json(content)
 
 

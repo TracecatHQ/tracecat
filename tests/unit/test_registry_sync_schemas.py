@@ -15,7 +15,7 @@ from tracecat.registry.sync.schemas import (
 def test_registry_sync_result_uses_artifact_uri_attribute() -> None:
     result = RegistrySyncResult(
         artifact_uri="s3://registry/platform/site-packages.squashfs",
-        manifest_uri="s3://registry/platform/manifest.json",
+        manifest_sha256="a" * 64,
         action_count=1,
     )
 
@@ -37,7 +37,7 @@ def test_registry_sync_result_accepts_legacy_tarball_uri() -> None:
     result = RegistrySyncResult.model_validate(
         {
             "tarball_uri": "s3://registry/platform/site-packages.tar.gz",
-            "manifest_uri": "s3://registry/platform/manifest.json",
+            "manifest_sha256": "a" * 64,
             "action_count": 1,
         }
     )

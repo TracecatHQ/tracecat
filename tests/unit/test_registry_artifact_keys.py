@@ -101,12 +101,12 @@ def test_get_artifact_local_dir_matches_s3_prefix() -> None:
 
 def test_get_artifact_manifest_key_sits_beside_artifact() -> None:
     base = "platform/tarball-venvs/test/1.0.0"
+    digest = "ab" * 32
+    expected = f"{base}/manifest-{digest}.json"
     assert (
-        get_artifact_manifest_key(f"{base}/site-packages.squashfs")
-        == f"{base}/manifest.json"
+        get_artifact_manifest_key(f"{base}/site-packages.squashfs", digest) == expected
     )
-    assert (
-        get_artifact_manifest_key(f"{base}/site-packages.tar.gz")
-        == f"{base}/manifest.json"
-    )
-    assert get_artifact_manifest_key("site-packages.squashfs") == "manifest.json"
+    assert get_artifact_manifest_key(f"{base}/site-packages.tar.gz", digest) == expected
+    # A bucket-root manifest would be shared by every org and repository.
+    with pytest.raises(ValueError, match="no directory"):
+        get_artifact_manifest_key("site-packages.squashfs", digest)

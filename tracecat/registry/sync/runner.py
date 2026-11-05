@@ -186,7 +186,7 @@ class RegistrySyncRunner:
             request: Sync request with repository details.
 
         Returns:
-            RegistrySyncResult with the artifact and manifest URIs.
+            RegistrySyncResult with the artifact URI and action count.
 
         Raises:
             RegistrySyncRunnerError: If any phase fails.
@@ -429,13 +429,13 @@ class RegistrySyncRunner:
             storage_namespace=request.storage_namespace,
         )
         logger.info("Registry artifact uploaded", artifact_uri=artifact_uri)
-        manifest_uri = await upload_registry_manifest(
+        manifest_sha256 = await upload_registry_manifest(
             RegistryVersionManifest.from_actions(discovery.actions),
             artifact_uri=artifact_uri,
         )
         return RegistrySyncResult(
             artifact_uri=artifact_uri,
-            manifest_uri=manifest_uri,
+            manifest_sha256=manifest_sha256,
             action_count=len(discovery.actions),
             commit_sha=resolved.commit_sha,
             validation_errors=discovery.validation_errors,

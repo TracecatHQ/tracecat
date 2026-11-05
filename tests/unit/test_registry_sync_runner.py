@@ -48,15 +48,9 @@ from tracecat.registry.versions.schemas import RegistryVersionManifest
 def upload_manifest(mocker) -> AsyncMock:
     """Stub the manifest upload so runner tests never reach object storage."""
 
-    async def fake_upload(
-        manifest: RegistryVersionManifest, *, artifact_uri: str
-    ) -> str:
-        del manifest
-        return artifact_uri.rpartition("/")[0] + "/manifest.json"
-
     return mocker.patch(
         "tracecat.registry.sync.runner.upload_registry_manifest",
-        side_effect=fake_upload,
+        mocker.AsyncMock(return_value="a" * 64),
     )
 
 

@@ -152,7 +152,8 @@ class RegistrySyncResult(BaseModel):
     Returned from the ExecutorWorker to the API service via Temporal.
     Carries object storage locations, not the actions themselves: the action
     list grows with the repository, and every byte here lands in workflow
-    history. The API reads the actions from the manifest at ``manifest_uri``.
+    history. The API reads the actions from the manifest stored beside the
+    artifact (``get_artifact_manifest_key``).
     """
 
     model_config = ConfigDict(
@@ -167,9 +168,10 @@ class RegistrySyncResult(BaseModel):
         serialization_alias="tarball_uri",
         description="S3 URI of the uploaded execution artifact",
     )
-    manifest_uri: str = Field(
+    manifest_sha256: str = Field(
         ...,
-        description="S3 URI of the registry version manifest beside the artifact",
+        pattern=r"^[0-9a-f]{64}$",
+        description="SHA-256 of the manifest stored beside the artifact",
     )
     action_count: int = Field(..., ge=0, description="Number of discovered actions")
     commit_sha: str | None = Field(

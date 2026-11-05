@@ -25,9 +25,6 @@ REGISTRY_ARTIFACT_FILENAME = "site-packages.squashfs"
 LEGACY_TARBALL_FILENAME = "site-packages.tar.gz"
 """Filename for the legacy gzip tarball artifact (read-only at runtime)."""
 
-REGISTRY_MANIFEST_FILENAME = "manifest.json"
-"""Filename for the registry version manifest stored beside the artifact."""
-
 ORIGIN_SLUG_MAX_LENGTH = 100
 ORIGIN_SLUG_HASH_LENGTH = 12
 
@@ -79,12 +76,16 @@ def get_artifact_s3_key(
     return f"{prefix}/{REGISTRY_ARTIFACT_FILENAME}"
 
 
-def get_artifact_manifest_key(artifact_key: str) -> str:
-    """Return the manifest S3 key that sits beside an artifact S3 key."""
+def get_artifact_manifest_key(artifact_key: str, manifest_sha256: str) -> str:
+    """Return the content-addressed manifest S3 key beside an artifact S3 key.
+
+    The digest keeps concurrent syncs that share an artifact prefix (same
+    origin and commit) from overwriting each other's manifest.
+    """
     prefix, _, _ = artifact_key.rpartition("/")
     if not prefix:
-        return REGISTRY_MANIFEST_FILENAME
-    return f"{prefix}/{REGISTRY_MANIFEST_FILENAME}"
+        raise ValueError(f"Artifact key has no directory: {artifact_key}")
+    return f"{prefix}/manifest-{manifest_sha256}.json"
 
 
 def get_squashfs_artifact_key(artifact_key: str) -> str:
