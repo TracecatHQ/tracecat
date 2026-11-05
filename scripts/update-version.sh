@@ -178,13 +178,13 @@ BUG_REPORT_FILE=".github/ISSUE_TEMPLATE/bug_report.md"
 
 # Add the Terraform files that declare the Tracecat image tag variable. git grep
 # reads tracked files only, so nested clones and extra worktrees under the repo
-# root are skipped, and it matches a tracked symlink by its link text, so sed -i
-# never replaces a link with a regular file. Docs and README examples point at
-# the latest image and are not bumped. Matching the bare current version would
-# also hit unrelated strings such as Terraform required_version.
-while IFS= read -r file; do
+# root are skipped, and it does not read through tracked symlinks, so sed -i
+# never replaces a link with a regular file. Docs and README TF_VAR examples are
+# hard-coded and not bumped. Matching the bare current version would also hit
+# unrelated strings such as Terraform required_version.
+while IFS= read -r -d '' file; do
     FILES+=("$file")
-done < <(git grep -l 'variable "tracecat_image_tag"' -- ':(glob)deployments/**/*.tf')
+done < <(git grep -lz 'variable "tracecat_image_tag"' -- ':(glob)deployments/**/*.tf')
 
 run_sed_in_place() {
     local expression=$1

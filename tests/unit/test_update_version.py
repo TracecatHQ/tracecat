@@ -107,9 +107,10 @@ def test_version_bump(
 def test_only_tracecat_version_fields_change(checkout: Path) -> None:
     """Only real Tracecat version pins change; docs and other strings stay put.
 
-    Docs and README examples point at the latest image, and a generic current
+    Docs and README TF_VAR examples are not bumped, and a generic current
     version such as 1.0.0 also appears in Terraform required_version,
-    third-party package pins, spec URLs, and prose examples.
+    third-party package pins, spec URLs, and prose examples. Untracked and
+    symlinked Terraform files are never rewritten.
     """
     seed_versions(checkout, "1.0.0", "1.0.0")
     decoys = (
@@ -146,7 +147,22 @@ def test_only_tracecat_version_fields_change(checkout: Path) -> None:
         path = checkout / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(template.replace("{v}", "1.0.0"))
-    subprocess.run(["git", "add", "--", *files], cwd=checkout, check=True)
+    pin = 'variable "tracecat_image_tag" {\n  default = "1.0.0"\n}\n'
+    untracked = checkout / "deployments/fargate/modules/untracked/variables.tf"
+    untracked.parent.mkdir(parents=True)
+    untracked.write_text(pin)
+    target = checkout / "shared/image.tf"
+    target.parent.mkdir()
+    target.write_text(pin)
+    link = checkout / "deployments/fargate/modules/linked/variables.tf"
+    link.parent.mkdir(parents=True)
+    link.symlink_to("../../../../shared/image.tf")
+    tracked = [
+        *files,
+        "shared/image.tf",
+        "deployments/fargate/modules/linked/variables.tf",
+    ]
+    subprocess.run(["git", "add", "--", *tracked], cwd=checkout, check=True)
 
     result = update(checkout, "1.4.0-alpha.4")
 
@@ -154,6 +170,9 @@ def test_only_tracecat_version_fields_change(checkout: Path) -> None:
     for name, template in files.items():
         expected = template.replace("{v}", "1.4.0-alpha.4")
         assert (checkout / name).read_text() == expected, name
+    assert untracked.read_text() == pin
+    assert link.is_symlink()
+    assert target.read_text() == pin
 
 
 @pytest.mark.parametrize(
