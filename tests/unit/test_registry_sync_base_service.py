@@ -642,6 +642,59 @@ async def test_sync_via_temporal_reads_actions_from_stored_manifest(
 
 
 @pytest.mark.anyio
+async def test_sync_via_temporal_reports_unconvertible_manifest_as_sync_error(
+    mock_org_id: uuid.UUID,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A manifest that parses but can't become actions fails the sync, not the request."""
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", True)
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+    repo = RegistryRepository(
+        id=uuid.uuid4(),
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        organization_id=mock_org_id,
+        current_version_id=None,
+    )
+    action = _make_action(repository_id=repo.id, default_title="Broken")
+    manifest = RegistryVersionManifest.from_actions([action])
+    broken = manifest.actions["core.transform.reshape"].model_copy(
+        update={"implementation": {}}
+    )
+    mock_client = mocker.Mock()
+    mock_client.execute_workflow = mocker.AsyncMock(
+        return_value=RegistrySyncResult(
+            artifact_uri="s3://registry/org/tarball-venvs/x/v1/site-packages.squashfs",
+            manifest_sha256="a" * 64,
+            action_count=1,
+        )
+    )
+    mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(return_value=mock_client),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.base_service.download_registry_manifest",
+        mocker.AsyncMock(
+            return_value=RegistryVersionManifest(
+                actions={"core.transform.reshape": broken}
+            )
+        ),
+    )
+
+    sync_service = RegistrySyncService(mocker.Mock(spec=AsyncSession), role)
+
+    with pytest.raises(RegistrySyncError, match="Failed to read registry manifest"):
+        await sync_service._sync_via_temporal_workflow(repo, commit=False)
+
+
+@pytest.mark.anyio
 async def test_sync_via_temporal_reads_validation_classification_through_activity_error(
     session: AsyncSession,
     mock_org_id: uuid.UUID,

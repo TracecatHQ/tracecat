@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
 import aiofiles
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 from temporalio.client import WorkflowFailureError
@@ -787,11 +788,15 @@ class BaseRegistrySyncService[
                 artifact_uri=artifact_uri,
                 manifest_sha256=workflow_result.manifest_sha256,
             )
-        except (FileNotFoundError, RegistryManifestIntegrityError) as exc:
+            actions = manifest.to_action_creates(repository_id=repo_id, origin=origin)
+        except (
+            FileNotFoundError,
+            RegistryManifestIntegrityError,
+            ValidationError,
+        ) as exc:
             raise self._sync_error_cls()(
                 f"Failed to read registry manifest for repository {origin}: {exc}"
             ) from exc
-        actions = manifest.to_action_creates(repository_id=repo_id, origin=origin)
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")
         # Rebuild so every manifest key is derived from its action, as the
