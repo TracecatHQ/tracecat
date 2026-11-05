@@ -3074,7 +3074,8 @@ There is no `TRIGGER.payload`. A case trigger delivers `case_id`, `event`
 (`id`, `type`, `data`, `created_at`, `user_id`, `wf_exec_id`), `tags` (objects
 with `id`, `ref`, `name`, `color`), and `workspace_id`. `status: online` requires
 a non-empty `event_types`. `tag_filters` are tag refs matched with OR semantics;
-an empty list means no tag filtering.
+an empty list means no tag filtering. `tag_added`/`tag_removed` events match the
+added or removed tag; other events match the case's current tags.
 ```yaml
 case_trigger:
   status: online
@@ -6388,8 +6389,9 @@ Args:
         valid values are listed above.
     tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
         not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
-        case carries any listed tag. An empty list means no tag filtering. Refs
-        that do not exist yet are created automatically.
+        case carries any listed tag, or for `tag_added`/`tag_removed` when the
+        added or removed tag is listed. An empty list means no tag filtering.
+        Refs that do not exist yet are created automatically.
 
 Returns a confirmation message.
 """
