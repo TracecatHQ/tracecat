@@ -428,14 +428,18 @@ async def test_list_messages_sql_owns_active_run_visibility(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("later_run_active", [True, False], ids=["active", "finished"])
+@pytest.mark.parametrize(
+    "answers_tagged", [True, False], ids=["every-row-tagged", "prompt-tagged"]
+)
 async def test_list_messages_through_a_run_drops_later_runs(
     session: AsyncSession,
     svc_role: Role,
     later_run_active: bool,
+    answers_tagged: bool,
 ) -> None:
-    """A turn's history loaded after the turn released its session ends at the
-    turn's own last row, whether the run that took the session over since is
-    still running or has finished."""
+    """A turn's history loaded after the turn released its session ends where
+    the next run starts, whether that run is still running or has finished, and
+    whether the backend tags every row with its run or only the prompt."""
     prior_run_id, turn_run_id, later_run_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     agent_session = AgentSession(
         id=uuid.uuid4(),
@@ -450,10 +454,12 @@ async def test_list_messages_through_a_run_drops_later_runs(
 
     entries: dict[str, AgentSessionHistory] = {}
     for name, run_id in [
-        ("prior", prior_run_id),
+        ("prior prompt", prior_run_id),
+        ("prior answer", prior_run_id if answers_tagged else None),
         ("turn prompt", turn_run_id),
-        ("turn answer", turn_run_id),
+        ("turn answer", turn_run_id if answers_tagged else None),
         ("later prompt", later_run_id),
+        ("later answer", later_run_id if answers_tagged else None),
     ]:
         entries[name] = AgentSessionHistory(
             session_id=agent_session.id,
@@ -478,10 +484,16 @@ async def test_list_messages_through_a_run_drops_later_runs(
     messages = await service.list_messages(
         agent_session.id, include_active=True, through_run_id=turn_run_id
     )
+    without_turn_rows = await service.list_messages(
+        agent_session.id, include_active=True, through_run_id=uuid.uuid4()
+    )
 
     assert [message.id for message in messages if message.message is not None] == [
-        str(entries[name].id) for name in ("prior", "turn prompt", "turn answer")
+        str(entries[name].id)
+        for name in ("prior prompt", "prior answer", "turn prompt", "turn answer")
     ]
+    # Without a row of the run, there is no telling where it ends.
+    assert without_turn_rows == []
 
 
 def _assistant_tool_use(

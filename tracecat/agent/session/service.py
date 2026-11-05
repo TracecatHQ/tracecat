@@ -3298,10 +3298,11 @@ class AgentSessionService(BaseWorkspaceService):
                 this True: they run before ``finalize_turn`` clears
                 ``curr_run_id``, so the default filter would otherwise omit the
                 just-completed turn from the returned ``message_history``.
-            through_run_id: When set, drop the rows written after this run's
-                last row. A terminal load that runs after its turn released the
+            through_run_id: When set, end the history where the next run
+                starts. A terminal load that runs after its turn released the
                 session uses it, so a run that took the session over since does
-                not appear, whether or not it has finished.
+                not appear, whether or not it has finished. Without a row of
+                this run, no history is returned.
 
         Returns:
             List of ChatMessage objects (parent messages + current if forked).
@@ -3362,12 +3363,7 @@ class AgentSessionService(BaseWorkspaceService):
             )
 
         if through_run_id is not None:
-            last_row = max(
-                (e.surrogate_id for e in entries if e.curr_run_id == through_run_id),
-                default=None,
-            )
-            if last_row is not None:
-                entries = [e for e in entries if e.surrogate_id <= last_row]
+            entries = _entries_through_run(entries, through_run_id)
 
         return self._render_history_entries(
             entries,
@@ -3974,3 +3970,27 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         return forked_session
+
+
+def _entries_through_run(
+    entries: Sequence[AgentSessionHistory], run_id: uuid.UUID
+) -> list[AgentSessionHistory]:
+    """Return the history up to where the run after ``run_id`` starts.
+
+    A backend may tag only a turn's first rows, such as its prompt, with the
+    run, and leave its answer untagged, so a turn ends where a row of another
+    run begins, not at its own last tagged row.
+    """
+    run_rows = [e.surrogate_id for e in entries if e.curr_run_id == run_id]
+    if not run_rows:
+        return []
+    start = min(run_rows)
+    later_runs = [
+        e.surrogate_id
+        for e in entries
+        if e.surrogate_id > start and e.curr_run_id not in (None, run_id)
+    ]
+    if not later_runs:
+        return list(entries)
+    end = min(later_runs)
+    return [e for e in entries if e.surrogate_id < end]
