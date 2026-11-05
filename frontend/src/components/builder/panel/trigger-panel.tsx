@@ -1341,7 +1341,8 @@ export function CaseTriggerControls({
           If empty, no tag filtering is applied.
         </p>
         <p className="text-xs text-muted-foreground">
-          Uses current case tags; workflow-originated events are ignored.
+          Tag events match the added or removed tag; other events match current
+          case tags. Workflow-originated events are ignored.
         </p>
       </div>
     </ReadOnlyFieldset>

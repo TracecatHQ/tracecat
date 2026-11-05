@@ -312,6 +312,93 @@ async def test_case_trigger_consumer_done_allows_ack():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("event_type", "event_tag_ref", "case_tag_refs", "should_dispatch"),
+    [
+        pytest.param(
+            "tag_added",
+            "unrelated",
+            ["filtered", "unrelated"],
+            False,
+            id="added-unrelated-tag",
+        ),
+        pytest.param(
+            "tag_added",
+            "filtered",
+            ["unrelated", "filtered"],
+            True,
+            id="added-filtered-tag",
+        ),
+        pytest.param(
+            "tag_removed", "filtered", ["unrelated"], True, id="removed-filtered-tag"
+        ),
+        pytest.param(
+            "tag_removed", "unrelated", ["filtered"], False, id="removed-unrelated-tag"
+        ),
+        pytest.param(
+            "case_updated", None, ["filtered"], True, id="non-tag-event-case-has-tag"
+        ),
+        pytest.param(
+            "case_updated",
+            None,
+            ["unrelated"],
+            False,
+            id="non-tag-event-case-lacks-tag",
+        ),
+    ],
+)
+async def test_case_trigger_consumer_tag_filters(
+    event_type: str,
+    event_tag_ref: str | None,
+    case_tag_refs: list[str],
+    should_dispatch: bool,
+):
+    event_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+
+    event_data = {} if event_tag_ref is None else {"tag_ref": event_tag_ref}
+    event = SimpleNamespace(
+        id=event_id,
+        data=event_data,
+        created_at=None,
+        type=event_type,
+        user_id=None,
+    )
+    case = SimpleNamespace(
+        id=case_id,
+        workspace_id=workspace_id,
+        tags=[SimpleNamespace(ref=ref) for ref in case_tag_refs],
+    )
+    trigger = SimpleNamespace(workflow_id=uuid.uuid4(), tag_filters=["filtered"])
+
+    client = AsyncMock()
+    client.exists = AsyncMock(return_value=False)
+    client.set_if_not_exists = AsyncMock(return_value=True)
+
+    dispatch = AsyncMock(return_value=True)
+    consumer = _build_consumer_with_mocks(
+        client,
+        event=event,
+        case=case,
+        triggers=[trigger],
+        role=_build_role(workspace_id),
+        dispatch=dispatch,
+    )
+
+    fields = {
+        "event_id": str(event_id),
+        "case_id": str(case_id),
+        "workspace_id": str(workspace_id),
+        "event_type": event_type,
+    }
+    should_ack = await consumer._process_message(fields)
+
+    assert should_ack is True
+    assert dispatch.await_count == (1 if should_dispatch else 0)
+
+
+@pytest.mark.anyio
 async def test_case_trigger_consumer_missing_definition_allows_ack():
     event_id = uuid.uuid4()
     case_id = uuid.uuid4()
