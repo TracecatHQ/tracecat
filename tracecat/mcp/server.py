@@ -186,7 +186,6 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.forms.access import can_read_form_config
 from tracecat.forms.enums import FormStatus
 from tracecat.forms.exceptions import FormError
@@ -6447,14 +6446,12 @@ async def _forms_service(
 ) -> AsyncIterator[FormsService]:
     """Open the forms service for one form tool call and map its errors.
 
-    Checks, in order: the caller's workspace role, the ``forms`` feature flag,
-    the ``forms`` entitlement, and the scopes. Any error raised inside the
-    block, the tool's own included, reaches the client as a ``ToolError``.
+    Checks, in order: the caller's workspace role, the ``forms`` entitlement,
+    and the scopes. Any error raised inside the block, the tool's own
+    included, reaches the client as a ``ToolError``.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        if not is_feature_enabled(FeatureFlag.FORMS):
-            raise ToolError("Forms are not enabled on this Tracecat instance")
         async with FormsService.with_session(role=role) as svc:
             if not await svc.has_entitlement(Entitlement.FORMS):
                 raise EntitlementRequired(Entitlement.FORMS.value)

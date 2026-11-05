@@ -5350,7 +5350,6 @@ export type FeatureFlag =
   | "workflow-concurrency-limits"
   | "agent-fs-persistence"
   | "workspace-sync-github-archive"
-  | "forms"
 
 /**
  * Response model for feature flags.

@@ -8676,7 +8676,6 @@ def _patch_forms(
     monkeypatch: pytest.MonkeyPatch,
     *,
     scopes: frozenset[str] = _FORM_BUILDER_SCOPES,
-    flag: bool = True,
     entitled: bool = True,
     **methods: Any,
 ) -> SimpleNamespace:
@@ -8706,11 +8705,6 @@ def _patch_forms(
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(mcp_server.FormsService, "with_session", _with_session)
-    monkeypatch.setattr(
-        mcp_server.config,
-        "TRACECAT__FEATURE_FLAGS",
-        {mcp_server.FeatureFlag.FORMS} if flag else set(),
-    )
     return service
 
 
@@ -8734,7 +8728,6 @@ async def test_form_tools_are_registered_without_submission_tools() -> None:
 @pytest.mark.parametrize(
     ("gate", "error"),
     [
-        ({"flag": False}, "not enabled"),
         ({"entitled": False}, "Feature 'forms' requires"),
         # Scope order in the message is not stable.
         (
@@ -8742,7 +8735,7 @@ async def test_form_tools_are_registered_without_submission_tools() -> None:
             "Missing required scope: .*form:read",
         ),
     ],
-    ids=["flag-off", "no-entitlement", "no-scope"],
+    ids=["no-entitlement", "no-scope"],
 )
 async def test_form_tools_are_gated(
     monkeypatch: pytest.MonkeyPatch, tool_name: str, gate: dict[str, Any], error: str
@@ -8754,7 +8747,7 @@ async def test_form_tools_are_gated(
     with pytest.raises(ToolError, match=error):
         await _call_form_tool(tool_name)
 
-    assert service.opened is ("flag" not in gate)
+    assert service.opened
 
 
 @pytest.mark.anyio
