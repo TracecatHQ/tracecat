@@ -1,10 +1,18 @@
 """Generic interface to Ansible Python API."""
 
+import re
 from typing import Annotated, Any
 from ansible_runner import Runner, run
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry._internal.exceptions import TracecatException
+from tracecat_registry._internal.remote_exec import (
+    find_error_pattern,
+    output_tail,
+    resolve_remote_target,
+    validate_error_patterns,
+)
 
 ansible_secret = RegistrySecret(
     name="ansible",
@@ -18,6 +26,86 @@ ansible_secret = RegistrySecret(
 - keys:
     - `PRIVATE_KEY`
 """
+
+ALLOWED_RUNNER_KWARGS = frozenset(
+    {
+        "forks",
+        "json_mode",
+        "omit_event_data",
+        "only_failed_event_data",
+        "quiet",
+        "rotate_artifacts",
+        "skip_tags",
+        "tags",
+        "verbosity",
+    }
+)
+"""ansible-runner options that cannot change the target host, inventory, or binary."""
+
+# Connection variables that would override the validated inventory host or
+# inject local commands into the SSH invocation (e.g. ProxyCommand).
+_CONNECTION_OVERRIDE_VARS = frozenset(
+    {
+        "ansible_connection",
+        "ansible_host",
+        "ansible_paramiko_host",
+        "ansible_paramiko_proxy_command",
+        "ansible_ssh_args",
+        "ansible_ssh_common_args",
+        "ansible_ssh_executable",
+        "ansible_ssh_extra_args",
+        "ansible_ssh_host",
+        "ansible_scp_extra_args",
+        "ansible_sftp_extra_args",
+    }
+)
+
+# Inventory host names are also used as the `--limit` pattern, so they must not
+# contain pattern syntax (`,`, `:`, `!`, `&`, `*`, `~`) that could widen it.
+_HOST_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+_FAILURE_EVENTS = frozenset({"runner_on_failed", "runner_on_unreachable"})
+
+
+def _first_failure_message(events: list[dict[str, Any]]) -> str | None:
+    for event in events:
+        if event.get("event") not in _FAILURE_EVENTS:
+            continue
+        event_data = event.get("event_data") or {}
+        res = event_data.get("res") or {}
+        message = res.get("msg") or res.get("stderr") or event.get("stdout")
+        if not message:
+            continue
+        task = event_data.get("task")
+        return f"{task}: {message}" if task else str(message)
+    return None
+
+
+def _raise_for_playbook_failure(
+    status: str,
+    rc: int | None,
+    stats: dict[str, Any] | None,
+    events: list[dict[str, Any]],
+    stdout: str,
+    error_patterns: list[str],
+) -> None:
+    if status != "successful":
+        reason = f"finished with status {status!r} (rc={rc})"
+    elif not (stats or {}).get("processed"):
+        # e.g. `hosts: localhost`, which the inventory limit excludes.
+        reason = "did not run on any host; check the play's `hosts` pattern"
+    elif pattern := find_error_pattern(error_patterns, [stdout]):
+        reason = f"output matched error pattern {pattern!r}"
+    else:
+        return
+    message = f"Ansible playbook {reason}."
+    if stats:
+        failed = sum((stats.get("failures") or {}).values())
+        unreachable = sum((stats.get("dark") or {}).values())
+        message += f" Failed hosts: {failed}. Unreachable hosts: {unreachable}."
+    if detail := _first_failure_message(events):
+        message += f"\n\n```\n{output_tail(detail)}\n```"
+    raise TracecatException(message, detail={"status": status, "rc": rc})
 
 
 @registry.register(
@@ -54,7 +142,13 @@ def run_playbook(
     ] = None,
     runner_kwargs: Annotated[
         dict[str, Any] | None,
-        Field(description="Additional keyword arguments to pass to the runner"),
+        Field(
+            description=(
+                "Additional ansible-runner options. Allowed keys: "
+                + ", ".join(sorted(ALLOWED_RUNNER_KWARGS))
+                + "."
+            )
+        ),
     ] = None,
     passwords: Annotated[
         dict[str, str] | None,
@@ -75,32 +169,65 @@ def run_playbook(
             description="List of events to ignore from the playbook. Returns all events by default."
         ),
     ] = None,
+    raise_on_failure: Annotated[
+        bool,
+        Field(
+            description=(
+                "Raise an error when the playbook fails, times out, is canceled, or its "
+                "output contains any error_patterns. Defaults to returning the events."
+            )
+        ),
+    ] = False,
+    error_patterns: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "Literal, case-sensitive substrings that mark the run as failed when found "
+                "in the playbook output. Only checked when raise_on_failure is enabled. "
+                "Not regular expressions. Up to 20 items of at most 256 characters."
+            )
+        ),
+    ] = None,
 ) -> list[dict[str, Any]] | list[str]:
     ignore_events = ignore_events or []
+    patterns = validate_error_patterns(error_patterns)
 
+    if not _HOST_NAME_PATTERN.fullmatch(host_name):
+        raise ValueError(
+            "host_name may only contain letters, digits, '.', '_' and '-'."
+        )
     extravars = extravars or {}
-    runner_kwargs = runner_kwargs or {}
+    runner_kwargs = dict(runner_kwargs or {})
+    if "inventory" in runner_kwargs:
+        raise ValueError(
+            "`inventory` is not supported in this integration. Please use the `host` and `user` parameters instead."
+        )
+    if disallowed := sorted(set(runner_kwargs) - ALLOWED_RUNNER_KWARGS):
+        raise ValueError(
+            f"Unsupported runner_kwargs: {', '.join(disallowed)}. "
+            f"Allowed keys: {', '.join(sorted(ALLOWED_RUNNER_KWARGS))}."
+        )
+    if overrides := sorted(
+        key for key in extravars if key.lower() in _CONNECTION_OVERRIDE_VARS
+    ):
+        raise ValueError(
+            f"extravars cannot override connection settings: {', '.join(overrides)}."
+        )
     # Prevent ansible-runner from writing console output to stdout.
     # Registry actions are executed in a subprocess where stdout must contain
     # only the JSON protocol payload returned by minimal_runner.
     runner_kwargs.setdefault("quiet", True)
 
-    if "inventory" in runner_kwargs:
-        raise ValueError(
-            "`inventory` is not supported in this integration. Please use the `host` and `user` parameters instead."
-        )
-
-    local_patterns = ["localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"]
-    if host in local_patterns:
-        # Block local connections in initial host connection
-        raise ValueError(f"Local connections are not supported. Got host: {host}")
+    # Resolve once and pin the inventory to the validated address, so loopback,
+    # link-local, and metadata targets are rejected even behind DNS names.
+    target_address = resolve_remote_target(host, 22)
 
     # Create inventory config
     inventory = {
         "all": {
             "hosts": {
                 host_name: {
-                    "ansible_host": host,
+                    "ansible_host": target_address,
                     "ansible_user": user,
                     "ansible_connection": "ssh",
                 }
@@ -120,26 +247,41 @@ def run_playbook(
         extravars=extravars,
         timeout=timeout,
         inventory=inventory,
+        # Only run against the inventory host; excludes Ansible's implicit localhost.
+        limit=host_name,
         **runner_kwargs,
     )
     if isinstance(result, Runner):
-        # Check stdout for errors
-        if result.stdout:
-            if "Error loading key" in result.stdout:
-                raise ValueError(
-                    "Failed to load SSH key. Please check the key begins and ends with `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`."
-                )
+        try:
+            with result.stdout as stdout_file:
+                stdout = stdout_file.read()
+        except Exception:
+            stdout = ""
+        if "Error loading key" in stdout:
+            raise ValueError(
+                "Failed to load SSH key. Please check the key begins and ends with `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`."
+            )
 
         # Events are a generator, so we need to convert to a list
+        events = list(result.events)
+        if raise_on_failure:
+            _raise_for_playbook_failure(
+                status=result.status,
+                rc=result.rc,
+                stats=result.stats,
+                events=events,
+                stdout=stdout,
+                error_patterns=patterns,
+            )
+
         # Filter out internal implementation details (temp paths, ssh key loading, etc.)
-        events = result.events
         filtered_events = []
         for event in events:
             if event.get("event") in ignore_events:
                 continue
             # Filter out verbose events that expose internal temp paths
-            stdout = event.get("stdout", "")
-            if "Identity added:" in stdout:
+            event_stdout = event.get("stdout", "")
+            if "Identity added:" in event_stdout:
                 continue
             filtered_events.append(event)
         return filtered_events

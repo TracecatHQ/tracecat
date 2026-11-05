@@ -7,7 +7,6 @@ import ipaddress
 import itertools
 import json
 import math
-import re
 import urllib.parse
 import zoneinfo
 from collections.abc import Callable, Iterable, Sequence
@@ -18,6 +17,7 @@ from typing import Any, Literal, ParamSpec, TypeVar
 from uuid import uuid4
 
 import orjson
+import regex
 import yaml
 from slugify import slugify
 from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
@@ -202,9 +202,29 @@ def replace(x: str, old: str, new: str) -> str:
     return x.replace(old, new)
 
 
+REGEX_TIMEOUT_SECONDS = 1.0
+"""Wall-clock budget for one user-supplied regex evaluation.
+
+Stays below Temporal's 2 s workflow-task deadlock threshold, since expressions
+also run inside workflow code.
+"""
+
+
+def _regex_call[T](operation: Callable[[], T]) -> T:
+    try:
+        return operation()
+    except TimeoutError as exc:
+        raise ValueError(
+            f"Regex evaluation exceeded {REGEX_TIMEOUT_SECONDS:g}s. "
+            "Simplify the pattern, for example by removing nested quantifiers."
+        ) from exc
+
+
 def regex_extract(pattern: str, text: str) -> str | None:
     """Extract the first captured group from text; fallback to full match if none."""
-    match = re.search(pattern, text)
+    match = _regex_call(
+        lambda: regex.search(pattern, text, timeout=REGEX_TIMEOUT_SECONDS)
+    )
     if not match:
         return None
     if match.lastindex:
@@ -216,12 +236,14 @@ def regex_extract(pattern: str, text: str) -> str | None:
 
 def regex_match(pattern: str, text: str) -> bool:
     """Check if text matches regex pattern."""
-    return bool(re.match(pattern, text))
+    return bool(
+        _regex_call(lambda: regex.match(pattern, text, timeout=REGEX_TIMEOUT_SECONDS))
+    )
 
 
 def regex_not_match(pattern: str, text: str) -> bool:
     """Check if text does not match regex pattern."""
-    return not bool(re.match(pattern, text))
+    return not regex_match(pattern, text)
 
 
 def generate_uuid() -> str:

@@ -294,6 +294,17 @@ def test_regex_match(pattern: str, text: str, expected: bool) -> None:
     assert regex_not_match(pattern, text) == (not expected)
 
 
+@pytest.mark.parametrize(
+    "func",
+    [regex_extract, regex_match, regex_not_match],
+)
+def test_regex_functions_time_out_on_catastrophic_backtracking(
+    func: Callable[[str, str], Any],
+) -> None:
+    with pytest.raises(ValueError, match="Regex evaluation exceeded"):
+        func(r"^(a|aa)+$", "a" * 60 + "!")
+
+
 def test_generate_uuid() -> None:
     uuid1 = generate_uuid()
     uuid2 = generate_uuid()

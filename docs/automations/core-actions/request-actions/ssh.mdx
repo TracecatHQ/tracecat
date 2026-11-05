@@ -34,6 +34,22 @@ SSH username.
 
 </ParamField>
 
+<ParamField path="allowed_exit_codes" type="array[integer] | null">
+
+Exit statuses treated as success when raise_on_error is enabled. Defaults to [0].
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="error_patterns" type="array[string] | null">
+
+Literal, case-sensitive substrings that mark the command as failed when found in stdout or stderr. Only checked when raise_on_error is enabled. Not regular expressions. Up to 20 items of at most 256 characters.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="host_key_checking" type="boolean">
 
 Whether to verify the remote host key before connecting. Disable only for first-contact or otherwise trusted hosts; PID isolation and nsjail do not protect against SSH man-in-the-middle attacks.
@@ -63,6 +79,14 @@ Default: `null`.
 SSH port. Defaults to 22.
 
 Default: `22`.
+
+</ParamField>
+
+<ParamField path="raise_on_error" type="boolean">
+
+Raise an error when the exit status is not in allowed_exit_codes or the output contains any error_patterns. Defaults to returning the result.
+
+Default: `false`.
 
 </ParamField>
 
