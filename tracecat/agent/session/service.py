@@ -2266,10 +2266,12 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         text: str,
         request_id: str,
+        instructions: str | None = None,
     ) -> MessageResult:
         """Start a run for the message, or steer or refuse it while one is going.
 
-        A retry of the same ``request_id`` returns the run the first attempt
+        ``instructions`` is model-only context for a new turn; a steer into a
+        running turn carries only ``text``. A retry of the same ``request_id`` returns the run the first attempt
         started, as already accepted, and re-issues a start whose outcome was
         lost. Recovery may tombstone that lost start; the retry then starts the
         next attempt's run.
@@ -2318,7 +2320,7 @@ class AgentSessionService(BaseWorkspaceService):
                 await self._start_new_turn(
                     agent_session,
                     user_prompt=text,
-                    request_instructions=None,
+                    request_instructions=instructions,
                     page_context=None,
                     is_first_prompt=None,
                     run_id=run_id,
