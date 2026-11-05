@@ -41,13 +41,20 @@ definition:
       type: str | None
       description: Snowflake account URL, for example https://org-account.snowflakecomputing.com.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: resolve_access_token
       action: core.script.run_python
       args:
         allow_network: true
         inputs:
-          access_token: ${{ SECRETS.snowflake_oauth.SNOWFLAKE_USER_TOKEN || SECRETS.snowflake_oauth.SNOWFLAKE_SERVICE_TOKEN }}
+          access_token: ${{ SECRETS.snowflake_oauth.SNOWFLAKE_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.snowflake_oauth.SNOWFLAKE_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.snowflake_oauth.SNOWFLAKE_USER_TOKEN || SECRETS.snowflake_oauth.SNOWFLAKE_SERVICE_TOKEN }}
           client_id: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_CLIENT_ID }}
           client_secret: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_CLIENT_SECRET }}
           token_url: ${{ SECRETS.snowflake.SNOWFLAKE_OAUTH_TOKEN_URL }}

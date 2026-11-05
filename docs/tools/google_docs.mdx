@@ -34,6 +34,16 @@ List of Docs API request objects to apply.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="write_control" type="object | null">
 
 Optional write control configuration (e.g., requiredRevisionId).
@@ -59,6 +69,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="title" type="string | null">
 
@@ -89,6 +109,16 @@ Optional secrets:
 <ParamField path="document_id" type="string" required>
 
 ID of the document to fetch.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 

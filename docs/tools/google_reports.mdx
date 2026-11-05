@@ -28,6 +28,16 @@ Represents the date the usage occurred, based on UTC-8:00 (Pacific Standard Time
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer_id" type="string | null">
 
 The unique ID of the customer to retrieve data for.
@@ -85,6 +95,16 @@ Represents the key of the object to filter the data with. It is a string which c
 <ParamField path="entity_type" type="string" required>
 
 Represents the type of entity for the report. The only allowed value is `gplus_communities`, which returns a report on Google+ communities.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -149,6 +169,16 @@ Optional secrets:
 <ParamField path="date" type="string" required>
 
 Represents the date the usage occurred, based on UTC-8:00 (Pacific Standard Time). The timestamp is in the ISO 8601 format, `yyyy-mm-dd`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -245,6 +275,16 @@ Application name for which the events are to be retrieved. One of `access_transp
 The Internet Protocol (IP) Address of host where the event was performed. This parameter supports both IPv4 and IPv6 address versions.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 

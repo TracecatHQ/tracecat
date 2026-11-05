@@ -28,6 +28,16 @@ The IDs of the messages to delete.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -65,6 +75,16 @@ The IDs of the messages to modify. There is a limit of 1000 ids per request.
 A list of label IDs to add to messages.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -111,6 +131,16 @@ Subject line of the message.
 <ParamField path="to" type="string" required>
 
 Comma-separated list of recipient email addresses for the `To` header.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -202,6 +232,16 @@ Label resource. See https://developers.google.com/workspace/gmail/api/reference/
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -231,6 +271,16 @@ Optional secrets:
 <ParamField path="id" type="string" required>
 
 The ID of the draft to delete.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -266,6 +316,16 @@ The ID of the label to delete.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -295,6 +355,16 @@ Optional secrets:
 <ParamField path="id" type="string" required>
 
 The ID of the message to delete.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -330,6 +400,16 @@ ID of the Thread to delete.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -359,6 +439,16 @@ Optional secrets:
 <ParamField path="id" type="string" required>
 
 The ID of the draft to retrieve.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -408,6 +498,16 @@ The message ID containing the attachment
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 User ID or 'me' for authenticated user
@@ -437,6 +537,16 @@ Optional secrets:
 <ParamField path="message_id" type="string" required>
 
 The message ID to retrieve
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -480,6 +590,16 @@ The message ID to retrieve headers for
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="metadata_headers" type="array[string] | null">
 
 Specific headers to return (e.g., ['From', 'To', 'Subject']). If not specified, returns all headers.
@@ -517,6 +637,16 @@ Optional secrets:
 <ParamField path="thread_id" type="string" required>
 
 The thread ID to retrieve
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -560,6 +690,16 @@ The ID of the label to retrieve.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -586,6 +726,16 @@ Optional secrets:
 
 ### Input fields
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -611,6 +761,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="include_spam_trash" type="boolean | null">
 
@@ -670,6 +830,16 @@ Optional secrets:
 
 ### Input fields
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 User ID or 'me' for authenticated user
@@ -699,6 +869,16 @@ Optional secrets:
 <ParamField path="start_history_id" type="string" required>
 
 Returns history records after the specified startHistoryId. The supplied startHistoryId should be obtained from the historyId of a message, thread, or previous list response. History IDs increase chronologically but are not contiguous with random gaps in between valid IDs. Supplying an invalid or out of date startHistoryId typically returns an HTTP 404 error code. A historyId is typically valid for at least a week, but in some rare circumstances may be valid for only a few hours.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -759,6 +939,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="include_spam_trash" type="boolean | null">
 
@@ -840,6 +1030,16 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="remove_label_ids" type="array[string] | null">
 
 A list of IDs of labels to remove from this message. You can remove up to 100 labels with each update.
@@ -885,6 +1085,16 @@ The ID of the thread to modify.
 A list of IDs of labels to add to this thread. You can add up to 100 labels with each update.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -934,6 +1144,16 @@ The ID of the label to update.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -963,6 +1183,16 @@ Optional secrets:
 <ParamField path="query" type="string" required>
 
 Gmail search query (e.g., 'from:suspicious@evil.com has:attachment')
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1014,6 +1244,16 @@ The immutable ID of the draft to send.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -1049,6 +1289,16 @@ Subject line of the message.
 <ParamField path="to" type="string" required>
 
 Comma-separated list of recipient email addresses for the `To` header.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1140,6 +1390,16 @@ The ID of the message to move to trash.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -1169,6 +1429,16 @@ Optional secrets:
 <ParamField path="id" type="string" required>
 
 The ID of the thread to Trash.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1204,6 +1474,16 @@ The ID of the message to remove from Trash.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="user_id" type="string">
 
 The user's email address. The special value `me` can be used to indicate the authenticated user.
@@ -1233,6 +1513,16 @@ Optional secrets:
 <ParamField path="id" type="string" required>
 
 The ID of the thread to remove from Trash.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1277,6 +1567,16 @@ Subject line of the message.
 <ParamField path="to" type="string" required>
 
 Comma-separated list of recipient email addresses for the `To` header.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 

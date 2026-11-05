@@ -41,6 +41,16 @@ Machine ID to target with the action.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -118,6 +128,16 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -191,6 +211,16 @@ Alert ID to retrieve.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -227,6 +257,16 @@ Absolute file path on the device (escape backslashes, for example C:\\\\Windows\
 <ParamField path="machine_id" type="string" required>
 
 Machine ID to collect the file from.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -271,6 +311,16 @@ Incident ID to retrieve.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -301,6 +351,16 @@ Optional secrets:
 <ParamField path="machine_id" type="string" required>
 
 Machine ID to retrieve, as returned by the alerts or incidents APIs.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -343,6 +403,16 @@ Machine ID to isolate.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -379,6 +449,16 @@ Optional secrets:
 - `microsoft_defender_endpoint_oauth`: OAuth token `MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="base_url" type="string">
 
@@ -439,6 +519,16 @@ Optional secrets:
 
 ### Input fields
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -489,6 +579,16 @@ Optional secrets:
 - `microsoft_defender_endpoint_oauth`: OAuth token `MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="base_url" type="string">
 
@@ -549,6 +649,16 @@ Optional secrets:
 
 ### Input fields
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -607,6 +717,16 @@ Optional secrets:
 - `microsoft_defender_endpoint_oauth`: OAuth token `MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="base_url" type="string">
 
@@ -679,6 +799,16 @@ Machine ID to receive the file.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -726,6 +856,16 @@ Machine ID to release from isolation.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -767,6 +907,16 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -803,6 +953,16 @@ Comment describing why the scan was requested.
 <ParamField path="machine_id" type="string" required>
 
 Machine ID to scan.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -855,6 +1015,16 @@ Machine ID to target with Live Response commands.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Microsoft Defender for Endpoint API.
@@ -899,6 +1069,16 @@ Machine ID to target with the script.
 <ParamField path="script_name" type="string" required>
 
 Name of the uploaded Live Response script to run.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -956,6 +1136,16 @@ Alert ID to update.
 User principal name (UPN) or email address to assign the alert to.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1029,6 +1219,16 @@ Incident ID to update.
 User principal name (UPN) or email to assign the incident to.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. `delegated` uses the user token, `application` uses the service token, and `auto` uses whichever is connected, trying delegated first, then application.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
