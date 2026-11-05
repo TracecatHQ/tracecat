@@ -93,6 +93,7 @@ import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
+import { useTypeToFocus } from "@/hooks/use-type-to-focus"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
   CANCELLED_DATA_PART_TYPE,
@@ -634,6 +635,9 @@ export function ChatSessionPane({
     isReadonly,
     cannotExecuteAgents,
   ])
+  useTypeToFocus(promptTextareaRef, {
+    enabled: !isReadonly && !cannotExecuteAgents,
+  })
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   /** Guards `handleSubmit` against re-entry while it awaits a preset write. */
