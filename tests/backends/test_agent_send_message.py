@@ -39,6 +39,7 @@ from tests.backends.test_agent_dispatch_transaction import (
     unavailable,
 )
 from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     SessionDispatchUncertain,
@@ -56,6 +57,7 @@ from tracecat.agent.session.results import (
 from tracecat.agent.session.service import AgentSessionService, message_run_id
 from tracecat.agent.types import AgentConfig
 from tracecat.db.models import AgentSession
+from tracecat.dsl._converter import get_data_converter
 
 pytestmark = [pytest.mark.anyio, pytest.mark.dbtest]
 
@@ -327,6 +329,38 @@ async def test_tombstoned_run_is_replaced_by_the_next_attempt(
     assert sorted(fake.agent_runs()) == sorted(
         [f"agent/{other.run_id}", f"agent/{replacement}"]
     )
+
+
+async def test_instructions_reach_every_start_of_the_turn(
+    connection: AsyncConnection,
+) -> None:
+    """A lost start's re-issue carries the same instructions; the text stays clean."""
+    starts: list[StartWorkflowExecutionRequest] = []
+
+    async def record(req: StartWorkflowExecutionRequest) -> None:
+        starts.append(req)
+
+    fake = FakeTemporal(fault="lost", on_start=record)
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        assert not context.config.instructions
+        sent = message(
+            context.session.id,
+            instructions="This message came from Slack, from Dana.",
+        )
+        with temporal(fake):
+            async with channel_service(db, context) as service:
+                with pytest.raises(SessionDispatchUncertain):
+                    await service.send_message(**sent)
+                assert isinstance(await service.send_message(**sent), RunStarted)
+
+    assert len(starts) == 2
+    for req in starts:
+        (args,) = await get_data_converter().decode(
+            list(req.input.payloads), [AgentWorkflowArgs]
+        )
+        assert args.agent_args.config.instructions == sent["instructions"]
+        assert args.agent_args.user_prompt == "Investigate this alert"
 
 
 async def test_message_while_another_run_is_going_is_busy_on_claude(
