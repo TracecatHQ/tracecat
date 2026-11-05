@@ -1,6 +1,7 @@
 """Non-default agent backends require ``agent_runtime_preview``.
 
-The gate covers new sessions and every new turn of an existing session.
+Workflow sessions also require ``agent_runtime_workflows``. The gate covers
+new sessions and every new turn of an existing session.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import pytest
 from tracecat.agent.adapter.vercel import TextUIPart, UIMessage
 from tracecat.agent.backends.access import (
     SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
+    WORKFLOW_SESSION_BACKEND_NOT_ENTITLED_MESSAGE,
     can_use_backend,
 )
 from tracecat.agent.backends.default import DefaultBackend
@@ -61,7 +63,9 @@ async def test_default_backend_never_checks_entitlement(
     backend_id: str | None,
 ) -> None:
     with patch(IS_ORG_ENTITLED, AsyncMock(return_value=False)) as entitled:
-        assert await can_use_backend(AsyncMock(), uuid.uuid4(), backend_id)
+        assert await can_use_backend(
+            AsyncMock(), uuid.uuid4(), backend_id, entity_type=None
+        )
     entitled.assert_not_awaited()
 
 
@@ -71,7 +75,10 @@ async def test_non_default_backend_follows_entitlement(is_entitled: bool) -> Non
     db = AsyncMock()
     org_id = uuid.uuid4()
     with patch(IS_ORG_ENTITLED, AsyncMock(return_value=is_entitled)) as entitled:
-        assert await can_use_backend(db, org_id, "external") is is_entitled
+        assert (
+            await can_use_backend(db, org_id, "external", entity_type=None)
+            is is_entitled
+        )
     entitled.assert_awaited_once_with(db, org_id, Entitlement.AGENT_RUNTIME_PREVIEW)
 
 
@@ -438,3 +445,143 @@ async def test_entitled_backend_accepts_a_steer() -> None:
         )
     assert receipt.status == "accepted"
     provider.steer.assert_awaited_once()
+
+
+# Workflow agent actions. They need ``agent_runtime_workflows`` on top of the
+# preview entitlement, so an organization can move them back to the built-in
+# backend without touching its chats on the configured one.
+
+
+def _granted(*entitlements: Entitlement) -> AsyncMock:
+    """An entitlement lookup that grants exactly ``entitlements``."""
+    granted = set(entitlements)
+
+    async def is_org_entitled(_db: object, _org: object, entitlement: Entitlement):
+        return entitlement in granted
+
+    return AsyncMock(side_effect=is_org_entitled)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("granted", "expected"),
+    [
+        ((), False),
+        ((Entitlement.AGENT_RUNTIME_PREVIEW,), False),
+        # The workflow entitlement takes effect only with the preview one.
+        ((Entitlement.AGENT_RUNTIME_WORKFLOWS,), False),
+        (
+            (Entitlement.AGENT_RUNTIME_PREVIEW, Entitlement.AGENT_RUNTIME_WORKFLOWS),
+            True,
+        ),
+    ],
+)
+async def test_workflow_sessions_need_both_entitlements(
+    granted: tuple[Entitlement, ...], expected: bool
+) -> None:
+    with patch(IS_ORG_ENTITLED, _granted(*granted)):
+        allowed = await can_use_backend(
+            AsyncMock(),
+            uuid.uuid4(),
+            "external",
+            entity_type=AgentSessionEntity.WORKFLOW,
+        )
+    assert allowed is expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("entity_type", [*TURN_SURFACES, None])
+async def test_other_surfaces_ignore_the_workflow_entitlement(
+    entity_type: AgentSessionEntity | None,
+) -> None:
+    with patch(IS_ORG_ENTITLED, _granted(Entitlement.AGENT_RUNTIME_PREVIEW)) as lookup:
+        assert await can_use_backend(
+            AsyncMock(), uuid.uuid4(), "external", entity_type=entity_type
+        )
+    assert [call.args[2] for call in lookup.await_args_list] == [
+        Entitlement.AGENT_RUNTIME_PREVIEW
+    ]
+
+
+@pytest.mark.anyio
+async def test_revoked_workflow_entitlement_refuses_a_new_workflow_turn() -> None:
+    """A workflow session's next turn needs both entitlements, checked per turn."""
+    service, db, role = _service()
+    agent_session = _existing_session(role, entity_type=AgentSessionEntity.WORKFLOW)
+    with (
+        _existing_turn(service, agent_session, _provider(), is_entitled=True),
+        patch(IS_ORG_ENTITLED, _granted(Entitlement.AGENT_RUNTIME_PREVIEW)),
+        pytest.raises(EntitlementRequired) as exc_info,
+    ):
+        await service.prepare_new_turn(
+            agent_session.id,
+            "Investigate",
+            config=AgentConfig(model_name="test", model_provider="anthropic"),
+        )
+    assert exc_info.value.detail == {
+        "entitlement": Entitlement.AGENT_RUNTIME_WORKFLOWS.value
+    }
+    # A workflow action cannot start a new chat; the message says what it can do.
+    assert str(exc_info.value) == WORKFLOW_SESSION_BACKEND_NOT_ENTITLED_MESSAGE
+    db.commit.assert_not_awaited()
+    assert agent_session.curr_run_id is None
+
+
+@pytest.mark.anyio
+async def test_revoked_workflow_entitlement_keeps_chat_turns() -> None:
+    service, _, role = _service()
+    agent_session = _existing_session(role, entity_type=AgentSessionEntity.CASE)
+    with (
+        _existing_turn(service, agent_session, _provider(), is_entitled=True),
+        patch(IS_ORG_ENTITLED, _granted(Entitlement.AGENT_RUNTIME_PREVIEW)),
+    ):
+        admitted = await service.validate_turn_request(
+            agent_session.id, BasicChatRequest(message="Hi")
+        )
+    assert admitted is agent_session
+
+
+@pytest.mark.anyio
+async def test_revoked_workflow_entitlement_finishes_a_parked_workflow_turn() -> None:
+    """Approval decisions finish a workflow turn that started while entitled."""
+    service, _, role = _service()
+    agent_session = _existing_session(
+        role, entity_type=AgentSessionEntity.WORKFLOW, curr_run_id=uuid.uuid4()
+    )
+    response = ChatResponse(
+        stream_url="/stream", chat_id=agent_session.id, curr_run_id=uuid.uuid4()
+    )
+    with (
+        _existing_turn(service, agent_session, _provider(), is_entitled=False),
+        patch.object(
+            service, "_continue_with_approvals", AsyncMock(return_value=response)
+        ),
+    ):
+        assert await service.run_turn(agent_session.id, _approval()) is response
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("fork_entity", "expected"),
+    [
+        # Inbox approval forks inherit the backend under the preview alone.
+        (AgentSessionEntity.APPROVAL, TracecatValidationError),
+        # A fork that stays a workflow session needs both.
+        (None, EntitlementRequired),
+    ],
+)
+async def test_workflow_session_fork_gate_follows_the_fork_surface(
+    fork_entity: AgentSessionEntity | None, expected: type[Exception]
+) -> None:
+    service, db, role = _service()
+    source = _existing_session(role, entity_type=AgentSessionEntity.WORKFLOW)
+    result = Mock()
+    result.tuples.return_value.one_or_none.return_value = (source, None)
+    db.execute.return_value = result
+    with (
+        patch(IS_ORG_ENTITLED, _granted(Entitlement.AGENT_RUNTIME_PREVIEW)),
+        # Past the gate, backend resolution rejects the uninstalled backend.
+        pytest.raises(expected),
+    ):
+        await service.fork_session(source.id, entity_type=fork_entity)
+    db.add.assert_not_called()

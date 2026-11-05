@@ -23,7 +23,6 @@ from temporalio.client import (
 from temporalio.converter import PayloadCodec
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import ConnectConfig, RPCError, RPCStatusCode, ServiceClient
-from tracecat_ee.agent.approvals.service import ApprovalService
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tracecat.agent.backends import registry
@@ -1737,17 +1736,6 @@ async def test_durable_activity_rejects_existing_session_with_different_identity
                 )
             )
     service.session.commit.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_legacy_approval_view_does_not_target_another_backend():
-    ctx = context()
-    assert isinstance(ctx.db, AsyncMock)
-    ctx.db.scalar.return_value = "ee"
-    approvals = ApprovalService(ctx.db, ctx.role)
-    with patch.object(approvals, "handle", new_callable=AsyncMock) as handle:
-        assert await approvals.get_session(ctx.session.id) is None
-        handle.assert_not_awaited()
 
 
 @pytest.mark.anyio

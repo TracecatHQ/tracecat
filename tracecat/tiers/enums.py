@@ -21,3 +21,4 @@ class Entitlement(StrEnum):
     FORMS = "forms"
     TUNNELS = "tunnels"
     AGENT_RUNTIME_PREVIEW = "agent_runtime_preview"
+    AGENT_RUNTIME_WORKFLOWS = "agent_runtime_workflows"

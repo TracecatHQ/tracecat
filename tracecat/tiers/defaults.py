@@ -67,7 +67,8 @@ def resolve_oss_default_entitlements(
     closed source and gated by ``semantic_search``. Forms are gated by ``forms``;
     the ``forms`` feature flag maps to it, so one token turns on both the flag
     and the entitlement on single-tenant deployments. Non-default agent backends
-    are gated by ``agent_runtime_preview``, which is on whenever one is
+    are gated by ``agent_runtime_preview``, and workflow agent actions on them
+    also by ``agent_runtime_workflows``. Both are on whenever a backend is
     installed, since installing a backend is how a deployment opts in.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
@@ -91,6 +92,7 @@ def resolve_oss_default_entitlements(
             forms=False,
             tunnels=False,
             agent_runtime_preview=agent_backend_installed,
+            agent_runtime_workflows=agent_backend_installed,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -134,6 +136,7 @@ def resolve_oss_default_entitlements(
         forms=forms_enabled,
         tunnels=False,
         agent_runtime_preview=agent_backend_installed,
+        agent_runtime_workflows=agent_backend_installed,
     )
 
 
