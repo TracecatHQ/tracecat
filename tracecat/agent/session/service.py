@@ -162,7 +162,6 @@ from tracecat.exceptions import (
     TracecatServiceError,
     TracecatValidationError,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
@@ -481,9 +480,7 @@ class AgentSessionService(BaseWorkspaceService):
         return list(BUILTIN_WORKSPACE_CHAT_SKILLS)
 
     async def _forms_enabled(self) -> bool:
-        """Whether this organization has the forms flag and entitlement."""
-        if not is_feature_enabled(FeatureFlag.FORMS):
-            return False
+        """Whether this organization has the forms entitlement."""
         return await is_org_entitled(
             self.session, self.organization_id, Entitlement.FORMS
         )

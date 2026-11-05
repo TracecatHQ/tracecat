@@ -9,7 +9,6 @@ from unittest.mock import ANY, AsyncMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
-from tracecat import config
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -18,7 +17,6 @@ from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatPageContext, VercelChatRequest
 from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS, WORKSPACE_CHAT_FORMS_TOOLS
 from tracecat.db.models import AgentSession
-from tracecat.feature_flags import FeatureFlag
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspaces.prompts import form_page_context
 
@@ -52,12 +50,7 @@ def _chat_session(role: Role, entity_type: AgentSessionEntity) -> AgentSession:
     )
 
 
-def _gate(
-    monkeypatch: pytest.MonkeyPatch, *, flag: bool = True, entitled: bool = True
-) -> AsyncMock:
-    monkeypatch.setattr(
-        config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.FORMS} if flag else set()
-    )
+def _gate(monkeypatch: pytest.MonkeyPatch, *, entitled: bool = True) -> AsyncMock:
     is_org_entitled = AsyncMock(return_value=entitled)
     monkeypatch.setattr(
         "tracecat.agent.session.service.is_org_entitled", is_org_entitled
@@ -74,41 +67,28 @@ async def _tools(role: Role, extras: list[str] | None = None) -> list[str]:
     return tools
 
 
-@pytest.mark.parametrize(
-    ("flag", "entitled"),
-    [(True, True), (True, False), (False, True)],
-    ids=["enabled", "no-entitlement", "flag-off"],
-)
+@pytest.mark.parametrize("entitled", [True, False], ids=["enabled", "no-entitlement"])
 async def test_chat_gets_the_forms_tools_only_when_forms_are_enabled(
-    monkeypatch: pytest.MonkeyPatch, flag: bool, entitled: bool
+    monkeypatch: pytest.MonkeyPatch, entitled: bool
 ) -> None:
     """An entitlement-denied tool fails the whole turn, so no ``core.forms``
-    tool may reach an organization without the flag and the entitlement."""
-    is_org_entitled = _gate(monkeypatch, flag=flag, entitled=entitled)
+    tool may reach an organization without the entitlement."""
+    is_org_entitled = _gate(monkeypatch, entitled=entitled)
     role = _role()
 
     tools = await _tools(role)
 
-    forms_tools = WORKSPACE_CHAT_FORMS_TOOLS if flag and entitled else []
+    forms_tools = WORKSPACE_CHAT_FORMS_TOOLS if entitled else []
     assert tools == [*WORKSPACE_CHAT_DEFAULT_TOOLS, *forms_tools]
     assert [tool for tool in tools if tool.startswith("core.forms.")] == forms_tools
-    if flag:
-        is_org_entitled.assert_awaited_with(
-            ANY, role.organization_id, Entitlement.FORMS
-        )
+    is_org_entitled.assert_awaited_with(ANY, role.organization_id, Entitlement.FORMS)
 
 
-@pytest.mark.parametrize(
-    ("flag", "entitled"),
-    [(True, False), (False, True)],
-    ids=["no-entitlement", "flag-off"],
-)
 async def test_saved_forms_tools_are_dropped_while_forms_are_off(
-    monkeypatch: pytest.MonkeyPatch, flag: bool, entitled: bool
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Extras saved while forms were on would otherwise fail every turn. Each
-    # case turns off one gate only.
-    _gate(monkeypatch, flag=flag, entitled=entitled)
+    # Extras saved while forms were on would otherwise fail every turn.
+    _gate(monkeypatch, entitled=False)
 
     tools = await _tools(_role(), ["core.forms.update_form", "core.table.list_tables"])
 
@@ -183,25 +163,23 @@ async def _turn_instructions(
 
 
 @pytest.mark.parametrize(
-    ("flag", "entitled", "entity_type", "page_context", "named"),
+    ("entitled", "entity_type", "page_context", "named"),
     [
-        (True, True, WORKSPACE_CHAT, FORM_PAGE, True),
-        (True, False, WORKSPACE_CHAT, FORM_PAGE, False),
-        (False, True, WORKSPACE_CHAT, FORM_PAGE, False),
-        (True, True, AgentSessionEntity.CASE, FORM_PAGE, False),
-        (True, True, WORKSPACE_CHAT, None, False),
+        (True, WORKSPACE_CHAT, FORM_PAGE, True),
+        (False, WORKSPACE_CHAT, FORM_PAGE, False),
+        (True, AgentSessionEntity.CASE, FORM_PAGE, False),
+        (True, WORKSPACE_CHAT, None, False),
     ],
-    ids=["enabled", "no-entitlement", "flag-off", "case-chat", "no-page-context"],
+    ids=["enabled", "no-entitlement", "case-chat", "no-page-context"],
 )
 async def test_turn_names_the_open_form_only_in_an_enabled_workspace_chat(
     monkeypatch: pytest.MonkeyPatch,
-    flag: bool,
     entitled: bool,
     entity_type: AgentSessionEntity,
     page_context: dict[str, Any] | None,
     named: bool,
 ) -> None:
-    _gate(monkeypatch, flag=flag, entitled=entitled)
+    _gate(monkeypatch, entitled=entitled)
 
     instructions = await _turn_instructions(_role(), entity_type, page_context)
 
