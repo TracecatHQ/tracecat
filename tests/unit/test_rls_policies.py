@@ -3,29 +3,37 @@
 These tests verify that RLS policies correctly filter database access
 based on organization and workspace context.
 
-IMPORTANT: These tests require:
+Classes marked ``requires_rls_mode`` need:
 1. A running PostgreSQL database with the RLS migration applied
 2. RLS mode enabled (TRACECAT__RLS_MODE=enforce or shadow)
 
-Run with:
+Run them with:
     TRACECAT__RLS_MODE=enforce uv run pytest tests/unit/test_rls_policies.py -v
+
+``TestRlsIsolation`` sets the mode itself and runs in every test run.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_engine, get_async_session
+from tracecat.db.engine import (
+    _initialize_session_rls_context,
+    get_async_engine,
+    get_async_session,
+)
 from tracecat.db.rls import (
     RLS_BYPASS_OFF,
-    RLS_BYPASS_ON,
     RLS_UNSET_VALUE,
     RLS_VAR_BYPASS,
     RLS_VAR_ORG_ID,
@@ -33,16 +41,25 @@ from tracecat.db.rls import (
     is_rls_enabled,
     set_rls_context,
 )
+from tracecat.tables.enums import SqlType
+from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.service import TablesService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 
-# Skip all tests if RLS is not enabled
-pytestmark = pytest.mark.skipif(
+# Skip classes that read the process-wide RLS mode when it is off
+requires_rls_mode = pytest.mark.skipif(
     not is_rls_enabled(),
     reason="RLS mode not enabled. Set TRACECAT__RLS_MODE=enforce or shadow",
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def workflow_bucket() -> Iterator[None]:
+    """Disable MinIO-dependent workflow bucket setup for these tests."""
+    yield
 
 
 @pytest.fixture
@@ -100,6 +117,7 @@ def role_workspace_b(org_id_b: uuid.UUID, workspace_id_b: uuid.UUID) -> Role:
     )
 
 
+@requires_rls_mode
 class TestRlsContextVariables:
     """Tests for RLS PostgreSQL session variables."""
 
@@ -171,6 +189,7 @@ class TestRlsContextVariables:
         assert result.scalar() == str(workspace_id_a)
 
 
+@requires_rls_mode
 class TestRlsPolicyEnforcement:
     """Tests for RLS policy enforcement on tables.
 
@@ -208,72 +227,175 @@ class TestRlsPolicyEnforcement:
         assert f"rls_policy_{table}" in set(policy_names)
 
 
-class TestRlsIsolation:
-    """Tests for RLS isolation between tenants.
+async def _make_owner_of(
+    session: AsyncSession, *, schema_name: str, table_name: str
+) -> str:
+    """Hand a dynamic table to a fresh role with no superuser or BYPASSRLS.
 
-    These tests verify that queries return different results
-    based on the RLS context set in the session.
+    The role lives in the test transaction and is rolled back with it.
+    """
+    owner = f"rls_owner_{uuid.uuid4().hex[:12]}"
+    await session.execute(text(f'CREATE ROLE "{owner}" NOSUPERUSER NOBYPASSRLS'))
+    await session.execute(text(f'GRANT USAGE ON SCHEMA "{schema_name}" TO "{owner}"'))
+    await session.execute(
+        text(f'ALTER TABLE "{schema_name}"."{table_name}" OWNER TO "{owner}"')
+    )
+    return owner
+
+
+async def _row_ids_as(
+    session: AsyncSession, *, db_role: str, schema_name: str, table_name: str
+) -> list[uuid.UUID]:
+    await session.execute(text(f'SET ROLE "{db_role}"'))
+    try:
+        result = await session.execute(
+            text(f'SELECT id FROM "{schema_name}"."{table_name}" ORDER BY id')
+        )
+        return list(result.scalars())
+    finally:
+        await session.execute(text("RESET ROLE"))
+
+
+async def _force_flags(
+    session: AsyncSession, *, schema_name: str, table_name: str
+) -> tuple[bool, bool]:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT c.relrowsecurity, c.relforcerowsecurity
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = :schema_name AND c.relname = :table_name
+                """
+            ),
+            {"schema_name": schema_name, "table_name": table_name},
+        )
+    ).one()
+    return row[0], row[1]
+
+
+@pytest.fixture
+async def owned_table(
+    session: AsyncSession, svc_role: Role
+) -> tuple[str, str, str, uuid.UUID]:
+    """A Tables table with one row, owned by a role that RLS can filter.
+
+    Returns (owner role, schema, table, row id).
+    """
+    service = TablesService(session=session, role=svc_role)
+    table = await service.create_table(
+        TableCreate(
+            name="rls_probe",
+            columns=[
+                TableColumnCreate(
+                    name="label", type=SqlType.TEXT, nullable=True, default=None
+                )
+            ],
+        )
+    )
+    row = await service.insert_row(table, TableRowInsert(data={"label": "a"}))
+    schema_name = service._get_schema_name()
+    owner = await _make_owner_of(
+        session, schema_name=schema_name, table_name=table.name
+    )
+    return owner, schema_name, table.name, row["id"]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+class TestRlsIsolation:
+    """Workspace policies on dynamic tables filter even the table owner.
+
+    The app role will own the dynamic schemas, so FORCE is what keeps the
+    policy in effect. Each test reads as a non-superuser, non-BYPASSRLS owner.
     """
 
-    @pytest.mark.anyio
-    async def test_bypass_context_returns_all_rows(self, rls_session: AsyncSession):
-        """Test that bypass context allows access to all rows."""
-        # Set explicit bypass context
-        await set_rls_context(rls_session, org_id=None, workspace_id=None, bypass=True)
+    async def test_new_dynamic_tables_force_rls(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        tables = TablesService(session=session, role=svc_role)
+        table = await tables.create_table(TableCreate(name="rls_force_probe"))
+        case_fields = CaseFieldsService(session=session, role=svc_role)
+        await case_fields.initialize_workspace_schema()
 
-        result = await rls_session.execute(
-            text(f"SELECT current_setting('{RLS_VAR_BYPASS}', true)")
-        )
-        assert result.scalar() == RLS_BYPASS_ON
+        for schema_name, table_name in (
+            (tables._get_schema_name(), table.name),
+            (case_fields.schema_name, case_fields.sanitized_table_name),
+        ):
+            assert await _force_flags(
+                session, schema_name=schema_name, table_name=table_name
+            ) == (True, True)
 
-        # Count should return all workspaces (not filtered)
-        result = await rls_session.execute(text("SELECT COUNT(*) FROM workspace"))
-        count = result.scalar()
-
-        # We can't assert exact count, but it should be >= 0
-        assert count is not None
-        assert count >= 0
-
-    @pytest.mark.anyio
-    async def test_workspace_context_filters_workflows(
+    @pytest.mark.parametrize(
+        ("mode", "context", "visible"),
+        [
+            # Off and shadow set app.rls_bypass=on: results never change.
+            (config.RLSMode.OFF, "other_workspace", True),
+            (config.RLSMode.SHADOW, "other_workspace", True),
+            (config.RLSMode.ENFORCE, "own_workspace", True),
+            (config.RLSMode.ENFORCE, "other_workspace", False),
+            (config.RLSMode.ENFORCE, "no_role", False),
+        ],
+    )
+    async def test_owner_rows_follow_rls_mode(
         self,
-        rls_session: AsyncSession,
-        workspace_id_a: uuid.UUID,
-    ):
-        """Test that workspace context filters workflow queries."""
-        # Set context to a random workspace ID (likely no matching rows)
+        session: AsyncSession,
+        svc_role: Role,
+        owned_table: tuple[str, str, str, uuid.UUID],
+        monkeypatch: pytest.MonkeyPatch,
+        mode: config.RLSMode,
+        context: str,
+        visible: bool,
+    ) -> None:
+        owner, schema_name, table_name, row_id = owned_table
+        roles: dict[str, Role | None] = {
+            "own_workspace": svc_role,
+            "other_workspace": svc_role.model_copy(
+                update={"workspace_id": uuid.uuid4()}
+            ),
+            "no_role": None,
+        }
+        monkeypatch.setattr(config, "TRACECAT__RLS_MODE", mode)
+        token = ctx_role.set(roles[context])
+        try:
+            await _initialize_session_rls_context(session)
+        finally:
+            ctx_role.reset(token)
+
+        row_ids = await _row_ids_as(
+            session, db_role=owner, schema_name=schema_name, table_name=table_name
+        )
+        assert row_ids == ([row_id] if visible else [])
+
+    async def test_owner_skips_policy_without_force(
+        self,
+        session: AsyncSession,
+        owned_table: tuple[str, str, str, uuid.UUID],
+    ) -> None:
+        """Control: the same owner and context see the row once FORCE is off."""
+        owner, schema_name, table_name, row_id = owned_table
         await set_rls_context(
-            rls_session, org_id=uuid.uuid4(), workspace_id=workspace_id_a
+            session, org_id=uuid.uuid4(), workspace_id=uuid.uuid4(), bypass=False
+        )
+        assert (
+            await _row_ids_as(
+                session, db_role=owner, schema_name=schema_name, table_name=table_name
+            )
+            == []
         )
 
-        # Query should only return workflows matching the workspace
-        result = await rls_session.execute(text("SELECT COUNT(*) FROM workflow"))
-        count = result.scalar()
-
-        # With a random workspace ID, we should get 0 or very few rows
-        # (unless the test DB happens to have data with that ID)
-        assert count is not None
-        assert count >= 0
-
-    @pytest.mark.anyio
-    async def test_org_context_filters_workspaces(
-        self,
-        rls_session: AsyncSession,
-        org_id_a: uuid.UUID,
-    ):
-        """Test that org context filters workspace queries."""
-        # Set context to a random org ID
-        await set_rls_context(rls_session, org_id=org_id_a, workspace_id=uuid.uuid4())
-
-        # Query should only return workspaces matching the org
-        result = await rls_session.execute(text("SELECT COUNT(*) FROM workspace"))
-        count = result.scalar()
-
-        # With a random org ID, we should get 0 or very few rows
-        assert count is not None
-        assert count >= 0
+        await session.execute(
+            text(
+                f'ALTER TABLE "{schema_name}"."{table_name}" NO FORCE ROW LEVEL SECURITY'
+            )
+        )
+        assert await _row_ids_as(
+            session, db_role=owner, schema_name=schema_name, table_name=table_name
+        ) == [row_id]
 
 
+@requires_rls_mode
 class TestRlsWithCtxRole:
     """Tests for RLS integration with ctx_role context variable."""
 

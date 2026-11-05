@@ -14,6 +14,7 @@ from tracecat.db.migration_lock import (
     acquire_migration_advisory_lock,
     release_migration_advisory_lock,
 )
+from tracecat.db.rls import enable_migration_rls_bypass
 
 alembic_postgresql_enum.set_configuration(
     alembic_postgresql_enum.Config(
@@ -103,6 +104,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
+        # Forced RLS on dynamic tables also filters their owner; migrations
+        # must see every row.
+        enable_migration_rls_bypass(connection)
 
         has_advisory_lock = acquire_migration_advisory_lock(connection)
         try:
