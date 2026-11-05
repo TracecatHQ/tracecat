@@ -16,10 +16,8 @@ from uuid import UUID, uuid4
 import pytest
 from google.protobuf import any_pb2
 from google.protobuf.message import Message
-from sqlalchemy import Table, func, select, text, update
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
-from sqlalchemy.pool import NullPool
-from sqlalchemy.schema import CreateTable
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from temporalio.api.common.v1 import GrpcStatus
 from temporalio.api.enums.v1 import WorkflowExecutionStatus as ExecutionStatusProto
 from temporalio.api.enums.v1 import WorkflowIdReusePolicy
@@ -43,7 +41,6 @@ from temporalio.service import (
     WorkflowService,
 )
 
-from tests.database import TEST_DB_CONFIG
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.backends.types import (
@@ -59,27 +56,6 @@ from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import TracecatConflictError
 
 pytestmark = [pytest.mark.anyio, pytest.mark.dbtest]
-
-
-@pytest.fixture
-async def connection() -> AsyncIterator[AsyncConnection]:
-    engine = create_async_engine(TEST_DB_CONFIG.sys_url, poolclass=NullPool)
-    try:
-        async with engine.connect() as connection:
-            # Temporary ORM-shaped tables isolate every test from app data.
-            # Workspace/user foreign keys are irrelevant to dispatch atomicity.
-            for table in (AgentSession.__table__, AgentSessionHistory.__table__):
-                assert isinstance(table, Table)
-                ddl = str(
-                    CreateTable(table, include_foreign_key_constraints=[]).compile(
-                        dialect=engine.dialect
-                    )
-                ).replace("CREATE TABLE", "CREATE TEMPORARY TABLE", 1)
-                await connection.execute(text(ddl))
-            await connection.commit()
-            yield connection
-    finally:
-        await engine.dispose()
 
 
 class PreparationBackend(DefaultBackend):

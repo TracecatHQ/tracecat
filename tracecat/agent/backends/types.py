@@ -17,6 +17,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, AgentSessionHistory
+from tracecat.exceptions import TracecatConflictError
 
 
 class SessionDispatchUncertain(RuntimeError):
@@ -25,6 +26,25 @@ class SessionDispatchUncertain(RuntimeError):
     Raise after ownership is committed when a lost acknowledgement leaves the
     dispatch outcome unknown. Definitive pre-dispatch failures use normal errors.
     """
+
+
+class TurnAlreadyStarted(SessionDispatchUncertain):
+    """The turn's workflow ID is taken, by an earlier start of it or a tombstone.
+
+    The reservation is kept, as for any start whose outcome is unknown.
+    """
+
+
+class SessionTurnActiveError(TracecatConflictError):
+    """Another turn owns the session."""
+
+    def __init__(self, run_id: UUID) -> None:
+        super().__init__("This chat already has an active turn")
+        self.run_id = run_id
+
+
+# How a turn's workflow ID stands: free, taken by the turn, or claimed by recovery.
+type TurnStartState = Literal["missing", "started", "tombstoned"]
 
 
 class AgentControlRejected(RuntimeError):

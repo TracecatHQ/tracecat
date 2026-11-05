@@ -45,6 +45,7 @@ from tracecat_ee.agent.activities import (
 )
 
 from tracecat import config
+from tracecat.agent.channel_publisher import TURN_STARTED_PUBLISH_BUDGET, TurnStarted
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.exceptions import (
     AgentToolLimitExceededError,
@@ -1556,6 +1557,49 @@ class TestCreateSessionActivity:
         assert result.success is True
         session_service.get_session.assert_awaited_once_with(mock_session_id)
         session_service.get_or_create_session.assert_not_called()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("linked", [True, False])
+    async def test_announces_the_run_to_a_linked_thread(
+        self,
+        session_service: AsyncMock,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        linked: bool,
+    ):
+        run_id = uuid.uuid4()
+        session_service.get_session.return_value = _agent_session()
+        publish = AsyncMock(return_value=[None])
+        with (
+            patch(
+                "tracecat.agent.session.activities.publish_session_event", AsyncMock()
+            ),
+            patch(
+                "tracecat.agent.session.activities.is_channel_linked",
+                AsyncMock(return_value=linked),
+            ),
+            patch("tracecat.agent.session.activities.publish_updates", publish),
+        ):
+            result = await create_session_activity(
+                CreateSessionInput(
+                    role=mock_role,
+                    session_id=mock_session_id,
+                    require_existing=True,
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                    entity_id=uuid.uuid4(),
+                    curr_run_id=run_id,
+                )
+            )
+
+        assert result.channel_linked is linked
+        if linked:
+            publish.assert_awaited_once_with(
+                mock_role,
+                [TurnStarted(session_id=mock_session_id, run_id=run_id)],
+                budget=TURN_STARTED_PUBLISH_BUDGET,
+            )
+        else:
+            publish.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_fails_when_required_session_is_missing(
