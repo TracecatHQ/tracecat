@@ -104,37 +104,55 @@ def test_version_bump(
         )
 
 
-def test_alpha_hotfix_replaces_complete_tags_in_tracked_files(checkout: Path) -> None:
-    seed_versions(checkout, "1.2.0-alpha.1.1", "1.2.0a1.post1")
-    # Different old versions exercise pattern replacement, not just literal replacement.
-    content = (
-        "https://github.com/TracecatHQ/tracecat/blob/1.2.0-alpha.1.9/file\n"
-        "`1.2.0-alpha.1.9`\n"
-        "TF_VAR_tracecat_image_tag=1.2.0-alpha.1.9\n"
-        "Current version: 1.2.0-alpha.1.1\n"
-    )
-    # Compose defaults to the latest image and docs link to release assets, so
-    # image-tag defaults and raw GitHub URLs are no longer rewritten.
-    untouched = (
-        "${TRACECAT__IMAGE_TAG:-latest}\n"
-        "${TRACECAT__IMAGE_TAG:-1.2.0-alpha.1.9}\n"
-        "https://raw.githubusercontent.com/TracecatHQ/tracecat/1.2.0-alpha.1.9/file\n"
-    )
-    doc = checkout / "docs/install.md"
-    doc.parent.mkdir()
-    doc.write_text(content + untouched)
-    subprocess.run(["git", "add", "--", "docs/install.md"], cwd=checkout, check=True)
+def test_only_tracecat_version_fields_change(checkout: Path) -> None:
+    """Only real Tracecat version fields change; other version strings stay put.
 
-    result = update(checkout, "1.2.0-alpha.1.2")
+    A generic current version such as 1.0.0 also appears in Terraform
+    required_version, third-party package pins, spec URLs, and prose examples.
+    """
+    seed_versions(checkout, "1.0.0", "1.0.0")
+    old_tag = "1.1.0"  # Image tags can lag the package version.
+    decoys = (
+        "Spec: https://www.conventionalcommits.org/en/v1.0.0/\n"
+        "Example: `1.0.0` and (`>1.0.0-beta.xx`)\n"
+        "Run `npx package@1.0.0`.\n"
+        "Blob: https://github.com/TracecatHQ/tracecat/blob/1.0.0/file\n"
+        "${TRACECAT__IMAGE_TAG:-1.0.0}\n"
+    )
+    files = {
+        ".github/ISSUE_TEMPLATE/bug_report.md": (
+            "- Tracecat version (e.g. `{v}`)\n- Browser version (e.g. `1.0.0`)\n",
+            "1.0.0",
+        ),
+        "deployments/fargate/README.md": (
+            "export TF_VAR_tracecat_image_tag={v}\n" + decoys,
+            old_tag,
+        ),
+        "deployments/fargate/variables.tf": (
+            'variable "tracecat_image_tag" {\n  default = "{v}"\n}\n'
+            'variable "other" {\n  default = "1.0.0"\n}\n' + decoys,
+            "1.0.0",
+        ),
+        "deployments/fargate/modules/network/main.tf": (
+            'terraform {\n  required_version = ">= 1.0.0"\n}\n',
+            None,
+        ),
+        "docs/tools/github.mdx": (decoys, None),
+        "CONTRIBUTING.md": (decoys, None),
+        "docker-compose.yml": (decoys, None),
+    }
+    for name, (template, current) in files.items():
+        path = checkout / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(template.replace("{v}", current or ""))
+    subprocess.run(["git", "add", "--", *files], cwd=checkout, check=True)
+
+    result = update(checkout, "1.4.0-alpha.4")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (
-        doc.read_text()
-        == content.replace("1.2.0-alpha.1.9", "1.2.0-alpha.1.2").replace(
-            "1.2.0-alpha.1.1", "1.2.0-alpha.1.2"
-        )
-        + untouched
-    )
+    for name, (template, _) in files.items():
+        expected = template.replace("{v}", "1.4.0-alpha.4")
+        assert (checkout / name).read_text() == expected, name
 
 
 @pytest.mark.parametrize(

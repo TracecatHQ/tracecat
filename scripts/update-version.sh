@@ -47,10 +47,6 @@ to_python_version() {
     printf '%s\n' "$python_version"
 }
 
-escape_version_regex() {
-    printf '%s\n' "$1" | sed 's/[.]/\\./g; s/-/\\-/g'
-}
-
 escape_sed_replacement() {
     printf '%s\n' "$1" | sed 's/[&/]/\\&/g'
 }
@@ -177,9 +173,9 @@ NEW_PYTHON_VERSION=$(to_python_version "$NEW_VERSION") || {
 FILES=(
     "tracecat/__init__.py"
     "packages/tracecat-registry/tracecat_registry/__init__.py"
-    "CONTRIBUTING.md"
     ".github/ISSUE_TEMPLATE/bug_report.md"
 )
+BUG_REPORT_FILE=".github/ISSUE_TEMPLATE/bug_report.md"
 
 append_unique_file() {
     local candidate=$1
@@ -227,16 +223,12 @@ tracked_candidate_files() {
         done
 }
 
-# Capture Tracecat-specific version contexts, including files that only carry the
-# current version string rather than a Terraform image tag.
+# Only files with a Tracecat image tag field qualify. Matching the bare current
+# version would also pick up unrelated strings such as Terraform
+# required_version or third-party package versions.
 append_matching_files < <(
     tracked_candidate_files | xargs -0 rg -l \
         "variable \"tracecat_image_tag\"|TF_VAR_tracecat_image_tag=${VERSION_SEARCH_PATTERN}"
-)
-
-append_matching_files < <(
-    tracked_candidate_files | xargs -0 rg -l --fixed-strings \
-        "$CURRENT_VERSION"
 )
 
 run_sed_in_place() {
@@ -270,9 +262,8 @@ update_python_version_file() {
     echo "✓ Updated $file" || echo "✗ Failed to update $file"
 }
 
-update_release_tag_file() {
+update_bug_report_file() {
     local file=$1
-    local escaped_current_version
     local escaped_new_version
 
     if [ ! -f "$file" ]; then
@@ -281,12 +272,24 @@ update_release_tag_file() {
     fi
 
     echo "Updating $file..."
-    escaped_current_version=$(escape_version_regex "$CURRENT_VERSION")
     escaped_new_version=$(escape_sed_replacement "$NEW_VERSION")
 
-    run_sed_in_place "s/$escaped_current_version/$escaped_new_version/g" "$file" && \
-    run_sed_in_place "s#(/blob/)${VERSION_SEARCH_PATTERN}/#\\1${escaped_new_version}/#g" "$file" && \
-    run_sed_in_place "s/\`${VERSION_SEARCH_PATTERN}\`/\`${escaped_new_version}\`/g" "$file" && \
+    run_sed_in_place "s/(Tracecat version \\(e\\.g\\. \`)[^\`]+(\`\\))/\\1${escaped_new_version}\\2/" "$file" && \
+    echo "✓ Updated $file" || echo "✗ Failed to update $file"
+}
+
+update_release_tag_file() {
+    local file=$1
+    local escaped_new_version
+
+    if [ ! -f "$file" ]; then
+        echo "Warning: File not found - $file"
+        return
+    fi
+
+    echo "Updating $file..."
+    escaped_new_version=$(escape_sed_replacement "$NEW_VERSION")
+
     run_sed_in_place '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$escaped_new_version"'"/' "$file" && \
     run_sed_in_place "s/(TF_VAR_tracecat_image_tag=)${VERSION_SEARCH_PATTERN}/\\1${escaped_new_version}/g" "$file" && \
     echo "✓ Updated $file" || echo "✗ Failed to update $file"
@@ -320,6 +323,8 @@ echo "Proceeding with updates..."
 for file in "${FILES[@]}"; do
     if [ "$file" = "$INIT_FILE" ] || [ "$file" = "$REGISTRY_INIT_FILE" ]; then
         update_python_version_file "$file"
+    elif [ "$file" = "$BUG_REPORT_FILE" ]; then
+        update_bug_report_file "$file"
     else
         update_release_tag_file "$file"
     fi
