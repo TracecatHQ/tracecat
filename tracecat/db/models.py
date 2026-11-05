@@ -3923,6 +3923,10 @@ class AgentSession(WorkspaceModel):
     """
 
     __tablename__ = "agent_session"
+    __table_args__ = (
+        # Composite FK target for enterprise tables: a link never crosses workspaces.
+        UniqueConstraint("id", "workspace_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
