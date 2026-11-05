@@ -65,7 +65,8 @@ def resolve_oss_default_entitlements(
     from those channels) are closed source and gated by ``agent_channels``; the
     legacy ``agent-channels`` feature flag maps to it. Semantic table search is
     closed source and gated by ``semantic_search``. Forms are gated by ``forms``;
-    the legacy ``forms`` feature flag maps to it on single-tenant deployments. Non-default agent backends
+    the ``forms`` feature flag maps to it, so one token turns on both the flag
+    and the entitlement on single-tenant deployments. Non-default agent backends
     are gated by ``agent_runtime_preview``, which is on whenever one is
     installed, since installing a backend is how a deployment opts in.
 
