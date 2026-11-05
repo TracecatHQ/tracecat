@@ -210,9 +210,12 @@ also run inside workflow code.
 """
 
 
-def _regex_call[T](operation: Callable[[], T]) -> T:
+def _regex_call[T](pattern: str, operation: Callable[[], T]) -> T:
     try:
         return operation()
+    except regex.error as exc:
+        # `regex` omits the offending fragment that stdlib `re` reported.
+        raise ValueError(f"Invalid regex pattern {pattern!r}: {exc}") from exc
     except TimeoutError as exc:
         raise ValueError(
             f"Regex evaluation exceeded {REGEX_TIMEOUT_SECONDS:g}s. "
@@ -223,7 +226,7 @@ def _regex_call[T](operation: Callable[[], T]) -> T:
 def regex_extract(pattern: str, text: str) -> str | None:
     """Extract the first captured group from text; fallback to full match if none."""
     match = _regex_call(
-        lambda: regex.search(pattern, text, timeout=REGEX_TIMEOUT_SECONDS)
+        pattern, lambda: regex.search(pattern, text, timeout=REGEX_TIMEOUT_SECONDS)
     )
     if not match:
         return None
@@ -237,7 +240,10 @@ def regex_extract(pattern: str, text: str) -> str | None:
 def regex_match(pattern: str, text: str) -> bool:
     """Check if text matches regex pattern."""
     return bool(
-        _regex_call(lambda: regex.match(pattern, text, timeout=REGEX_TIMEOUT_SECONDS))
+        _regex_call(
+            pattern,
+            lambda: regex.match(pattern, text, timeout=REGEX_TIMEOUT_SECONDS),
+        )
     )
 
 
