@@ -670,7 +670,7 @@ variable "executor_queue" {
 
 variable "executor_deny_same_account_assume_role" {
   type        = bool
-  description = "Deny the executor task role sts:AssumeRole on roles in this deployment's own AWS account, so workflows and external secret stores can assume only roles in other accounts. Set false only for single-account self-hosted installs whose AWS integration roles live in this account; false lets every workspace user assume any role in this account whose trust policy names the account root or the executor task role (see the Executor AWS role assumption section of deployments/fargate/README.md)."
+  description = "Deny the executor task role sts:AssumeRole on roles in this deployment's own AWS account, so workflows and external secret stores can assume only roles in other accounts. Set false only for single-account self-hosted installs whose AWS integration roles live in this account; false lets every workspace user assume any role in this account whose trust policy names the account root or the executor task role and doesn't require a different ExternalId (see the Executor AWS role assumption section of deployments/fargate/README.md)."
   default     = true
 }
 
