@@ -35,6 +35,13 @@ definition:
       type: str
       description: Microsoft Graph API version.
       default: "v1.0"
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -56,6 +63,6 @@ definition:
         url: ${{ inputs.base_url }}/${{ inputs.api_version }}/groups/${{ FN.url_encode(inputs.group_id) }}
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.get_group.result.data }}

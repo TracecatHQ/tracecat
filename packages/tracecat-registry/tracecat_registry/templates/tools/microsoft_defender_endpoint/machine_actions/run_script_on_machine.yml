@@ -34,6 +34,13 @@ definition:
       type: str | None
       description: Comment describing the Live Response action.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: build_payload
       action: core.script.run_python
@@ -62,7 +69,7 @@ definition:
         url: ${{ inputs.base_url }}/api/machines/${{ FN.url_encode(inputs.machine_id) }}/runliveresponse
         method: POST
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
           Content-Type: application/json
         payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.run_script.result.data }}

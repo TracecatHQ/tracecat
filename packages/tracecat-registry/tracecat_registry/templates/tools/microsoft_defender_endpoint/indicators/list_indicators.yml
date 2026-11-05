@@ -36,6 +36,13 @@ definition:
       type: str | None
       description: OData skip token to continue pagination.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -63,6 +70,6 @@ definition:
         url: ${{ inputs.base_url }}/api/indicators
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_USER_TOKEN || SECRETS.microsoft_defender_endpoint_oauth.MICROSOFT_DEFENDER_ENDPOINT_SERVICE_TOKEN }}
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_indicators.result.data }}

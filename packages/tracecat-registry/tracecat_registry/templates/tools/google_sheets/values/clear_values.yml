@@ -29,6 +29,13 @@ definition:
     range:
       type: str
       description: The A1 notation or R1C1 notation of the values to clear.
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: clear_values
       action: tools.google_api.call_api
@@ -37,7 +44,7 @@ definition:
         version: v4
         resource: spreadsheets.values
         method_name: clear
-        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/spreadsheets"]
         params:
           spreadsheetId: ${{ inputs.spreadsheet_id }}

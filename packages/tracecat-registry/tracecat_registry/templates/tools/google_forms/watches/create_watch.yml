@@ -45,6 +45,13 @@ definition:
         not specified, an ID is generated. This value should be 4-63 characters, and valid
         characters are /[a-z][0-9]-/.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -73,7 +80,7 @@ definition:
         version: v1
         resource: forms.watches
         method_name: create
-        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN }}
         # A watch must be authorized with read access to the data it notifies on:
         # forms.body.readonly for SCHEMA events, forms.responses.readonly for RESPONSES.
         scopes:

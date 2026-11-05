@@ -28,6 +28,13 @@ definition:
     watch_id:
       type: str
       description: Required. The ID of the Watch to renew.
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: renew_watch
       action: tools.google_api.call_api
@@ -36,7 +43,7 @@ definition:
         version: v1
         resource: forms.watches
         method_name: renew
-        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_forms_oauth.GOOGLE_FORMS_USER_TOKEN || SECRETS.google_forms_oauth.GOOGLE_FORMS_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/forms.body.readonly"]
         params:
           formId: ${{ inputs.form_id }}

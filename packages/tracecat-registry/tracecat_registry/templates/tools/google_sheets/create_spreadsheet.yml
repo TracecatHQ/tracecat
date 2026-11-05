@@ -27,6 +27,13 @@ definition:
       type: list[str] | None
       description: Optional list of sheet titles to create.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: build_payload
       action: core.script.run_python
@@ -49,7 +56,7 @@ definition:
         version: v4
         resource: spreadsheets
         method_name: create
-        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/spreadsheets"]
         params: ${{ steps.build_payload.result }}
   returns: ${{ steps.create_spreadsheet.result }}
