@@ -53,11 +53,14 @@ from tracecat.agent.backends.registry import (
 )
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
+    AgentControlRejected,
     SessionCleanup,
     SessionDeleteContext,
     SessionForkContext,
     SessionHistoryAdapter,
+    SessionTurnActiveError,
     SessionTurnContext,
+    TurnAlreadyStarted,
 )
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.control.schemas import (
@@ -92,7 +95,15 @@ from tracecat.agent.session.results import (
     DecisionRecorded,
     DecisionRejected,
     DecisionResult,
+    MessageResult,
+    RunAlreadyFinished,
+    RunBusy,
     RunRef,
+    RunStarted,
+    RunSteered,
+    RunStopping,
+    RunSuperseded,
+    StopResult,
 )
 from tracecat.agent.session.schemas import (
     AgentPendingMessageRead,
@@ -188,6 +199,26 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
     }
 )
 _background_tasks: set[asyncio.Task[None]] = set()
+# Admission checks per message: tombstoned attempts plus lost start races.
+_MESSAGE_ADMISSION_TRIES = 5
+
+
+def _require_parent_session(agent_session: AgentSession) -> None:
+    # Only the parent's runtime executes a spawned child; a direct turn would
+    # target a harness binding it does not own.
+    if agent_session.spawned_by_session_id is not None:
+        raise ValueError(
+            "Subagent sessions are read-only; message the parent session instead"
+        )
+
+
+def message_run_id(session_id: uuid.UUID, request_id: str, attempt: int) -> uuid.UUID:
+    """The run a message input starts: stable across retries of ``request_id``.
+
+    Attempt 0 is the input's own run; a later attempt replaces a tombstoned one.
+    """
+    run_id = uuid.uuid5(session_id, request_id)
+    return run_id if attempt == 0 else uuid.uuid5(run_id, f"attempt:{attempt}")
 
 
 async def _auto_title_session(
@@ -287,6 +318,10 @@ class StreamResumeState:
     curr_run_id: uuid.UUID | None
     active_stream_id: uuid.UUID | None
     has_live_stream: bool
+
+
+class SessionAwaitingApprovalsError(ValueError):
+    """A new message arrived while the session waits for approval decisions."""
 
 
 def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
@@ -1893,6 +1928,43 @@ class AgentSessionService(BaseWorkspaceService):
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
 
+        run_id = uuid.uuid4()
+        await self._start_new_turn(
+            agent_session,
+            user_prompt=user_prompt,
+            request_instructions=request_instructions,
+            page_context=page_context,
+            is_first_prompt=is_first_prompt,
+            run_id=run_id,
+            # Per-turn stream id: use the HTTP-minted id when provided, else mint
+            # one. Pinned into the workflow input so the worker producer writes to
+            # the same per-turn Redis key the reader joins (immune to the
+            # stale-turn overwrite race).
+            stream_id=active_stream_id or uuid.uuid4(),
+        )
+
+        # Return ChatResponse with session_id for streaming. Surface run_id so the
+        # HTTP layer builds the stable bubble id from the value we just minted
+        # rather than re-reading curr_run_id, which finalize_turn may clear before
+        # the post-run refresh on a fast turn.
+        stream_url = f"/api/agent/sessions/{session_id}/stream"
+        return ChatResponse(
+            stream_url=stream_url, chat_id=session_id, curr_run_id=run_id
+        )
+
+    async def _start_new_turn(
+        self,
+        agent_session: AgentSession,
+        *,
+        user_prompt: str | None,
+        request_instructions: str | None,
+        page_context: ChatPageContext | None,
+        is_first_prompt: bool | None,
+        run_id: uuid.UUID,
+        stream_id: uuid.UUID,
+    ) -> None:
+        """Build the turn's config and start it as ``run_id`` on a validated session."""
+        session_id = agent_session.id
         # Titling eligibility must be decided before the workflow spawns: the
         # executor streams history rows mid-turn, so checking afterwards would
         # race. Placeholder titles ("Chat 1", "Slack thread", ...) vary by
@@ -1921,13 +1993,6 @@ class AgentSessionService(BaseWorkspaceService):
                         if part
                     ),
                 )
-            run_id = uuid.uuid4()
-            # Per-turn stream id: use the HTTP-minted id when provided, else mint
-            # one. Pinned into the workflow input so the worker producer writes to
-            # the same per-turn Redis key the reader joins (immune to the
-            # stale-turn overwrite race).
-            stream_id = active_stream_id or uuid.uuid4()
-
             backend = get_agent_backend(
                 agent_session.backend_id, harness_type=agent_session.harness_type
             )
@@ -1958,15 +2023,6 @@ class AgentSessionService(BaseWorkspaceService):
                 task.add_done_callback(
                     partial(_finalize_auto_title_task, session_id=session_id)
                 )
-
-        # Return ChatResponse with session_id for streaming. Surface run_id so the
-        # HTTP layer builds the stable bubble id from the value we just minted
-        # rather than re-reading curr_run_id, which finalize_turn may clear before
-        # the post-run refresh on a fast turn.
-        stream_url = f"/api/agent/sessions/{session_id}/stream"
-        return ChatResponse(
-            stream_url=stream_url, chat_id=session_id, curr_run_id=run_id
-        )
 
     async def get_turn_lifecycle(
         self, agent_session: AgentSession
@@ -2049,13 +2105,7 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session = await self.get_session(session_id)
         if not agent_session:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        # Only the parent's runtime executes a spawned child; a direct turn would
-        # target a harness binding it does not own.
-        if agent_session.spawned_by_session_id is not None:
-            raise ValueError(
-                "Subagent sessions are read-only; message the parent session instead"
-            )
-
+        _require_parent_session(agent_session)
         get_agent_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type
         )
@@ -2070,31 +2120,39 @@ class AgentSessionService(BaseWorkspaceService):
                     )
                 return agent_session
             case VercelChatRequest() | BasicChatRequest():
-                if await self.has_pending_approvals(session_id):
-                    raise ValueError(
-                        "This session is waiting for approval decisions. "
-                        "Submit all pending approvals before sending another message."
-                    )
-                # Only a caller-owned preparation clears the reservation
-                # marker; a direct dispatch keeps it until the turn ends.
-                # Refusing an adopted preparation would strand its committed
-                # pointers: no workflow ever starts, so recovery cannot
-                # release them.
-                adopts_prepared_turn = (
-                    resume_prepared_turn
-                    and agent_session.curr_run_id is not None
-                    and agent_session.reserved_run_id is None
+                await self._admit_message(
+                    agent_session, resume_prepared_turn=resume_prepared_turn
                 )
-                if not adopts_prepared_turn:
-                    await require_session_backend_entitlement(
-                        self.session,
-                        self.organization_id,
-                        agent_session.backend_id,
-                        entity_type=AgentSessionEntity(agent_session.entity_type),
-                    )
                 return agent_session
             case _:
                 raise ValueError(f"Unsupported request type: {type(request)}")
+
+    async def _admit_message(
+        self, agent_session: AgentSession, *, resume_prepared_turn: bool = False
+    ) -> None:
+        """Assert a new message may start a turn on this session."""
+        if await self.has_pending_approvals(agent_session.id):
+            raise SessionAwaitingApprovalsError(
+                "This session is waiting for approval decisions. "
+                "Submit all pending approvals before sending another message."
+            )
+        # Only a caller-owned preparation clears the reservation
+        # marker; a direct dispatch keeps it until the turn ends.
+        # Refusing an adopted preparation would strand its committed
+        # pointers: no workflow ever starts, so recovery cannot
+        # release them.
+        adopts_prepared_turn = (
+            resume_prepared_turn
+            and agent_session.curr_run_id is not None
+            and agent_session.reserved_run_id is None
+        )
+        if not adopts_prepared_turn:
+            await require_session_backend_entitlement(
+                self.session,
+                self.organization_id,
+                agent_session.backend_id,
+                entity_type=AgentSessionEntity(agent_session.entity_type),
+            )
 
     @staticmethod
     def _continuation_decisions(
@@ -2202,6 +2260,115 @@ class AgentSessionService(BaseWorkspaceService):
             else None,
         )
 
+    async def send_message(
+        self,
+        session_id: uuid.UUID,
+        *,
+        text: str,
+        request_id: str,
+    ) -> MessageResult:
+        """Start a run for the message, or steer or refuse it while one is going.
+
+        A retry of the same ``request_id`` returns the run the first attempt
+        started, as already accepted, and re-issues a start whose outcome was
+        lost. Recovery may tombstone that lost start; the retry then starts the
+        next attempt's run.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            SessionAwaitingApprovalsError: If the session waits for approvals.
+            EntitlementRequired: If the session's backend is no longer entitled.
+            SessionDispatchUncertain: If the start's outcome is unknown; retrying
+                the message is safe.
+            TracecatConflictError: If no attempt could be admitted.
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_parent_session(agent_session)
+        backend = get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
+        admitted = False
+        attempt = 0
+        for _ in range(_MESSAGE_ADMISSION_TRIES):
+            run_id = message_run_id(session_id, request_id, attempt)
+            # Checked before admission: an accepted retry is never refused.
+            match await backend.turn_start_state(run_id):
+                case "started":
+                    return RunStarted(run_id=run_id)
+                case "tombstoned":
+                    attempt += 1
+                    continue
+                case "missing":
+                    pass
+            if not admitted:
+                await self._admit_message(agent_session)
+                admitted = True
+                # Spares building the config when the lock would refuse anyway. Our
+                # own reservation's ID was just read as missing, so it is not running.
+                curr_run_id = agent_session.curr_run_id
+                if curr_run_id is not None and curr_run_id != run_id:
+                    lifecycle, _ = await self.get_turn_lifecycle(agent_session)
+                    if lifecycle is TurnLifecycle.RUNNING:
+                        return await self._steer_or_busy(
+                            backend, curr_run_id, run_id, text
+                        )
+            try:
+                await self._start_new_turn(
+                    agent_session,
+                    user_prompt=text,
+                    request_instructions=None,
+                    page_context=None,
+                    is_first_prompt=None,
+                    run_id=run_id,
+                    stream_id=uuid.uuid4(),
+                )
+                return RunStarted(run_id=run_id)
+            except SessionTurnActiveError as e:
+                return await self._steer_or_busy(backend, e.run_id, run_id, text)
+            except TurnAlreadyStarted:
+                continue  # Re-read who holds the ID.
+        raise TracecatConflictError(
+            f"Could not admit message {request_id} to session {session_id}"
+        )
+
+    @staticmethod
+    async def _steer_or_busy(
+        backend: AgentBackend[Any, Any],
+        curr_run_id: uuid.UUID,
+        steer_id: uuid.UUID,
+        text: str,
+    ) -> MessageResult:
+        """Steer a running turn with the message, or report it busy."""
+        if not backend.steering:
+            return RunBusy(run_id=curr_run_id)
+        try:
+            # The message's run id doubles as its steer id, deduplicated per session.
+            steered = await backend.steer(curr_run_id, steer_id, text)
+        except AgentControlRejected:
+            steered = False
+        return (
+            RunSteered(run_id=curr_run_id) if steered else RunBusy(run_id=curr_run_id)
+        )
+
+    async def stop_run(self, session_id: uuid.UUID, *, run_id: uuid.UUID) -> StopResult:
+        """Stop ``run_id`` if it is still the session's current run, never a newer one.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            AgentControlUncertain: If the cancel's outcome is unknown; retrying is
+                safe.
+        """
+        agent_session = await self._controlled_session(session_id)
+        curr_run_id = agent_session.curr_run_id
+        if curr_run_id is not None and curr_run_id != run_id:
+            return RunSuperseded(current_run_id=curr_run_id)
+        lifecycle, cancelled_run_id = await self._cancel_if_running(agent_session)
+        if lifecycle is not TurnLifecycle.RUNNING or cancelled_run_id is None:
+            return RunAlreadyFinished(run_id=run_id)
+        return RunStopping(run_id=cancelled_run_id)
+
     async def list_pending(self, session_id: uuid.UUID) -> AgentSessionPendingRead:
         """List the session's user messages the model has not read, in send order.
 
@@ -2249,6 +2416,25 @@ class AgentSessionService(BaseWorkspaceService):
             TracecatNotFoundError: If no session exists with this ID.
             TracecatConflictError: If the session has no active (RUNNING) turn.
         """
+        agent_session = await self._controlled_session(session_id)
+        lifecycle, curr_run_id = await self._cancel_if_running(agent_session)
+        if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"lifecycle": lifecycle.value},
+            )
+        return AgentSessionCancelResponse(
+            session_id=session_id,
+            run_id=curr_run_id,
+            reason=reason,
+        )
+
+    async def _controlled_session(self, session_id: uuid.UUID) -> AgentSession:
+        """The session a control targets, once the caller may control it.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+        """
         agent_session = await self.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
@@ -2258,23 +2444,18 @@ class AgentSessionService(BaseWorkspaceService):
             is AgentSessionEntity.WORKSPACE_CHAT
         ):
             await self.require_entitlement(Entitlement.WORKSPACE_CHAT)
+        return agent_session
 
-        lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
-        if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
-            raise TracecatConflictError(
-                "Agent session does not have an active turn",
-                detail={"lifecycle": lifecycle.value},
-            )
-
-        await get_agent_backend(
-            agent_session.backend_id, harness_type=agent_session.harness_type
-        ).cancel(curr_run_id)
-
-        return AgentSessionCancelResponse(
-            session_id=session_id,
-            run_id=curr_run_id,
-            reason=reason,
-        )
+    async def _cancel_if_running(
+        self, agent_session: AgentSession
+    ) -> TurnLifecycleResult:
+        """Cancel the session's turn if it is running; return the lifecycle seen."""
+        result = await self.get_turn_lifecycle(agent_session)
+        if result.lifecycle is TurnLifecycle.RUNNING and result.run_id is not None:
+            await get_agent_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
+            ).cancel(result.run_id)
+        return result
 
     async def control(
         self, session_id: uuid.UUID, request: AgentControlRequest
@@ -2352,16 +2533,7 @@ class AgentSessionService(BaseWorkspaceService):
             TracecatConflictError: If the backend is unavailable or lacks the
                 control, or the session has no running turn.
         """
-        agent_session = await self.get_session(session_id)
-        if agent_session is None:
-            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-
-        if (
-            AgentSessionEntity(agent_session.entity_type)
-            is AgentSessionEntity.WORKSPACE_CHAT
-        ):
-            await self.require_entitlement(Entitlement.WORKSPACE_CHAT)
-
+        agent_session = await self._controlled_session(session_id)
         try:
             backend = get_agent_backend(
                 agent_session.backend_id, harness_type=agent_session.harness_type

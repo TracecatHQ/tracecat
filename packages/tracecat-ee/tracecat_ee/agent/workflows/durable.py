@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
         WorkflowCancelRequest as WorkflowCancelRequest,
     )
     from tracecat.agent.channel_publisher import (
+        TURN_STARTED_PUBLISH_BUDGET,
         RunUpdate,
         TurnFinished,
         publish_budget,
@@ -1405,7 +1406,7 @@ class DurableAgentWorkflow:
                     else None
                 ),
             ),
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(seconds=30) + TURN_STARTED_PUBLISH_BUDGET,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not create_result.success:
