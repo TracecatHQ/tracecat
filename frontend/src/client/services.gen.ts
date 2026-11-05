@@ -151,6 +151,18 @@ import type {
   AdminUpdateTargetResponse,
   AdminUpdateTierData,
   AdminUpdateTierResponse,
+  AgentChannelBotsCreateBotData,
+  AgentChannelBotsCreateBotResponse,
+  AgentChannelBotsDisconnectBotData,
+  AgentChannelBotsDisconnectBotResponse,
+  AgentChannelBotsListBotsData,
+  AgentChannelBotsListBotsResponse,
+  AgentChannelBotsRotateBotEndpointData,
+  AgentChannelBotsRotateBotEndpointResponse,
+  AgentChannelBotsStartSlackBotOauthData,
+  AgentChannelBotsStartSlackBotOauthResponse,
+  AgentChannelBotsUpdateBotData,
+  AgentChannelBotsUpdateBotResponse,
   AgentChannelsCreateChannelTokenData,
   AgentChannelsCreateChannelTokenResponse,
   AgentChannelsDeleteChannelTokenData,
@@ -6669,6 +6681,159 @@ export const agentChannelsStartSlackOauth = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/agent/channels/tokens/slack/oauth/start",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Bots
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.agentPresetId
+ * @param data.provider
+ * @returns AgentChannelBotRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListBots = (
+  data: AgentChannelBotsListBotsData
+): CancelablePromise<AgentChannelBotsListBotsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      agent_preset_id: data.agentPresetId,
+      provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Bot
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelBotRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsCreateBot = (
+  data: AgentChannelBotsCreateBotData
+): CancelablePromise<AgentChannelBotsCreateBotResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/channel-bots",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Bot
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelBotRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsUpdateBot = (
+  data: AgentChannelBotsUpdateBotData
+): CancelablePromise<AgentChannelBotsUpdateBotResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Rotate Bot Endpoint
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @returns AgentChannelBotRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsRotateBotEndpoint = (
+  data: AgentChannelBotsRotateBotEndpointData
+): CancelablePromise<AgentChannelBotsRotateBotEndpointResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/rotate",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disconnect Bot
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @returns AgentChannelBotRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsDisconnectBot = (
+  data: AgentChannelBotsDisconnectBotData
+): CancelablePromise<AgentChannelBotsDisconnectBotResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/disconnect",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Start Slack Bot Oauth
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SlackBotOAuthStartResponse Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsStartSlackBotOauth = (
+  data: AgentChannelBotsStartSlackBotOauthData
+): CancelablePromise<AgentChannelBotsStartSlackBotOauthResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/slack/oauth/start",
     path: {
       workspace_id: data.workspaceId,
     },

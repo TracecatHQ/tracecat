@@ -462,6 +462,56 @@ export type AgentCatalogRead = {
 }
 
 /**
+ * Reserve a bot and its endpoint URL before the provider app exists.
+ */
+export type AgentChannelBotCreate = {
+  agent_preset_id: string
+  provider?: ChannelBotProvider
+}
+
+/**
+ * A bot with its install metadata. Secrets are reported only as present or not.
+ */
+export type AgentChannelBotRead = {
+  id: string
+  workspace_id: string
+  agent_preset_id: string
+  provider: ChannelBotProvider
+  status: ChannelBotStatus
+  provider_tenant_id: string | null
+  provider_enterprise_id: string | null
+  provider_app_id: string | null
+  provider_bot_user_id: string | null
+  granted_scopes: Array<string>
+  /**
+   * Required scopes the install did not grant; reinstall to add them.
+   */
+  missing_scopes: Array<string>
+  update_needed: boolean
+  manifest_version: number
+  client_id: string | null
+  has_bot_token: boolean
+  has_signing_secret: boolean
+  has_client_secret: boolean
+  endpoint_url: string
+  oauth_redirect_url: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Retarget, pause or resume, or replace credentials.
+ */
+export type AgentChannelBotUpdate = {
+  /**
+   * New target. Existing threads stay on the agent they started with.
+   */
+  agent_preset_id?: string | null
+  status?: ChannelBotRunState | null
+  credentials?: SlackBotCredentialsUpdate | null
+}
+
+/**
  * Request schema for creating an external channel token.
  */
 export type AgentChannelTokenCreate = {
@@ -3483,6 +3533,19 @@ export type CatalogMappingSelection = {
   source_catalog_id: string
   target_catalog_id: string
 }
+
+export type ChannelBotProvider = "slack"
+
+/**
+ * The statuses an admin sets directly; the others follow install and uninstall.
+ */
+export type ChannelBotRunState = "active" | "paused"
+
+export type ChannelBotStatus =
+  | "active"
+  | "paused"
+  | "disconnected"
+  | "needs_reconnect"
 
 /**
  * Supported external channel types.
@@ -10988,6 +11051,37 @@ export type SkillVersionReadMinimal = {
 }
 
 /**
+ * Slack app credentials to replace; unset fields keep their stored value.
+ *
+ * No bot token: only OAuth sets one, together with the install it belongs to.
+ */
+export type SlackBotCredentialsUpdate = {
+  signing_secret?: string | null
+  client_id?: string | null
+  client_secret?: string | null
+}
+
+/**
+ * Start installing a customer-owned Slack app over OAuth.
+ */
+export type SlackBotOAuthStartRequest = {
+  /**
+   * Bot to install into. If omitted, creates one.
+   */
+  bot_id?: string | null
+  agent_preset_id: string
+  client_id: string
+  client_secret: string
+  signing_secret: string
+  return_url: string
+}
+
+export type SlackBotOAuthStartResponse = {
+  authorization_url: string
+  bot: AgentChannelBotRead
+}
+
+/**
  * Slack channel token configuration.
  */
 export type SlackChannelTokenConfig = {
@@ -16194,6 +16288,51 @@ export type AgentChannelsStartSlackOauthData = {
 }
 
 export type AgentChannelsStartSlackOauthResponse = SlackOAuthStartResponse
+
+export type AgentChannelBotsListBotsData = {
+  agentPresetId?: string | null
+  provider?: ChannelBotProvider | null
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotsResponse = Array<AgentChannelBotRead>
+
+export type AgentChannelBotsCreateBotData = {
+  requestBody: AgentChannelBotCreate
+  workspaceId: string
+}
+
+export type AgentChannelBotsCreateBotResponse = AgentChannelBotRead
+
+export type AgentChannelBotsUpdateBotData = {
+  botId: string
+  requestBody: AgentChannelBotUpdate
+  workspaceId: string
+}
+
+export type AgentChannelBotsUpdateBotResponse = AgentChannelBotRead
+
+export type AgentChannelBotsRotateBotEndpointData = {
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsRotateBotEndpointResponse = AgentChannelBotRead
+
+export type AgentChannelBotsDisconnectBotData = {
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsDisconnectBotResponse = AgentChannelBotRead
+
+export type AgentChannelBotsStartSlackBotOauthData = {
+  requestBody: SlackBotOAuthStartRequest
+  workspaceId: string
+}
+
+export type AgentChannelBotsStartSlackBotOauthResponse =
+  SlackBotOAuthStartResponse
 
 export type AgentPresetsListAgentPresetsData = {
   useInChat?: boolean | null
@@ -22961,6 +23100,94 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SlackOAuthStartResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots": {
+    get: {
+      req: AgentChannelBotsListBotsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentChannelBotRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentChannelBotsCreateBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentChannelBotRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}": {
+    patch: {
+      req: AgentChannelBotsUpdateBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelBotRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/rotate": {
+    post: {
+      req: AgentChannelBotsRotateBotEndpointData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelBotRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/disconnect": {
+    post: {
+      req: AgentChannelBotsDisconnectBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelBotRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/slack/oauth/start": {
+    post: {
+      req: AgentChannelBotsStartSlackBotOauthData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackBotOAuthStartResponse
         /**
          * Validation Error
          */
