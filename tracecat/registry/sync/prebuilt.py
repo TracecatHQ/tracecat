@@ -8,11 +8,14 @@ from pydantic import ValidationError
 
 from tracecat import config
 from tracecat.logger import logger
-from tracecat.registry.artifact_keys import get_artifact_s3_prefix
+from tracecat.registry.artifact_keys import (
+    REGISTRY_MANIFEST_FILENAME,
+    get_artifact_s3_prefix,
+)
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
-PREBUILT_MANIFEST_FILENAME = "manifest.json"
+PREBUILT_MANIFEST_FILENAME = REGISTRY_MANIFEST_FILENAME
 
 
 def _prebuilt_root() -> Path:

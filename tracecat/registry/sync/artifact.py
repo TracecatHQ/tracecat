@@ -26,6 +26,8 @@ import tracecat_registry
 
 from tracecat import config
 from tracecat.logger import logger
+from tracecat.registry.artifact_keys import get_artifact_manifest_key, parse_s3_uri
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
@@ -680,6 +682,46 @@ async def upload_squashfs_venv(
         size=squashfs_path.stat().st_size,
     )
     return s3_uri
+
+
+async def upload_registry_manifest(
+    manifest: RegistryVersionManifest,
+    *,
+    artifact_uri: str,
+) -> str:
+    """Upload a registry version manifest beside its execution artifact.
+
+    Args:
+        manifest: Manifest of the actions discovered for the artifact.
+        artifact_uri: S3 URI of the uploaded execution artifact.
+
+    Returns:
+        S3 URI of the uploaded manifest.
+    """
+    bucket, artifact_key = parse_s3_uri(artifact_uri)
+    key = get_artifact_manifest_key(artifact_key)
+    content = manifest.model_dump_json().encode()
+    await blob.upload_file(
+        content=content,
+        key=key,
+        bucket=bucket,
+        content_type="application/json",
+    )
+    s3_uri = f"s3://{bucket}/{key}"
+    logger.info(
+        "Registry manifest uploaded",
+        s3_uri=s3_uri,
+        num_actions=len(manifest.actions),
+        size=len(content),
+    )
+    return s3_uri
+
+
+async def download_registry_manifest(manifest_uri: str) -> RegistryVersionManifest:
+    """Download and parse a registry version manifest from S3/MinIO."""
+    bucket, key = parse_s3_uri(manifest_uri)
+    content = await blob.download_file(key=key, bucket=bucket)
+    return RegistryVersionManifest.model_validate_json(content)
 
 
 async def download_tarball_venv(

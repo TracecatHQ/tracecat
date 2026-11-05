@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -31,6 +32,7 @@ from tracecat.registry.sync.runner import (
     RegistrySyncRunner,
     RegistrySyncRunnerError,
     RegistrySyncValidationError,
+    _ResolvedPackage,
     _SandboxedBackend,
     _UnsandboxedBackend,
 )
@@ -40,6 +42,22 @@ from tracecat.registry.sync.schemas import (
     SyncResultSuccess,
 )
 from tracecat.registry.versions.schemas import RegistryVersionManifest
+
+
+@pytest.fixture(autouse=True)
+def upload_manifest(mocker) -> AsyncMock:
+    """Stub the manifest upload so runner tests never reach object storage."""
+
+    async def fake_upload(
+        manifest: RegistryVersionManifest, *, artifact_uri: str
+    ) -> str:
+        del manifest
+        return artifact_uri.rpartition("/")[0] + "/manifest.json"
+
+    return mocker.patch(
+        "tracecat.registry.sync.runner.upload_registry_manifest",
+        side_effect=fake_upload,
+    )
 
 
 def _make_artifact_result(tmp_path: Path) -> RegistryArtifactBuildResult:
@@ -673,6 +691,7 @@ async def test_runner_uses_prebuilt_manifest_or_falls_back_to_discovery(
     tmp_path,
     mocker,
     monkeypatch: pytest.MonkeyPatch,
+    upload_manifest: AsyncMock,
     prebuilt: str,
 ) -> None:
     monkeypatch.setattr(
@@ -746,11 +765,70 @@ async def test_runner_uses_prebuilt_manifest_or_falls_back_to_discovery(
     result = await runner.run(request)
 
     assert result.tarball_uri.endswith("/site-packages.squashfs")
+    assert result.action_count == 1
     build_artifact.assert_awaited_once()
     upload_squashfs.assert_awaited_once()
+    upload_manifest.assert_awaited_once()
+    uploaded = upload_manifest.await_args
+    assert uploaded is not None
+    assert uploaded.kwargs["artifact_uri"] == result.artifact_uri
+    uploaded_manifest: RegistryVersionManifest = uploaded.args[0]
+    uploaded_titles = [
+        action.default_title for action in uploaded_manifest.actions.values()
+    ]
     if prebuilt == "valid":
-        assert [action.default_title for action in result.actions] == ["Prebuilt title"]
+        assert uploaded_titles == ["Prebuilt title"]
         discover_actions.assert_not_awaited()
     else:
-        assert result.actions == fallback_actions
+        assert uploaded_manifest == RegistryVersionManifest.from_actions(
+            fallback_actions
+        )
         discover_actions.assert_awaited_once_with(request, None)
+
+
+@pytest.mark.anyio
+async def test_sync_result_size_does_not_grow_with_action_count(
+    tmp_path,
+    mocker,
+    upload_manifest: AsyncMock,
+) -> None:
+    """Actions go to the stored manifest, so workflow history stays small."""
+    runner = RegistrySyncRunner()
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(
+            return_value="s3://registry/org/tarball-venvs/repo/sha/site-packages.squashfs"
+        ),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        origin_type="builtin",
+    )
+
+    async def finalize(action_count: int) -> str:
+        actions = [
+            _make_action(request.repository_id, f"Action {i}").model_copy(
+                update={"name": f"action_{i}"}
+            )
+            for i in range(action_count)
+        ]
+        result = await runner._finalize_sync(
+            request=request,
+            resolved=_ResolvedPackage(tmp_path, "sha"),
+            discovery=SyncResultSuccess(actions=actions),
+            artifact_result=_make_artifact_result(tmp_path),
+        )
+        assert result.action_count == action_count
+        uploaded = upload_manifest.await_args
+        assert uploaded is not None
+        assert len(uploaded.args[0].actions) == action_count
+        return result.model_dump_json()
+
+    small = await finalize(1)
+    large = await finalize(500)
+
+    # Only the digits of action_count differ between the two payloads.
+    assert len(large) - len(small) == len("500") - len("1")
+    assert "Action 0" not in large

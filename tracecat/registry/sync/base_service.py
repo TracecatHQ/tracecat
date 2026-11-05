@@ -35,6 +35,7 @@ from tracecat.registry.sync.artifact import (
     build_artifact_from_git,
     build_artifact_from_path,
     build_builtin_registry_artifact,
+    download_registry_manifest,
     upload_squashfs_venv,
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
@@ -767,22 +768,24 @@ class BaseRegistrySyncService[
                 f"Registry sync workflow failed: {exc}"
             ) from exc
 
-        actions = workflow_result.actions
         self._raise_if_validation_errors(workflow_result.validation_errors)
         artifact_uri = workflow_result.artifact_uri
         commit_sha = workflow_result.commit_sha
 
-        if not actions:
-            raise self._sync_error_cls()(f"No actions found in repository {origin}")
-
         self.logger.info(
             "Workflow completed, processing results",
-            num_actions=len(actions),
+            num_actions=workflow_result.action_count,
             artifact_uri=artifact_uri,
+            manifest_uri=workflow_result.manifest_uri,
             commit_sha=commit_sha,
         )
 
-        manifest = RegistryVersionManifest.from_actions(actions)
+        # The workflow result carries only URIs; read the actions from storage.
+        manifest = await download_registry_manifest(workflow_result.manifest_uri)
+        actions = manifest.to_action_creates(repository_id=repo_id, origin=origin)
+        if not actions:
+            raise self._sync_error_cls()(f"No actions found in repository {origin}")
+
         await self._reject_shadowed_platform_actions(origin=origin, manifest=manifest)
 
         if target_version is None:

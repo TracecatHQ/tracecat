@@ -398,7 +398,7 @@ async def test_registry_sync_workflow_bounds_activity_retries(
 
     async def fake_execute_activity(*_args: Any, **kwargs: Any) -> Any:
         captured.update(kwargs)
-        return SimpleNamespace(actions=[], artifact_uri=None)
+        return SimpleNamespace(action_count=0, artifact_uri=None)
 
     monkeypatch.setattr(
         "tracecat.registry.sync.workflow.workflow.execute_activity",

@@ -39,6 +39,7 @@ from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
+from tracecat.registry.sync.schemas import RegistrySyncResult
 from tracecat.registry.sync.service import (
     RegistryActionShadowsBuiltinError,
     RegistrySyncError,
@@ -566,6 +567,71 @@ async def test_platform_builtin_sync_can_create_pending_version(
 
     assert result.version.version == "1.2.3"
     assert repo.current_version_id is None
+
+
+@pytest.mark.anyio
+async def test_sync_via_temporal_reads_actions_from_stored_manifest(
+    session: AsyncSession,
+    mock_org_id: uuid.UUID,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The workflow result carries URIs only; actions come from the manifest."""
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", True)
+
+    session.add(
+        Organization(
+            id=mock_org_id,
+            name="Sync Test Org",
+            slug=f"sync-test-{mock_org_id.hex[:8]}",
+            is_active=True,
+        )
+    )
+    await session.flush()
+
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+    repos_service = RegistryReposService(session, role)
+    repo = await repos_service.create_repository(
+        RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
+    )
+    actions = [_make_action(repository_id=repo.id, default_title="Stored title")]
+    manifest = RegistryVersionManifest.from_actions(actions)
+    artifact_uri = (
+        "s3://registry/org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs"
+    )
+    manifest_uri = "s3://registry/org/tarball-venvs/tracecat_registry/v1/manifest.json"
+
+    mock_client = mocker.Mock()
+    mock_client.execute_workflow = mocker.AsyncMock(
+        return_value=RegistrySyncResult(
+            artifact_uri=artifact_uri,
+            manifest_uri=manifest_uri,
+            action_count=len(actions),
+        )
+    )
+    mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(return_value=mock_client),
+    )
+    download_manifest = mocker.patch(
+        "tracecat.registry.sync.base_service.download_registry_manifest",
+        mocker.AsyncMock(return_value=manifest),
+    )
+
+    result = await RegistrySyncService(session, role).sync_repository_v2(
+        repo, commit=False
+    )
+
+    download_manifest.assert_awaited_once_with(manifest_uri)
+    assert result.artifact_uri == artifact_uri
+    assert result.actions == actions
+    assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest
 
 
 @pytest.mark.anyio

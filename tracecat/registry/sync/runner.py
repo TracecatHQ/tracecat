@@ -43,6 +43,7 @@ from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildResult,
     build_artifact_from_path,
     get_builtin_registry_source_path,
+    upload_registry_manifest,
     upload_squashfs_venv,
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
@@ -53,6 +54,7 @@ from tracecat.registry.sync.schemas import (
     SyncResultSuccess,
 )
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
 
@@ -184,7 +186,7 @@ class RegistrySyncRunner:
             request: Sync request with repository details.
 
         Returns:
-            RegistrySyncResult with discovered actions and artifact URI.
+            RegistrySyncResult with the artifact and manifest URIs.
 
         Raises:
             RegistrySyncRunnerError: If any phase fails.
@@ -427,9 +429,14 @@ class RegistrySyncRunner:
             storage_namespace=request.storage_namespace,
         )
         logger.info("Registry artifact uploaded", artifact_uri=artifact_uri)
-        return RegistrySyncResult(
-            actions=discovery.actions,
+        manifest_uri = await upload_registry_manifest(
+            RegistryVersionManifest.from_actions(discovery.actions),
             artifact_uri=artifact_uri,
+        )
+        return RegistrySyncResult(
+            artifact_uri=artifact_uri,
+            manifest_uri=manifest_uri,
+            action_count=len(discovery.actions),
             commit_sha=resolved.commit_sha,
             validation_errors=discovery.validation_errors,
         )

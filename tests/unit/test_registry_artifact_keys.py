@@ -8,6 +8,7 @@ import pytest
 
 from tracecat.registry.artifact_keys import (
     get_artifact_local_dir,
+    get_artifact_manifest_key,
     get_artifact_s3_key,
     get_artifact_s3_prefix,
     get_squashfs_artifact_key,
@@ -96,3 +97,16 @@ def test_get_artifact_local_dir_matches_s3_prefix() -> None:
         version="1.0.0",
     )
     assert local_dir == Path("/prebuilt/platform/tarball-venvs/tracecat_registry/1.0.0")
+
+
+def test_get_artifact_manifest_key_sits_beside_artifact() -> None:
+    base = "platform/tarball-venvs/test/1.0.0"
+    assert (
+        get_artifact_manifest_key(f"{base}/site-packages.squashfs")
+        == f"{base}/manifest.json"
+    )
+    assert (
+        get_artifact_manifest_key(f"{base}/site-packages.tar.gz")
+        == f"{base}/manifest.json"
+    )
+    assert get_artifact_manifest_key("site-packages.squashfs") == "manifest.json"

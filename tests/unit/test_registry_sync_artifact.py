@@ -10,6 +10,7 @@ import pytest
 
 from tracecat.registry.sync import artifact
 from tracecat.registry.sync.artifact import upload_squashfs_venv
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 
 @pytest.mark.anyio
@@ -354,6 +355,63 @@ async def test_build_artifact_from_installed_environment_skips_unrelated_symlink
 
     assert result.squashfs_path == squashfs_path
     assert result.squashfs_path.exists()
+
+
+@pytest.mark.anyio
+async def test_registry_manifest_round_trips_beside_artifact(mocker) -> None:
+    """The API reads back exactly the manifest the worker stored."""
+    stored: dict[tuple[str, str], bytes] = {}
+
+    async def fake_upload_file(
+        content: bytes, key: str, bucket: str, content_type: str | None = None
+    ) -> None:
+        assert content_type == "application/json"
+        stored[(bucket, key)] = content
+
+    async def fake_download_file(key: str, bucket: str) -> bytes:
+        return stored[(bucket, key)]
+
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.upload_file",
+        side_effect=fake_upload_file,
+    )
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.download_file",
+        side_effect=fake_download_file,
+    )
+    manifest = RegistryVersionManifest.model_validate(
+        {
+            "actions": {
+                "core.transform.reshape": {
+                    "namespace": "core.transform",
+                    "name": "reshape",
+                    "action_type": "udf",
+                    "description": "Reshape",
+                    "interface": {"expects": {}, "returns": {}},
+                    "implementation": {
+                        "type": "udf",
+                        "url": "tracecat_registry",
+                        "module": "tracecat_registry.core.transform",
+                        "name": "reshape",
+                    },
+                }
+            }
+        }
+    )
+
+    manifest_uri = await artifact.upload_registry_manifest(
+        manifest,
+        artifact_uri=(
+            "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
+            "site-packages.squashfs"
+        ),
+    )
+
+    assert manifest_uri == (
+        "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
+        "manifest.json"
+    )
+    assert await artifact.download_registry_manifest(manifest_uri) == manifest
 
 
 @pytest.mark.anyio

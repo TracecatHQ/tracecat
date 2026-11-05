@@ -17,8 +17,10 @@ Architecture:
          │                                     ├─ Package install (nsjail)
          │                                     ├─ Action discovery (nsjail, NO network)
          │                                     ├─ Build execution artifact → upload to S3
-         │  ◄── RegistrySyncResult ────────────┤
+         │                                     ├─ Upload action manifest → S3
+         │  ◄── RegistrySyncResult (URIs) ─────┤
          │                                     │
+         ├─ Read manifest from S3              │
          ├─ Create RegistryVersion             │
          └─ Populate RegistryIndex             │
 """
@@ -86,7 +88,7 @@ class RegistrySyncWorkflow:
             request: Sync request containing repository details and SSH credentials.
 
         Returns:
-            RegistrySyncResult with discovered actions and artifact URI.
+            RegistrySyncResult with the artifact and manifest URIs.
         """
         workflow.logger.info(
             "Starting RegistrySyncWorkflow",
@@ -115,7 +117,7 @@ class RegistrySyncWorkflow:
         workflow.logger.info(
             "RegistrySyncWorkflow completed",
             repository_id=str(request.repository_id),
-            num_actions=len(result.actions),
+            num_actions=result.action_count,
             artifact_uri=result.artifact_uri,
         )
 
@@ -208,7 +210,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
         request: Sync request containing repository details.
 
     Returns:
-        RegistrySyncResult with discovered actions and artifact URI.
+        RegistrySyncResult with the artifact and manifest URIs.
 
     Raises:
         ApplicationError: If sync fails at any phase.
@@ -254,7 +256,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     logger.info(
         "sync_registry_activity completed",
         repository_id=str(request.repository_id),
-        num_actions=len(result.actions),
+        num_actions=result.action_count,
         artifact_uri=result.artifact_uri,
         commit_sha=result.commit_sha,
     )

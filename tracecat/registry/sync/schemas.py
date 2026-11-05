@@ -150,7 +150,9 @@ class RegistrySyncResult(BaseModel):
     """Result from sandboxed registry sync workflow.
 
     Returned from the ExecutorWorker to the API service via Temporal.
-    Contains discovered actions and artifact location for DB operations.
+    Carries object storage locations, not the actions themselves: the action
+    list grows with the repository, and every byte here lands in workflow
+    history. The API reads the actions from the manifest at ``manifest_uri``.
     """
 
     model_config = ConfigDict(
@@ -159,16 +161,17 @@ class RegistrySyncResult(BaseModel):
         validate_by_name=True,
     )
 
-    actions: list[RegistryActionCreate] = Field(
-        default_factory=list,
-        description="List of discovered registry actions",
-    )
     artifact_uri: str = Field(
         ...,
         validation_alias=AliasChoices("artifact_uri", "tarball_uri"),
         serialization_alias="tarball_uri",
         description="S3 URI of the uploaded execution artifact",
     )
+    manifest_uri: str = Field(
+        ...,
+        description="S3 URI of the registry version manifest beside the artifact",
+    )
+    action_count: int = Field(..., ge=0, description="Number of discovered actions")
     commit_sha: str | None = Field(
         default=None,
         description="Resolved commit SHA (None for builtin/local repos)",
