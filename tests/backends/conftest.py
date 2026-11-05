@@ -27,9 +27,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from sqlalchemy import Table, text
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from sqlalchemy.pool import NullPool
+from sqlalchemy.schema import CreateTable
 
+from tests.database import TEST_DB_CONFIG
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.db.models import AgentSession, AgentSessionHistory
 from tracecat.dsl.schemas import ExecutionContext
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -451,3 +457,25 @@ async def ephemeral_backend() -> AsyncIterator[ExecutorBackend]:
         yield backend
     finally:
         await backend.shutdown()
+
+
+@pytest.fixture
+async def connection() -> AsyncIterator[AsyncConnection]:
+    """A connection with temporary agent session tables, for dispatch tests."""
+    engine = create_async_engine(TEST_DB_CONFIG.sys_url, poolclass=NullPool)
+    try:
+        async with engine.connect() as connection:
+            # Temporary ORM-shaped tables isolate every test from app data.
+            # Workspace/user foreign keys are irrelevant to dispatch atomicity.
+            for table in (AgentSession.__table__, AgentSessionHistory.__table__):
+                assert isinstance(table, Table)
+                ddl = str(
+                    CreateTable(table, include_foreign_key_constraints=[]).compile(
+                        dialect=engine.dialect
+                    )
+                ).replace("CREATE TABLE", "CREATE TEMPORARY TABLE", 1)
+                await connection.execute(text(ddl))
+            await connection.commit()
+            yield connection
+    finally:
+        await engine.dispose()

@@ -15,6 +15,7 @@ from tracecat.agent.channel_publisher import (
     ChannelPublishRetryAfter,
     RunUpdate,
     TurnFinished,
+    TurnStarted,
     approval_batch_id,
     get_channel_publisher,
     is_channel_linked,
@@ -35,6 +36,7 @@ ROLE = Role(
 
 TURN_FINISHED = TurnFinished(session_id=SESSION_ID, run_id=RUN_ID)
 UPDATES: list[RunUpdate] = [
+    TurnStarted(session_id=SESSION_ID, run_id=RUN_ID),
     TURN_FINISHED,
     ApprovalPending(session_id=SESSION_ID, run_id=RUN_ID, batch_id=BATCH_ID),
     ApprovalDecided(session_id=SESSION_ID, batch_id=BATCH_ID, pending_ref="ref-1"),
@@ -197,14 +199,13 @@ class _HangingPublisher(_RecordingPublisher):
 
 
 @pytest.mark.anyio
-async def test_a_hanging_provider_is_cut_off_at_the_budget(
-    installed, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_hanging_provider_is_cut_off_at_the_budget(installed) -> None:
     installed(_EntryPoint("example", _HangingPublisher))
-    monkeypatch.setattr(channel_publisher, "PUBLISH_BUDGET", timedelta(milliseconds=50))
 
     async with asyncio.timeout(1):
-        refs = await publish_updates(ROLE, [TURN_FINISHED, TURN_FINISHED])
+        refs = await publish_updates(
+            ROLE, [TURN_FINISHED, TURN_FINISHED], budget=timedelta(milliseconds=50)
+        )
 
     assert refs == [None, None]
 

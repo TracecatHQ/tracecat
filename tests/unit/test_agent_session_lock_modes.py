@@ -298,7 +298,7 @@ async def test_start_turn_admission_lock_admits_runtime_history_write(
             )
 
     async def write_while_admitted(
-        self: DefaultBackend, context: SessionTurnContext, client: object
+        self: DefaultBackend, context: SessionTurnContext, client: object, **_: object
     ) -> None:
         await write()
         # One active turn per session still holds: a second admission waits.
