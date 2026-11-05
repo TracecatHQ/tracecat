@@ -794,6 +794,9 @@ class BaseRegistrySyncService[
         actions = manifest.to_action_creates(repository_id=repo_id, origin=origin)
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")
+        # Rebuild so every manifest key is derived from its action, as the
+        # shadowed-action check reads keys while the index reads values.
+        manifest = RegistryVersionManifest.from_actions(actions)
 
         await self._reject_shadowed_platform_actions(origin=origin, manifest=manifest)
 

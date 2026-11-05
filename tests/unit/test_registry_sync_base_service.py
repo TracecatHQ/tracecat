@@ -602,6 +602,10 @@ async def test_sync_via_temporal_reads_actions_from_stored_manifest(
     )
     actions = [_make_action(repository_id=repo.id, default_title="Stored title")]
     manifest = RegistryVersionManifest.from_actions(actions)
+    # The stored manifest's key disagrees with its action; the API must re-derive it.
+    stored_manifest = RegistryVersionManifest(
+        actions={"tools.mismatch.key": manifest.actions["core.transform.reshape"]}
+    )
     artifact_uri = (
         "s3://registry/org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs"
     )
@@ -622,7 +626,7 @@ async def test_sync_via_temporal_reads_actions_from_stored_manifest(
     )
     download_manifest = mocker.patch(
         "tracecat.registry.sync.base_service.download_registry_manifest",
-        mocker.AsyncMock(return_value=manifest),
+        mocker.AsyncMock(return_value=stored_manifest),
     )
 
     result = await RegistrySyncService(session, role).sync_repository_v2(
