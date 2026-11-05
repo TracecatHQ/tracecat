@@ -63,6 +63,13 @@ definition:
         `nextPageToken` from the preceding response. Keep every other request field identical when
         retrieving the next page.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: list_log_entries
       action: tools.google_api.call_api
@@ -71,7 +78,7 @@ definition:
         version: v2
         resource: entries
         method_name: list
-        access_token: ${{ SECRETS.google_cloud_logging_oauth.GOOGLE_CLOUD_LOGGING_USER_TOKEN || SECRETS.google_cloud_logging_oauth.GOOGLE_CLOUD_LOGGING_SERVICE_TOKEN || SECRETS.google_oauth.GOOGLE_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_cloud_logging_oauth.GOOGLE_CLOUD_LOGGING_USER_TOKEN if inputs.auth_mode == "delegated" else (SECRETS.google_cloud_logging_oauth.GOOGLE_CLOUD_LOGGING_SERVICE_TOKEN || SECRETS.google_oauth.GOOGLE_SERVICE_TOKEN) if inputs.auth_mode == "application" else SECRETS.google_cloud_logging_oauth.GOOGLE_CLOUD_LOGGING_USER_TOKEN || SECRETS.google_cloud_logging_oauth.GOOGLE_CLOUD_LOGGING_SERVICE_TOKEN || SECRETS.google_oauth.GOOGLE_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/logging.read"]
         params:
           body:

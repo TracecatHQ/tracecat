@@ -62,6 +62,13 @@ definition:
         activities are consolidated using the legacy strategy). See
         https://developers.google.com/workspace/drive/activity/v2/reference/rest/v2/activity/query#ConsolidationStrategy
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: build_body
       action: core.script.run_python
@@ -98,7 +105,7 @@ definition:
         version: v2
         resource: activity
         method_name: query
-        access_token: ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/drive.activity.readonly"]
         params:
           body: ${{ steps.build_body.result }}

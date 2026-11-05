@@ -36,6 +36,13 @@ definition:
         full field list. Most-used fields: `primaryEmail`, `name.givenName`, `name.familyName`,
         `password`, `changePasswordAtNextLogin`, `orgUnitPath`, `suspended`. This method is
         unable to clear fields that contain repeated objects (`addresses`, `phones`, etc).
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: >-
+        OAuth connection to use. `delegated` uses the user token, `application`
+        uses the service token, and `auto` uses whichever is connected, trying
+        delegated first, then application.
+      default: auto
   steps:
     - ref: patch_user
       action: tools.google_api.call_api
@@ -44,7 +51,7 @@ definition:
         version: directory_v1
         resource: users
         method_name: patch
-        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/admin.directory.user"]
         params:
           userKey: ${{ inputs.user_key }}
