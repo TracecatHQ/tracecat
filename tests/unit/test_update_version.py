@@ -163,6 +163,8 @@ def test_only_tracecat_version_fields_change(checkout: Path) -> None:
         "deployments/fargate/modules/linked/variables.tf",
     ]
     subprocess.run(["git", "add", "--", *tracked], cwd=checkout, check=True)
+    # Forced color would wrap discovered paths in ANSI escapes.
+    subprocess.run(["git", "config", "color.ui", "always"], cwd=checkout, check=True)
 
     result = update(checkout, "1.4.0-alpha.4")
 

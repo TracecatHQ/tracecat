@@ -184,7 +184,7 @@ BUG_REPORT_FILE=".github/ISSUE_TEMPLATE/bug_report.md"
 # unrelated strings such as Terraform required_version.
 while IFS= read -r -d '' file; do
     FILES+=("$file")
-done < <(git grep -lz 'variable "tracecat_image_tag"' -- ':(glob)deployments/**/*.tf')
+done < <(git grep --no-color -lz 'variable "tracecat_image_tag"' -- ':(glob)deployments/**/*.tf')
 
 run_sed_in_place() {
     local expression=$1
