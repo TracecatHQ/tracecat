@@ -11,16 +11,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tests._route_utils import EffectiveRoute, iter_effective_api_routes
-from tracecat import config
 from tracecat.api.app import app as api_app
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired
 from tracecat.executor.action_gateway.app import create_app as create_gateway_app
-from tracecat.forms.dependencies import check_forms_enabled
 from tracecat.forms.enums import FormErrorCode, FormFieldErrorCode
 from tracecat.forms.exceptions import FormError, form_error_handler
 from tracecat.forms.schemas import FormFieldError
-from tracecat.tiers import defaults as tier_defaults
 
 GATEWAY_APP = create_gateway_app()
 
@@ -92,24 +88,6 @@ async def test_every_forms_route_needs_the_entitlement(
 
     assert response.status_code == 403
     assert response.json()["type"] == "EntitlementRequired"
-
-
-@pytest.mark.anyio
-async def test_legacy_forms_token_turns_on_the_entitlement(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """On a single-tenant deployment, ``forms`` in the legacy flags grants it."""
-    role = Role(type="user", organization_id=uuid.uuid4(), service_id="tracecat-api")
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
-
-    for flags, allowed in (("forms", True), ("git-sync", False)):
-        entitlements = tier_defaults.resolve_oss_default_entitlements(flags)
-        monkeypatch.setattr(tier_defaults, "DEFAULT_ENTITLEMENTS", entitlements)
-        if allowed:
-            await check_forms_enabled(AsyncMock(), role)
-        else:
-            with pytest.raises(EntitlementRequired):
-                await check_forms_enabled(AsyncMock(), role)
 
 
 @pytest.mark.anyio

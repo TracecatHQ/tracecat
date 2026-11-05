@@ -63,10 +63,10 @@ def test_resolve_oss_default_entitlements_maps_legacy_agent_channels_flag() -> N
     assert entitlements.agent_addons is False
 
 
-def test_resolve_oss_default_entitlements_maps_forms_flag() -> None:
+def test_resolve_oss_default_entitlements_ignores_forms_flag() -> None:
     entitlements = resolve_oss_default_entitlements("git-sync, forms")
 
-    assert entitlements.forms is True
+    assert entitlements.forms is False
     assert entitlements.semantic_search is False
 
 
