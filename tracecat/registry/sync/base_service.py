@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
 import aiofiles
-from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 from temporalio.client import WorkflowFailureError
@@ -19,7 +18,7 @@ from temporalio.client import WorkflowFailureError
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionValidationErrorInfo,
@@ -789,10 +788,13 @@ class BaseRegistrySyncService[
                 manifest_sha256=workflow_result.manifest_sha256,
             )
             actions = manifest.to_action_creates(repository_id=repo_id, origin=origin)
+        # ValueError covers pydantic's ValidationError and a malformed artifact URI;
+        # template validators raise TracecatValidationError directly.
         except (
             FileNotFoundError,
             RegistryManifestIntegrityError,
-            ValidationError,
+            TracecatValidationError,
+            ValueError,
         ) as exc:
             raise self._sync_error_cls()(
                 f"Failed to read registry manifest for repository {origin}: {exc}"

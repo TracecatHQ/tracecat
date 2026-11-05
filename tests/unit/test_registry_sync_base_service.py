@@ -20,7 +20,7 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     RegistryRepository,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionOptions,
@@ -642,12 +642,17 @@ async def test_sync_via_temporal_reads_actions_from_stored_manifest(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure",
+    ["empty_implementation", "template_validation", "bad_artifact_uri"],
+)
 async def test_sync_via_temporal_reports_unconvertible_manifest_as_sync_error(
     mock_org_id: uuid.UUID,
     mocker,
     monkeypatch: pytest.MonkeyPatch,
+    failure: str,
 ) -> None:
-    """A manifest that parses but can't become actions fails the sync, not the request."""
+    """A manifest that can't be read or turned into actions fails the sync, not the request."""
     monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", True)
     role = Role(
         type="service",
@@ -679,7 +684,7 @@ async def test_sync_via_temporal_reports_unconvertible_manifest_as_sync_error(
         "tracecat.dsl.client.get_temporal_client",
         mocker.AsyncMock(return_value=mock_client),
     )
-    mocker.patch(
+    download_manifest = mocker.patch(
         "tracecat.registry.sync.base_service.download_registry_manifest",
         mocker.AsyncMock(
             return_value=RegistryVersionManifest(
@@ -687,6 +692,16 @@ async def test_sync_via_temporal_reports_unconvertible_manifest_as_sync_error(
             )
         ),
     )
+    if failure == "template_validation":
+        mocker.patch.object(
+            RegistryVersionManifest,
+            "to_action_creates",
+            side_effect=TracecatValidationError(
+                "Template action must have at least 1 step"
+            ),
+        )
+    elif failure == "bad_artifact_uri":
+        download_manifest.side_effect = ValueError("Invalid S3 URI: not-s3")
 
     sync_service = RegistrySyncService(mocker.Mock(spec=AsyncSession), role)
 
