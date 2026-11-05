@@ -35,10 +35,7 @@ definition:
       default: https://management.azure.com
     auth_mode:
       type: enum["auto", "delegated", "application"]
-      description: >-
-        OAuth connection to use. `delegated` uses the user token, `application`
-        uses the service token, and `auto` uses whichever is connected, trying
-        delegated first, then application.
+      description: OAuth connection to use. Defaults to whichever is connected.
       default: auto
   steps:
     - ref: list_rules
