@@ -4,9 +4,10 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
+    from tracecat.agent.error_policy import agent_backend_turn_failed
     from tracecat.agent.schemas import AgentOutput
     from tracecat.agent.session.activities import (
         LoadSessionMessagesInput,
@@ -21,6 +22,7 @@ with workflow.unsafe.imports_passed_through():
         WorkflowAgentTurnInput,
     )
     from tracecat.dsl.common import RETRY_POLICIES
+    from tracecat.temporal.errors import raise_application_error_from_classification
 
 
 @workflow.defn
@@ -91,7 +93,9 @@ class WorkflowAgentTurnWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
         if read.error is not None:
-            raise ApplicationError(read.error, non_retryable=True)
+            raise_application_error_from_classification(
+                agent_backend_turn_failed(read.error)
+            )
         return AgentOutput(
             output=read.output,
             message_history=message_history,

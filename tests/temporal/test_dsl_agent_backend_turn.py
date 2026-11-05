@@ -22,6 +22,7 @@ from temporalio.client import (
     WorkflowFailureError,
 )
 from temporalio.common import Priority, RetryPolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.worker import Worker
 
@@ -248,6 +249,12 @@ async def test_agent_action_runs_on_the_sessions_installed_backend(
                 await handle.result()
             description = await parent.describe()
             assert description.status == WorkflowExecutionStatus.FAILED
+            # The run view shows the backend's reason, not a generic failure.
+            with pytest.raises(WorkflowFailureError) as failure:
+                await parent.result()
+            cause = failure.value.cause
+            assert isinstance(cause, ApplicationError)
+            assert cause.message == "Agent execution failed: The tool call was denied"
             return
         result = await handle.result()
         memo = await (await parent.describe()).memo()

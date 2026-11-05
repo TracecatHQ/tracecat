@@ -303,6 +303,22 @@ def user_agent_execution_failed(
     )
 
 
+def agent_backend_turn_failed(error: str) -> RuntimeErrorClassification:
+    """Classify a turn the configured agent backend reported as failed.
+
+    The message keeps a redacted, bounded copy of the backend's reason so a run
+    view shows why the action failed.
+    """
+    message = "Agent execution failed"
+    if safe_detail := _unclassified_detail(None, error):
+        message = f"{message}: {safe_detail}"
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_EXECUTION_FAILED,
+        message=message,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_provider_rejected_request(
     *,
     status_code: int,
