@@ -64,6 +64,73 @@ _CONNECTION_OVERRIDE_VARS = frozenset(
 # contain pattern syntax (`,`, `:`, `!`, `&`, `*`, `~`) that could widen it.
 _HOST_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
+# Play, block, and task keywords that move execution off the validated
+# inventory host (including onto the controller) or load variables from files
+# that cannot be inspected before the run.
+_DISALLOWED_PLAYBOOK_KEYWORDS = frozenset(
+    {
+        "add_host",
+        "connection",
+        "delegate_to",
+        "group_by",
+        "include_vars",
+        "local_action",
+        "vars_files",
+    }
+)
+_TASK_LIST_KEYS = ("tasks", "pre_tasks", "post_tasks", "handlers")
+_BLOCK_KEYS = ("block", "rescue", "always")
+
+
+def _find_connection_overrides(value: Any) -> set[str]:
+    """Return connection-override variable names used as keys anywhere in value."""
+    found: set[str] = set()
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if isinstance(key, str) and key.lower() in _CONNECTION_OVERRIDE_VARS:
+                    found.add(key)
+                stack.append(child)
+        elif isinstance(item, list):
+            stack.extend(item)
+    return found
+
+
+def _find_disallowed_keywords(playbook: list[dict[str, Any]]) -> set[str]:
+    """Return disallowed keywords used on plays, blocks, or tasks."""
+    found: set[str] = set()
+    stack: list[Any] = list(playbook)
+    while stack:
+        item = stack.pop()
+        if not isinstance(item, dict):
+            continue
+        for key in item:
+            # Match both `add_host` and `ansible.builtin.add_host`.
+            if isinstance(key, str) and key.rsplit(".", 1)[-1] in (
+                _DISALLOWED_PLAYBOOK_KEYWORDS
+            ):
+                found.add(key)
+        for key in (*_TASK_LIST_KEYS, *_BLOCK_KEYS):
+            if isinstance(children := item.get(key), list):
+                stack.extend(children)
+    return found
+
+
+def _validate_playbook(playbook: list[dict[str, Any]]) -> None:
+    if overrides := _find_connection_overrides(playbook):
+        raise ValueError(
+            "playbook cannot override connection settings: "
+            f"{', '.join(sorted(overrides))}."
+        )
+    if keywords := _find_disallowed_keywords(playbook):
+        raise ValueError(
+            "playbook cannot change where tasks run or load variable files: "
+            f"{', '.join(sorted(keywords))}."
+        )
+
+
 _FAILURE_EVENTS = frozenset({"runner_on_failed", "runner_on_unreachable"})
 
 
@@ -93,7 +160,10 @@ def _raise_for_playbook_failure(
         reason = f"finished with status {status!r} (rc={rc})"
     elif not (stats or {}).get("processed"):
         # e.g. `hosts: localhost`, which the inventory limit excludes.
-        reason = "did not run on any host; check the play's `hosts` pattern"
+        reason = (
+            "did not run on any host. Use `hosts: all`; `localhost` refers to "
+            "the Tracecat worker and is excluded"
+        )
     elif pattern := find_error_pattern(error_patterns, [stdout]):
         reason = f"output matched error pattern {pattern!r}"
     else:
@@ -118,7 +188,16 @@ def _raise_for_playbook_failure(
 )
 def run_playbook(
     playbook: Annotated[
-        list[dict[str, Any]], Field(..., description="List of plays to run")
+        list[dict[str, Any]],
+        Field(
+            ...,
+            description=(
+                "List of plays to run. Plays run only on the inventory host, so use "
+                "`hosts: all`. Connection variables (e.g. `ansible_host`) and the "
+                "`connection`, `delegate_to`, `local_action`, `add_host`, "
+                "`group_by`, `include_vars`, and `vars_files` keywords are rejected."
+            ),
+        ),
     ],
     host: Annotated[
         str,
@@ -207,6 +286,7 @@ def run_playbook(
             f"Unsupported runner_kwargs: {', '.join(disallowed)}. "
             f"Allowed keys: {', '.join(sorted(ALLOWED_RUNNER_KWARGS))}."
         )
+    _validate_playbook(playbook)
     if overrides := sorted(
         key for key in extravars if key.lower() in _CONNECTION_OVERRIDE_VARS
     ):

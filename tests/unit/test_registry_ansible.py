@@ -112,7 +112,7 @@ def test_raises_on_unreachable_host(mock_run: MagicMock) -> None:
 def test_raises_when_no_hosts_matched(mock_run: MagicMock) -> None:
     mock_run.return_value = _runner(stats={"processed": {}})
 
-    with pytest.raises(TracecatException, match="did not run on any host"):
+    with pytest.raises(TracecatException, match="Use `hosts: all`"):
         _run_playbook(raise_on_failure=True)
 
 
@@ -195,3 +195,86 @@ def test_rejects_denied_target(
         _run_playbook(host=host)
 
     mock_run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "playbook",
+    [
+        [{"hosts": "all", "vars": {"ansible_host": "127.0.0.1"}, "tasks": []}],
+        [
+            {
+                "hosts": "all",
+                "tasks": [{"set_fact": {"ansible_ssh_common_args": "-o X"}}],
+            }
+        ],
+        [
+            {
+                "hosts": "all",
+                "tasks": [
+                    {
+                        "block": [
+                            {
+                                "command": "id",
+                                "vars": {"ANSIBLE_CONNECTION": "local"},
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    ],
+)
+def test_rejects_connection_overrides_in_playbook(
+    mock_run: MagicMock, playbook: list[dict[str, Any]]
+) -> None:
+    with pytest.raises(ValueError, match="cannot override connection"):
+        _run_playbook(playbook=playbook)
+
+    mock_run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "play",
+    [
+        {"hosts": "all", "connection": "local", "tasks": []},
+        {"hosts": "all", "vars_files": ["x.yml"], "tasks": []},
+        {"hosts": "all", "tasks": [{"command": "id", "delegate_to": "localhost"}]},
+        {"hosts": "all", "tasks": [{"local_action": "command id"}]},
+        {"hosts": "all", "tasks": [{"ansible.builtin.add_host": {"name": "x"}}]},
+        {"hosts": "all", "tasks": [{"include_vars": "x.yml"}]},
+        {
+            "hosts": "all",
+            "handlers": [
+                {"block": [{"command": "id", "connection": "local"}]},
+            ],
+        },
+        {
+            "hosts": "all",
+            "pre_tasks": [
+                {"block": [], "rescue": [{"group_by": {"key": "x"}}]},
+            ],
+        },
+    ],
+)
+def test_rejects_execution_redirect_keywords(
+    mock_run: MagicMock, play: dict[str, Any]
+) -> None:
+    with pytest.raises(ValueError, match="cannot change where tasks run"):
+        _run_playbook(playbook=[play])
+
+    mock_run.assert_not_called()
+
+
+def test_allows_keyword_names_as_module_data(mock_run: MagicMock) -> None:
+    playbook = [
+        {
+            "hosts": "all",
+            "tasks": [
+                {"uri": {"url": "https://example.com", "body": {"connection": "x"}}}
+            ],
+        }
+    ]
+
+    _run_playbook(playbook=playbook)
+
+    mock_run.assert_called_once()
