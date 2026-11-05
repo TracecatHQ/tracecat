@@ -128,8 +128,6 @@ def _installed_backend_activities(
         input: LoadSessionMessagesInput,
     ) -> LoadSessionMessagesResult:
         assert prepared and input.session_id == prepared[0].args.agent_args.session_id
-        # Loaded after the turn released its session, so bounded to its run.
-        assert input.run_id == prepared[0].run_id
         return LoadSessionMessagesResult(messages=[ChatMessage(id="msg-1")])
 
     return [select, prepare, load_messages]

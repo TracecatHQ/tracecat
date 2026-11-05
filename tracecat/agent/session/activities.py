@@ -121,9 +121,6 @@ class LoadSessionMessagesInput(BaseModel):
 
     role: Role
     session_id: uuid.UUID
-    # Set by a caller that loads after its turn released the session: rows
-    # written after this run's last row belong to a later run and are dropped.
-    run_id: uuid.UUID | None = Field(default=None)
 
 
 class LoadSessionMessagesResult(BaseModel):
@@ -365,9 +362,7 @@ async def load_session_messages_activity(
             # Terminal load: this runs before finalize_turn clears curr_run_id,
             # so include the just-completed turn's rows in message_history.
             messages = await service.list_messages(
-                input.session_id,
-                include_active=True,
-                through_run_id=input.run_id,
+                input.session_id, include_active=True
             )
         return LoadSessionMessagesResult(messages=messages)
 

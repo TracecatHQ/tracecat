@@ -65,6 +65,25 @@ class WorkflowAgentTurnWorkflow:
             # turn is not a workflow run, and run listings must never match it,
             # even after its backend is uninstalled.
         )
+        # The session's history, as the built-in workflow returns it: run
+        # views render the finished transcript from it. The built-in workflow
+        # loads it while its run still holds the session; here the backend's
+        # turn has released it, so load it before anything else, leaving
+        # another run the least time to write to the session first. A failed
+        # load leaves the history out.
+        message_history = None
+        try:
+            loaded = await workflow.execute_activity(
+                load_session_messages_activity,
+                LoadSessionMessagesInput(
+                    role=input.args.role, session_id=turn.session_id
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            message_history = loaded.messages
+        except ActivityError as e:
+            workflow.logger.warning("Failed to load workflow agent turn history: %s", e)
         read = await workflow.execute_activity(
             read_workflow_agent_turn_activity,
             ReadWorkflowAgentTurnInput(backend_id=turn.backend_id, result=result),
@@ -73,24 +92,6 @@ class WorkflowAgentTurnWorkflow:
         )
         if read.error is not None:
             raise ApplicationError(read.error, non_retryable=True)
-        # The session's history, as the built-in workflow returns it: run
-        # views render the finished transcript from it. The turn already
-        # succeeded, so a failed load leaves the history out.
-        message_history = None
-        try:
-            loaded = await workflow.execute_activity(
-                load_session_messages_activity,
-                LoadSessionMessagesInput(
-                    role=input.args.role,
-                    session_id=turn.session_id,
-                    run_id=turn.run_id,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-            message_history = loaded.messages
-        except ActivityError as e:
-            workflow.logger.warning("Failed to load workflow agent turn history: %s", e)
         return AgentOutput(
             output=read.output,
             message_history=message_history,
