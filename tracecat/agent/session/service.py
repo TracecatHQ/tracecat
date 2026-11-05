@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import hashlib
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
@@ -579,7 +579,10 @@ class AgentSessionService(BaseWorkspaceService):
             )
             args = args.model_copy(update={"backend_id": backend_id})
         await require_backend_entitlement(
-            self.session, self.organization_id, args.backend_id
+            self.session,
+            self.organization_id,
+            args.backend_id,
+            entity_type=args.entity_type,
         )
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
         if args.spawned_by_session_id is not None:
@@ -2102,6 +2105,10 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         prompt: str,
+        *,
+        config: AgentConfig | None = None,
+        caller_run_id: uuid.UUID | None = None,
+        holder_ended: Callable[[AgentSession], Awaitable[bool]] | None = None,
     ) -> PreparedAgentTurn:
         """Prepare a new turn for a caller-owned Temporal workflow.
 
@@ -2109,7 +2116,48 @@ class AgentSessionService(BaseWorkspaceService):
         same session configuration and persists the run pointers, but leaves
         child-workflow execution to the caller. Reusing persisted pointers makes
         an activity retry after commit return the same workflow identity.
+
+        Args:
+            session_id: The session to run the turn in.
+            prompt: The user prompt for the turn.
+            config: The turn's agent configuration, for callers that own it,
+                such as workflow agent actions. Built from the session when
+                omitted.
+            caller_run_id: The run ID this caller reserves, for callers that
+                do not serialize their turns per session, such as workflow
+                agent actions. The session is admitted only while no other
+                run holds it, and a retry adopts this caller's own run. When
+                omitted, the caller serializes its turns and any persisted run
+                is adopted.
+            holder_ended: With ``caller_run_id``, decides whether another run
+                that holds the session has ended for good. Called under the
+                row lock with the locked session; when it returns True, this
+                caller takes the session over.
+
+        Raises:
+            TracecatConflictError: If ``caller_run_id`` is given and another
+                run holds the session.
         """
+        if caller_run_id is not None:
+            # Lock the row until the reservation commits, so concurrent
+            # callers cannot both see the session idle. Refresh any copy
+            # loaded earlier, so this admission and the reservation below
+            # both read the row as locked.
+            locked = await self.session.scalar(
+                select(AgentSession)
+                .where(
+                    AgentSession.id == session_id,
+                    AgentSession.workspace_id == self.workspace_id,
+                )
+                .with_for_update(key_share=True)
+                .execution_options(populate_existing=True)
+            )
+            if locked is not None and locked.curr_run_id not in (None, caller_run_id):
+                if holder_ended is None or not await holder_ended(locked):
+                    raise TracecatConflictError("This chat already has an active turn")
+                # Its run will never release the session, so take it over.
+                locked.curr_run_id = None
+                locked.active_stream_id = None
         agent_session = await self.validate_turn_request(
             session_id,
             BasicChatRequest(message=prompt),
@@ -2123,9 +2171,20 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "This backend does not support caller-owned workflows"
             )
-        async with self._build_agent_config(agent_session) as agent_config:
-            run_id = agent_session.curr_run_id or uuid.uuid4()
-            stream_id = agent_session.active_stream_id or uuid.uuid4()
+        session_config = (
+            contextlib.nullcontext(config)
+            if config is not None
+            else self._build_agent_config(agent_session)
+        )
+        async with session_config as agent_config:
+            run_id = agent_session.curr_run_id or caller_run_id or uuid.uuid4()
+            # Reuse a stream only with the run it belongs to.
+            adopted_stream = (
+                agent_session.active_stream_id
+                if agent_session.curr_run_id is not None
+                else None
+            )
+            stream_id = adopted_stream or uuid.uuid4()
             prepared_turn = PreparedAgentTurn(
                 prompt=prompt,
                 session_id=session_id,
@@ -2424,7 +2483,10 @@ class AgentSessionService(BaseWorkspaceService):
                 )
                 if not adopts_prepared_turn:
                     await require_session_backend_entitlement(
-                        self.session, self.organization_id, agent_session.backend_id
+                        self.session,
+                        self.organization_id,
+                        agent_session.backend_id,
+                        entity_type=AgentSessionEntity(agent_session.entity_type),
                     )
                 return agent_session
             case _:
@@ -2872,7 +2934,10 @@ class AgentSessionService(BaseWorkspaceService):
                 # so it needs the entitlement like a new message. Withdrawing
                 # only takes input back and stays allowed.
                 await require_session_backend_entitlement(
-                    self.session, self.organization_id, agent_session.backend_id
+                    self.session,
+                    self.organization_id,
+                    agent_session.backend_id,
+                    entity_type=AgentSessionEntity(agent_session.entity_type),
                 )
                 supported, feature = backend.steering, "steering"
             case "withdraw":
@@ -3843,8 +3908,14 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
 
+        # An approval fork inherits its source's backend under the preview
+        # entitlement alone; a fork that stays on its source's surface needs
+        # what that surface needs.
         await require_backend_entitlement(
-            self.session, self.organization_id, source.backend_id
+            self.session,
+            self.organization_id,
+            source.backend_id,
+            entity_type=entity_type or AgentSessionEntity(source.entity_type),
         )
         backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 

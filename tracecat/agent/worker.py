@@ -33,6 +33,12 @@ with workflow.unsafe.imports_passed_through():
         resolve_custom_model_provider_config_activity,
     )
     from tracecat.agent.session.activities import get_session_activities
+    from tracecat.agent.workflow_turns.activities import (
+        prepare_workflow_agent_turn_activity,
+        read_workflow_agent_turn_activity,
+        select_workflow_agent_backend_activity,
+    )
+    from tracecat.agent.workflow_turns.workflows import WorkflowAgentTurnWorkflow
     from tracecat.agent.workflows.mcp_probe import (
         StdioMCPProbeWorkflow,
     )
@@ -104,6 +110,9 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(complete_comment_agent_invocation_activity)
     activities.append(fail_comment_agent_invocation_activity)
     activities.append(prepare_comment_agent_invocation_activity)
+    activities.append(prepare_workflow_agent_turn_activity)
+    activities.append(read_workflow_agent_turn_activity)
+    activities.append(select_workflow_agent_backend_activity)
     return activities
 
 
@@ -146,6 +155,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             workflows: list[type] = [
                 DurableAgentWorkflow,
                 CaseCommentAgentInvocationWorkflow,
+                WorkflowAgentTurnWorkflow,
                 ExecuteRegistryToolWorkflow,
                 StdioMCPProbeWorkflow,
             ]

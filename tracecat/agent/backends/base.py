@@ -74,6 +74,42 @@ _START_RPC_TIMEOUT = timedelta(seconds=30)
 _TOMBSTONE_MIN_AGE = _START_RPC_TIMEOUT + timedelta(seconds=5)
 
 
+async def claim_unstarted_workflow_id(client: Client, workflow_id: str) -> bool:
+    """Claim a workflow ID so a delayed start under it can never run.
+
+    Callers start these workflows with ``REJECT_DUPLICATE``, so once any
+    execution holds the ID, a delayed original start is rejected. The
+    tombstone needs no worker and is terminated at once.
+
+    Returns:
+        True only when the tombstone started. False when the original start
+        already holds the ID, or when the tombstone's own start outcome is
+        unknown.
+    """
+    try:
+        tombstone = await client.start_workflow(
+            _TOMBSTONE_WORKFLOW,
+            id=workflow_id,
+            task_queue=_TOMBSTONE_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            execution_timeout=_TOMBSTONE_TIMEOUT,
+            rpc_timeout=timedelta(seconds=5),
+        )
+    except Exception:
+        return False
+    try:
+        await tombstone.terminate(
+            reason="Agent turn could not be started",
+            rpc_timeout=timedelta(seconds=5),
+        )
+    except Exception:
+        # The ID is already claimed; the execution timeout closes the tombstone.
+        logger.warning(
+            "Failed to terminate agent turn tombstone", workflow_id=workflow_id
+        )
+    return True
+
+
 class AgentBackend[InputT, OutputT](ABC):
     """Stateless backend with a typed workflow and a shared dispatch lifecycle.
 
@@ -153,6 +189,10 @@ class AgentBackend[InputT, OutputT](ABC):
         transactions, or dispatch work. Persist turn data in workflow activities
         after execution starts, idempotently across activity retries. The shared
         lifecycle alone commits session ownership before the start RPC.
+
+        The returned input is recorded in Temporal history and, for workflow
+        agent actions, shown to workspace members in the workflow run view.
+        Never put credentials or other secrets in it.
         """
 
     async def start_turn(self, context: SessionTurnContext) -> None:
@@ -307,28 +347,7 @@ class AgentBackend[InputT, OutputT](ABC):
             already holds the ID, so its terminal status releases the turn later,
             or when the tombstone's own start outcome is unknown.
         """
-        try:
-            tombstone = await client.start_workflow(
-                _TOMBSTONE_WORKFLOW,
-                id=self.workflow_id(run_id),
-                task_queue=_TOMBSTONE_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-                execution_timeout=_TOMBSTONE_TIMEOUT,
-                rpc_timeout=timedelta(seconds=5),
-            )
-        except Exception:
-            return False
-        try:
-            await tombstone.terminate(
-                reason="Agent turn could not be started",
-                rpc_timeout=timedelta(seconds=5),
-            )
-        except Exception:
-            # The ID is already claimed; the execution timeout closes the tombstone.
-            logger.warning(
-                "Failed to terminate agent turn tombstone", run_id=str(run_id)
-            )
-        return True
+        return await claim_unstarted_workflow_id(client, self.workflow_id(run_id))
 
     async def _prepare_and_dispatch_turn(
         self, context: SessionTurnContext, client: Client
