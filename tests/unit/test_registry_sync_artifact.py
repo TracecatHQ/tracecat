@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import tarfile
 from pathlib import Path
@@ -457,6 +458,21 @@ async def test_download_registry_manifest_rejects_digest_mismatch(mocker) -> Non
         await artifact.download_registry_manifest(
             artifact_uri="s3://tracecat-registry/org/tarball-venvs/x/v1/site-packages.squashfs",
             manifest_sha256="0" * 64,
+        )
+
+
+@pytest.mark.anyio
+async def test_download_registry_manifest_rejects_malformed_manifest(mocker) -> None:
+    content = b'{"actions": "not-a-mapping"}'
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.download_file",
+        mocker.AsyncMock(return_value=content),
+    )
+
+    with pytest.raises(artifact.RegistryManifestIntegrityError, match="not a valid"):
+        await artifact.download_registry_manifest(
+            artifact_uri="s3://tracecat-registry/org/tarball-venvs/x/v1/site-packages.squashfs",
+            manifest_sha256=hashlib.sha256(content).hexdigest(),
         )
 
 

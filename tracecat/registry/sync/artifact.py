@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 import aiofiles
 import tracecat_registry
+from pydantic import ValidationError
 
 from tracecat import config
 from tracecat.logger import logger
@@ -733,7 +734,8 @@ async def download_registry_manifest(
         manifest_sha256: Digest returned by `upload_registry_manifest`.
 
     Raises:
-        RegistryManifestIntegrityError: If the stored bytes don't match the digest.
+        RegistryManifestIntegrityError: If the stored bytes don't match the digest
+            or aren't a valid manifest.
     """
     bucket, artifact_key = parse_s3_uri(artifact_uri)
     key = get_artifact_manifest_key(artifact_key, manifest_sha256)
@@ -742,7 +744,12 @@ async def download_registry_manifest(
         raise RegistryManifestIntegrityError(
             f"Registry manifest s3://{bucket}/{key} doesn't match its digest"
         )
-    return RegistryVersionManifest.model_validate_json(content)
+    try:
+        return RegistryVersionManifest.model_validate_json(content)
+    except ValidationError as exc:
+        raise RegistryManifestIntegrityError(
+            f"Registry manifest s3://{bucket}/{key} is not a valid manifest"
+        ) from exc
 
 
 async def download_tarball_venv(
