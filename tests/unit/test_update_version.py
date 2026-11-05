@@ -105,52 +105,53 @@ def test_version_bump(
 
 
 def test_only_tracecat_version_fields_change(checkout: Path) -> None:
-    """Only real Tracecat version fields change; other version strings stay put.
+    """Only real Tracecat version pins change; docs and other strings stay put.
 
-    A generic current version such as 1.0.0 also appears in Terraform
-    required_version, third-party package pins, spec URLs, and prose examples.
+    Docs and README examples point at the latest image, and a generic current
+    version such as 1.0.0 also appears in Terraform required_version,
+    third-party package pins, spec URLs, and prose examples.
     """
     seed_versions(checkout, "1.0.0", "1.0.0")
-    old_tag = "1.1.0"  # Image tags can lag the package version.
     decoys = (
+        "export TF_VAR_tracecat_image_tag=1.0.0\n"
+        "export TF_VAR_tracecat_image_tag=1.1.0\n"
         "Spec: https://www.conventionalcommits.org/en/v1.0.0/\n"
         "Example: `1.0.0` and (`>1.0.0-beta.xx`)\n"
         "Run `npx package@1.0.0`.\n"
         "Blob: https://github.com/TracecatHQ/tracecat/blob/1.0.0/file\n"
         "${TRACECAT__IMAGE_TAG:-1.0.0}\n"
     )
+    # "{v}" marks a real pin: seeded with the current version, expected bumped.
     files = {
         ".github/ISSUE_TEMPLATE/bug_report.md": (
-            "- Tracecat version (e.g. `{v}`)\n- Browser version (e.g. `1.0.0`)\n",
-            "1.0.0",
-        ),
-        "deployments/fargate/README.md": (
-            "export TF_VAR_tracecat_image_tag={v}\n" + decoys,
-            old_tag,
+            "- Tracecat version (e.g. `{v}`)\n- Browser version (e.g. `1.0.0`)\n"
         ),
         "deployments/fargate/variables.tf": (
             'variable "tracecat_image_tag" {\n  default = "{v}"\n}\n'
-            'variable "other" {\n  default = "1.0.0"\n}\n' + decoys,
-            "1.0.0",
+            'variable "other" {\n  default = "1.0.0"\n}\n'
+        ),
+        "deployments/fargate/modules/ecs/variables.tf": (
+            'variable "tracecat_image_tag" {\n  type    = string\n  default = "{v}"\n}\n'
         ),
         "deployments/fargate/modules/network/main.tf": (
-            'terraform {\n  required_version = ">= 1.0.0"\n}\n',
-            None,
+            'terraform {\n  required_version = ">= 1.0.0"\n}\n'
         ),
-        "docs/tools/github.mdx": (decoys, None),
-        "CONTRIBUTING.md": (decoys, None),
-        "docker-compose.yml": (decoys, None),
+        "deployments/fargate/README.md": decoys,
+        "docs/self-hosting/aws-fargate.mdx": decoys,
+        "docs/tools/github.mdx": decoys,
+        "CONTRIBUTING.md": decoys,
+        "docker-compose.yml": decoys,
     }
-    for name, (template, current) in files.items():
+    for name, template in files.items():
         path = checkout / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(template.replace("{v}", current or ""))
+        path.write_text(template.replace("{v}", "1.0.0"))
     subprocess.run(["git", "add", "--", *files], cwd=checkout, check=True)
 
     result = update(checkout, "1.4.0-alpha.4")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for name, (template, _) in files.items():
+    for name, template in files.items():
         expected = template.replace("{v}", "1.4.0-alpha.4")
         assert (checkout / name).read_text() == expected, name
 

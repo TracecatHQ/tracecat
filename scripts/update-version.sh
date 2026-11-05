@@ -25,7 +25,6 @@ usage() {
 
 PUBLIC_SUFFIX_PATTERN='(alpha|a|beta|b|rc|dev|post)\.[0-9]+'
 PUBLIC_VERSION_PATTERN="[0-9]+\.[0-9]+\.[0-9]+((-${PUBLIC_SUFFIX_PATTERN}){0,2}|-alpha\.[0-9]+\.[0-9]+)"
-VERSION_SEARCH_PATTERN='[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+(\.[0-9]+)?){0,2}'
 
 to_python_version() {
     local python_version=$1
@@ -177,59 +176,15 @@ FILES=(
 )
 BUG_REPORT_FILE=".github/ISSUE_TEMPLATE/bug_report.md"
 
-append_unique_file() {
-    local candidate=$1
-    local existing
-
-    for existing in "${FILES[@]}"; do
-        if [ "$existing" = "$candidate" ]; then
-            return
-        fi
-    done
-
-    FILES+=("$candidate")
-}
-
-append_matching_files() {
-    local file
-
-    while IFS= read -r file; do
-        [ -n "$file" ] || continue
-        append_unique_file "${file#./}"
-    done
-}
-
-# Candidate files come from the git index rather than a filesystem walk. A walk
-# also descends into untracked paths under the repo root - nested clones of other
-# repositories and extra git worktrees - and rewrites version strings that do not
-# belong to this checkout.
-#
-# Only regular files (mode 100644/100755) qualify. Tracked symlinks such as
-# docs/CLAUDE.md would otherwise match through their target, and sed -i then
-# replaces the link itself with a regular file.
-tracked_candidate_files() {
-    local entry mode path
-
-    git ls-files -s -z -- \
-        ':(glob)**/docker-compose*.yml' \
-        'docs' \
-        'deployments' |
-        while IFS= read -r -d '' entry; do
-            mode="${entry%% *}"
-            path="${entry#*$'\t'}"
-            case "$mode" in
-            100644 | 100755) printf '%s\0' "$path" ;;
-            esac
-        done
-}
-
-# Only files with a Tracecat image tag field qualify. Matching the bare current
-# version would also pick up unrelated strings such as Terraform
-# required_version or third-party package versions.
-append_matching_files < <(
-    tracked_candidate_files | xargs -0 rg -l \
-        "variable \"tracecat_image_tag\"|TF_VAR_tracecat_image_tag=${VERSION_SEARCH_PATTERN}"
-)
+# Add the Terraform files that declare the Tracecat image tag variable. git grep
+# reads tracked files only, so nested clones and extra worktrees under the repo
+# root are skipped, and it matches a tracked symlink by its link text, so sed -i
+# never replaces a link with a regular file. Docs and README examples point at
+# the latest image and are not bumped. Matching the bare current version would
+# also hit unrelated strings such as Terraform required_version.
+while IFS= read -r file; do
+    FILES+=("$file")
+done < <(git grep -l 'variable "tracecat_image_tag"' -- ':(glob)deployments/**/*.tf')
 
 run_sed_in_place() {
     local expression=$1
@@ -291,7 +246,6 @@ update_release_tag_file() {
     escaped_new_version=$(escape_sed_replacement "$NEW_VERSION")
 
     run_sed_in_place '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$escaped_new_version"'"/' "$file" && \
-    run_sed_in_place "s/(TF_VAR_tracecat_image_tag=)${VERSION_SEARCH_PATTERN}/\\1${escaped_new_version}/g" "$file" && \
     echo "✓ Updated $file" || echo "✗ Failed to update $file"
 }
 
