@@ -66,6 +66,10 @@ definition:
         Whether to return results in ascending or descending order. Only of use when orderBy is
         also used. Allowed values are `ASCENDING` and `DESCENDING`.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: list_groups
       action: tools.google_api.call_api
@@ -74,7 +78,7 @@ definition:
         version: directory_v1
         resource: groups
         method_name: list
-        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/admin.directory.group.readonly"]
         params:
           customer: ${{ inputs.customer }}

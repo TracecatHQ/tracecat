@@ -69,6 +69,10 @@ definition:
         The user's email address. The special value `me` can be used to indicate the
         authenticated user.
       default: me
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: build_draft
       action: core.script.run_python
@@ -125,7 +129,7 @@ definition:
         version: v1
         resource: users.drafts
         method_name: create
-        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/gmail.compose"]
         params:
           userId: ${{ inputs.user_id }}

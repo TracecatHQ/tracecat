@@ -132,14 +132,18 @@ export function FormLabelComponent({
     (label || type || description) && (
       <FormLabel className="flex flex-col gap-1 text-xs font-medium">
         <div className="group flex items-center gap-2">
-          {label && <span className="font-semibold capitalize">{label}</span>}
+          {label && (
+            <span className="shrink-0 whitespace-nowrap font-semibold capitalize">
+              {label}
+            </span>
+          )}
           {deprecated && (
             <span className="rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none text-muted-foreground">
               Deprecated
             </span>
           )}
           {type && (
-            <span className="font-mono tracking-tighter text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="min-w-0 truncate font-mono tracking-tighter text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
               {type}
             </span>
           )}

@@ -36,6 +36,10 @@ definition:
       type: enum["https://management.azure.com", "https://management.usgovcloudapi.net"]
       description: Base URL for the Azure Management API.
       default: https://management.azure.com
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: normalize_ids
       action: core.script.run_python
@@ -56,7 +60,7 @@ definition:
         url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/incidents/${{ FN.url_encode(steps.normalize_ids.result.incident_id) }}/comments
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
         params:
           api-version: ${{ inputs.api_version }}
   returns: ${{ steps.list_comments.result.data }}

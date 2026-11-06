@@ -35,6 +35,10 @@ definition:
         The DataFilters used to determine which ranges to clear. Each entry sets exactly one of
         `a1Range`, `gridRange` or `developerMetadataLookup`. See
         https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: batch_clear_values_by_data_filter
       action: tools.google_api.call_api
@@ -43,7 +47,7 @@ definition:
         version: v4
         resource: spreadsheets.values
         method_name: batchClearByDataFilter
-        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/spreadsheets"]
         params:
           spreadsheetId: ${{ inputs.spreadsheet_id }}

@@ -86,6 +86,10 @@ def test_google_template_credential_chain(path: Path) -> None:
         assert oauth_providers == {"google_admin"}
         assert access_token == (
             "${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN"
+            ' if inputs.auth_mode == "delegated"'
+            " else SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN"
+            ' if inputs.auth_mode == "application"'
+            " else SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN"
             " || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}"
         )
     else:

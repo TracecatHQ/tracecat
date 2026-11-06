@@ -38,6 +38,10 @@ definition:
       type: str | None
       description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -58,6 +62,6 @@ definition:
         url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/pipelines
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_pipelines.result }}

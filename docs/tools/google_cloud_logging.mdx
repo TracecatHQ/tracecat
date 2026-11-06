@@ -29,6 +29,16 @@ Names of one or more parent resources from which to retrieve log entries. Suppor
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="filter" type="string | null">
 
 A Logging query-language filter that chooses which log entries to return. An empty filter matches all log entries in `resourceNames`. The maximum filter length is 20,000 characters. To select Admin Activity audit logs, use `log_id("cloudaudit.googleapis.com/activity")`; use the corresponding `data_access`, `system_event`, or `policy` log ID for the other audit-log types. Include a `timestamp` range to improve query performance.

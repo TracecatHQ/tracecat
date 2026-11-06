@@ -39,6 +39,16 @@ Primary Log Analytics workspace ID (GUID).
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string">
 
 Base URL for the Azure Log Analytics API.
@@ -83,6 +93,16 @@ KQL query to execute (e.g., "SecurityIncident | take 10").
 <ParamField path="workspace_id" type="string" required>
 
 Log Analytics workspace ID (GUID).
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 

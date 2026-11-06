@@ -57,6 +57,10 @@ definition:
       type: str | None
       description: Token to specify the next page in the list.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: list_role_assignments
       action: tools.google_api.call_api
@@ -65,7 +69,7 @@ definition:
         version: directory_v1
         resource: roleAssignments
         method_name: list
-        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly"]
         params:
           customer: ${{ inputs.customer }}
