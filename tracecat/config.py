@@ -328,8 +328,8 @@ TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
 TRACECAT__DB_DYNAMIC_OWNER_ROLE = (
-    os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or None
-)
+    os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or ""
+).strip() or None
 """Role that owns new dynamic schemas and tables (``tables_*``, ``custom_fields_*``).
 
 Unset keeps them owned by the connecting role. When set, the connecting role
