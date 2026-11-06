@@ -185,7 +185,10 @@ def _is_readable_choice(
     if path_key in (key, suffixed):
         return True
     counter = path_key.removeprefix(f"{suffixed}-")
-    return counter != path_key and counter.isdigit() and int(counter) >= 2
+    # Only the plain ASCII counters the planner writes: "2", not "02" or "²".
+    if counter == path_key or not (counter.isascii() and counter.isdigit()):
+        return False
+    return str(int(counter)) == counter and int(counter) >= 2
 
 
 def _fold(path: str) -> str:
