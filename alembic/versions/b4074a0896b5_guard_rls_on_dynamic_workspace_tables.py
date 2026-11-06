@@ -300,10 +300,14 @@ FROM (
                         wp.polpermissive
                         AND wp.polcmd = '*'
                         AND wp.polroles = '{{0}}'::oid[]
+                        -- A missing USING or WITH CHECK is NULL, which = would
+                        -- turn into "no problem".
                         AND pg_get_expr(wp.polqual, wp.polrelid)
-                            = '{_WORKSPACE_POLICY_EXPR.replace("'", "''")}'
+                            IS NOT DISTINCT FROM
+                            '{_WORKSPACE_POLICY_EXPR.replace("'", "''")}'
                         AND pg_get_expr(wp.polwithcheck, wp.polrelid)
-                            = '{_WORKSPACE_POLICY_EXPR.replace("'", "''")}')
+                            IS NOT DISTINCT FROM
+                            '{_WORKSPACE_POLICY_EXPR.replace("'", "''")}')
                     THEN 'workspace policy differs from the app''s' END,
                CASE WHEN EXISTS (SELECT 1 FROM pg_policy o
                                  WHERE o.polrelid = w.oid AND o.polpermissive
@@ -356,7 +360,10 @@ def _protect_dynamic_tables() -> None:
 
 
 def _guard_installed() -> bool:
-    """Both triggers are enabled, call the guard, and share its owner."""
+    """Both triggers are enabled and call this revision's guard, with one owner.
+
+    An older or edited body counts as not installed, so it gets replaced.
+    """
     installed = (
         op.get_bind()
         .execute(
@@ -369,12 +376,14 @@ def _guard_installed() -> bool:
               AND t.evtenabled <> 'D'
               AND f.oid = to_regprocedure(:function)
               AND f.proowner = t.evtowner
+              AND f.prosrc = :body
             """
             ),
             {
                 "ddl_trigger": DDL_TRIGGER,
                 "drop_trigger": DROP_TRIGGER,
                 "function": GUARD_FUNCTION,
+                "body": _GUARD_FUNCTION_SQL.split("$guard$")[1],
             },
         )
         .scalar_one()

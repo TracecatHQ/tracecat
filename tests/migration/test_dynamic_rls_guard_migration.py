@@ -581,6 +581,24 @@ class TestDynamicRlsGuardMigration:
         assert _guard_objects(guard_db.db_url) == []
         _run(guard_db.app_url, _blocked(guard_db, "disable"))
 
+    def test_upgrade_replaces_an_outdated_guard_body(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An older install whose function lets everything through.
+        _run_committed(
+            guard_db.db_url,
+            [
+                *_install_statements(),
+                f"CREATE OR REPLACE FUNCTION {GUARD_FUNCTION} RETURNS event_trigger "
+                "LANGUAGE plpgsql AS $$ BEGIN END $$",
+            ],
+        )
+        _run(guard_db.app_url, _blocked(guard_db, "disable"))
+
+        _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
+
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
+
     def test_rerun_without_privilege_keeps_an_installed_guard(
         self,
         guard_db: GuardDb,
@@ -619,20 +637,34 @@ class TestDynamicRlsGuardMigration:
         with pytest.raises(RuntimeError, match="already exists and is owned by"):
             _alembic(monkeypatch, guard_db.admin_url, "upgrade", MIGRATION_REVISION)
 
+    @pytest.mark.parametrize(
+        "tamper", ["permissive_expression", "no_using_clause", "no_clauses"]
+    )
     def test_upgrade_logs_rls_drift(
         self,
         guard_db: GuardDb,
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
+        tamper: str,
     ) -> None:
-        # Pre-guard tampering: same name, same flags, no tenant filter.
-        _run_committed(
-            guard_db.app_url,
-            [
-                f"ALTER POLICY {POLICY} ON {guard_db.table} "
-                "USING (true) WITH CHECK (true)"
-            ],
-        )
+        # Pre-guard tampering that keeps the policy's name and the RLS flags.
+        t = guard_db.table
+        match tamper:
+            case "permissive_expression":
+                statements = [
+                    f"ALTER POLICY {POLICY} ON {t} USING (true) WITH CHECK (true)"
+                ]
+            case "no_using_clause":
+                statements = [
+                    f"DROP POLICY {POLICY} ON {t}",
+                    f"CREATE POLICY {POLICY} ON {t} FOR ALL WITH CHECK ({POLICY_EXPR})",
+                ]
+            case _:
+                statements = [
+                    f"DROP POLICY {POLICY} ON {t}",
+                    f"CREATE POLICY {POLICY} ON {t}",
+                ]
+        _run_committed(guard_db.app_url, statements)
 
         with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
             _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
