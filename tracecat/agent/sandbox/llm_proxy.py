@@ -355,7 +355,11 @@ def _http_error_classification(
             return agent_llm_provider_auth_failed()
         return _managed_unclassified(status_code, body)
     if status_code == 429:
-        return agent_llm_rate_limited(route_is_direct=route_is_direct)
+        # The gateway types throttling_error only for a provider rate limit on
+        # the workspace's own credentials. Other managed 429s stay platform's.
+        return agent_llm_rate_limited(
+            user_owned=route_is_direct or error_type == "throttling_error"
+        )
     if route_is_direct:
         return agent_llm_provider_rejected_request(
             status_code=status_code,
