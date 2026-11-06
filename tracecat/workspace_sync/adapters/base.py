@@ -903,8 +903,7 @@ class DirectoryManifestAdapter(ResourceAdapter):
     Each resource owns ``<root>/<path_key>/``, a folder named after the
     resource (or after its source id in legacy repositories). ``<filename>``
     is the primary manifest file, whose ``id`` anchors identity, while
-    companion files can live alongside it (workflows, agent presets, skills,
-    tables).
+    companion files can live alongside it (agent presets, skills, tables).
     """
 
     filename: ClassVar[str]

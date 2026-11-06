@@ -63,25 +63,35 @@ async def test_write_inserts_new_and_refreshes_only_same_identity(session, svc_r
                 source_path="workflows/Fresh/definition.yml",
                 local_id=uuid.uuid4(),
             ),
+            # A new source id for a local row another mapping already holds:
+            # neither inserted nor re-pointed.
+            SyncMappingTarget(
+                resource_type="workflow",
+                source_id="wf_claims_moved_row",
+                source_path="workflows/Claim/definition.yml",
+                local_id=moved_local_id,
+            ),
         ]
     )
 
-    rows = dict(
-        (
+    rows = {
+        source_id: (source_path, local_id)
+        for source_id, source_path, local_id in (
             await session.execute(
                 select(
                     WorkspaceSyncResourceMapping.source_id,
                     WorkspaceSyncResourceMapping.source_path,
+                    WorkspaceSyncResourceMapping.local_id,
                 ).where(
                     WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id
                 )
             )
-        )
-        .tuples()
-        .all()
-    )
-    assert rows == {
+        ).tuples()
+    }
+    assert {source_id: path for source_id, (path, _) in rows.items()} == {
         "wf_moved": "workflows/Triage/definition.yml",
         "wf_repointed": "workflows/Old/definition.yml",
         "wf_new": "workflows/Fresh/definition.yml",
     }
+    # The moved row still belongs to its original source id.
+    assert rows["wf_moved"][1] == moved_local_id
