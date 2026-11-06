@@ -1409,6 +1409,15 @@ Set it on the API and the background worker: the API stops writing outbox
 rows, and the background worker's dispatcher leaves queued rows in place.
 """
 
+TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY = max(
+    1, int(os.environ.get("TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY") or 8)
+)
+"""Outbox rows the case trigger dispatcher handles at once. Defaults to 8.
+
+Each row in flight holds up to two database connections on the background
+worker, so the dispatcher uses at most twice this many.
+"""
+
 TRACECAT__CASE_TRIGGERS_STREAM_KEY = os.environ.get(
     "TRACECAT__CASE_TRIGGERS_STREAM_KEY", "case-events"
 )

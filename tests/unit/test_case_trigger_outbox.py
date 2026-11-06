@@ -1,19 +1,27 @@
 """Case trigger outbox: rows commit with the case, runs start once, rows go last."""
 
+import asyncio
 import contextlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.testing import ActivityEnvironment
 
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.event_schemas import (
     ClosedEvent,
     CommentCreatedEvent,
@@ -35,6 +43,7 @@ from tracecat.cases.triggers.dispatcher import (
     wait_for_case_trigger_outbox,
 )
 from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     Case,
     CaseComment,
@@ -42,6 +51,7 @@ from tracecat.db.models import (
     CaseTrigger,
     CaseTriggerOutbox,
     Workflow,
+    Workspace,
 )
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -411,6 +421,52 @@ class TestOutboxDispatch:
         assert await list_outbox_row_ids() == [second, first]
         assert await list_outbox_row_ids(limit=1) == [second]
 
+    async def test_batches_take_each_workspace_in_turn(
+        self, session: AsyncSession, svc_role: Role, test_case: Case
+    ) -> None:
+        """A burst in one workspace cannot fill a batch ahead of other workspaces.
+
+        Each workspace's least recently attempted row comes first, then each
+        workspace's second, and so on.
+        """
+        assert svc_role.organization_id is not None
+        quiet = Workspace(
+            name="quiet-workspace", organization_id=svc_role.organization_id
+        )
+        session.add(quiet)
+        event = await CaseEventsService(session=session, role=svc_role).create_event(
+            test_case, UpdatedEvent(field="summary", old="a", new="b")
+        )
+        start = datetime.now(UTC)
+        # The busy workspace's rows are all older than the quiet one's.
+        rows = [
+            CaseTriggerOutbox(
+                workspace_id=workspace_id,
+                case_id=test_case.id,
+                event_id=event.id,
+                updated_at=start + timedelta(seconds=offset),
+            )
+            for workspace_id, offset in [
+                (test_case.workspace_id, 0),
+                (test_case.workspace_id, 1),
+                (test_case.workspace_id, 2),
+                (quiet.id, 3),
+                (quiet.id, 4),
+            ]
+        ]
+        session.add_all(rows)
+        await session.commit()
+        busy_1, busy_2, busy_3, quiet_1, quiet_2 = (row.surrogate_id for row in rows)
+
+        assert await list_outbox_row_ids() == [
+            busy_1,
+            quiet_1,
+            busy_2,
+            quiet_2,
+            busy_3,
+        ]
+        assert await list_outbox_row_ids(limit=2) == [busy_1, quiet_1]
+
     async def test_tag_filters_and_offline_triggers_are_respected(
         self, session: AsyncSession, svc_role: Role, test_case: Case
     ) -> None:
@@ -691,6 +747,150 @@ async def test_disabled_case_triggers_leave_queued_rows_in_place(
     assert await dispatch_case_trigger_outbox_batch() == 0
     has_rows.assert_not_awaited()
     list_rows.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_batch_dispatches_rows_concurrently_up_to_the_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At most the configured number of rows run at once, and a failing row
+    neither cancels the rows in flight nor stops the rest of the batch.
+    """
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.dispatcher.config.TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY",
+        3,
+    )
+    row_ids = list(range(1, 11))
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.dispatcher.list_outbox_row_ids",
+        AsyncMock(return_value=row_ids),
+    )
+    in_flight = 0
+    peak = 0
+    finished: list[int] = []
+
+    async def dispatch_row(_: CaseTriggerOutboxDispatcher, row_id: int) -> None:
+        nonlocal in_flight, peak
+        if row_id == 2:
+            # Fails while rows 1 and 3 are still in flight.
+            raise RuntimeError("temporal unavailable")
+        in_flight += 1
+        peak = max(peak, in_flight)
+        try:
+            await asyncio.sleep(0.02)
+        finally:
+            in_flight -= 1
+        finished.append(row_id)
+
+    monkeypatch.setattr(CaseTriggerOutboxDispatcher, "dispatch_row", dispatch_row)
+    env = ActivityEnvironment()
+    progress: list[int] = []
+
+    def record_heartbeat(*details: object) -> None:
+        assert isinstance(finished_so_far := details[0], int)
+        progress.append(finished_so_far)
+
+    env.on_heartbeat = record_heartbeat
+
+    with pytest.raises(ApplicationError, match="1 of 10"):
+        await env.run(dispatch_case_trigger_outbox_batch)
+
+    assert peak == 3
+    assert sorted(finished) == [row_id for row_id in row_ids if row_id != 2]
+    # Every row heartbeats before it starts, carrying the rows finished so far.
+    assert len(progress) == len(row_ids)
+    assert progress == sorted(progress)
+    assert progress[-1] == len(row_ids) - 3
+
+
+@pytest.mark.anyio
+async def test_overlapping_batches_start_each_run_once(
+    svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two overlapping activity attempts never handle the same row twice.
+
+    Every row is dispatched in its own connections and locked with
+    ``SKIP LOCKED``, so whichever attempt locks a row first handles it and the
+    other skips it.
+    """
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.dispatcher.config.TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY",
+        4,
+    )
+    assert svc_role.workspace_id is not None
+    workspace_id = svc_role.workspace_id
+    # Committed through the dispatcher's own engine, so every concurrent row
+    # sees the data on its own connection.
+    async with get_async_session_bypass_rls_context_manager() as session:
+        workflow = Workflow(
+            title=f"Overlap {uuid.uuid4().hex[:8]}",
+            description="Test workflow",
+            status="offline",
+            workspace_id=workspace_id,
+        )
+        case = Case(
+            workspace_id=workspace_id,
+            summary="Overlapping dispatch",
+            description="Case trigger outbox test",
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        session.add_all([workflow, case])
+        await session.flush()
+        session.add(
+            CaseTrigger(
+                workspace_id=workspace_id,
+                workflow_id=workflow.id,
+                status="online",
+                event_types=["case_updated"],
+                tag_filters=[],
+            )
+        )
+        events = [
+            CaseEvent(
+                workspace_id=workspace_id,
+                case_id=case.id,
+                type=CaseEventType.CASE_UPDATED,
+                data={},
+            )
+            for _ in range(12)
+        ]
+        session.add_all(events)
+        await session.flush()
+        session.add_all(
+            CaseTriggerOutbox(
+                workspace_id=workspace_id, case_id=case.id, event_id=event.id
+            )
+            for event in events
+        )
+        await session.commit()
+        workflow_id, case_id = workflow.id, case.id
+        expected = sorted(case_trigger_exec_id(e.id, workflow_id) for e in events)
+
+    started: list[str] = []
+
+    async def start(**kwargs: object) -> None:
+        started.append(str(kwargs["wf_exec_id"]))
+        # Hold the row's lock long enough for the other attempt to reach it.
+        await asyncio.sleep(0.02)
+
+    try:
+        with _dispatch_mocks(AsyncMock(side_effect=start)):
+            await asyncio.gather(
+                ActivityEnvironment().run(dispatch_case_trigger_outbox_batch),
+                ActivityEnvironment().run(dispatch_case_trigger_outbox_batch),
+            )
+        assert sorted(started) == expected
+        async with get_async_session_bypass_rls_context_manager() as session:
+            assert await _outbox_rows(session, case_id) == []
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await session.execute(delete(Case).where(Case.id == case_id))
+            await session.execute(
+                delete(CaseTrigger).where(CaseTrigger.workflow_id == workflow_id)
+            )
+            await session.execute(delete(Workflow).where(Workflow.id == workflow_id))
+            await session.commit()
 
 
 def test_comment_workflow_exec_id_must_belong_to_the_workflow() -> None:

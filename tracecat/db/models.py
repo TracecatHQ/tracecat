@@ -3522,8 +3522,14 @@ class CaseTriggerOutbox(WorkspaceModel):
 
     __tablename__ = "case_trigger_outbox"
     __table_args__ = (
-        # The dispatcher takes the least recently attempted rows first.
-        Index("ix_case_trigger_outbox_dispatch_order", "updated_at", "surrogate_id"),
+        # The dispatcher takes each workspace's least recently attempted rows
+        # in turn.
+        Index(
+            "ix_case_trigger_outbox_workspace_dispatch_order",
+            "workspace_id",
+            "updated_at",
+            "surrogate_id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

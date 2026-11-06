@@ -86,15 +86,30 @@ async def outbox_has_rows() -> bool:
 
 
 async def list_outbox_row_ids(limit: int = OUTBOX_BATCH_SIZE) -> list[int]:
-    """The outbox rows to dispatch next, least recently attempted first.
+    """The outbox rows to dispatch next, taken from each workspace in turn.
 
-    A failed row is touched after each attempt, so rows that keep failing move
-    behind newer rows instead of filling every batch.
+    The batch holds every workspace's least recently attempted row, then every
+    workspace's second, and so on, so a burst in one workspace cannot fill the
+    batch ahead of the others. Within a workspace, a failed row is touched
+    after each attempt, so rows that keep failing move behind newer rows
+    instead of filling every batch.
     """
+    dispatch_order = (CaseTriggerOutbox.updated_at, CaseTriggerOutbox.surrogate_id)
+    ranked = select(
+        CaseTriggerOutbox.surrogate_id,
+        CaseTriggerOutbox.updated_at,
+        func.row_number()
+        .over(partition_by=CaseTriggerOutbox.workspace_id, order_by=dispatch_order)
+        .label("workspace_turn"),
+    ).subquery()
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.scalars(
-            select(CaseTriggerOutbox.surrogate_id)
-            .order_by(CaseTriggerOutbox.updated_at, CaseTriggerOutbox.surrogate_id)
+            select(ranked.c.surrogate_id)
+            .order_by(
+                ranked.c.workspace_turn,
+                ranked.c.updated_at,
+                ranked.c.surrogate_id,
+            )
             .limit(limit)
         )
         return list(result.all())
@@ -236,7 +251,11 @@ async def _load_event_and_case(
 
 
 class CaseTriggerOutboxDispatcher:
-    """Dispatch outbox rows one at a time, each in its own transaction."""
+    """Dispatch outbox rows, each in its own transactions.
+
+    One dispatcher may handle several rows at once; rows share nothing but the
+    role and entitlement caches.
+    """
 
     def __init__(self, heartbeat: Callable[[], None] | None = None) -> None:
         self._heartbeat = heartbeat or (lambda: None)
@@ -346,11 +365,13 @@ class CaseTriggerOutboxDispatcher:
             )
             return
 
+        # Rows dispatch concurrently and may turn the same triggers offline;
+        # a fixed order makes them lock those triggers in the same order.
         triggers = (
             await session.scalars(
-                select(CaseTrigger).where(
-                    online_trigger_filter(case.workspace_id, event.type)
-                )
+                select(CaseTrigger)
+                .where(online_trigger_filter(case.workspace_id, event.type))
+                .order_by(CaseTrigger.id)
             )
         ).all()
         filter_tag_refs = _filter_tag_refs(case, event)

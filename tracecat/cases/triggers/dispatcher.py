@@ -60,30 +60,43 @@ async def wait_for_case_trigger_outbox() -> bool:
 
 @activity.defn
 async def dispatch_case_trigger_outbox_batch() -> int:
-    """Dispatch the oldest outbox rows and return how many were handled.
+    """Dispatch the next outbox rows and return how many were handled.
 
-    Each row commits on its own, so one failing row does not hold back the
-    rest. Any failure fails the activity afterwards, and the retry picks up the
-    rows that are still pending.
+    Up to ``TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY`` rows are dispatched
+    at once, each committing on its own, so one failing row does not hold back
+    or cancel the rest. Any failure fails the activity once every row has been
+    tried, and the retry picks up the rows that are still pending. Heartbeats
+    carry the number of rows finished so far.
     """
     if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
         return 0
-    dispatcher = CaseTriggerOutboxDispatcher(heartbeat=activity.heartbeat)
+    finished = 0
+    dispatcher = CaseTriggerOutboxDispatcher(
+        heartbeat=lambda: activity.heartbeat(finished)
+    )
     row_ids = await list_outbox_row_ids()
-    failed = 0
-    for row_id in row_ids:
-        activity.heartbeat()
-        try:
-            await dispatcher.dispatch_row(row_id)
-        except Exception as e:
-            failed += 1
-            logger.warning(
-                "Failed to dispatch case trigger outbox row",
-                outbox_row=row_id,
-                error_type=type(e).__name__,
-                error=str(e),
-            )
-    if failed:
+    slots = asyncio.Semaphore(config.TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY)
+
+    async def dispatch(row_id: int) -> bool:
+        nonlocal finished
+        async with slots:
+            activity.heartbeat(finished)
+            try:
+                await dispatcher.dispatch_row(row_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to dispatch case trigger outbox row",
+                    outbox_row=row_id,
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
+                return False
+            finally:
+                finished += 1
+            return True
+
+    results = await asyncio.gather(*(dispatch(row_id) for row_id in row_ids))
+    if failed := results.count(False):
         raise ApplicationError(
             f"{failed} of {len(row_ids)} case trigger outbox rows failed to dispatch",
             type="CaseTriggerDispatchError",
