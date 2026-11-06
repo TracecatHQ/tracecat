@@ -7900,6 +7900,13 @@ export const $BooleanApprovalDecision = {
   description: "Persisted boolean decision enriched with submission metadata.",
 } as const
 
+export const $BuildEdition = {
+  type: "string",
+  enum: ["oss", "ee"],
+  title: "BuildEdition",
+  description: "Edition of the running deployment.",
+} as const
+
 export const $CaseAgentSessionBackfillStatus = {
   type: "string",
   enum: ["running", "completed", "failed"],
@@ -16865,6 +16872,13 @@ export const $EffectiveEntitlements = {
         "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
       default: false,
     },
+    agent_runtime_workflows: {
+      type: "boolean",
+      title: "Agent runtime for workflows",
+      description:
+        "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -17111,6 +17125,12 @@ export const $EntitlementsDict = {
       title: "Agent runtime preview",
       description:
         "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
+    },
+    agent_runtime_workflows: {
+      type: "boolean",
+      title: "Agent runtime for workflows",
+      description:
+        "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
     },
   },
   type: "object",
@@ -17704,7 +17724,6 @@ export const $FeatureFlag = {
     "workflow-concurrency-limits",
     "agent-fs-persistence",
     "workspace-sync-github-archive",
-    "forms",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
@@ -27793,6 +27812,45 @@ export const $PlatformAuditSettingsUpdate = {
   description: "Update platform audit settings.",
 } as const
 
+export const $PlatformBuildInfo = {
+  properties: {
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    edition: {
+      $ref: "#/components/schemas/BuildEdition",
+    },
+    commit: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit",
+    },
+    built_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Built At",
+    },
+  },
+  type: "object",
+  required: ["version", "edition"],
+  title: "PlatformBuildInfo",
+  description: "Version and build details of the running deployment.",
+} as const
+
 export const $PlatformMCPCatalogListResponse = {
   properties: {
     items: {
@@ -31240,6 +31298,7 @@ export const $RuntimeErrorKind = {
     "storage.materialization.invalid_data",
     "storage.persistence.transport_unavailable",
     "executor.activity.timed_out",
+    "executor.worker.shutdown",
     "executor.backend.initialization_failed",
     "executor.registry.lease_contention",
     "executor.registry.capacity_exhausted",
@@ -31262,6 +31321,7 @@ export const $RuntimeErrorKind = {
     "workflow.agent.input_invalid",
     "workflow.agent.preparation_failed",
     "agent.configuration.invalid",
+    "agent.provider.credentials_missing",
     "agent.preparation.failed",
     "agent.session.initialization_failed",
     "agent.llm.gateway_auth_failed",
@@ -31270,6 +31330,8 @@ export const $RuntimeErrorKind = {
     "agent.llm.rate_limited",
     "agent.llm.read_timeout",
     "agent.llm.stream_interrupted",
+    "agent.llm.provider_unavailable",
+    "agent.llm.gateway_unavailable",
     "agent.mcp.auth_failed",
     "agent.mcp.unavailable",
     "agent.execution.failed",

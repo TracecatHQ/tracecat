@@ -1,12 +1,24 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { ChevronRight, Loader2, Table2Icon } from "lucide-react"
+import {
+  CalendarIcon,
+  ChevronRight,
+  Clock3,
+  Loader2,
+  Table2Icon,
+  TypeIcon,
+} from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import type { TableReadMinimal } from "@/client"
 import { CatalogHeader } from "@/components/catalog/catalog-header"
 import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
+import {
+  type ListSortFieldOption,
+  ListSortSelect,
+  type ListSortValue,
+} from "@/components/list-sort-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { AlertNotification } from "@/components/notifications"
@@ -35,6 +47,47 @@ import { Item, ItemContent, ItemTitle } from "@/components/ui/item"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useGetTable, useListTables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+type TablesSortField = "name" | "created_at" | "updated_at"
+type TablesSortValue = ListSortValue<TablesSortField>
+
+const DEFAULT_TABLES_SORT: TablesSortValue = {
+  field: "name",
+  direction: "asc",
+}
+
+const TABLES_SORT_OPTIONS: Array<ListSortFieldOption<TablesSortField>> = [
+  { value: "name", label: "Name", icon: TypeIcon },
+  { value: "created_at", label: "Created", icon: CalendarIcon },
+  { value: "updated_at", label: "Updated", icon: Clock3 },
+]
+
+function compareTableNames(a: TableReadMinimal, b: TableReadMinimal): number {
+  return a.name.localeCompare(b.name, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  })
+}
+
+function compareTables(
+  a: TableReadMinimal,
+  b: TableReadMinimal,
+  sortBy: TablesSortValue
+): number {
+  const direction = sortBy.direction === "asc" ? 1 : -1
+  if (sortBy.field === "name") {
+    return compareTableNames(a, b) * direction
+  }
+  const aTimestamp = Date.parse(a[sortBy.field])
+  const bTimestamp = Date.parse(b[sortBy.field])
+  if (aTimestamp !== bTimestamp) {
+    if (Number.isNaN(aTimestamp) && Number.isNaN(bTimestamp)) return 0
+    if (Number.isNaN(aTimestamp)) return 1
+    if (Number.isNaN(bTimestamp)) return -1
+    return (aTimestamp - bTimestamp) * direction
+  }
+  return compareTableNames(a, b)
+}
 
 function TableColumnsPreview({ tableId }: { tableId: string }) {
   const workspaceId = useWorkspaceId()
@@ -105,6 +158,7 @@ export function TablesDashboard() {
     workspaceId,
   })
   const [searchQuery, setSearchQuery] = useState("")
+  const [sortBy, setSortBy] = useState<TablesSortValue>(DEFAULT_TABLES_SORT)
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>(
     {}
   )
@@ -119,13 +173,15 @@ export function TablesDashboard() {
   const filteredTables = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase()
 
-    return allTables.filter((table) => {
-      return (
-        normalizedSearch.length === 0 ||
-        table.name.toLowerCase().includes(normalizedSearch)
-      )
-    })
-  }, [allTables, searchQuery])
+    return allTables
+      .filter((table) => {
+        return (
+          normalizedSearch.length === 0 ||
+          table.name.toLowerCase().includes(normalizedSearch)
+        )
+      })
+      .sort((a, b) => compareTables(a, b, sortBy))
+  }, [allTables, searchQuery, sortBy])
 
   if (tablesIsLoading) {
     return <CenteredSpinner />
@@ -157,6 +213,13 @@ export function TablesDashboard() {
           searchPlaceholder="Search tables..."
           displayCount={filteredTables.length}
           countLabel="tables"
+          actions={
+            <ListSortSelect
+              value={sortBy}
+              onChange={setSortBy}
+              options={TABLES_SORT_OPTIONS}
+            />
+          }
         />
 
         <div className="min-h-0 flex-1 overflow-auto">

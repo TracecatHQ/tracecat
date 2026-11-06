@@ -36,6 +36,8 @@ from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
+_TAG_EVENT_TYPES = frozenset({CaseEventType.TAG_ADDED, CaseEventType.TAG_REMOVED})
+
 
 class CaseTriggerConsumer:
     """Consume case events and dispatch workflows based on configured triggers."""
@@ -227,7 +229,7 @@ class CaseTriggerConsumer:
                 return should_ack
 
             triggers = await self._load_triggers(session, workspace_uuid, event_type)
-            case_tag_refs = {tag.ref for tag in case.tags}
+            filter_tag_refs = self._filter_tag_refs(case, event)
             for trigger in triggers:
                 if (
                     explicit_workflow_id is not None
@@ -235,7 +237,7 @@ class CaseTriggerConsumer:
                 ):
                     continue
                 if trigger.tag_filters:
-                    if not case_tag_refs.intersection(trigger.tag_filters):
+                    if not filter_tag_refs.intersection(trigger.tag_filters):
                         continue
                 done_key = f"case-trigger:done:{event_id}:{trigger.workflow_id}"
                 lock_key = f"case-trigger:lock:{event_id}:{trigger.workflow_id}"
@@ -282,6 +284,19 @@ class CaseTriggerConsumer:
 
             await session.commit()
             return should_ack
+
+    def _filter_tag_refs(self, case: Case, event: CaseEvent) -> set[str]:
+        """Tag refs that a trigger's tag_filters are matched against.
+
+        Tag events match the added or removed tag; other events match the
+        case's current tags.
+        """
+        if event.type in _TAG_EVENT_TYPES:
+            tag_ref = (
+                event.data.get("tag_ref") if isinstance(event.data, dict) else None
+            )
+            return {tag_ref} if tag_ref else set()
+        return {tag.ref for tag in case.tags}
 
     def _parse_optional_uuid(self, value: str | None) -> uuid.UUID | None:
         if not value:

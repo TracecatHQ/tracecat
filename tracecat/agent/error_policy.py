@@ -16,7 +16,10 @@ from tracecat.agent.common.exceptions import (
     UserMCPDiscoveryUnavailableError,
 )
 from tracecat.agent.sandbox.config import AgentResourceLimits
-from tracecat.exceptions import RegistryLockAmbiguousActionError
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    RegistryLockAmbiguousActionError,
+)
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -56,6 +59,23 @@ def invalid_agent_configuration(
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         message="Agent configuration is invalid",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_provider_credentials_missing(
+    error: AgentProviderCredentialsNotFoundError,
+) -> RuntimeErrorClassification:
+    """Classify an agent whose model provider has no configured credentials.
+
+    The organization owns the fix, and a retry fails the same way until the
+    credentials exist. The raised message names only the provider and where to
+    add credentials.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING,
+        message=str(error),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )
@@ -283,6 +303,26 @@ def user_agent_execution_failed(
     )
 
 
+def agent_backend_turn_failed(error: str) -> RuntimeErrorClassification:
+    """Classify a turn the configured agent backend reported as failed.
+
+    The message keeps a redacted, bounded copy of the backend's reason so a run
+    view shows why the action failed. A turn result carries no owner, so a
+    caller-side reason (a provider rejection, a denied tool call) cannot be told
+    apart from an infrastructure failure the backend returned as a failed turn.
+    The platform owns it, like a failed case-comment turn, so infrastructure
+    failures still alert.
+    """
+    message = "Agent execution failed"
+    if safe_detail := _unclassified_detail(None, error):
+        message = f"{message}: {safe_detail}"
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_EXECUTION_FAILED,
+        message=message,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_provider_rejected_request(
     *,
     status_code: int,
@@ -340,6 +380,34 @@ def agent_llm_stream_interrupted(
     )
 
 
+def agent_llm_provider_unavailable(*, status_code: int) -> RuntimeErrorClassification:
+    """Classify a managed-route upstream outage the gateway attributed to the provider.
+
+    Tracecat operates managed provider credentials and capacity, so the outage
+    is platform-owned even though the provider is the immediate cause.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+        message=(
+            f"The managed LLM provider is temporarily unavailable (HTTP {status_code}); "
+            "retry later"
+        ),
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
+def agent_llm_gateway_unavailable(*, status_code: int) -> RuntimeErrorClassification:
+    """Classify a managed gateway with no routable deployment or no healthy backend."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+        message=(
+            f"The LLM gateway is temporarily unavailable (HTTP {status_code}); "
+            "retry later"
+        ),
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
 def agent_llm_gateway_auth_failed() -> RuntimeErrorClassification:
     """Classify a rejected internal gateway credential at its trusted source."""
     return RuntimeErrorClassification.platform(
@@ -372,6 +440,22 @@ def agent_llm_provider_subscription_required() -> RuntimeErrorClassification:
     )
 
 
+def agent_llm_provider_role_denied() -> RuntimeErrorClassification:
+    """Classify STS refusing the workspace-configured Bedrock role.
+
+    The role's trust policy belongs to the workspace, and a retry fails the same
+    way until it changes. The message omits the role ARN and the STS error body.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        message=(
+            "AWS denied assuming the configured Bedrock role; check that the "
+            "role trust policy allows Tracecat and the workspace External ID"
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_model_not_enabled() -> RuntimeErrorClassification:
     """Classify a managed-route model that workspace model access disallows."""
     return RuntimeErrorClassification.user(
@@ -393,11 +477,16 @@ def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
     )
 
 
-def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassification:
-    """Classify temporary throttling without assuming that a budget ran out."""
+def agent_llm_rate_limited(*, user_owned: bool) -> RuntimeErrorClassification:
+    """Classify temporary throttling without assuming that a budget ran out.
+
+    Args:
+        user_owned: Whether the throttling is attributable to the caller's
+            own provider credentials rather than shared platform capacity.
+    """
     constructor = (
         RuntimeErrorClassification.user
-        if route_is_direct
+        if user_owned
         else RuntimeErrorClassification.platform
     )
     return constructor(

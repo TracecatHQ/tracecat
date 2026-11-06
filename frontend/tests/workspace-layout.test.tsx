@@ -307,7 +307,6 @@ describe("WorkspaceLayout forms intake", () => {
   )
 
   it.each([
-    ["hidden", true, "Access denied"],
     ["enabled", false, "Access denied"],
     ["loading", true, "Loading"],
   ])(

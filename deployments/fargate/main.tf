@@ -175,6 +175,7 @@ module "ecs" {
   executor_client_timeout                     = var.executor_client_timeout
   agent_sandbox_timeout                       = var.agent_sandbox_timeout
   executor_queue                              = var.executor_queue
+  executor_deny_same_account_assume_role      = var.executor_deny_same_account_assume_role
   executor_registry_cache_max_entries         = var.executor_registry_cache_max_entries
   executor_registry_cache_max_bytes           = var.executor_registry_cache_max_bytes
   executor_max_concurrent_activities          = var.executor_max_concurrent_activities

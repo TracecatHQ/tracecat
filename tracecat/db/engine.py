@@ -74,8 +74,8 @@ class AuthSession:
     The surface below is the union of what today's authentication callsites
     need, and nothing more. Notably absent: `begin`, `flush`, `delete`,
     `merge`, `refresh`, `get`, and access to the wrapped session — long-lived
-    or transactional work does not belong on this pool. `add`/`commit` exist
-    only for the API-key `last_used_at` write.
+    or transactional work does not belong on this pool. `commit` exists only
+    for the `last_used_at` writes on API-key and SCIM token lookups.
 
     The `_ctx_auth_pool_session` guard remains the runtime backstop for
     checkouts that static analysis cannot see.
@@ -90,9 +90,6 @@ class AuthSession:
         self, statement: TypedReturnsRows[T]
     ) -> Result[T]:
         return await self._session.execute(statement)
-
-    def add(self, instance: object) -> None:
-        self._session.add(instance)
 
     async def commit(self) -> None:
         await self._session.commit()

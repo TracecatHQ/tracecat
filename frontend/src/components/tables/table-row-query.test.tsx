@@ -18,6 +18,7 @@ import {
   type TableRowQuery,
   TableRowQueryContext,
 } from "@/components/tables/table-row-query-context"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import {
   type UseTablesPaginationParams,
   useTablesPagination,
@@ -102,7 +103,8 @@ test("the sort button requests the next step for its own column", () => {
       columnName="title"
       sort={{ orderBy: null, sort: null }}
       onSortChange={onSortChange}
-    />
+    />,
+    { wrapper: TooltipProvider }
   )
   const button = screen.getByRole("button")
   expect(button).toHaveAttribute("data-sort", "none")

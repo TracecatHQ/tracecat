@@ -26,7 +26,7 @@ jest.mock("@/components/auth/scope-guard", () => ({
     mockUseScopeCheck(scope, anyOf),
 }))
 
-let mockFormsAccess = "hidden"
+let mockFormsAccess = "loading"
 jest.mock("@/hooks/use-forms-access", () => ({
   useFormsAccess: () => mockFormsAccess,
 }))
@@ -168,11 +168,10 @@ describe("AppSidebar", () => {
         ? (mockScopes[scope] ?? false)
         : (anyOf ?? []).some((candidate) => mockScopes[candidate])
     )
-    mockFormsAccess = "hidden"
+    mockFormsAccess = "loading"
   })
 
   it.each([
-    ["hidden", { "form:read": true, "form:update": true }, false],
     ["loading", { "form:read": true, "form:update": true }, false],
     ["enabled", { "form:read": true, "form:update": true }, true],
     ["locked", { "form:read": true, "form:submission:read": true }, true],

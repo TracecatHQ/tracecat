@@ -217,10 +217,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     "form:update",
     "form:submission:read",
   ])
-  // Hidden with the feature flag off. Without the entitlement the link stays
-  // and the page explains why Forms is unavailable.
+  // Without the entitlement the link stays and the page explains why Forms is
+  // unavailable.
   const formsAccess = useFormsAccess()
-  const formsVisible = formsAccess === "enabled" || formsAccess === "locked"
+  const formsVisible = formsAccess !== "loading"
   const canViewTunnels = useScopeCheck("tunnel:read")
   // Sync users push/pull; workspace admins manage the repository connection.
   const canOpenGitSync = useScopeCheck(undefined, [

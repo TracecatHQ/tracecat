@@ -24,6 +24,7 @@ import type {
   AdminApplyRolloutsResponse,
   AdminAssignTargetData,
   AdminAssignTargetResponse,
+  AdminBuildGetBuildInfoResponse,
   AdminCheckIpAllowlistData,
   AdminCheckIpAllowlistResponse,
   AdminClearSourceResponse,
@@ -10493,6 +10494,20 @@ export const adminAgentListPlatformCatalog = (
     },
   })
 }
+
+/**
+ * Get Build Info
+ * Return the version and build details of the running deployment.
+ * @returns PlatformBuildInfo Successful Response
+ * @throws ApiError
+ */
+export const adminBuildGetBuildInfo =
+  (): CancelablePromise<AdminBuildGetBuildInfoResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/build-info",
+    })
+  }
 
 /**
  * Start Case Agent Session Interaction Backfill

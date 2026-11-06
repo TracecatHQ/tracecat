@@ -183,7 +183,7 @@ async def begin_authentication(mfa_session: AnyMfaSession) -> WebAuthnOptionsRea
         options = await MfaService(mfa_session.db).begin_authentication(
             mfa_session.user, mfa_session.access_token
         )
-    except WebAuthnUnavailableError as e:
+    except (MfaVerificationError, WebAuthnUnavailableError) as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return WebAuthnOptionsRead(public_key=options)
 

@@ -1,7 +1,7 @@
 """Form UDFs.
 
 These actions are always registered. The internal routes they call are gated
-on the ``forms`` feature flag and entitlement on the server side.
+on the ``forms`` entitlement on the server side.
 """
 
 from datetime import datetime

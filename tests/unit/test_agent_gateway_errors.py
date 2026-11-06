@@ -9,9 +9,15 @@ import orjson
 import pytest
 from fastapi import Response
 from litellm.exceptions import (
+    APIConnectionError,
     AuthenticationError,
+    BadGatewayError,
+    InternalServerError,
+    MidStreamFallbackError,
     PermissionDeniedError,
     RateLimitError,
+    ServiceUnavailableError,
+    Timeout,
 )
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.proxy.anthropic_endpoints.endpoints import anthropic_response
@@ -118,7 +124,7 @@ async def test_router_unavailability_is_not_provider_throttling_or_auth(
     assert orjson.loads(body)["error"]["type"] == "tracecat_llm_deployment_unavailable"
     assert b"synthetic-sensitive" not in body
     classification = _http_error_classification(503, route_is_direct=False, body=body)
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
@@ -136,8 +142,8 @@ async def test_provider_auth_cooldown_does_not_establish_next_callers_auth_failu
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Explicit deployments can enter cooldown in the pinned LiteLLM version;
-    # the bundled provider wildcard routes are exempt. Exercise the real router
-    # because it drops the auth exception on subsequent requests.
+    # the bundled config disables cooldowns. Exercise the real router because
+    # it drops the auth exception on subsequent requests.
     router = Router(
         model_list=[
             {
@@ -224,7 +230,7 @@ async def test_provider_auth_cooldown_does_not_establish_next_callers_auth_failu
     body = bytes(failure.body)
     assert b"synthetic-sensitive" not in body
     classification = _http_error_classification(503, route_is_direct=False, body=body)
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
@@ -296,10 +302,119 @@ async def test_anthropic_endpoint_distinguishes_provider_quota_from_throttling(
         assert b"synthetic-sensitive-detail" not in body
     else:
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.owner is RuntimeErrorOwner.USER
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
         assert b"synthetic-sensitive-detail" not in body
         assert b"LLM provider rate limit exceeded; retry later" in body
+
+
+def _provider_rate_limit(*, quota_exceeded: bool = False) -> RateLimitError:
+    response = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://provider.example.invalid/v1/chat"),
+        json={
+            "error": {
+                "code": "insufficient_quota"
+                if quota_exceeded
+                else "rate_limit_exceeded"
+            }
+        },
+    )
+    error = RateLimitError(
+        message="synthetic-sensitive-detail",
+        llm_provider="synthetic-provider",
+        model="synthetic-model",
+    )
+    error.__cause__ = httpx.HTTPStatusError(
+        "synthetic-sensitive-detail", request=response.request, response=response
+    )
+    return error
+
+
+def _mid_stream_wrap(error: Exception) -> MidStreamFallbackError:
+    # The shape LiteLLM's stream wrapper raises when a provider fails before
+    # the first content chunk; it copies the wrapped error's status code.
+    return MidStreamFallbackError(
+        message=str(error),
+        model="synthetic-model",
+        llm_provider="synthetic-provider",
+        original_exception=error,
+        is_pre_first_chunk=True,
+    )
+
+
+def _wrapped_anthropic_stream_429() -> MidStreamFallbackError:
+    # LiteLLM's Anthropic passthrough wraps a pre-content 429 SSE error event
+    # in a generic APIError, so only the status code marks it as throttling.
+    return _mid_stream_wrap(
+        litellm.exceptions.APIError(
+            status_code=429,
+            message="synthetic-sensitive-detail",
+            llm_provider="anthropic",
+            model="synthetic-model",
+        )
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("endpoint", ["anthropic", "openai"])
+@pytest.mark.parametrize(
+    ("error", "kind", "retry_disposition"),
+    [
+        pytest.param(
+            _provider_rate_limit(),
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RetryDisposition.RETRYABLE,
+            id="ordinary-429",
+        ),
+        pytest.param(
+            _mid_stream_wrap(_provider_rate_limit()),
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RetryDisposition.RETRYABLE,
+            id="mid-stream-wrapped-429",
+        ),
+        pytest.param(
+            _wrapped_anthropic_stream_429(),
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RetryDisposition.RETRYABLE,
+            id="mid-stream-wrapped-anthropic-429",
+        ),
+        pytest.param(
+            _mid_stream_wrap(_provider_rate_limit(quota_exceeded=True)),
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+            RetryDisposition.NON_RETRYABLE,
+            id="mid-stream-wrapped-quota",
+        ),
+    ],
+)
+async def test_provider_throttling_is_user_owned_even_when_wrapped_mid_stream(
+    endpoint: Literal["anthropic", "openai"],
+    error: Exception,
+    kind: RuntimeErrorKind,
+    retry_disposition: RetryDisposition,
+    gateway_callbacks: ProxyLogging,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider 429 is the workspace's throttling, however LiteLLM wraps it.
+
+    MidStreamFallbackError subclasses ServiceUnavailableError; classifying it by
+    type alone reported customer throttling as a platform provider outage.
+    """
+    failure = await _gateway_failure(
+        error,
+        endpoint=endpoint,
+        proxy_logging=gateway_callbacks,
+        monkeypatch=monkeypatch,
+    )
+
+    assert failure.status_code == 429
+    body = bytes(failure.body)
+    assert b"synthetic-sensitive" not in body
+    assert b"tracecat_llm_provider_unavailable" not in body
+    classification = _http_error_classification(429, route_is_direct=False, body=body)
+    assert classification.kind is kind
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is retry_disposition
 
 
 @pytest.mark.anyio
@@ -358,7 +473,7 @@ async def test_retry_does_not_inherit_an_earlier_provider_quota_failure(
         body=bytes(failure.body),
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.owner is RuntimeErrorOwner.USER
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -383,6 +498,11 @@ async def test_retry_does_not_inherit_an_earlier_provider_quota_failure(
         ),
         (
             "tracecat_llm_provider_subscription_required",
+            403,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        ),
+        (
+            "tracecat_llm_provider_role_denied",
             403,
             RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
         ),
@@ -412,16 +532,17 @@ async def test_anthropic_endpoint_preserves_gateway_error_codes(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "wrapped", [False, True], ids=["ordinary", "mid-stream-wrapped"]
+)
 async def test_mid_stream_provider_rate_limit_is_a_typed_sse_error(
+    wrapped: bool,
     gateway_callbacks: ProxyLogging,
 ) -> None:
     async def provider_stream():
         yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
-        raise RateLimitError(
-            message="synthetic-sensitive-detail",
-            llm_provider="synthetic-provider",
-            model="synthetic-model",
-        )
+        error = _provider_rate_limit()
+        raise _mid_stream_wrap(error) if wrapped else error
 
     stream = ProxyBaseLLMRequestProcessing.async_sse_data_generator(
         response=provider_stream(),
@@ -446,4 +567,114 @@ async def test_mid_stream_provider_rate_limit_is_a_typed_sse_error(
         429, route_is_direct=False, body=orjson.dumps(payload)
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+    assert classification.owner is RuntimeErrorOwner.USER
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_mid_stream_wrapped_provider_outage_stays_platform_owned_sse_error(
+    gateway_callbacks: ProxyLogging,
+) -> None:
+    async def provider_stream():
+        yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+        raise _mid_stream_wrap(
+            InternalServerError(
+                "synthetic-sensitive-detail", "synthetic-provider", "synthetic-model"
+            )
+        )
+
+    stream = ProxyBaseLLMRequestProcessing.async_sse_data_generator(
+        response=provider_stream(),
+        user_api_key_dict=UserAPIKeyAuth(),
+        request_data={"model": "synthetic-model"},
+        proxy_logging_obj=gateway_callbacks,
+    )
+    chunks = [chunk async for chunk in stream]
+
+    error_event = chunks[-1]
+    assert "synthetic-sensitive-detail" not in error_event
+    payload = orjson.loads(error_event.removeprefix("event: error\ndata: "))
+    assert payload["error"]["type"] == "tracecat_llm_provider_unavailable"
+    # The socket proxy maps this SSE error type to 502 (_STREAM_ERROR_STATUS_CODES).
+    classification = _http_error_classification(
+        502, route_is_direct=False, body=orjson.dumps(payload)
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+
+
+def _provider_outage(kind: str) -> Exception:
+    detail = "synthetic-sensitive-detail"
+    match kind:
+        case "connection":
+            return APIConnectionError(detail, "synthetic-provider", "synthetic-model")
+        case "internal":
+            return InternalServerError(detail, "synthetic-provider", "synthetic-model")
+        case "bad_gateway":
+            return BadGatewayError(detail, "synthetic-provider", "synthetic-model")
+        case "unavailable":
+            return ServiceUnavailableError(
+                detail, "synthetic-provider", "synthetic-model"
+            )
+        case "mid_stream":
+            return MidStreamFallbackError(
+                detail, model="synthetic-model", llm_provider="synthetic-provider"
+            )
+        case "mid_stream_internal":
+            return _mid_stream_wrap(
+                InternalServerError(detail, "synthetic-provider", "synthetic-model")
+            )
+        case _:
+            raise AssertionError(kind)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("endpoint", ["anthropic", "openai"])
+@pytest.mark.parametrize(
+    ("outage", "status_code"),
+    [
+        ("connection", 500),
+        ("internal", 500),
+        ("bad_gateway", 502),
+        ("unavailable", 503),
+        ("mid_stream", 503),
+        ("mid_stream_internal", 500),
+    ],
+)
+async def test_provider_outage_is_typed_provider_unavailable(
+    endpoint: Literal["anthropic", "openai"],
+    outage: str,
+    status_code: int,
+    gateway_callbacks: ProxyLogging,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = await _gateway_failure(
+        _provider_outage(outage),
+        endpoint=endpoint,
+        proxy_logging=gateway_callbacks,
+        monkeypatch=monkeypatch,
+    )
+
+    assert failure.status_code == status_code
+    body = bytes(failure.body)
+    assert b"synthetic-sensitive" not in body
+    assert orjson.loads(body)["error"]["type"] == "tracecat_llm_provider_unavailable"
+    classification = _http_error_classification(
+        status_code, route_is_direct=False, body=body
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_provider_timeout_is_not_relabelled_as_outage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = await _anthropic_failure(
+        Timeout("synthetic timeout", "synthetic-model", "synthetic-provider"),
+        monkeypatch,
+    )
+
+    body = bytes(failure.body)
+    assert b"tracecat_llm_provider_unavailable" not in body

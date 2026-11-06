@@ -346,6 +346,10 @@ class BaseTablesService(BaseWorkspaceService):
         await conn.execute(
             sa.DDL("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", full_table_name)
         )
+        # FORCE so the policy also applies when the app role owns the table.
+        await conn.execute(
+            sa.DDL("ALTER TABLE %s FORCE ROW LEVEL SECURITY", full_table_name)
+        )
         await conn.execute(
             sa.DDL(
                 f"DROP POLICY IF EXISTS {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s",
@@ -1043,9 +1047,12 @@ class BaseTablesService(BaseWorkspaceService):
                 set_fields["default"] = normalized_default
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
-                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                        (full_table_name, quote_identifier(new_name)),
+                        "ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s",
+                        (
+                            full_table_name,
+                            quote_identifier(new_name),
+                            formatted_default,
+                        ),
                     )
                 )
 
@@ -2579,9 +2586,12 @@ class TableEditorService(BaseWorkspaceService):
                 set_fields["default"] = normalized_default
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
-                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                        (full_table_name, quote_identifier(new_name)),
+                        "ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s",
+                        (
+                            full_table_name,
+                            quote_identifier(new_name),
+                            formatted_default,
+                        ),
                     )
                 )
 

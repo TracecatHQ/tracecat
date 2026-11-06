@@ -17,8 +17,13 @@ from tracecat import config as tracecat_config
 from tracecat.agent.bedrock import BedrockDiscoveredModel, BedrockError
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.agent.exceptions import (
+    ProviderKeyCheckError,
+    ProviderKeyCheckErrorCode,
+)
 from tracecat.agent.preset.activities import _load_custom_model_provider_creds
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.schemas import ModelCredentialCreate, ModelCredentialUpdate
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -1200,3 +1205,87 @@ async def test_subscribe_bedrock_model_resolves_profile_and_records_status(
         foundation_model_id="vendor.a-v1",
         subscription=subscription,
     )
+
+
+async def _stored_provider_credentials(
+    service: AgentManagementService, provider: str
+) -> dict[str, str] | None:
+    service.secrets_service.session.expire_all()
+    return await service.get_provider_credentials(provider)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_create_provider_credentials_rejected_key_is_not_stored(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    encryption_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def reject(provider: str, credentials: dict[str, str]) -> None:
+        raise ProviderKeyCheckError(
+            "OpenAI didn't accept this API key.",
+            code=ProviderKeyCheckErrorCode.INVALID_KEY,
+            field="OPENAI_API_KEY",
+        )
+
+    monkeypatch.setattr(agent_service, "check_provider_key", reject)
+    service = _db_service(session, svc_organization, svc_workspace)
+
+    with pytest.raises(ProviderKeyCheckError):
+        await service.create_provider_credentials(
+            ModelCredentialCreate(
+                provider="openai", credentials={"OPENAI_API_KEY": "sk-bad"}
+            )
+        )
+
+    assert await _stored_provider_credentials(service, "openai") is None
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+@pytest.mark.parametrize("method", ["create", "update"])
+async def test_provider_key_check_sees_stored_key_for_blank_update(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    encryption_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    stored = {"OPENAI_API_KEY": "sk-stored", "OPENAI_BASE_URL": ""}
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-openai-credentials",
+        values=stored,
+        encryption_key=encryption_key,
+    )
+    await session.commit()
+    checked: list[dict[str, str]] = []
+
+    async def reject(provider: str, credentials: dict[str, str]) -> None:
+        checked.append(dict(credentials))
+        raise ProviderKeyCheckError(
+            "OpenAI didn't accept this API key.",
+            code=ProviderKeyCheckErrorCode.INVALID_KEY,
+            field="OPENAI_API_KEY",
+        )
+
+    monkeypatch.setattr(agent_service, "check_provider_key", reject)
+    service = _db_service(session, svc_organization, svc_workspace)
+    update = {"OPENAI_API_KEY": "", "OPENAI_BASE_URL": ""}
+
+    with pytest.raises(ProviderKeyCheckError):
+        if method == "create":
+            await service.create_provider_credentials(
+                ModelCredentialCreate(provider="openai", credentials=update)
+            )
+        else:
+            await service.update_provider_credentials(
+                "openai", ModelCredentialUpdate(credentials=update)
+            )
+
+    assert checked == [{"OPENAI_API_KEY": "sk-stored", "OPENAI_BASE_URL": ""}]
+    assert await _stored_provider_credentials(service, "openai") == stored

@@ -242,6 +242,20 @@ describe("Spur registry icon mappings", () => {
   })
 })
 
+describe("Trend Micro registry icon mappings", () => {
+  it.each([
+    "tools.trend_vision_one",
+    "tools.trend_vision_one.isolate_endpoints",
+  ])("renders the Trend Micro mark for %s", (key) => {
+    expect(svgTitle(getIcon(key))).toBe("Trend Micro")
+  })
+
+  it("renders the Trend Micro mark for the trend_vision_one secret", () => {
+    const Icon = secretIcons.trend_vision_one
+    expect(svgTitle(<Icon />)).toBe("Trend Micro")
+  })
+})
+
 describe("Palo Alto Networks registry icon mappings", () => {
   it.each([
     "tools.pan_os",

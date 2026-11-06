@@ -90,6 +90,7 @@ from tracecat.workflow.executions.shaping import (
     window_result_text,
 )
 from tracecat.workflow.management import layout as layout_module
+from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 from tracecat.workflow.schedules import bridge as schedules_bridge
 from tracecat.workspace_sync.enums import SyncResourceType
 
@@ -952,6 +953,58 @@ def test_graph_requires_relayout(
     expected: bool,
 ):
     assert layout_module.graph_requires_relayout(previous, updated) is expected
+
+
+@pytest.mark.parametrize("description", ["", "From argument"])
+def test_build_import_data_from_workflow_yaml_defaults_missing_description(
+    description: str,
+):
+    import_data = mcp_server._build_import_data_from_workflow_yaml(
+        definition_yaml=yaml.safe_dump(
+            {
+                "definition": {
+                    "entrypoint": {"ref": "fetch"},
+                    "actions": [
+                        {
+                            "ref": "fetch",
+                            "action": "core.transform.reshape",
+                            "args": {"value": 1},
+                        }
+                    ],
+                }
+            }
+        ),
+        title="Example",
+        description=description,
+    )
+
+    assert import_data["definition"]["description"] == description
+    definition = ExternalWorkflowDefinition.model_validate(import_data).definition
+    assert definition.description == description
+
+
+def test_build_import_data_from_workflow_yaml_keeps_yaml_description():
+    import_data = mcp_server._build_import_data_from_workflow_yaml(
+        definition_yaml=yaml.safe_dump(
+            {
+                "definition": {
+                    "title": "Example",
+                    "description": "From YAML",
+                    "entrypoint": {"ref": "fetch"},
+                    "actions": [
+                        {
+                            "ref": "fetch",
+                            "action": "core.transform.reshape",
+                            "args": {"value": 1},
+                        }
+                    ],
+                }
+            }
+        ),
+        description="From argument",
+    )
+
+    assert import_data["definition"]["description"] == "From YAML"
 
 
 def test_build_import_data_from_workflow_yaml_replaces_supplied_layout():
@@ -7937,6 +7990,11 @@ def test_mcp_instruction_named_placeholders_are_all_rendered() -> None:
     assert mcp_server._SKILL_FILE_WARNING in mcp_server._MCP_INSTRUCTIONS_RENDERED
 
 
+def test_dsl_reference_documents_action_description() -> None:
+    assert "| `description` | str |" in mcp_server._DSL_REFERENCE_TEXT
+    assert any("description" in action for action in _prompt_yaml_action_fragments())
+
+
 def test_dsl_reference_text_stays_within_context_budget() -> None:
     # Raised from 15500 for the "Form Trigger" section.
     assert len(mcp_server._DSL_REFERENCE_TEXT) <= 17900
@@ -8618,7 +8676,6 @@ def _patch_forms(
     monkeypatch: pytest.MonkeyPatch,
     *,
     scopes: frozenset[str] = _FORM_BUILDER_SCOPES,
-    flag: bool = True,
     entitled: bool = True,
     **methods: Any,
 ) -> SimpleNamespace:
@@ -8648,11 +8705,6 @@ def _patch_forms(
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(mcp_server.FormsService, "with_session", _with_session)
-    monkeypatch.setattr(
-        mcp_server.config,
-        "TRACECAT__FEATURE_FLAGS",
-        {mcp_server.FeatureFlag.FORMS} if flag else set(),
-    )
     return service
 
 
@@ -8676,7 +8728,6 @@ async def test_form_tools_are_registered_without_submission_tools() -> None:
 @pytest.mark.parametrize(
     ("gate", "error"),
     [
-        ({"flag": False}, "not enabled"),
         ({"entitled": False}, "Feature 'forms' requires"),
         # Scope order in the message is not stable.
         (
@@ -8684,7 +8735,7 @@ async def test_form_tools_are_registered_without_submission_tools() -> None:
             "Missing required scope: .*form:read",
         ),
     ],
-    ids=["flag-off", "no-entitlement", "no-scope"],
+    ids=["no-entitlement", "no-scope"],
 )
 async def test_form_tools_are_gated(
     monkeypatch: pytest.MonkeyPatch, tool_name: str, gate: dict[str, Any], error: str
@@ -8696,7 +8747,7 @@ async def test_form_tools_are_gated(
     with pytest.raises(ToolError, match=error):
         await _call_form_tool(tool_name)
 
-    assert service.opened is ("flag" not in gate)
+    assert service.opened
 
 
 @pytest.mark.anyio

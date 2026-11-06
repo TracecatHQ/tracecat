@@ -327,6 +327,7 @@
               "tools/terraform",
               "tools/threatfox",
               "tools/threatstream",
+              "tools/trend_vision_one",
               "tools/urlhaus",
               "tools/urlscan",
               "tools/vercel_security",

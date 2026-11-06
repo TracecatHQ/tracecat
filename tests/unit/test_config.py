@@ -501,9 +501,9 @@ def test_removed_agent_runtime_feature_flag_is_ignored(
     """Deployments that still set the removed flag keep starting."""
     try:
         with monkeypatch.context() as env:
-            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime,forms")
+            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime,ai-ranking")
             reloaded_config = importlib.reload(tracecat_config)
-            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {FeatureFlag.FORMS}
+            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {FeatureFlag.AI_RANKING}
     finally:
         importlib.reload(tracecat_config)
 

@@ -30,6 +30,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
+from tracecat.agent.workflow_turns.schemas import WorkflowAgentTurnInput
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import ScatterActionInput
@@ -553,6 +554,27 @@ class EventGroup[T: EventInput](BaseModel):
                 )
                 agent_group.set_mask_output(memo.mask_output)
                 return agent_group
+            case "WorkflowAgentTurnWorkflow":
+                # An agent action on an installed backend. Show the action's
+                # own arguments, as for the built-in workflow.
+                memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
+                input = await extract_first(attrs.input)
+                if not is_unreadable_temporal_payload(input):
+                    input = WorkflowAgentTurnInput.model_validate(input).args
+                namespace, name = PlatformAction.AI_AGENT.value.split(".", 1)
+                agent_group = EventGroup(
+                    event_id=event.event_id,
+                    udf_namespace=namespace,
+                    udf_name=name,
+                    udf_key=PlatformAction.AI_AGENT.value,
+                    action_id=attrs.workflow_id,
+                    action_ref=None,
+                    action_title="AI Agent",
+                    action_description="AI Agent",
+                    action_input=cast(EventInput, input),
+                )
+                agent_group.set_mask_output(memo.mask_output)
+                return agent_group
             case _:
                 raise ValueError("Event is not a child workflow initiated event.")
 
@@ -948,7 +970,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 )
                 compact_event.set_mask_output(memo.mask_output)
                 return compact_event
-            case "DurableAgentWorkflow":
+            case "DurableAgentWorkflow" | "WorkflowAgentTurnWorkflow" as agent_type:
                 memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
 
                 input_data = await extract_first(attrs.input)
@@ -969,7 +991,13 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     compact_event.set_mask_output(memo.mask_output)
                     return compact_event
 
-                agent_run_args = AgentWorkflowArgs(**input_data)
+                # An installed backend's turn carries the action's own
+                # arguments, so both read the same.
+                agent_run_args = (
+                    WorkflowAgentTurnInput.model_validate(input_data).args
+                    if agent_type == "WorkflowAgentTurnWorkflow"
+                    else AgentWorkflowArgs(**input_data)
+                )
                 session = None
                 session_id = agent_run_args.agent_args.session_id
                 if session_id is not None:

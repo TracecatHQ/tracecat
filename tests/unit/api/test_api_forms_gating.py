@@ -1,4 +1,4 @@
-"""Forms routes over HTTP: the flag and entitlement gate, and the error responses."""
+"""Forms routes over HTTP: the entitlement gate, and the error responses."""
 
 import re
 import uuid
@@ -11,17 +11,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tests._route_utils import EffectiveRoute, iter_effective_api_routes
-from tracecat import config
 from tracecat.api.app import app as api_app
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired
 from tracecat.executor.action_gateway.app import create_app as create_gateway_app
-from tracecat.feature_flags import FeatureFlag
-from tracecat.forms.dependencies import check_forms_enabled
 from tracecat.forms.enums import FormErrorCode, FormFieldErrorCode
 from tracecat.forms.exceptions import FormError, form_error_handler
 from tracecat.forms.schemas import FormFieldError
-from tracecat.tiers import defaults as tier_defaults
 
 GATEWAY_APP = create_gateway_app()
 
@@ -69,28 +64,19 @@ def test_the_gateway_serves_the_paths_core_forms_calls() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("flags", "entitled", "status_code"),
-    [(set(), True, 404), ({FeatureFlag.FORMS}, False, 403)],
-    ids=["flag_off", "entitlement_off"],
-)
 @pytest.mark.parametrize(("client_name", "route"), ROUTES)
-async def test_every_forms_route_needs_the_flag_and_the_entitlement(
+async def test_every_forms_route_needs_the_entitlement(
     request: pytest.FixtureRequest,
     test_admin_role: Role,
     monkeypatch: pytest.MonkeyPatch,
     client_name: str,
     route: EffectiveRoute,
-    flags: set[str],
-    entitled: bool,
-    status_code: int,
 ) -> None:
     client: TestClient = request.getfixturevalue(client_name)
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", flags)
     path = route.path.replace("{workspace_id}", str(test_admin_role.workspace_id))
     path = re.sub(r"\{[a-z_]+\}", str(uuid.uuid4()), path)
     [method] = route.methods
-    is_org_entitled = AsyncMock(return_value=entitled)
+    is_org_entitled = AsyncMock(return_value=False)
 
     with patch("tracecat.tiers.access.is_org_entitled", new=is_org_entitled):
         response = client.request(
@@ -100,31 +86,8 @@ async def test_every_forms_route_needs_the_flag_and_the_entitlement(
             json={},
         )
 
-    assert response.status_code == status_code
-    if status_code == 404:
-        assert response.json() == {"detail": "Feature not enabled"}
-        is_org_entitled.assert_not_awaited()
-    else:
-        assert response.json()["type"] == "EntitlementRequired"
-
-
-@pytest.mark.anyio
-async def test_one_forms_token_turns_on_the_flag_and_the_entitlement(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """On a single-tenant deployment, ``forms`` in the flags is all it takes."""
-    role = Role(type="user", organization_id=uuid.uuid4(), service_id="tracecat-api")
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.FORMS})
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
-
-    for flags, allowed in (("forms", True), ("git-sync", False)):
-        entitlements = tier_defaults.resolve_oss_default_entitlements(flags)
-        monkeypatch.setattr(tier_defaults, "DEFAULT_ENTITLEMENTS", entitlements)
-        if allowed:
-            await check_forms_enabled(AsyncMock(), role)
-        else:
-            with pytest.raises(EntitlementRequired):
-                await check_forms_enabled(AsyncMock(), role)
+    assert response.status_code == 403
+    assert response.json()["type"] == "EntitlementRequired"
 
 
 @pytest.mark.anyio

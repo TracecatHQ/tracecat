@@ -186,7 +186,6 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.forms.access import can_read_form_config
 from tracecat.forms.enums import FormStatus
 from tracecat.forms.exceptions import FormError
@@ -2098,8 +2097,8 @@ def _build_import_data_from_workflow_yaml(
         raise ToolError("Workflow definition YAML must include a definition object")
     if "title" not in definition and title is not None:
         definition["title"] = title
-    if "description" not in definition and description:
-        definition["description"] = description
+    if "description" not in definition:
+        definition["description"] = description or ""
 
     actions = definition.get("actions", [])
     if actions:
@@ -2697,6 +2696,7 @@ definition:
   actions:
     - ref: first_action
       action: core.http_request
+      description: "Fetch the alert details"
       args:
         url: "https://api.example.com/alerts/${{ TRIGGER.alert_id }}"
         method: GET
@@ -2744,6 +2744,7 @@ Each action in the `actions` list supports:
 |-------|------|-------------|
 | `ref` | str (required) | Unique slug identifier (lowercase, hyphens, underscores) |
 | `action` | str (required) | Fully qualified action type (e.g. `core.http_request`) |
+| `description` | str | Human-readable summary of what this action does (default `""`) |
 | `args` | mapping | Action arguments — use expressions for dynamic values |
 | `depends_on` | list[str] | Refs of actions that must complete before this one runs |
 | `run_if` | expression | Conditional — skip this action if the expression is falsy |
@@ -3072,7 +3073,8 @@ There is no `TRIGGER.payload`. A case trigger delivers `case_id`, `event`
 (`id`, `type`, `data`, `created_at`, `user_id`, `wf_exec_id`), `tags` (objects
 with `id`, `ref`, `name`, `color`), and `workspace_id`. `status: online` requires
 a non-empty `event_types`. `tag_filters` are tag refs matched with OR semantics;
-an empty list means no tag filtering.
+an empty list means no tag filtering. `tag_added`/`tag_removed` events match the
+added or removed tag; other events match the case's current tags.
 ```yaml
 case_trigger:
   status: online
@@ -4042,7 +4044,7 @@ async def create_workflow(
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create workflow", error=str(e))
@@ -4360,6 +4362,7 @@ async def edit_workflow(
           "value": {
             "ref": "notify_owner",
             "action": "core.http_request",
+            "description": "Notify the event owner",
             "depends_on": ["parse_event"],
             "args": {
               "method": "POST",
@@ -4564,7 +4567,7 @@ async def update_workflow(
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to update workflow", error=str(e))
@@ -6385,8 +6388,9 @@ Args:
         valid values are listed above.
     tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
         not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
-        case carries any listed tag. An empty list means no tag filtering. Refs
-        that do not exist yet are created automatically.
+        case carries any listed tag, or for `tag_added`/`tag_removed` when the
+        added or removed tag is listed. An empty list means no tag filtering.
+        Refs that do not exist yet are created automatically.
 
 Returns a confirmation message.
 """
@@ -6442,14 +6446,12 @@ async def _forms_service(
 ) -> AsyncIterator[FormsService]:
     """Open the forms service for one form tool call and map its errors.
 
-    Checks, in order: the caller's workspace role, the ``forms`` feature flag,
-    the ``forms`` entitlement, and the scopes. Any error raised inside the
-    block, the tool's own included, reaches the client as a ``ToolError``.
+    Checks, in order: the caller's workspace role, the ``forms`` entitlement,
+    and the scopes. Any error raised inside the block, the tool's own
+    included, reaches the client as a ``ToolError``.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        if not is_feature_enabled(FeatureFlag.FORMS):
-            raise ToolError("Forms are not enabled on this Tracecat instance")
         async with FormsService.with_session(role=role) as svc:
             if not await svc.has_entitlement(Entitlement.FORMS):
                 raise EntitlementRequired(Entitlement.FORMS.value)

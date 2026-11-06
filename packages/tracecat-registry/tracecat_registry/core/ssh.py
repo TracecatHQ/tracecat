@@ -2,6 +2,7 @@
 
 import io
 import os
+import socket
 import tempfile
 import warnings
 from typing import Annotated, TypedDict
@@ -10,6 +11,13 @@ import paramiko
 from typing_extensions import Doc
 
 from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry._internal.exceptions import TracecatException
+from tracecat_registry._internal.remote_exec import (
+    find_error_pattern,
+    output_tail,
+    resolve_remote_target,
+    validate_error_patterns,
+)
 
 ssh_secret = RegistrySecret(
     name="ssh",
@@ -74,6 +82,27 @@ def _build_known_hosts(host: str, port: int, public_host_key: str) -> str:
     return f"{_host_key_name(host, port)} {stripped_key}\n"
 
 
+def _raise_for_command_failure(
+    result: SSHCommandResult,
+    allowed_exit_codes: list[int],
+    error_patterns: list[str],
+) -> None:
+    exit_status = result["exit_status"]
+    if exit_status not in allowed_exit_codes:
+        reason = f"exited with status {exit_status}"
+    elif pattern := find_error_pattern(
+        error_patterns, (result["stdout"], result["stderr"])
+    ):
+        reason = f"output matched error pattern {pattern!r}"
+    else:
+        return
+    output = output_tail(result["stderr"]) or output_tail(result["stdout"])
+    message = f"SSH command {reason}."
+    if output:
+        message += f"\n\n```\n{output}\n```"
+    raise TracecatException(message, detail=result)
+
+
 @registry.register(
     default_title="Execute SSH command",
     description="Execute a shell command over SSH.",
@@ -120,15 +149,49 @@ def execute_command(
         float,
         Doc("Timeout in seconds for connection and command execution."),
     ] = 30.0,
+    raise_on_error: Annotated[
+        bool,
+        Doc(
+            "Raise an error when the exit status is not in allowed_exit_codes or "
+            "the output contains any error_patterns. Defaults to returning the result."
+        ),
+    ] = False,
+    allowed_exit_codes: Annotated[
+        list[int] | None,
+        Doc(
+            "Exit statuses treated as success when raise_on_error is enabled. Defaults to [0]."
+        ),
+    ] = None,
+    error_patterns: Annotated[
+        list[str] | None,
+        Doc(
+            "Text that marks the command as failed when raise_on_error is enabled. "
+            "The action raises if stdout or stderr contains any item exactly as "
+            "written: case-sensitive, and characters like `*`, `.` or `^` match "
+            "themselves (no wildcards or regex). Example: "
+            '`["Permission denied", "FATAL:"]`. '
+            "Up to 20 items, each 1-256 characters."
+        ),
+    ] = None,
 ) -> SSHCommandResult:
     """Execute a command over SSH and return stdout, stderr, and exit status.
 
     By default, unknown host keys are rejected; provide `host_public_key` to trust
     a host. Set `host_key_checking=False` to accept an unknown host key for this
     action run only, without persisting trust across runs or workers.
+
+    Hosts that resolve to loopback, link-local, cloud metadata, or other
+    reserved addresses are rejected, and the connection is made to the address
+    that was validated.
     """
+    patterns = validate_error_patterns(error_patterns)
+    success_codes = [0] if allowed_exit_codes is None else allowed_exit_codes
+    if raise_on_error and not success_codes:
+        raise ValueError("allowed_exit_codes must contain at least one exit status.")
+
     private_key = secrets.get("PRIVATE_KEY")
     pkey = _load_private_key(private_key)
+    target_address = resolve_remote_target(host, port)
 
     with paramiko.SSHClient() as client:
         known_hosts_path: str | None = None
@@ -161,9 +224,14 @@ def execute_command(
                 )
                 client.set_missing_host_key_policy(_TransientMissingHostKeyPolicy())
 
+            # Dial the validated address; paramiko still uses `host` for host keys.
+            sock = socket.create_connection(
+                (target_address, port), timeout=timeout_seconds
+            )
             client.connect(
                 hostname=host,
                 port=port,
+                sock=sock,
                 username=username,
                 password=password,
                 pkey=pkey,
@@ -190,11 +258,14 @@ def execute_command(
                 stdout.close()
                 stderr.close()
 
-            return {
+            result: SSHCommandResult = {
                 "stdout": stdout_data.decode("utf-8", errors="replace"),
                 "stderr": stderr_data.decode("utf-8", errors="replace"),
                 "exit_status": exit_status,
             }
+            if raise_on_error:
+                _raise_for_command_failure(result, success_codes, patterns)
+            return result
         finally:
             if known_hosts_path:
                 try:

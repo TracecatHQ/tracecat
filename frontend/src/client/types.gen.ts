@@ -2125,6 +2125,11 @@ export type BooleanApprovalDecision = {
 }
 
 /**
+ * Edition of the running deployment.
+ */
+export type BuildEdition = "oss" | "ee"
+
+/**
  * Lifecycle state for the durable backfill operation.
  */
 export type CaseAgentSessionBackfillStatus = "running" | "completed" | "failed"
@@ -5024,6 +5029,10 @@ export type EffectiveEntitlements = {
    * Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions
    */
   agent_runtime_preview?: boolean
+  /**
+   * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
+   */
+  agent_runtime_workflows?: boolean
 }
 
 /**
@@ -5161,6 +5170,10 @@ export type EntitlementsDict = {
    * Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions
    */
   agent_runtime_preview?: boolean
+  /**
+   * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
+   */
+  agent_runtime_workflows?: boolean
 }
 
 export type ErrorModel = {
@@ -5337,7 +5350,6 @@ export type FeatureFlag =
   | "workflow-concurrency-limits"
   | "agent-fs-persistence"
   | "workspace-sync-github-archive"
-  | "forms"
 
 /**
  * Response model for feature flags.
@@ -8501,6 +8513,16 @@ export type PlatformAuditSettingsUpdate = {
 }
 
 /**
+ * Version and build details of the running deployment.
+ */
+export type PlatformBuildInfo = {
+  version: string
+  edition: BuildEdition
+  commit?: string | null
+  built_at?: string | null
+}
+
+/**
  * Cursor-paginated platform MCP catalog response.
  */
 export type PlatformMCPCatalogListResponse = {
@@ -9623,6 +9645,7 @@ export type RuntimeErrorKind =
   | "storage.materialization.invalid_data"
   | "storage.persistence.transport_unavailable"
   | "executor.activity.timed_out"
+  | "executor.worker.shutdown"
   | "executor.backend.initialization_failed"
   | "executor.registry.lease_contention"
   | "executor.registry.capacity_exhausted"
@@ -9645,6 +9668,7 @@ export type RuntimeErrorKind =
   | "workflow.agent.input_invalid"
   | "workflow.agent.preparation_failed"
   | "agent.configuration.invalid"
+  | "agent.provider.credentials_missing"
   | "agent.preparation.failed"
   | "agent.session.initialization_failed"
   | "agent.llm.gateway_auth_failed"
@@ -9653,6 +9677,8 @@ export type RuntimeErrorKind =
   | "agent.llm.rate_limited"
   | "agent.llm.read_timeout"
   | "agent.llm.stream_interrupted"
+  | "agent.llm.provider_unavailable"
+  | "agent.llm.gateway_unavailable"
   | "agent.mcp.auth_failed"
   | "agent.mcp.unavailable"
   | "agent.execution.failed"
@@ -17183,6 +17209,8 @@ export type AdminAgentListPlatformCatalogData = {
 }
 
 export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
+
+export type AdminBuildGetBuildInfoResponse = PlatformBuildInfo
 
 export type AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse =
   CaseAgentSessionInteractionBackfillStartResponse
@@ -24880,6 +24908,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/build-info": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformBuildInfo
       }
     }
   }

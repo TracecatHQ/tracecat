@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 import pytest
 from authlib.integrations.base_client.errors import OAuthError
+from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -68,6 +69,7 @@ from tracecat.integrations.mcp_validation import (
     MCPSecretResolutionError,
 )
 from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
     DynamicRegistrationResult,
     MCPAuthProvider,
     OAuthDiscoveryResult,
@@ -1784,6 +1786,42 @@ class TestMCPIntegrationCRUD:
                     client_secret=SecretStr("test-client-secret"),
                 )
             )
+
+    async def test_custom_authorization_code_provider_uses_pkce(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Custom delegated-access providers send an S256 PKCE challenge."""
+        provider = await integration_service.create_custom_provider(
+            params=CustomOAuthProviderCreate(
+                name="PKCE Required",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                authorization_endpoint="https://auth.example.com/authorize",
+                token_endpoint="https://auth.example.com/token",
+                client_id="test-client-id",
+                client_secret=SecretStr("test-client-secret"),
+            )
+        )
+        provider_impl = await integration_service.resolve_provider_impl(
+            provider_key=ProviderKey(
+                id=provider.provider_id,
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            )
+        )
+        assert provider_impl is not None
+        oauth_provider = cast(type[AuthorizationCodeOAuthProvider], provider_impl)(
+            client_id="test-client-id",
+            client_secret="test-client-secret",
+        )
+
+        auth_url, code_verifier = await oauth_provider.get_authorization_url(
+            "test-state"
+        )
+
+        assert code_verifier is not None
+        query = parse_qs(urlparse(auth_url).query)
+        assert query["code_challenge"] == [create_s256_code_challenge(code_verifier)]
+        assert query["code_challenge_method"] == ["S256"]
 
     async def test_connect_platform_mcp_catalog_requires_config_when_needed(
         self,

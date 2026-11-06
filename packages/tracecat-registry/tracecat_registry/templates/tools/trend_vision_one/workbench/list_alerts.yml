@@ -1,0 +1,80 @@
+type: action
+definition:
+  title: List Workbench alerts
+  description: >-
+    Get alerts list. Displays information about workbench alerts that match the specified
+    criteria in a paginated list. Calls GET /v3.0/workbench/alerts.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Workbench/paths/~1v3.0~1workbench~1alerts/get
+  namespace: tools.trend_vision_one
+  name: list_alerts
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    tmv1_filter:
+      type: str | None
+      description: >-
+        Filter for retrieving a subset of the alert list. Supported fields: id, status,
+        investigationResult, alertProvider, modelId, model, modelType, severity,
+        impactScopeEntityValue, indicatorValue, incidentId. Sent as the TMV1-Filter header.
+      default: null
+    startDateTime:
+      type: str | None
+      description: >-
+        Datetime in ISO 8601 format (yyyy-MM-ddThh:mm:ssZ in UTC) that indicates the start
+        of the data retrieval time range. The available oldest value is
+        "1970-01-01T00:00:00Z". Provider default: 1970-01-01T00:00:00Z.
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        The datetime in ISO 8601 format that indicates the end of the data retrieval time
+        range. Provider default: Current date time.
+      default: null
+    dateTimeTarget:
+      type: str | None
+      description: >-
+        The timestamp to be used for retrieving Workbench alert data. Allowed values:
+        createdDateTime, updatedDateTime, firstInvestigatedDateTime. Provider default:
+        createdDateTime.
+      default: null
+    orderBy:
+      type: str | None
+      description: >-
+        Specifies the field by which the results are sorted. Provider default:
+        createdDateTime desc.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/workbench/alerts
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+          TMV1-Filter: ${{ inputs.tmv1_filter }}
+        params:
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          dateTimeTarget: ${{ inputs.dateTimeTarget }}
+          orderBy: ${{ inputs.orderBy }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}

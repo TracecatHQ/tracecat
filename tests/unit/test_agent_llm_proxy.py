@@ -533,12 +533,27 @@ async def test_write_stream_response_emits_error_after_headers_sent(
         (
             "throttling_error",
             RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.USER,
+        ),
+        (
+            "rate_limit_error",
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
             RuntimeErrorOwner.PLATFORM,
         ),
         (
             "budget_exceeded",
             RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
             RuntimeErrorOwner.USER,
+        ),
+        (
+            "tracecat_llm_provider_unavailable",
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
+        ),
+        (
+            "tracecat_llm_deployment_unavailable",
+            RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
         ),
     ],
 )
@@ -1320,6 +1335,14 @@ async def test_read_timeout_before_headers_records_route(
             False,
         ),
         (
+            403,
+            "tracecat_llm_provider_role_denied",
+            False,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
             401,
             "tracecat_llm_token_invalid",
             True,
@@ -1357,6 +1380,14 @@ async def test_read_timeout_before_headers_records_route(
             False,
             RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
             RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            429,
+            "throttling_error",
+            False,
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.USER,
             True,
         ),
         (
@@ -1639,6 +1670,87 @@ def test_generic_http_error_message(
         RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
     )
     assert classification.message == message
+
+
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "direct", "kind"),
+    [
+        pytest.param(
+            500,
+            "tracecat_llm_provider_unavailable",
+            False,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            id="managed-500-provider",
+        ),
+        pytest.param(
+            502,
+            "tracecat_llm_provider_unavailable",
+            False,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            id="managed-502-provider",
+        ),
+        pytest.param(
+            503,
+            "tracecat_llm_provider_unavailable",
+            False,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            id="managed-503-provider",
+        ),
+        pytest.param(
+            503,
+            "tracecat_llm_deployment_unavailable",
+            False,
+            RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+            id="managed-503-router-cooldown",
+        ),
+        pytest.param(
+            502,
+            None,
+            False,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
+            id="managed-502-untyped-stays-unclassified",
+        ),
+        pytest.param(
+            504,
+            "tracecat_llm_provider_unavailable",
+            False,
+            RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT,
+            id="managed-504-still-timeout",
+        ),
+        pytest.param(
+            500,
+            None,
+            False,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
+            id="managed-500-untyped-gateway-bug",
+        ),
+        pytest.param(
+            503,
+            "tracecat_llm_provider_unavailable",
+            True,
+            RuntimeErrorKind.AGENT_EXECUTION_FAILED,
+            id="direct-503-unchanged",
+        ),
+    ],
+)
+def test_managed_5xx_classification(
+    status_code: int,
+    error_type: str | None,
+    direct: bool,
+    kind: RuntimeErrorKind,
+) -> None:
+    error: dict[str, str] = {"message": "Bearer synthetic-secret upstream detail"}
+    if error_type is not None:
+        error["type"] = error_type
+    classification = _http_error_classification(
+        status_code, route_is_direct=direct, body=orjson.dumps({"error": error})
+    )
+
+    assert classification.kind is kind
+    assert "synthetic-secret" not in classification.message
+    if not direct:
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
 def test_managed_unclassified_http_error_keeps_gateway_message() -> None:

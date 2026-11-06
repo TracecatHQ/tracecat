@@ -111,8 +111,8 @@ with workflow.unsafe.imports_passed_through():
         AgentConfig,
         ToolApproved,
         ToolDenied,
+        apply_preset_overrides,
         clamp_agent_timeout_seconds,
-        granted_tool_tunnels,
     )
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
@@ -660,33 +660,11 @@ class DurableAgentWorkflow:
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-            preset_config = agent_config_from_payload(preset_config_payload)
-            # Apply overrides from the provided config (if any)
             # When using a preset, the 'config' in args acts as an override layer
-            if override_cfg := args.agent_args.config:
-                if override_cfg.actions:
-                    preset_config.actions = override_cfg.actions
-
-                if override_cfg.instructions:
-                    if preset_config.instructions:
-                        preset_config.instructions = "\n".join(
-                            [
-                                preset_config.instructions,
-                                override_cfg.instructions,
-                            ]
-                        )
-                    else:
-                        preset_config.instructions = override_cfg.instructions
-
-                if override_cfg.output_type is not None:
-                    preset_config.output_type = override_cfg.output_type
-
-            # Prune against the final actions: an override can re-add a tool
-            # the preset's skills no longer grant, and it keeps its tunnel.
-            preset_config.tool_tunnels = granted_tool_tunnels(
-                preset_config.tool_tunnels, preset_config.actions
+            cfg = apply_preset_overrides(
+                agent_config_from_payload(preset_config_payload),
+                args.agent_args.config,
             )
-            cfg = preset_config
         else:
             if args.agent_args.config is None:
                 raise_application_error_from_classification(

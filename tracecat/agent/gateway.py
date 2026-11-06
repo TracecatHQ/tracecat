@@ -4,26 +4,34 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
 
 import boto3
 import httpx
 import orjson
 from aiocache import Cache
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from fastapi import HTTPException, Request
 from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import (
+    APIConnectionError,
     AuthenticationError,
+    BadGatewayError,
+    InternalServerError,
+    MidStreamFallbackError,
     PermissionDeniedError,
     RateLimitError,
+    ServiceUnavailableError,
 )
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
 from litellm.types.router import RouterRateLimitError
 from litellm.types.utils import CallTypesLiteral
 from openai import RateLimitError as OpenAIRateLimitError
+
+if TYPE_CHECKING:
+    from types_boto3_sts.client import STSClient
 
 from tracecat import config as app_config
 from tracecat.agent.diagnostics import parse_bounded_error_body
@@ -182,19 +190,52 @@ def _get_aws_role_session_name(credentials: dict[str, str]) -> str:
     return _DEFAULT_AWS_ROLE_SESSION_NAME
 
 
+class _BedrockRoleDeniedError(Exception):
+    """STS denied the workspace ``AssumeRole`` request itself."""
+
+
+def _gateway_sts_client() -> STSClient:
+    """Build an STS client on the gateway's own AWS credentials, resolved now.
+
+    Freezing them up front means a failure refreshing them (IRSA, role
+    chaining) raises here, before the workspace request, so it stays a platform
+    error instead of reading as a workspace role denial.
+    """
+    session = boto3.Session()
+    if (source := session.get_credentials()) is None:
+        raise NoCredentialsError()
+    frozen = source.get_frozen_credentials()
+    return boto3.Session(
+        aws_access_key_id=frozen.access_key,
+        aws_secret_access_key=frozen.secret_key,
+        aws_session_token=frozen.token,
+        region_name=session.region_name,
+    ).client("sts")
+
+
 def _assume_bedrock_role(
     role_arn: str,
     *,
     external_id: str,
     session_name: str,
 ) -> dict[str, str]:
-    """Assume the configured AWS role and return temporary Bedrock credentials."""
-    sts_client = boto3.Session().client("sts")
-    response = sts_client.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName=session_name,
-        ExternalId=external_id,
-    )
+    """Assume the configured AWS role and return temporary Bedrock credentials.
+
+    Raises:
+        _BedrockRoleDeniedError: STS returned ``AccessDenied`` for the
+            workspace role.
+    """
+    sts_client = _gateway_sts_client()
+    try:
+        response = sts_client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName=session_name,
+            ExternalId=external_id,
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "AccessDenied":
+            raise _BedrockRoleDeniedError() from exc
+        raise
     session_credentials = response["Credentials"]
     return {
         "AWS_ACCESS_KEY_ID": session_credentials["AccessKeyId"],
@@ -229,6 +270,21 @@ async def _resolve_bedrock_runtime_credentials(
                 external_id=external_id,
                 session_name=_get_aws_role_session_name(credentials),
             )
+        except _BedrockRoleDeniedError as exc:
+            # Usually the workspace-owned trust policy must change before a
+            # retry can succeed, but an IAM or SCP deny on Tracecat's own
+            # principal returns the same code, so keep a platform-visible log.
+            logger.warning("Bedrock AssumeRole denied by STS")
+            raise ProxyException(
+                message=(
+                    "AWS denied assuming the configured Bedrock role. Check "
+                    "that the role trust policy allows Tracecat and the "
+                    "workspace External ID."
+                ),
+                type="tracecat_llm_provider_role_denied",
+                param=None,
+                code=403,
+            ) from exc
         except (BotoCoreError, ClientError, KeyError) as exc:
             raise ProxyException(
                 message="Failed to assume configured AWS role for Bedrock.",
@@ -432,6 +488,12 @@ class _GatewayUnavailableHTTPException(HTTPException):
     type = "tracecat_llm_deployment_unavailable"
 
 
+class _ProviderUnavailableHTTPException(HTTPException):
+    """Attribute an upstream provider 5xx or connection failure to the provider."""
+
+    type = "tracecat_llm_provider_unavailable"
+
+
 def _response_has_provider_quota_code(response: httpx.Response) -> bool:
     if response.status_code != 429:
         return False
@@ -461,6 +523,20 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
         ) and _response_has_provider_quota_code(current.response):
             return True
     return False
+
+
+def _provider_rate_limit(error: Exception) -> Exception | None:
+    """Return the provider throttling error, unwrapping a mid-stream fallback.
+
+    LiteLLM raises ``MidStreamFallbackError`` (a ``ServiceUnavailableError``)
+    when a stream fails before content, but the wrapper copies the wrapped
+    provider error's ``status_code``. A 429 there is provider throttling.
+    """
+    if isinstance(error, RateLimitError):
+        return error
+    if isinstance(error, MidStreamFallbackError) and error.status_code == 429:
+        return error.original_exception or error
+    return None
 
 
 def _anthropic_error_message(error_type: str, message: str) -> str:
@@ -503,6 +579,7 @@ class TracecatCallbackHandler(CustomLogger):
                 "tracecat_llm_provider_auth_failed",
                 "tracecat_llm_model_not_enabled",
                 "tracecat_llm_provider_subscription_required",
+                "tracecat_llm_provider_role_denied",
                 "budget_exceeded",
             }:
                 original_exception.message = _anthropic_error_message(
@@ -534,17 +611,35 @@ class TracecatCallbackHandler(CustomLogger):
                 status_code=original_exception.status_code,
                 detail="The LLM provider rejected authentication or access",
             )
-        elif isinstance(
-            original_exception, RateLimitError
-        ) and _is_provider_quota_exceeded(original_exception):
-            replacement = _ProviderQuotaHTTPException(
-                status_code=429,
-                detail="LLM provider quota exhausted; check billing or usage limits",
+        elif (rate_limit := _provider_rate_limit(original_exception)) is not None:
+            replacement = (
+                _ProviderQuotaHTTPException(
+                    status_code=429,
+                    detail="LLM provider quota exhausted; check billing or usage limits",
+                )
+                if _is_provider_quota_exceeded(rate_limit)
+                else _ProviderRateLimitHTTPException(
+                    status_code=429,
+                    detail="LLM provider rate limit exceeded; retry later",
+                )
             )
-        elif isinstance(original_exception, RateLimitError):
-            replacement = _ProviderRateLimitHTTPException(
-                status_code=429,
-                detail="LLM provider rate limit exceeded; retry later",
+        elif isinstance(
+            original_exception,
+            APIConnectionError
+            | BadGatewayError
+            | InternalServerError
+            | ServiceUnavailableError,
+        ):
+            # Includes MidStreamFallbackError wrapping a provider 5xx or a
+            # dropped connection; wrapped throttling was handled above.
+            status_code = getattr(original_exception, "status_code", None)
+            replacement = _ProviderUnavailableHTTPException(
+                status_code=(
+                    status_code
+                    if isinstance(status_code, int) and status_code >= 500
+                    else 502
+                ),
+                detail="The LLM provider is temporarily unavailable; retry later",
             )
         else:
             return None

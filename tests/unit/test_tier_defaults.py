@@ -24,6 +24,7 @@ _FALSE_BY_DEFAULT = {
     "forms": False,
     "tunnels": False,
     "agent_runtime_preview": False,
+    "agent_runtime_workflows": False,
 }
 
 
@@ -62,10 +63,10 @@ def test_resolve_oss_default_entitlements_maps_legacy_agent_channels_flag() -> N
     assert entitlements.agent_addons is False
 
 
-def test_resolve_oss_default_entitlements_maps_forms_flag() -> None:
+def test_resolve_oss_default_entitlements_ignores_forms_flag() -> None:
     entitlements = resolve_oss_default_entitlements("git-sync, forms")
 
-    assert entitlements.forms is True
+    assert entitlements.forms is False
     assert entitlements.semantic_search is False
 
 
@@ -76,6 +77,8 @@ def test_installed_agent_backend_enables_agent_runtime_preview(
     entitlements = resolve_oss_default_entitlements(flags, agent_backend_installed=True)
 
     assert entitlements.agent_runtime_preview is True
+    # Installing a backend opts in workflow agent actions too.
+    assert entitlements.agent_runtime_workflows is True
     assert entitlements.agent_addons is False
 
 
@@ -120,6 +123,7 @@ def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> No
     assert entitlements.forms is False
     assert entitlements.tunnels is False
     assert entitlements.agent_runtime_preview is False
+    assert entitlements.agent_runtime_workflows is False
 
 
 def test_get_legacy_feature_flags_env_reads_tracecat_feature_flags(
