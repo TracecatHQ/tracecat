@@ -28,8 +28,12 @@ from tracecat.workspace_sync.exceptions import PushPathConflictError
 from tracecat.workspace_sync.schemas import (
     PathsByType,
     ResourcePathMap,
+    WorkspaceManifest,
     WorkspaceSpec,
 )
+
+_DEFAULT_ROOTS = WorkspaceManifest().resources
+"""Pushes always write the default resource roots."""
 
 
 def plan_resource_paths(
@@ -46,8 +50,9 @@ def plan_resource_paths(
 
     1. A resource in ``fixed`` takes that path as is. Fixed paths of resources
        not in ``spec`` are still off limits to the others.
-    2. A resource whose ``previous`` path still matches its current name keeps
-       it, so a new resource with the same name never pushes it aside.
+    2. A resource whose ``previous`` path is still a readable choice for its
+       current name keeps it, suffix included. So a new resource with the same
+       name never pushes it aside, and it only moves when it is renamed.
     3. Every other resource, in source id order, takes its readable path. If
        that path is taken, the source id is appended: ``Triage-wf_4f2a...``.
 
@@ -103,10 +108,11 @@ def plan_resource_paths(
         }
         last = (previous or {}).get(resource_type, {})
         for source_id in sorted(specs):
-            path = adapter.path_for_key(keys[source_id])
+            path = last.get(source_id)
             if (
                 source_id not in planner.paths
-                and last.get(source_id) == path
+                and path is not None
+                and _is_readable_choice(adapter, path, keys[source_id], source_id)
                 and planner.is_free(source_id, path, own_previous=True)
             ):
                 planner.claim(source_id, path)
@@ -161,6 +167,25 @@ def _candidate_keys(key: str, source_id: str) -> Iterator[str]:
     while True:
         yield f"{suffixed}-{counter}"
         counter += 1
+
+
+def _is_readable_choice(
+    adapter: ResourceAdapter, path: str, key: str, source_id: str
+) -> bool:
+    """Return whether ``path`` is one of the paths ``claim_readable`` could give.
+
+    That is the plain readable path, or a collision-suffixed one:
+    ``key-<source id>`` or ``key-<source id>-<n>``.
+    """
+    # Exact comparison: a case-only rename still moves the folder.
+    path_key = adapter.path_key_from_path(path, _DEFAULT_ROOTS)
+    if path_key is None:
+        return False
+    suffixed = f"{key}-{path_segment(source_id)}"
+    if path_key in (key, suffixed):
+        return True
+    counter = path_key.removeprefix(f"{suffixed}-")
+    return counter != path_key and counter.isdigit() and int(counter) >= 2
 
 
 def _fold(path: str) -> str:
