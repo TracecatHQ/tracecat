@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 import yaml
@@ -19,27 +20,60 @@ from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     WORKFLOW_RESOURCE_ADAPTER,
+    WORKSPACE_RESOURCE_ADAPTERS,
     workspace_spec_from_maps,
 )
-from tracecat.workspace_sync.adapters.base import VersionedSlug
+from tracecat.workspace_sync.adapters.base import (
+    ResourceAdapter,
+    VersionedSlug,
+)
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.layout import (
+    ResourceLocations,
+    ResourcePathIndex,
+    plan_resource_paths,
+)
 from tracecat.workspace_sync.schemas import (
+    PathsByType,
+    ResourcePathMap,
     WorkspaceManifest,
     WorkspaceSpec,
+    normalize_workflow_source_id,
 )
 from tracecat.workspace_sync.serialization import serialize_yaml_model
 from tracecat.workspace_sync.workflow import (
+    is_current_workflow_spec,
     parse_workflow_spec,
     serialize_workflow_spec,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedWorkspaceFiles:
+    """Resources parsed from repository files, and where each one was found."""
+
+    spec: WorkspaceSpec
+    diagnostics: list[PullDiagnostic]
+    paths: ResourcePathMap
+    """Primary file path each resource was read from, by type then source id."""
 
 
 def parse_workspace_spec_files(
     files: dict[str, str],
     *,
     manifest: WorkspaceManifest,
-) -> tuple[WorkspaceSpec, list[PullDiagnostic]]:
-    """Parse manifest-declared resource files into a workspace spec."""
+) -> ParsedWorkspaceFiles:
+    """Parse manifest-declared resource files into a workspace spec.
+
+    A resource's identity is the ``id`` written inside its primary file, not
+    its folder or file name, so both readable paths
+    (``workflows/Triage/definition.yml``) and legacy id paths
+    (``workflows/wf_abc/definition.yml``) parse the same way. A file without
+    an ``id`` falls back to its folder or file name, as older files did.
+
+    Primary files are parsed first. Companion files, such as skill files, are
+    then attached to the resource whose folder they sit in.
+    """
     diagnostics: list[PullDiagnostic] = []
     roots = manifest.resources
 
@@ -47,53 +81,190 @@ def parse_workspace_spec_files(
         WORKFLOW_RESOURCE_ADAPTER.spec_attr: {},
         **{adapter.spec_attr: {} for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS},
     }
-    extra_files: dict[SyncResourceType, dict[tuple[str, str], str]] = defaultdict(dict)
+    paths: ResourcePathMap = {}
+    companion_files: list[tuple[ResourceAdapter, str, str, str]] = []
 
-    workflow_root = roots.workflows.strip("/")
     for path, content in sorted(files.items()):
-        if WORKFLOW_RESOURCE_ADAPTER.source_id_from_path(path, roots) is not None:
+        if workflow_key := WORKFLOW_RESOURCE_ADAPTER.path_key_from_path(path, roots):
             workflow, diagnostic = parse_workflow_spec(
-                path,
-                content,
-                workflow_root=workflow_root,
+                path, content, path_key=workflow_key
             )
             if diagnostic is not None:
                 diagnostics.append(diagnostic)
             elif workflow is not None:
-                specs_by_attr[WORKFLOW_RESOURCE_ADAPTER.spec_attr][workflow.id] = (
-                    workflow
+                _record_resource(
+                    WORKFLOW_RESOURCE_ADAPTER,
+                    path=path,
+                    spec=workflow,
+                    destination=specs_by_attr[WORKFLOW_RESOURCE_ADAPTER.spec_attr],
+                    paths=paths,
+                    diagnostics=diagnostics,
                 )
             continue
 
         for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-            if source_id := adapter.source_id_from_path(path, roots):
-                _parse_yaml_resource(
+            if path_key := adapter.path_key_from_path(path, roots):
+                spec = _parse_yaml_resource(
                     path,
                     content,
-                    expected_source_id=source_id,
+                    default_source_id=path_key,
                     model=adapter.model,
-                    destination=specs_by_attr[adapter.spec_attr],
                     diagnostics=diagnostics,
                 )
+                if spec is not None:
+                    _record_resource(
+                        adapter,
+                        path=path,
+                        spec=spec,
+                        destination=specs_by_attr[adapter.spec_attr],
+                        paths=paths,
+                        diagnostics=diagnostics,
+                    )
                 break
 
-            extra_path = adapter.extra_path_from_path(path, roots)
-            if extra_path is None:
-                continue
-            source_id, relpath = extra_path
-            extra_files[adapter.resource_type][(source_id, relpath)] = content
-            break
+            if relpath := adapter.companion_relpath(path, roots):
+                companion_files.append((adapter, path, relpath, content))
+                break
+
+    index = ResourcePathIndex(paths)
+    extra_files: dict[SyncResourceType, dict[tuple[str, str], str]] = defaultdict(dict)
+    for adapter, path, relpath, content in companion_files:
+        # A companion file without a parsed primary file has nothing to attach
+        # to; the primary file's own diagnostic explains why.
+        owner = index.owner(path)
+        if owner is not None and owner.adapter is adapter:
+            extra_files[adapter.resource_type][(owner.source_id, relpath)] = content
 
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
         specs_by_attr[adapter.spec_attr] = adapter.attach_extra_files(
             specs_by_attr[adapter.spec_attr],
             extra_files.get(adapter.resource_type, {}),
             diagnostics,
+            paths=paths,
         )
 
     spec = workspace_spec_from_maps(specs_by_attr)
-    diagnostics.extend(validate_workspace_dependencies(spec))
-    return spec, diagnostics
+    diagnostics.extend(validate_workspace_dependencies(spec, paths=paths))
+    return ParsedWorkspaceFiles(spec=spec, diagnostics=diagnostics, paths=paths)
+
+
+def locate_resources(files: Mapping[str, str]) -> ResourceLocations:
+    """Find every file each resource lives in, by the ``id`` inside it.
+
+    A push compares this with the paths it plans, to delete a moved
+    resource's old files and to avoid writing over another resource. It only
+    reads ids, so it follows the same identity rules as
+    :func:`parse_workspace_spec_files` without validating whole files.
+    Pushes write the default roots, so only those are searched.
+    """
+    roots = WorkspaceManifest().resources
+    locations: ResourceLocations = {}
+    for path, content in sorted(files.items()):
+        for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+            if (path_key := adapter.path_key_from_path(path, roots)) is None:
+                continue
+            source_id = _declared_source_id(adapter, content, default=path_key)
+            by_id = locations.setdefault(adapter.resource_type, {})
+            by_id.setdefault(source_id, []).append(path)
+            break
+    return locations
+
+
+def primary_resource_filter(spec: WorkspaceSpec) -> Callable[[str], bool]:
+    """Return a filter for primary files of the resource types in ``spec``.
+
+    A push that writes only some types reads only those from its base tree.
+    """
+    roots = tuple(
+        f"{adapter.root}/"
+        for adapter in WORKSPACE_RESOURCE_ADAPTERS
+        if adapter.specs(spec)
+    )
+    return lambda path: path.startswith(roots) and is_primary_resource_path(path)
+
+
+def is_primary_resource_path(path: str) -> bool:
+    """Return whether ``path`` is a resource's primary file under default roots.
+
+    A push reads only these from its base tree: their ``id`` is all
+    :func:`locate_resources` needs, and companion files can be many.
+    """
+    roots = WorkspaceManifest().resources
+    return any(
+        adapter.path_key_from_path(path, roots) is not None
+        for adapter in WORKSPACE_RESOURCE_ADAPTERS
+    )
+
+
+def _declared_source_id(adapter: ResourceAdapter, content: str, *, default: str) -> str:
+    """Return the source id the parser gives a resource file, or ``default``.
+
+    ``default`` is the file's folder or file name. The parser uses it for a
+    file without an ``id``, and for a legacy-format workflow. Only workflow
+    ids are normalized by their spec model.
+    """
+    try:
+        raw = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return default
+    if not isinstance(raw, dict):
+        return default
+    is_workflow = adapter is WORKFLOW_RESOURCE_ADAPTER
+    if is_workflow and not is_current_workflow_spec(raw):
+        return default
+    declared = raw.get("id", default)
+    if not isinstance(declared, str):
+        # The parser rejects this file; any stable key will do here.
+        return default
+    return normalize_workflow_source_id(declared) if is_workflow else declared
+
+
+def _spec_id(spec: BaseModel) -> str:
+    """Return a resource spec's source id."""
+    # Every resource spec model declares ``id: str``; BaseModel does not.
+    source_id = getattr(spec, "id", None)
+    if not isinstance(source_id, str):
+        raise TypeError(f"{type(spec).__name__} has no source id")
+    return source_id
+
+
+def _record_resource(
+    adapter: ResourceAdapter,
+    *,
+    path: str,
+    spec: BaseModel,
+    destination: dict[str, BaseModel],
+    paths: ResourcePathMap,
+    diagnostics: list[PullDiagnostic],
+) -> None:
+    """Store a parsed resource under its source id, rejecting duplicate ids.
+
+    Two files with the same ``id`` would claim one resource. Files are visited
+    in path order, so the first one wins and the second gets a diagnostic.
+    """
+    source_id = _spec_id(spec)
+    type_paths = paths.setdefault(adapter.resource_type, {})
+    if (existing_path := type_paths.get(source_id)) is not None:
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=path,
+                workflow_title=adapter.display_name(spec),
+                error_type="validation",
+                message=(
+                    f"Duplicate {adapter.resource_type.value} id {source_id!r}: "
+                    f"already declared by {existing_path}. This can happen when "
+                    "two branches rename the same resource. Delete one copy, or "
+                    "push this resource from Tracecat to remove the extra copy."
+                ),
+                details={
+                    "source_id": source_id,
+                    "paths": [existing_path, path],
+                },
+            )
+        )
+        return
+    destination[source_id] = spec
+    type_paths[source_id] = path
 
 
 def serialize_workspace_spec_files(
@@ -102,33 +273,51 @@ def serialize_workspace_spec_files(
     spec: WorkspaceSpec,
     manifest_filename: str,
     manifest_serializer: Callable[[WorkspaceManifest], str],
+    paths: PathsByType | None = None,
 ) -> dict[str, str]:
     """Serialize a workspace spec into its full set of repository files.
 
     Writes the manifest, each workflow definition, and every non-workflow
     resource's primary file plus companion files, returning a path-sorted map of
-    repository path to file content.
+    repository path to file content. Resources in ``paths`` are written there;
+    the rest get readable paths from :func:`plan_resource_paths`.
     """
+    planned = plan_resource_paths(spec, fixed=paths)
     files = {manifest_filename: manifest_serializer(manifest)}
     for source_id, workflow_spec in sorted(spec.workflows.items()):
-        files[WORKFLOW_RESOURCE_ADAPTER.source_path(source_id)] = (
+        files[WORKFLOW_RESOURCE_ADAPTER.path_in(planned, source_id)] = (
             serialize_workflow_spec(workflow_spec)
         )
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
         for source_id, resource_spec in sorted(adapter.specs(spec).items()):
-            files[adapter.source_path(source_id)] = serialize_yaml_model(resource_spec)
-            files.update(adapter.serialize_extra_files(source_id, resource_spec))
+            primary_path = adapter.path_in(planned, source_id)
+            files[primary_path] = serialize_yaml_model(resource_spec)
+            files.update(adapter.serialize_extra_files(primary_path, resource_spec))
     return dict(sorted(files.items()))
 
 
-def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]:
+def validate_workspace_dependencies(
+    spec: WorkspaceSpec,
+    *,
+    paths: PathsByType | None = None,
+) -> list[PullDiagnostic]:
     """Check cross-resource references in a workspace spec for dangling links.
 
     Flags workflows that reference unknown child workflow aliases or agent preset
     slugs, agent presets that reference missing skills or subagents, and cyclic
     subagent references. Returns one :class:`PullDiagnostic` per problem found.
+    Diagnostics name each resource's path in ``paths``, or its planned
+    readable path when ``paths`` does not have it.
     """
     diagnostics: list[PullDiagnostic] = []
+    planned = plan_resource_paths(spec, fixed=paths)
+
+    def workflow_path(source_id: str) -> str:
+        return WORKFLOW_RESOURCE_ADAPTER.path_in(planned, source_id)
+
+    def preset_path(source_id: str) -> str:
+        return AGENT_PRESET_RESOURCE_ADAPTER.path_in(planned, source_id)
+
     workflow_source_ids_by_alias: dict[str, list[str]] = defaultdict(list)
     for source_id, workflow in sorted(spec.workflows.items()):
         if workflow.alias:
@@ -146,7 +335,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             continue
         diagnostics.append(
             PullDiagnostic(
-                workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_ids[0]),
+                workflow_path=workflow_path(source_ids[0]),
                 workflow_title=None,
                 error_type="dependency",
                 message=f"Duplicate workflow alias {alias!r} declared by multiple workflows",
@@ -154,7 +343,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             )
         )
 
-    diagnostics.extend(_validate_unique_import_identities(spec))
+    diagnostics.extend(_validate_unique_import_identities(spec, planned))
 
     default_source_ids = sorted(
         source_id
@@ -164,9 +353,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
     if len(default_source_ids) > 1:
         diagnostics.append(
             PullDiagnostic(
-                workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
-                    default_source_ids[0]
-                ),
+                workflow_path=preset_path(default_source_ids[0]),
                 workflow_title=None,
                 error_type="dependency",
                 message="Only one agent preset can be the workspace default",
@@ -180,7 +367,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if alias not in workflow_aliases:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_id),
+                        workflow_path=workflow_path(source_id),
                         workflow_title=workflow.definition.title,
                         error_type="dependency",
                         message=f"Workflow references missing child workflow alias {alias!r}",
@@ -191,7 +378,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if preset_slug not in preset_slugs:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_id),
+                        workflow_path=workflow_path(source_id),
                         workflow_title=workflow.definition.title,
                         error_type="dependency",
                         message=f"Workflow references missing agent preset slug {preset_slug!r}",
@@ -205,7 +392,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if preset_slug not in preset_slugs:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_id),
+                        workflow_path=workflow_path(source_id),
                         workflow_title=workflow.definition.title,
                         error_type="dependency",
                         message=f"Workflow references missing agent preset slug {preset_slug!r}",
@@ -224,9 +411,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if skill.slug not in skill_slugs:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
-                            source_id
-                        ),
+                        workflow_path=preset_path(source_id),
                         workflow_title=preset.name,
                         error_type="dependency",
                         message=f"Agent preset references missing skill slug {skill.slug!r}",
@@ -237,9 +422,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if subagent.slug not in preset_slugs:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
-                            source_id
-                        ),
+                        workflow_path=preset_path(source_id),
                         workflow_title=preset.name,
                         error_type="dependency",
                         message=f"Agent preset references missing subagent slug {subagent.slug!r}",
@@ -264,7 +447,9 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
     return diagnostics
 
 
-def _validate_unique_import_identities(spec: WorkspaceSpec) -> list[PullDiagnostic]:
+def _validate_unique_import_identities(
+    spec: WorkspaceSpec, paths: PathsByType
+) -> list[PullDiagnostic]:
     """Reject non-workflow specs that would collide during adapter import."""
     diagnostics: list[PullDiagnostic] = []
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
@@ -282,7 +467,7 @@ def _validate_unique_import_identities(spec: WorkspaceSpec) -> list[PullDiagnost
             first_spec = specs[source_ids[0]]
             diagnostics.append(
                 PullDiagnostic(
-                    workflow_path=adapter.source_path(source_ids[0]),
+                    workflow_path=adapter.path_in(paths, source_ids[0]),
                     workflow_title=adapter.display_name(first_spec),
                     error_type="validation",
                     message=(
@@ -376,17 +561,16 @@ def _parse_yaml_resource[ModelT: BaseModel](
     path: str,
     content: str,
     *,
-    expected_source_id: str,
+    default_source_id: str,
     model: type[ModelT],
-    destination: dict[str, ModelT],
     diagnostics: list[PullDiagnostic],
-) -> None:
-    """Parse one YAML resource file into ``destination`` or record a diagnostic.
+) -> ModelT | None:
+    """Parse one YAML resource file, or record a diagnostic and return ``None``.
 
-    Loads ``content``, backfills the ``id`` field from ``expected_source_id``
-    when absent, validates it against ``model``, and stores the spec under its
-    ``source_id``. Any empty file, mismatched id, YAML error, or validation error
-    appends a :class:`PullDiagnostic` instead of raising.
+    Loads ``content``, backfills the ``id`` field from ``default_source_id``
+    (the file's folder or file name) when absent, and validates it against
+    ``model``. An empty file, YAML error, or validation error appends a
+    :class:`PullDiagnostic` instead of raising.
     """
     yaml_data: dict[str, Any] | None = None
     try:
@@ -401,27 +585,11 @@ def _parse_yaml_resource[ModelT: BaseModel](
                     details={},
                 )
             )
-            return
+            return None
         yaml_data = raw
         if "id" not in raw:
-            raw = {**raw, "id": expected_source_id}
-        spec = model.model_validate(raw)
-        spec_id = getattr(spec, "id", None)
-        if spec_id != expected_source_id:
-            diagnostics.append(
-                PullDiagnostic(
-                    workflow_path=path,
-                    workflow_title=_resource_title(yaml_data),
-                    error_type="validation",
-                    message="Resource source id does not match its repository path",
-                    details={
-                        "path_source_id": expected_source_id,
-                        "spec_id": spec_id,
-                    },
-                )
-            )
-            return
-        destination[expected_source_id] = spec
+            raw = {**raw, "id": default_source_id}
+        return model.model_validate(raw)
     except yaml.YAMLError as e:
         diagnostics.append(
             PullDiagnostic(
@@ -454,6 +622,7 @@ def _parse_yaml_resource[ModelT: BaseModel](
                 details={"error": str(e)},
             )
         )
+    return None
 
 
 def _resource_title(data: dict[str, Any] | None) -> str | None:
