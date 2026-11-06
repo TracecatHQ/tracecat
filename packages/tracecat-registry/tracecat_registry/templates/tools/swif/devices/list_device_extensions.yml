@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: List device browser extensions
+  description: >-
+    List Chrome, Safari, Firefox, and Edge browser extensions detected on a managed device,
+    for malicious or risky extension investigations. Calls GET
+    /restful/organization/devices/{deviceId}/extensions.
+  display_group: Swif.ai (UEM)
+  doc_url: https://help.swif.ai/en/articles/16425729-public-apis-retrieve-extensions-for-a-specific-device
+  namespace: tools.swif
+  name: list_device_extensions
+  secrets:
+    - name: swif
+      keys: ["SWIF_API_KEY"]
+  expects:
+    deviceId:
+      type: str
+      description: Swif device ID.
+    base_url:
+      type: str | None
+      description: >-
+        Swif API base URL. Defaults to https://api.swifteam.com (global tenants). Use
+        https://api.eu.swifteam.com for EU tenants.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.swif.base_url || "https://api.swifteam.com" }}/restful/organization/devices/${{ FN.url_encode(inputs.deviceId) }}/extensions
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.swif.SWIF_API_KEY }}
+  returns: ${{ steps.request.result }}
