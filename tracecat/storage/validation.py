@@ -14,6 +14,8 @@ The defaults are based on OWASP recommendations:
 https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html#list-allowed-extensions
 """
 
+import csv
+import io
 import os
 from collections.abc import Sequence
 
@@ -60,6 +62,24 @@ def mime_equivalence_key(mime_type: str) -> str:
     if sub.endswith("-compressed"):
         sub = sub[: -len("-compressed")]
     return f"{type_part}/{sub}"
+
+
+# Declared types validated as UTF-8 text instead of by magic signature.
+_TEXT_MIME_KEYS = frozenset(
+    {
+        "text/plain",
+        "text/csv",
+        "text/tab-separated-values",
+        "application/json",
+        "text/markdown",
+    }
+)
+# Detections allowed for text content. Brainfuck is polyfile's guess for any
+# text containing all of []<>+-. and is never executed by a browser.
+_TEXT_DETECTION_KEYS = frozenset(
+    {"text/plain", "text/csv", "application/json", "application/brainfuck"}
+)
+_CSV_DELIMITERS = {"text/csv": ",", "text/tab-separated-values": "\t"}
 
 
 class FileValidationResult(BaseModel):
@@ -235,6 +255,9 @@ class FileSecurityValidator:
             logger.error("Unknown or unsupported file type")
             raise FileContentMismatchError("Unknown or unsupported file type")
 
+        if mime_equivalence_key(declared_mime_type) in _TEXT_MIME_KEYS:
+            return self._validate_text_content(content, declared_mime_type)
+
         detected_types: set[str] = set()
         detected_equiv: set[str] = set()
 
@@ -293,6 +316,60 @@ class FileSecurityValidator:
             representative,
             self.allowed_mime_types,
             detected_types=detected,
+        )
+
+    def _validate_text_content(self, content: bytes, declared_mime_type: str) -> bool:
+        """Validate text types, which have no magic signature.
+
+        The content must be UTF-8 without NUL bytes, polyfile must detect only
+        plain-text types (no HTML, SVG, scripts or binaries), and CSV/TSV must
+        parse with the declared delimiter.
+        """
+        declared_base = _normalize_mime_type(declared_mime_type)
+        detected: set[str] = set()
+        try:
+            for match in MagicMatcher.DEFAULT_INSTANCE.match(content):
+                detected.update(
+                    _normalize_mime_type(mt) for mt in match.mimetypes or () if mt
+                )
+        except Exception as e:
+            logger.error("Unknown or unsupported file type")
+            raise FileContentMismatchError("Unknown or unsupported file type") from e
+
+        is_text = b"\x00" not in content and all(
+            mime_equivalence_key(mt) in _TEXT_DETECTION_KEYS for mt in detected
+        )
+        text = ""
+        if is_text:
+            try:
+                text = content.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                is_text = False
+        if is_text and (
+            delimiter := _CSV_DELIMITERS.get(mime_equivalence_key(declared_base))
+        ):
+            try:
+                for _ in csv.reader(
+                    io.StringIO(text, newline=""), delimiter=delimiter, strict=True
+                ):
+                    pass
+            except csv.Error:
+                is_text = False
+        if is_text:
+            return True
+
+        detected_sorted = sorted(detected)
+        logger.error(
+            "Content is not valid text for declared MIME type",
+            declared_mime_type=declared_base,
+            detected_types=detected_sorted,
+        )
+        raise FileMimeTypeError(
+            f"File content does not match declared MIME type {declared_base} "
+            f"(detected: {', '.join(detected_sorted)})",
+            declared_base,
+            self.allowed_mime_types,
+            detected_types=detected_sorted,
         )
 
     def _sanitize_filename(self, filename: str) -> str:

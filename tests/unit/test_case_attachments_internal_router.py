@@ -213,6 +213,61 @@ def test_malformed_binary_declared_text_is_415(
     }
 
 
+def _validate_csv_upload(_case: object, params: CaseAttachmentCreate) -> None:
+    FileSecurityValidator(
+        allowed_extensions=[".csv"],
+        allowed_mime_types=["text/csv"],
+    ).validate_file(
+        content=params.content,
+        filename=params.file_name,
+        declared_mime_type=params.content_type,
+    )
+
+
+def test_code_like_csv_reaches_attachment_service(
+    gateway: tuple[TestClient, MagicMock],
+) -> None:
+    client, service = gateway
+    service.attachments.create_attachment.side_effect = _validate_csv_upload
+
+    response = _post_attachment(
+        client,
+        content=b"phone,status\n+1555,[ok]\n-1.5,<none>.\n[a]\n>x,[y],z\n",
+        filename="evidence.csv",
+        content_type="text/csv",
+    )
+
+    # The validator passed; the mock's None return then fails response building.
+    assert response.status_code == 500
+    service.attachments.create_attachment.assert_awaited_once()
+
+
+def test_html_declared_csv_is_415(gateway: tuple[TestClient, MagicMock]) -> None:
+    client, service = gateway
+    service.attachments.create_attachment.side_effect = _validate_csv_upload
+
+    response = _post_attachment(
+        client,
+        content=b"<html><script>alert(1)</script></html>,x\n1,2\n",
+        filename="evidence.csv",
+        content_type="text/csv",
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {
+        "detail": {
+            "error": "unsupported_content_type",
+            "message": (
+                "File content does not match declared MIME type text/csv "
+                "(detected: text/csv, text/html)"
+            ),
+            "content_type": "text/csv",
+            "allowed_types": ["text/csv"],
+            "detected_types": ["text/csv", "text/html"],
+        }
+    }
+
+
 def test_valid_attachment_keeps_created_response(
     gateway: tuple[TestClient, MagicMock],
 ) -> None:
