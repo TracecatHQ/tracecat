@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from types import TracebackType
 from typing import Self
 from urllib.parse import parse_qs
@@ -19,22 +20,30 @@ from azure.core.credentials import AccessToken
 from azure.core.exceptions import ClientAuthenticationError
 from redis.asyncio.connection import Connection, SSLConnection
 from redis.auth.token import TokenInterface
-from redis.exceptions import AuthenticationError, ConnectionError, ResponseError
+from redis.exceptions import (
+    AuthenticationError,
+    ConnectionError,
+    NoPermissionError,
+    ResponseError,
+)
 
 from tracecat import config
 from tracecat.redis import auth
 from tracecat.redis.auth import (
-    AWS_IAM_TOKEN_CACHE_SECONDS,
-    AwsIamCredentialProvider,
-    AzureEntraCredentialProvider,
     IamSSLConnection,
-    RedisCredentialUnavailableError,
-    RedisIamAuthUnavailableError,
-    aws_iam_signing_url,
     close_redis_client,
     create_redis_client,
 )
+from tracecat.redis.aws import AwsIamCredentialProvider, aws_iam_signing_url
+from tracecat.redis.azure import AzureEntraCredentialProvider, token_username
+from tracecat.redis.errors import (
+    RedisCredentialUnavailableError,
+    RedisIamAuthUnavailableError,
+)
 from tracecat.redis.types import (
+    AwsIamTokenPolicy,
+    AzureEntraTokenPolicy,
+    HandshakeRetryPolicy,
     RedisAuthMode,
     RedisAwsIamAuth,
     RedisAzureEntraAuth,
@@ -128,7 +137,7 @@ def test_aws_token_is_cached_then_resigned(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(provider, "_sign", fake_sign)
 
     assert provider.get_credentials() == ("app-user", "token-0")
-    now[0] += AWS_IAM_TOKEN_CACHE_SECONDS - 1
+    now[0] += AWS_AUTH.token.cache_seconds - 1
     assert provider.get_credentials() == ("app-user", "token-0")
     now[0] += 1
     assert provider.get_credentials() == ("app-user", "token-1")
@@ -190,7 +199,9 @@ def handshake(monkeypatch: pytest.MonkeyPatch) -> list[BaseException | None]:
             raise outcome
 
     monkeypatch.setattr(SSLConnection, "connect_check_health", fake_connect)
-    monkeypatch.setattr(auth, "IAM_AUTH_BACKOFF_SECONDS", 0)
+    monkeypatch.setattr(
+        IamSSLConnection, "handshake_retry", HandshakeRetryPolicy(backoff_seconds=0)
+    )
     return outcomes
 
 
@@ -211,7 +222,7 @@ async def test_iam_unavailable_becomes_connection_error_after_bounded_retries(
     handshake: list[BaseException | None],
 ) -> None:
     unavailable = ResponseError("IAM Authentication service is not available.")
-    handshake.extend([unavailable] * auth.IAM_AUTH_MAX_ATTEMPTS)
+    handshake.extend([unavailable] * HandshakeRetryPolicy().max_attempts)
 
     with pytest.raises(RedisIamAuthUnavailableError) as exc_info:
         await IamSSLConnection(host="localhost").connect()
@@ -221,14 +232,20 @@ async def test_iam_unavailable_becomes_connection_error_after_bounded_retries(
 
 
 @pytest.mark.anyio
-async def test_rejected_token_is_not_retried(
-    handshake: list[BaseException | None],
+@pytest.mark.parametrize(
+    "rejection",
+    [
+        AuthenticationError("invalid username-password pair"),
+        NoPermissionError("this user has no permissions to run the 'select' command"),
+    ],
+    ids=["wrongpass", "noperm"],
+)
+async def test_rejected_login_is_not_retried(
+    handshake: list[BaseException | None], rejection: Exception
 ) -> None:
-    handshake.extend(
-        [AuthenticationError("invalid username-password pair"), None, None]
-    )
+    handshake.extend([rejection, None, None])
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(type(rejection)):
         await IamSSLConnection(host="localhost").connect()
 
     assert len(handshake) == 2
@@ -301,9 +318,15 @@ def _access_token(oid: str, expires_in: float) -> AccessToken:
     return AccessToken(_jwt({"oid": oid, "exp": expires_on}), expires_on)
 
 
+FAST_ENTRA = AzureEntraTokenPolicy(
+    refresh_retry_seconds=0.01, reauth_timeout_seconds=0.05
+)
+"""Defaults except fast retries, so refresh tests finish in about a second."""
+
+
 def _azure_provider(credential: FakeAzureCredential) -> AzureEntraCredentialProvider:
     return AzureEntraCredentialProvider(
-        RedisAzureEntraAuth(), credential_factory=lambda: credential
+        RedisAzureEntraAuth(token=FAST_ENTRA), credential_factory=lambda: credential
     )
 
 
@@ -326,10 +349,9 @@ async def test_azure_credentials_use_token_oid_and_cache() -> None:
 async def test_azure_refresh_publishes_new_token_for_reauth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(auth, "AZURE_REFRESH_RETRY_SECONDS", 0.01)
     # First token reaches the refresh lead about 1 s from now, so the loop
     # refreshes then; the second is long-lived.
-    first = _access_token("object-id-1", auth.AZURE_REFRESH_LEAD_SECONDS + 1)
+    first = _access_token("object-id-1", FAST_ENTRA.refresh_lead_seconds + 1)
     second = _access_token("object-id-1", 3600)
     credential = FakeAzureCredential([first, second])
     provider = _azure_provider(credential)
@@ -362,8 +384,7 @@ async def test_azure_refresh_failure_keeps_retrying(
     monkeypatch: pytest.MonkeyPatch, failure: AccessToken | Exception
 ) -> None:
     """A failed or unusable refresh keeps the old token and tries again."""
-    monkeypatch.setattr(auth, "AZURE_REFRESH_RETRY_SECONDS", 0.01)
-    first = _access_token("object-id-1", auth.AZURE_REFRESH_LEAD_SECONDS + 1)
+    first = _access_token("object-id-1", FAST_ENTRA.refresh_lead_seconds + 1)
     second = _access_token("object-id-1", 3600)
     credential = FakeAzureCredential([first, failure, second])
     provider = _azure_provider(credential)
@@ -387,7 +408,6 @@ async def test_azure_reauth_that_hangs_is_abandoned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A re-AUTH stuck on a half-open socket must not hold the pool lock forever."""
-    monkeypatch.setattr(auth, "AZURE_REAUTH_TIMEOUT_SECONDS", 0.05)
     provider = _azure_provider(FakeAzureCredential([]))
     cancelled = asyncio.Event()
 
@@ -425,9 +445,9 @@ async def test_azure_credential_failure_is_a_connection_error() -> None:
 
 def test_azure_token_without_identity_claim_is_rejected() -> None:
     with pytest.raises(ValueError, match="no oid or sub"):
-        auth._token_username(_jwt({"exp": 1}))
+        token_username(_jwt({"exp": 1}))
     with pytest.raises(ValueError, match="not a JWT"):
-        auth._token_username("opaque")
+        token_username("opaque")
 
 
 # --- Client factory ---
@@ -530,6 +550,36 @@ def test_azure_entra_mode_accepts_azure_hosts(
         auth._validate_iam_url(f"rediss://{AWS_HOST}:6379", {"host": AWS_HOST}, mode)
 
 
+# --- Policy validation ---
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda: AwsIamTokenPolicy(ttl_seconds=901),
+        lambda: AwsIamTokenPolicy(cache_seconds=900),
+        lambda: AzureEntraTokenPolicy(refresh_lead_seconds=300),
+        lambda: AzureEntraTokenPolicy(refresh_retry_seconds=0),
+        lambda: HandshakeRetryPolicy(max_attempts=0),
+    ],
+    ids=[
+        "aws-ttl-over-max",
+        "aws-cache-not-below-ttl",
+        "entra-lead-too-long",
+        "entra-zero-retry",
+        "handshake-no-attempts",
+    ],
+)
+def test_policies_reject_invalid_timing(make: Callable[[], object]) -> None:
+    with pytest.raises(ValueError):
+        make()
+
+
+def test_handshake_backoff_doubles() -> None:
+    policy = HandshakeRetryPolicy()
+    assert [policy.delay(attempt) for attempt in (1, 2, 3)] == [0.5, 1.0, 2.0]
+
+
 # --- Parsing REDIS_AUTH from the environment ---
 
 
@@ -588,6 +638,13 @@ def test_parse_redis_auth_azure(
             "requires REDIS_AWS_IAM_USER_ID, REDIS_AWS_IAM_REPLICATION_GROUP_ID",
         ),
         (
+            {
+                "REDIS_AUTH_MODE": "azure_entra",
+                "REDIS_URL": "rediss://:secret@cache.redis.azure.net:10000",
+            },
+            "remove the username and password from REDIS_URL",
+        ),
+        (
             {"REDIS_AUTH_MODE": "azure_entra", "REDIS_URL": "redis://cache:6379"},
             "REDIS_URL must use rediss://",
         ),
@@ -611,3 +668,36 @@ def test_invalid_redis_auth_config_fails_at_import(
     )
     assert result.returncode != 0
     assert message in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("statement", "absent"),
+    [
+        (
+            "import tracecat.redis.auth",
+            ("tracecat.redis.aws", "tracecat.redis.azure", "azure.identity"),
+        ),
+        (
+            "from tracecat.redis.auth import build_credential_provider\n"
+            "from tracecat.redis.types import RedisAwsIamAuth\n"
+            "build_credential_provider(RedisAwsIamAuth('u', 'g', 'us-east-1'))",
+            ("tracecat.redis.azure", "azure.identity"),
+        ),
+    ],
+    ids=["factory-only", "aws-mode"],
+)
+def test_cloud_sdks_load_only_for_their_mode(
+    statement: str, absent: tuple[str, ...]
+) -> None:
+    """A deployment only imports its own cloud's provider and SDK."""
+    check = f"import sys\n{statement}\nprint(sorted(m for m in {absent!r} if m in sys.modules))"
+    result = subprocess.run(
+        [sys.executable, "-c", check],
+        env={k: v for k, v in os.environ.items() if not k.startswith("REDIS_")},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "[]"

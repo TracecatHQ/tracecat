@@ -36,15 +36,19 @@ from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.redis import auth
 from tracecat.redis import client as redis_client_module
 from tracecat.redis.auth import (
-    AwsIamCredentialProvider,
-    AzureEntraCredentialProvider,
     IamConnectionPool,
     IamHandshakeRetry,
     close_redis_client,
     create_redis_client,
 )
+from tracecat.redis.aws import AwsIamCredentialProvider
+from tracecat.redis.azure import AzureEntraCredentialProvider
 from tracecat.redis.client import RedisClient
-from tracecat.redis.types import RedisAwsIamAuth, RedisAzureEntraAuth
+from tracecat.redis.types import (
+    AzureEntraTokenPolicy,
+    RedisAwsIamAuth,
+    RedisAzureEntraAuth,
+)
 
 pytestmark = pytest.mark.usefixtures("redis_server")
 
@@ -449,18 +453,17 @@ async def test_azure_entra_pool_moves_onto_refreshed_token(
     The second token carries a different object ID, so ``ACL WHOAMI`` proves
     the pool logged in again with it.
     """
-    monkeypatch.setattr(auth, "AZURE_REFRESH_RETRY_SECONDS", 0.05)
     first_user = f"entra-a-{uuid.uuid4().hex[:8]}"
     second_user = f"entra-b-{uuid.uuid4().hex[:8]}"
-    # The first token is already inside the refresh lead, so it is replaced
-    # after the retry interval.
-    first = _entra_token(first_user, expires_in=auth.AZURE_REFRESH_LEAD_SECONDS + 1)
+    policy = AzureEntraTokenPolicy(refresh_retry_seconds=0.05)
+    # The first token reaches the refresh lead about 1 s from now.
+    first = _entra_token(first_user, expires_in=policy.refresh_lead_seconds + 1)
     second = _entra_token(second_user, expires_in=3600)
     acl_user(first_user, first.token)
     acl_user(second_user, second.token)
 
     credential = ScriptedCredential([first, second])
-    entra_auth = RedisAzureEntraAuth()
+    entra_auth = RedisAzureEntraAuth(token=policy)
     provider = AzureEntraCredentialProvider(
         entra_auth, credential_factory=lambda: credential
     )
