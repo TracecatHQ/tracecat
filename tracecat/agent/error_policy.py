@@ -477,11 +477,16 @@ def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
     )
 
 
-def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassification:
-    """Classify temporary throttling without assuming that a budget ran out."""
+def agent_llm_rate_limited(*, user_owned: bool) -> RuntimeErrorClassification:
+    """Classify temporary throttling without assuming that a budget ran out.
+
+    Args:
+        user_owned: Whether the throttling is attributable to the caller's
+            own provider credentials rather than shared platform capacity.
+    """
     constructor = (
         RuntimeErrorClassification.user
-        if route_is_direct
+        if user_owned
         else RuntimeErrorClassification.platform
     )
     return constructor(

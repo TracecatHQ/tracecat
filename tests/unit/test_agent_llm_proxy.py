@@ -533,6 +533,11 @@ async def test_write_stream_response_emits_error_after_headers_sent(
         (
             "throttling_error",
             RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.USER,
+        ),
+        (
+            "rate_limit_error",
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
             RuntimeErrorOwner.PLATFORM,
         ),
         (
@@ -1375,6 +1380,14 @@ async def test_read_timeout_before_headers_records_route(
             False,
             RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
             RuntimeErrorOwner.PLATFORM,
+            True,
+        ),
+        (
+            429,
+            "throttling_error",
+            False,
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.USER,
             True,
         ),
         (

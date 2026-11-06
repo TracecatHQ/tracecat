@@ -19,6 +19,7 @@ from litellm.exceptions import (
     AuthenticationError,
     BadGatewayError,
     InternalServerError,
+    MidStreamFallbackError,
     PermissionDeniedError,
     RateLimitError,
     ServiceUnavailableError,
@@ -524,6 +525,20 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
     return False
 
 
+def _provider_rate_limit(error: Exception) -> Exception | None:
+    """Return the provider throttling error, unwrapping a mid-stream fallback.
+
+    LiteLLM raises ``MidStreamFallbackError`` (a ``ServiceUnavailableError``)
+    when a stream fails before content, but the wrapper copies the wrapped
+    provider error's ``status_code``. A 429 there is provider throttling.
+    """
+    if isinstance(error, RateLimitError):
+        return error
+    if isinstance(error, MidStreamFallbackError) and error.status_code == 429:
+        return error.original_exception or error
+    return None
+
+
 def _anthropic_error_message(error_type: str, message: str) -> str:
     """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
     return orjson.dumps(
@@ -596,17 +611,17 @@ class TracecatCallbackHandler(CustomLogger):
                 status_code=original_exception.status_code,
                 detail="The LLM provider rejected authentication or access",
             )
-        elif isinstance(
-            original_exception, RateLimitError
-        ) and _is_provider_quota_exceeded(original_exception):
-            replacement = _ProviderQuotaHTTPException(
-                status_code=429,
-                detail="LLM provider quota exhausted; check billing or usage limits",
-            )
-        elif isinstance(original_exception, RateLimitError):
-            replacement = _ProviderRateLimitHTTPException(
-                status_code=429,
-                detail="LLM provider rate limit exceeded; retry later",
+        elif (rate_limit := _provider_rate_limit(original_exception)) is not None:
+            replacement = (
+                _ProviderQuotaHTTPException(
+                    status_code=429,
+                    detail="LLM provider quota exhausted; check billing or usage limits",
+                )
+                if _is_provider_quota_exceeded(rate_limit)
+                else _ProviderRateLimitHTTPException(
+                    status_code=429,
+                    detail="LLM provider rate limit exceeded; retry later",
+                )
             )
         elif isinstance(
             original_exception,
@@ -615,7 +630,8 @@ class TracecatCallbackHandler(CustomLogger):
             | InternalServerError
             | ServiceUnavailableError,
         ):
-            # Includes MidStreamFallbackError, a ServiceUnavailableError.
+            # Includes MidStreamFallbackError wrapping a provider 5xx or a
+            # dropped connection; wrapped throttling was handled above.
             status_code = getattr(original_exception, "status_code", None)
             replacement = _ProviderUnavailableHTTPException(
                 status_code=(
