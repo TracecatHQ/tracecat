@@ -10,9 +10,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
 from tracecat.auth.types import Role
@@ -420,6 +420,7 @@ class TestOutboxDispatch:
         await _add_trigger(session, svc_role, event_types=["case_updated"])
         await _add_update_event(session, svc_role, test_case)
         await _add_update_event(session, svc_role, test_case)
+        case_id = test_case.id
         first, second = await list_outbox_row_ids()
 
         start = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
@@ -433,13 +434,14 @@ class TestOutboxDispatch:
         # The dispatcher waits instead of running empty batches.
         assert not await outbox_has_rows()
 
-        # Both failures are now older than the retry delay.
+        # Both failures are now older than the retry delay, measured from the
+        # same database clock the dispatcher reads.
         await session.execute(
-            update(CaseTriggerOutbox).values(
-                created_at=CaseTriggerOutbox.created_at - timedelta(minutes=5),
-                updated_at=CaseTriggerOutbox.updated_at
-                - OUTBOX_RETRY_DELAY
-                - timedelta(minutes=1),
+            update(CaseTriggerOutbox)
+            .where(CaseTriggerOutbox.case_id == case_id)
+            .values(
+                created_at=func.now() - timedelta(minutes=5),
+                updated_at=func.now() - OUTBOX_RETRY_DELAY - timedelta(minutes=1),
             )
         )
         await session.commit()
@@ -780,7 +782,8 @@ async def test_batch_dispatches_rows_concurrently_up_to_the_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """At most the configured number of rows run at once, and a failing row
-    neither cancels the rows in flight nor stops the rest of the batch.
+    neither cancels the rows in flight, stops the rest of the batch, nor fails
+    the activity into retry backoff that would delay healthy rows.
     """
     monkeypatch.setattr(
         "tracecat.cases.triggers.dispatcher.config.TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY",
@@ -818,8 +821,7 @@ async def test_batch_dispatches_rows_concurrently_up_to_the_bound(
 
     env.on_heartbeat = record_heartbeat
 
-    with pytest.raises(ApplicationError, match="1 of 10"):
-        await env.run(dispatch_case_trigger_outbox_batch)
+    assert await env.run(dispatch_case_trigger_outbox_batch) == len(row_ids) - 1
 
     assert peak == 3
     assert sorted(finished) == [row_id for row_id in row_ids if row_id != 2]

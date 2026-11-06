@@ -292,7 +292,8 @@ class CaseTriggerOutboxDispatcher:
 
         Another dispatcher holding the row's lock means it is already being
         handled, so the row is skipped. Transient failures raise and leave the
-        row in place, moved to the back of the queue, for the next attempt.
+        row in place; it sits out batches for ``OUTBOX_RETRY_DELAY`` before the
+        next attempt.
         """
         try:
             comment_error = await self._dispatch_comment_workflow(row_id)

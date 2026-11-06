@@ -15,7 +15,6 @@ from datetime import timedelta
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy
-from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
@@ -32,8 +31,9 @@ _IDLE_RETURN_SECONDS = 300.0
 _RECONCILE_TIMEOUT_SECONDS = 30
 _RETRY_DELAY_SECONDS = 30
 _RECONCILE_INTERVAL_SECONDS = 600
-# Retry forever: a stopped dispatcher stops every case trigger. Cap the backoff
-# so a row that keeps failing delays the rest of its batch by seconds, not minutes.
+# Retry forever: a stopped dispatcher stops every case trigger. A failing row
+# does not fail the batch, so this covers the batch itself failing, such as a
+# database outage or a lost worker; the cap keeps recovery within seconds.
 _ACTIVITY_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=30),
@@ -60,13 +60,15 @@ async def wait_for_case_trigger_outbox() -> bool:
 
 @activity.defn
 async def dispatch_case_trigger_outbox_batch() -> int:
-    """Dispatch the next outbox rows and return how many were handled.
+    """Dispatch the next outbox rows and return how many were dispatched.
 
     Up to ``TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY`` rows are dispatched
     at once, each committing on its own, so one failing row does not hold back
-    or cancel the rest. Any failure fails the activity once every row has been
-    tried, and the retry picks up the rows that are still pending. Heartbeats
-    carry the number of rows finished so far.
+    or cancel the rest. A row that fails stays queued and sits out batches for
+    ``OUTBOX_RETRY_DELAY``; it does not fail the activity, so the activity's
+    retry backoff never delays healthy rows. The activity fails only when the
+    batch itself cannot run. Heartbeats carry the number of rows finished so
+    far.
     """
     if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
         return 0
@@ -99,12 +101,7 @@ async def dispatch_case_trigger_outbox_batch() -> int:
     # task cancels the rest, so no row keeps running after the activity ends.
     async with asyncio.TaskGroup() as tasks:
         dispatched = [tasks.create_task(dispatch(row_id)) for row_id in row_ids]
-    if failed := sum(not task.result() for task in dispatched):
-        raise ApplicationError(
-            f"{failed} of {len(row_ids)} case trigger outbox rows failed to dispatch",
-            type="CaseTriggerDispatchError",
-        )
-    return len(row_ids)
+    return sum(task.result() for task in dispatched)
 
 
 @workflow.defn
