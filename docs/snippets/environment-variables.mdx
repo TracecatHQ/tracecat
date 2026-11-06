@@ -143,3 +143,9 @@ These settings control the [tunnel gateways](/self-hosting/kubernetes#tunnels) t
 | `REDIS_HOST` | `redis` | Redis hostname. |
 | `REDIS_PORT` | `6379` | Redis port. |
 | `REDIS_URL` | `redis://${REDIS_HOST}:${REDIS_PORT}` | Full Redis connection URL. Override this when using an external Redis instance. |
+| `REDIS_AUTH_MODE` | `password` | How Tracecat logs in to Redis: `password` (credentials from `REDIS_URL`), `aws_iam` (ElastiCache IAM token), or `azure_entra` (Azure Managed Redis Entra ID token). The IAM modes need a `rediss://` URL with no username or password, for example `rediss://master.my-cache.abc123.use1.cache.amazonaws.com:6379`. |
+| `REDIS_AWS_IAM_USER_ID` | | `aws_iam` only. ElastiCache user ID (equal to its user name) with IAM authentication, for example `tracecat-app`. |
+| `REDIS_AWS_IAM_REPLICATION_GROUP_ID` | | `aws_iam` only. Lowercase replication group ID the token is signed for, for example `my-cache`. Not the endpoint. |
+| `REDIS_AWS_REGION` | `AWS_REGION` | `aws_iam` only. Region of the cache, for example `us-east-1`. |
+| `REDIS_AZURE_CLIENT_ID` | `AZURE_CLIENT_ID` | `azure_entra` only. Client ID (a GUID) of the managed or workload identity that has a Redis access policy assignment. |
+| `REDIS_AZURE_SCOPE` | `https://redis.azure.com/.default` | `azure_entra` only. Token scope for Azure Managed Redis. |

@@ -32,7 +32,6 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull
 from pydantic import AnyUrl, BaseModel, Field
-from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
@@ -73,6 +72,7 @@ from tracecat.mcp.oidc.features import (
 )
 from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
 from tracecat.mcp.personal_access_tokens.service import verify_mcp_personal_access_token
+from tracecat.redis.auth import create_redis_client
 
 
 class MCPTokenIdentity(BaseModel):
@@ -1107,7 +1107,7 @@ def _create_oidc_auth() -> OIDCProxy:
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
-    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = create_redis_client(REDIS_URL, decode_responses=True)
     redis_store = RedisStore(client=redis_client)
     prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
     if config.TRACECAT__DB_ENCRYPTION_KEY:

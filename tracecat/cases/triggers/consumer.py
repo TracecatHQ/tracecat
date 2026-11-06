@@ -6,10 +6,10 @@ import socket
 import uuid
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any
+from typing import Any, Final
 
 from pydantic import ValidationError
-from redis.exceptions import ResponseError
+from redis.exceptions import RedisError, ResponseError
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import selectinload
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -37,6 +37,10 @@ from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
 _TAG_EVENT_TYPES = frozenset({CaseEventType.TAG_ADDED, CaseEventType.TAG_REMOVED})
+
+
+REDIS_RETRY_BACKOFF_BASE_SECONDS: Final = 1.0
+REDIS_RETRY_BACKOFF_MAX_SECONDS: Final = 30.0
 
 
 class CaseTriggerConsumer:
@@ -79,6 +83,7 @@ class CaseTriggerConsumer:
             consumer=self.consumer_name,
         )
         last_pending_check = monotonic()
+        retry_delay = REDIS_RETRY_BACKOFF_BASE_SECONDS
         try:
             while not self._stop_signalled():
                 try:
@@ -89,7 +94,23 @@ class CaseTriggerConsumer:
                         count=self.batch,
                         block=self.block_ms,
                     )
-                except (ResponseError, RetryError) as e:
+                    if messages:
+                        for _stream, entries in messages:
+                            for message_id, fields in entries:
+                                await self._handle_message(message_id, fields)
+                    else:
+                        now = monotonic()
+                        # Do not start pending-message recovery past the stop
+                        # signal: recovery claims fresh work the terminating
+                        # pod never had in flight, and a claimed batch can
+                        # exceed the drain deadline.
+                        if (
+                            not self._stop_signalled()
+                            and now - last_pending_check >= self._pending_check_interval
+                        ):
+                            await self._claim_idle_messages()
+                            last_pending_check = now
+                except (RedisError, RetryError) as e:
                     if self._is_nogroup_error(e):
                         logger.warning(
                             "Redis case trigger stream/group missing; recreating",
@@ -99,23 +120,17 @@ class CaseTriggerConsumer:
                         )
                         await self._ensure_group()
                         continue
-                    raise
-                if messages:
-                    for _stream, entries in messages:
-                        for message_id, fields in entries:
-                            await self._handle_message(message_id, fields)
-                else:
-                    now = monotonic()
-                    # Do not start pending-message recovery past the stop
-                    # signal: recovery claims fresh work the terminating pod
-                    # never had in flight, and a claimed batch can exceed the
-                    # drain deadline.
-                    if (
-                        not self._stop_signalled()
-                        and now - last_pending_check >= self._pending_check_interval
-                    ):
-                        await self._claim_idle_messages()
-                        last_pending_check = now
+                    # Redis outage or failover outlasted the client's retries.
+                    # Unacked messages stay pending and are reclaimed later.
+                    logger.warning(
+                        "Case trigger consumer lost Redis; retrying",
+                        error=str(e),
+                        retry_in_seconds=retry_delay,
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, REDIS_RETRY_BACKOFF_MAX_SECONDS)
+                    continue
+                retry_delay = REDIS_RETRY_BACKOFF_BASE_SECONDS
                 await asyncio.sleep(0)
         except asyncio.CancelledError:
             logger.info("Case trigger consumer cancelled")

@@ -73,7 +73,7 @@ def _build_test_auth(
         "tracecat.config.TRACECAT__DB_ENCRYPTION_KEY",
         Fernet.generate_key().decode() if enable_refresh_tokens else "",
     )
-    monkeypatch.setattr(mcp_auth.AsyncRedis, "from_url", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr(mcp_auth, "create_redis_client", lambda *a, **kw: MagicMock())
 
     def _patched_create_oidc_auth(
         _orig=mcp_auth._create_oidc_auth,

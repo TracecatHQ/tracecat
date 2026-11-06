@@ -1389,6 +1389,74 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 REDIS_URL__ARN = os.environ.get("REDIS_URL__ARN")
 """(AWS only) ARN of the secret containing the Redis URL."""
 
+_redis_auth_mode_raw = (os.environ.get("REDIS_AUTH_MODE") or "password").strip().lower()
+if _redis_auth_mode_raw not in ("password", "aws_iam", "azure_entra"):
+    raise ValueError(
+        "REDIS_AUTH_MODE must be one of password, aws_iam, azure_entra "
+        f"(got {_redis_auth_mode_raw!r})"
+    )
+REDIS_AUTH_MODE: Literal["password", "aws_iam", "azure_entra"] = cast(
+    Literal["password", "aws_iam", "azure_entra"], _redis_auth_mode_raw
+)
+"""How the Redis client logs in. Defaults to password.
+
+- ``password``: credentials, if any, come from the Redis URL.
+- ``aws_iam``: an ElastiCache IAM token, signed with the workload's AWS credentials.
+- ``azure_entra``: an Entra ID token for Azure Managed Redis.
+
+The IAM modes require a ``rediss://`` URL with no username or password in it.
+"""
+
+REDIS_AWS_IAM_USER_ID = os.environ.get("REDIS_AWS_IAM_USER_ID", "").strip()
+"""(aws_iam) ElastiCache user ID. ElastiCache IAM users must have user ID == user name."""
+
+REDIS_AWS_IAM_REPLICATION_GROUP_ID = (
+    os.environ.get("REDIS_AWS_IAM_REPLICATION_GROUP_ID", "").strip().lower()
+)
+"""(aws_iam) ElastiCache replication group ID (not the endpoint) that tokens are signed for."""
+
+REDIS_AWS_REGION = (
+    os.environ.get("REDIS_AWS_REGION")
+    or os.environ.get("AWS_REGION")
+    or os.environ.get("AWS_DEFAULT_REGION")
+    or ""
+).strip()
+"""(aws_iam) Region of the ElastiCache cache. Defaults to AWS_REGION."""
+
+REDIS_AZURE_CLIENT_ID = os.environ.get("REDIS_AZURE_CLIENT_ID", "").strip() or None
+"""(azure_entra) Client ID of the managed or workload identity. Defaults to AZURE_CLIENT_ID."""
+
+REDIS_AZURE_SCOPE = (
+    os.environ.get("REDIS_AZURE_SCOPE") or "https://redis.azure.com/.default"
+).strip()
+"""(azure_entra) Token scope for Azure Managed Redis."""
+
+if REDIS_AUTH_MODE == "aws_iam":
+    _missing_redis_aws = [
+        name
+        for name, value in (
+            ("REDIS_AWS_IAM_USER_ID", REDIS_AWS_IAM_USER_ID),
+            ("REDIS_AWS_IAM_REPLICATION_GROUP_ID", REDIS_AWS_IAM_REPLICATION_GROUP_ID),
+            ("REDIS_AWS_REGION", REDIS_AWS_REGION),
+        )
+        if not value
+    ]
+    if _missing_redis_aws:
+        raise ValueError(
+            f"REDIS_AUTH_MODE=aws_iam requires {', '.join(_missing_redis_aws)}"
+        )
+
+# Fail at startup when the URL is known up front. A URL read from
+# REDIS_URL__ARN is checked again when the client is built.
+if (
+    REDIS_AUTH_MODE != "password"
+    and not REDIS_URL__ARN
+    and not REDIS_URL.startswith("rediss://")
+):
+    raise ValueError(
+        f"REDIS_AUTH_MODE={REDIS_AUTH_MODE} requires TLS: REDIS_URL must use rediss://"
+    )
+
 TRACECAT__CASE_TRIGGERS_ENABLED = env_bool(
     "TRACECAT__CASE_TRIGGERS_ENABLED", default=True
 )
