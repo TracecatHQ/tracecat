@@ -16,6 +16,7 @@ import boto3
 import orjson
 import pytest
 from azure.core.credentials import AccessToken
+from azure.core.exceptions import ClientAuthenticationError
 from redis.asyncio.connection import Connection, SSLConnection
 from redis.auth.token import TokenInterface
 from redis.exceptions import AuthenticationError, ConnectionError, ResponseError
@@ -27,6 +28,7 @@ from tracecat.redis.auth import (
     AwsIamCredentialProvider,
     AzureEntraCredentialProvider,
     IamSSLConnection,
+    RedisCredentialUnavailableError,
     RedisIamAuthUnavailableError,
     aws_iam_signing_url,
     close_redis_client,
@@ -153,8 +155,12 @@ def test_aws_missing_credentials_fails_clearly(
     )
     monkeypatch.setattr(session, "get_credentials", lambda: None)
 
-    with pytest.raises(RuntimeError, match="AWS credentials are unavailable"):
+    with pytest.raises(RedisCredentialUnavailableError) as exc_info:
         provider.get_credentials()
+
+    # A ConnectionError, so callers retry it and redis-py closes the socket.
+    assert isinstance(exc_info.value, ConnectionError)
+    assert "AWS credentials are unavailable" in str(exc_info.value.__cause__)
 
 
 # --- Handshake retry classification ---
@@ -213,6 +219,26 @@ async def test_rejected_token_is_not_retried(
         await IamSSLConnection(host="localhost").connect()
 
     assert len(handshake) == 2
+
+
+@pytest.mark.anyio
+async def test_unexpected_handshake_error_closes_the_socket(
+    handshake: list[BaseException | None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing but a completed login leaves the socket open for the pool."""
+    handshake.append(ValueError("unexpected"))
+    closed: list[bool] = []
+
+    async def record_disconnect(self: IamSSLConnection, nowait: bool = False) -> None:
+        del self
+        closed.append(nowait)
+
+    monkeypatch.setattr(IamSSLConnection, "disconnect", record_disconnect)
+
+    with pytest.raises(ValueError, match="unexpected"):
+        await IamSSLConnection(host="localhost").connect()
+
+    assert closed == [True]
 
 
 # --- Azure ---
@@ -357,6 +383,22 @@ async def test_azure_reauth_that_hangs_is_abandoned(
         provider._publish(_access_token("object-id-1", 3600)), timeout=2
     )
     assert cancelled.is_set()
+
+
+@pytest.mark.anyio
+async def test_azure_credential_failure_is_a_connection_error() -> None:
+    """An Entra outage must reach callers' Redis retries, not escape them."""
+    provider = _azure_provider(
+        FakeAzureCredential([ClientAuthenticationError("token endpoint down")])
+    )
+    try:
+        with pytest.raises(RedisCredentialUnavailableError) as exc_info:
+            await provider.get_credentials_async()
+    finally:
+        await provider.aclose()
+
+    assert isinstance(exc_info.value, ConnectionError)
+    assert isinstance(exc_info.value.__cause__, ClientAuthenticationError)
 
 
 def test_azure_token_without_identity_claim_is_rejected() -> None:

@@ -125,11 +125,13 @@ class CaseTriggerConsumer:
                     # or Redis rejected the login. Unacked messages stay
                     # pending and are reclaimed later. Report the first failure
                     # of each streak so a lasting outage still alerts.
+                    log = logger.warning
                     if retry_delay == REDIS_RETRY_BACKOFF_BASE_SECONDS:
+                        log = logger.error
                         capture_api_background_task_failure(
                             e, task_name="case_trigger_consumer"
                         )
-                    logger.warning(
+                    log(
                         "Case trigger consumer lost Redis; retrying",
                         error=str(e),
                         retry_in_seconds=retry_delay,

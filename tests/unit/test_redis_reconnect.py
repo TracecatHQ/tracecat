@@ -27,6 +27,7 @@ import pytest
 import redis
 from azure.core.credentials import AccessToken
 from redis.asyncio.connection import Connection
+from redis.auth.token import SimpleToken
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from tracecat import config
@@ -37,6 +38,7 @@ from tracecat.redis import client as redis_client_module
 from tracecat.redis.auth import (
     AwsIamCredentialProvider,
     AzureEntraCredentialProvider,
+    IamConnectionPool,
     IamHandshakeRetry,
     close_redis_client,
     create_redis_client,
@@ -327,15 +329,16 @@ async def test_factory_client_does_not_replay_in_flight_commands() -> None:
 # --- IAM modes against local Redis (no TLS, no cloud) ---
 
 
+class PlainIamConnection(IamHandshakeRetry, Connection):
+    """``IamSSLConnection`` without TLS, for the local Redis."""
+
+
 @pytest.fixture
 def plain_iam_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run IAM-mode pools over plain TCP so the local Redis can serve them.
 
     Keeps ``IamSSLConnection``'s handshake retry; only TLS is dropped.
     """
-
-    class PlainIamConnection(IamHandshakeRetry, Connection):
-        pass
 
     monkeypatch.setattr(auth, "IamSSLConnection", PlainIamConnection)
     monkeypatch.setattr(auth, "_validate_iam_url", lambda url, options: None)
@@ -435,13 +438,13 @@ async def test_aws_iam_pool_logs_in_with_token_and_reconnects(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("plain_iam_connection")
-async def test_azure_entra_pool_reauths_open_connections_on_refresh(
+async def test_azure_entra_pool_moves_onto_refreshed_token(
     monkeypatch: pytest.MonkeyPatch, acl_user: Callable[[str, str], None]
 ) -> None:
-    """A refreshed token re-AUTHs pooled connections without reconnecting.
+    """A refreshed token replaces the pool's connections with new logins.
 
-    The second token carries a different object ID, so ``ACL WHOAMI`` on the
-    same connection proves redis-py sent ``AUTH`` with the new token.
+    The second token carries a different object ID, so ``ACL WHOAMI`` proves
+    the pool logged in again with it.
     """
     monkeypatch.setattr(auth, "AZURE_REFRESH_RETRY_SECONDS", 0.05)
     first_user = f"entra-a-{uuid.uuid4().hex[:8]}"
@@ -467,10 +470,41 @@ async def test_azure_entra_pool_reauths_open_connections_on_refresh(
             return await client.acl_whoami() == second_user
 
         await wait_for(reauthed)
-        assert await client.client_id() == connection_id
+        assert await client.client_id() != connection_id
 
         assert await drop_connections() >= 1
         assert await client.acl_whoami() == second_user
     finally:
         await close_redis_client(client)
     assert credential.closed
+
+
+@pytest.mark.anyio
+async def test_refresh_recycles_busy_connections_on_release() -> None:
+    """A connection busy during a refresh is closed on release, not re-AUTHed.
+
+    redis-py's own deferred re-AUTH runs after the connection is back in the
+    pool, where another task can check it out mid-AUTH.
+    """
+    pool = IamConnectionPool.from_url(
+        os.environ["REDIS_URL"], connection_class=PlainIamConnection
+    )
+    try:
+        busy = await pool.get_connection()
+        idle = await pool.get_connection()
+        await pool.release(idle)
+        assert idle.is_connected
+
+        await pool.re_auth_callback(SimpleToken("new-token", -1, -1, {"oid": "app"}))
+
+        assert not idle.is_connected
+        assert busy.is_connected and busy.should_reconnect()
+        await pool.release(busy)
+        assert not busy.is_connected
+
+        reused = await pool.get_connection()
+        assert reused.is_connected
+        assert not reused.should_reconnect()
+        await pool.release(reused)
+    finally:
+        await pool.disconnect()

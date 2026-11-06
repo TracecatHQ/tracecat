@@ -10,7 +10,7 @@
   token only has to be valid when a connection is opened.
 - ``azure_entra``: Azure Managed Redis with an Entra ID token. Azure closes a
   connection whose token expires, so the provider refreshes the token before
-  expiry and redis-py re-sends ``AUTH`` on every pooled connection.
+  expiry and the pool moves every connection onto the new token.
 
 Both IAM modes require verified TLS and retry transient handshake errors such
 as ElastiCache's ``IAM Authentication service is not available.``
@@ -73,10 +73,10 @@ AZURE_REFRESH_RETRY_SECONDS = 15
 """Wait between attempts while a refresh fails or returns the same token."""
 
 AZURE_REAUTH_TIMEOUT_SECONDS = 30
-"""Deadline for re-authenticating the pool after a refresh.
+"""Deadline for moving the pool onto a refreshed token.
 
-redis-py holds the pool lock while it re-AUTHs idle connections. A half-open
-socket would otherwise hold it forever; cancelling closes that connection.
+The pool lock is also held while a new connection logs in; the deadline keeps
+a stuck login from stalling the refresh task.
 """
 
 AZURE_REDIS_SCOPE = "https://redis.azure.com/.default"
@@ -103,23 +103,38 @@ class RedisIamAuthUnavailableError(ConnectionError):
     """
 
 
+class RedisCredentialUnavailableError(ConnectionError):
+    """The cloud credential for a Redis login could not be obtained.
+
+    For example STS or Entra ID is briefly unreachable. Raised as a
+    ``ConnectionError`` so callers retry it like a dropped connection, and so
+    redis-py closes the half-opened socket instead of pooling it unauthenticated.
+    """
+
+
 class IamHandshakeRetry(AbstractConnection):
     """Connection mixin that retries transient errors in the login handshake.
 
     Rejected credentials (``AuthenticationError``, ``AuthorizationError``) fail
     at once. Any other server error during the handshake is retried with
-    backoff on a fresh socket, up to ``IAM_AUTH_MAX_ATTEMPTS``.
+    backoff on a fresh socket, up to ``IAM_AUTH_MAX_ATTEMPTS``. Any other
+    failure closes the socket, so no connection is pooled without a login.
     """
 
     async def connect_check_health(
         self, check_health: bool = True, retry_socket_connect: bool = True
     ) -> None:
+        was_connected = self.is_connected
         for attempt in range(1, IAM_AUTH_MAX_ATTEMPTS + 1):
             try:
                 await super().connect_check_health(
                     check_health=check_health,
                     retry_socket_connect=retry_socket_connect,
                 )
+                if not was_connected:
+                    # A fresh login has the current token; clear any recycle
+                    # mark from IamConnectionPool (redis-py never clears it).
+                    self._should_reconnect = False
                 return
             except (AuthenticationError, AuthorizationError):
                 raise
@@ -135,10 +150,32 @@ class IamHandshakeRetry(AbstractConnection):
                     delay_seconds=delay,
                 )
                 await asyncio.sleep(delay)
+            except BaseException:
+                await self.disconnect(nowait=True)
+                raise
 
 
 class IamSSLConnection(IamHandshakeRetry, SSLConnection):
     """Verified-TLS connection used by the IAM auth modes."""
+
+
+class IamConnectionPool(ConnectionPool):
+    """Connection pool that moves its connections onto a refreshed token.
+
+    redis-py 7.1 re-AUTHs a busy connection only after it is back in the pool:
+    outside the pool lock, so another task can check it out mid-AUTH, and with
+    no deadline, so a half-open socket blocks every later release. Instead,
+    idle connections are closed at once and busy ones when they are released.
+    Each logs in again with the current token on its next checkout.
+    """
+
+    async def re_auth_callback(self, token: TokenInterface) -> None:
+        del token  # New logins read the current token from the provider.
+        async with self._lock:
+            for connection in self._available_connections:
+                await connection.disconnect(nowait=True)
+            for connection in self._in_use_connections:
+                connection.mark_for_reconnect()
 
 
 def aws_iam_signing_url(replication_group_id: str, user_id: str) -> str:
@@ -210,7 +247,12 @@ class AwsIamCredentialProvider(CredentialProvider):
     def get_credentials(self) -> tuple[str, str]:
         with self._lock:
             if (token := self._cached()) is None:
-                token = self._sign()
+                try:
+                    token = self._sign()
+                except Exception as exc:
+                    raise RedisCredentialUnavailableError(
+                        "Could not sign an ElastiCache IAM token"
+                    ) from exc
                 self._token = token
                 self._refresh_at = self._clock() + AWS_IAM_TOKEN_CACHE_SECONDS
             return self._user_id, token
@@ -249,8 +291,8 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
 
     New connections log in with the current token. A background task
     refreshes it ``AZURE_REFRESH_LEAD_SECONDS`` before expiry and hands the new
-    token to redis-py, which re-AUTHs idle pooled connections at once and busy
-    ones when they are released.
+    token to redis-py, which calls ``IamConnectionPool.re_auth_callback`` to
+    move the pool's connections onto it.
 
     One provider serves one connection pool: redis-py registers a single
     re-auth callback per provider. Only the asyncio client is supported.
@@ -353,9 +395,15 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
         )
 
     async def get_credentials_async(self) -> tuple[str, str]:
-        token = await self._current_token()
+        try:
+            token = await self._current_token()
+            username = _token_username(token.token)
+        except Exception as exc:
+            raise RedisCredentialUnavailableError(
+                "Could not get an Entra ID token for Redis"
+            ) from exc
         self._ensure_refresh_task()
-        return _token_username(token.token), token.token
+        return username, token.token
 
     def on_next(self, callback: ReAuthCallback) -> None:
         self._on_next = callback
@@ -420,9 +468,9 @@ def create_redis_client(url: str, **kwargs: Any) -> redis.Redis:
     """Create an asyncio Redis client that logs in per ``REDIS_AUTH_MODE``.
 
     Takes the same arguments as ``redis.asyncio.Redis.from_url``. In password
-    mode it is exactly ``from_url``. In the IAM modes the pool gets the
-    credential provider and ``IamSSLConnection``, after checking the URL uses
-    verified TLS and carries no static credentials.
+    mode it is exactly ``from_url``. In the IAM modes it builds an
+    ``IamConnectionPool`` of ``IamSSLConnection`` with the credential provider,
+    after checking the URL uses verified TLS and carries no static credentials.
 
     Close the client with ``close_redis_client`` so a token refresh task stops.
     """
@@ -436,7 +484,7 @@ def create_redis_client(url: str, **kwargs: Any) -> redis.Redis:
     provider = build_credential_provider()
     options["connection_class"] = IamSSLConnection
     options["credential_provider"] = provider
-    pool = ConnectionPool(**options)
+    pool = IamConnectionPool(**options)
     client = redis.Redis(connection_pool=pool, credential_provider=provider)
     # Like from_url: closing the client also closes the pool it created.
     client.auto_close_connection_pool = True
