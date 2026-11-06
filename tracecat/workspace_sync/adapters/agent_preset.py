@@ -71,6 +71,7 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
     McpIntegrationHint,
+    PathsByType,
     WorkflowResourceSpec,
     WorkspaceSpec,
 )
@@ -85,7 +86,6 @@ from tracecat.workspace_sync.types import (
     WorkflowCatalogReference,
     WorkflowMcpIntegrationReference,
 )
-from tracecat.workspace_sync.workflow import workflow_source_path
 
 AGENT_PRESET_FILENAME = "preset.yml"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
@@ -113,6 +113,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     update_scope = "agent:update"
     root = AGENT_PRESET_ROOT
     filename = AGENT_PRESET_FILENAME
+    path_name_attr = "slug"
     import_identity_attrs = ("slug",)
     import_identity_noun = "slug"
 
@@ -357,6 +358,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         presets: dict[str, AgentPresetResourceSpec],
         workflows: dict[str, WorkflowResourceSpec] | None = None,
         *,
+        paths: PathsByType,
         requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
     ) -> CorrelatedAgentPresets:
         """Re-map preset and workflow catalog UUIDs to enabled local rows.
@@ -371,7 +373,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         ``base_url`` in both preset heads and workflow agent actions so the
         target's catalog credentials are never routed to the source deployment's
         endpoint. Unresolvable selections produce diagnostics before import writes
-        begin instead of reaching a foreign-key violation.
+        begin instead of reaching a foreign-key violation. ``paths`` holds each
+        resource's repository path, which diagnostics and references name.
         """
         requested_catalog_mappings = requested_catalog_mappings or {}
         workflows = workflows or {}
@@ -394,7 +397,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     (
                         catalog_id,
                         PullDiagnostic(
-                            workflow_path=self.source_path(source_id),
+                            workflow_path=self.path_in(paths, source_id),
                             workflow_title=preset.name,
                             error_type="validation",
                             message=(
@@ -413,7 +416,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 continue
             references_by_catalog_id.setdefault(catalog_id, []).append(
                 AgentPresetCatalogReference(
-                    path=self.source_path(source_id),
+                    path=self.path_in(paths, source_id),
                     preset_slug=preset.slug,
                     preset_name=preset.name,
                     version_number=None,
@@ -450,7 +453,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 present_catalog_ids.add(catalog_id)
                 references_by_catalog_id.setdefault(catalog_id, []).append(
                     WorkflowCatalogReference(
-                        path=workflow_source_path(source_id),
+                        path=paths[SyncResourceType.WORKFLOW][source_id],
                         workflow_source_id=source_id,
                         workflow_title=workflow.definition.title,
                         action_ref=action.ref,
@@ -857,6 +860,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         self,
         workspace_service: SyncMappingService,
         presets: dict[str, AgentPresetResourceSpec],
+        *,
+        paths: PathsByType,
     ) -> list[PullDiagnostic]:
         """Block pulls referencing skills absent from this deployment's catalog."""
         requested = {slug for spec in presets.values() for slug in spec.library_skills}
@@ -869,7 +874,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 continue
             diagnostics.append(
                 PullDiagnostic(
-                    workflow_path=self.source_path(source_id),
+                    workflow_path=self.path_in(paths, source_id),
                     workflow_title=spec.name,
                     error_type="dependency",
                     message=(
@@ -892,6 +897,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         presets: dict[str, AgentPresetResourceSpec],
         workflows: dict[str, WorkflowResourceSpec] | None = None,
         *,
+        paths: PathsByType,
         requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
     ) -> CorrelatedMcpIntegrationRefs:
         """Re-map preset and workflow MCP integration UUIDs to local rows.
@@ -935,7 +941,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                         conflicting_meta_ids.add(integration_id)
                 references.setdefault(integration_id, []).append(
                     AgentPresetMcpIntegrationReference(
-                        path=self.source_path(source_id),
+                        path=self.path_in(paths, source_id),
                         preset_slug=preset.slug,
                         preset_name=preset.name,
                         version_number=None,
@@ -957,7 +963,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                         continue
                     references.setdefault(integration_id, []).append(
                         WorkflowMcpIntegrationReference(
-                            path=workflow_source_path(source_id),
+                            path=paths[SyncResourceType.WORKFLOW][source_id],
                             workflow_source_id=source_id,
                             workflow_title=workflow.definition.title,
                             action_ref=action.ref,

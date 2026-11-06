@@ -2,10 +2,12 @@
 
 The include file lives at the root of the source repository. It is an
 allowlist in gitignore syntax: a resource is in the package when one of its
-export paths matches, and everything else is left out. Patterns match the
-paths that workspace sync writes, for example ``workflows/<id>/**`` or
-``tables/<id>/table.yml``. ``!pattern`` excludes a path again, as in
-``.gitignore``.
+export paths matches, and everything else is left out. Patterns match both
+the readable paths that workspace sync writes, for example
+``workflows/Triage-alerts/**``, and each resource's stable id path, for
+example ``workflows/<id>/**`` or ``tables/<id>/table.yml``. The id path
+survives renames, so the picker writes that form. ``!pattern`` excludes a
+path again, as in ``.gitignore``.
 
 This module only parses the file and matches it against export paths. The
 sync service turns the matches into a projection, because that needs the
@@ -14,7 +16,7 @@ database.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from pathspec import GitIgnoreSpec
@@ -47,6 +49,22 @@ class PackageInclude:
     def matches(self, path: str) -> bool:
         """Return whether the export path ``path`` is in the package."""
         return self.spec.match_file(path)
+
+    def selects(self, names: Sequence[str]) -> bool:
+        """Return whether a file known by several ``names`` is in the package.
+
+        Gitignore rules let the last matching pattern win. Across the names,
+        that is the matching pattern with the highest line index.
+        """
+        decided: list[tuple[int, bool]] = []
+        for name in names:
+            result = self.spec.check_file(name)
+            if result.index is not None:
+                decided.append((result.index, result.include is True))
+        if not decided:
+            return False
+        _index, included = max(decided)
+        return included
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,13 +116,19 @@ def render_package_include(patterns: Iterable[str]) -> str:
 
 def matched_resources(
     include: PackageInclude,
-    paths_by_resource: Mapping[PackageResourceKey, Iterable[str]],
+    files_by_resource: Mapping[PackageResourceKey, Iterable[Sequence[str]]],
 ) -> set[PackageResourceKey]:
-    """Return the resources with at least one export path the include matches."""
+    """Return the resources with at least one file the include selects.
+
+    Each file is a group of names for the same file, such as its readable
+    path and its stable id path. The names act as one path: the last pattern
+    that matches any of them decides, so ``!workflows/<id>/**`` and
+    ``!workflows/<name>/**`` both exclude the workflow.
+    """
     return {
         key
-        for key, paths in paths_by_resource.items()
-        if any(include.matches(path) for path in paths)
+        for key, files in files_by_resource.items()
+        if any(include.selects(names) for names in files)
     }
 
 

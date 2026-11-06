@@ -57,6 +57,7 @@ from tracecat.registry.repositories.schemas import (
 )
 from tracecat.sync import (
     CatalogMappingRequirement,
+    CommitInfo,
     McpIntegrationMappingRequirement,
     PullDiagnostic,
     PullOptions,
@@ -88,7 +89,6 @@ from tracecat.workspace_sync.adapters import (
     workspace_spec_from_maps,
 )
 from tracecat.workspace_sync.adapters.base import (
-    DirectoryManifestAdapter,
     ResourceDependencyRefs,
     SyncMappingService,
 )
@@ -99,7 +99,16 @@ from tracecat.workspace_sync.importer import (
     ImportedResource,
     WorkspaceResourceImportService,
 )
+from tracecat.workspace_sync.layout import (
+    PathOwner,
+    ResourcePathIndex,
+    partial_push_delete_roots,
+    plan_push_paths,
+    plan_resource_paths,
+    without_resources,
+)
 from tracecat.workspace_sync.package import (
+    include_reader,
     package_push_projection,
     read_package,
 )
@@ -109,7 +118,10 @@ from tracecat.workspace_sync.projector import (
     WorkspaceResourceProjector,
 )
 from tracecat.workspace_sync.resources import (
+    is_primary_resource_path,
+    locate_resources,
     parse_workspace_spec_files,
+    primary_resource_filter,
     serialize_workspace_spec_files,
     validate_workspace_dependencies,
     workflow_references,
@@ -119,6 +131,8 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
+    PathsByType,
+    ResourcePathMap,
     ResourceRef,
     WorkflowExportDiagnostic,
     WorkflowResourceSpec,
@@ -145,12 +159,13 @@ from tracecat.workspace_sync.transport import (
 from tracecat.workspace_sync.types import (
     PreparedPullPreview,
     PreparedSnapshot,
+    PushBase,
     PushProjection,
+    SyncCommitConflictError,
     SyncMappingTarget,
     SyncWorkflowImportError,
 )
 from tracecat.workspace_sync.workflow import (
-    workflow_source_path,
     workflow_spec_from_orm,
     workflow_spec_to_remote,
     workflow_spec_with_source_workflow_ids,
@@ -255,17 +270,26 @@ class WorkspaceSyncService(SyncMappingService):
         self._validate_export_params(params)
         url = await self._workspace_git_url()
         transport = self._transport_for_provider()
+        # Only a partial push looks at the resource files already on the
+        # branch. A full or package push deletes every one it does not write.
+        # An empty selection exports everything, as ``project_push`` does.
+        partial = bool(params.resources) and not await self.is_package_source()
+        base = await self._read_push_base(
+            transport,
+            url=url,
+            branch=params.branch,
+            base_branch=params.pr_base_branch,
+            resource_filter=is_primary_resource_path if partial else _no_resource_files,
+        )
         push = await self.project_push(
             resources=params.resources,
             include_schedules=params.include_schedules,
             package_include=params.package_include,
-            remote_include=lambda: self._remote_package_include(
-                transport,
-                url=url,
-                branch=params.branch,
-                base_branch=params.pr_base_branch,
+            remote_include=include_reader(
+                base.tree.files.get(PACKAGE_INCLUDE_FILENAME) if base else None
             ),
             create_missing_mappings=True,
+            base=base.tree if base else None,
         )
         projection = push.projection
         delete_missing_paths_under = push.delete_roots
@@ -276,14 +300,13 @@ class WorkspaceSyncService(SyncMappingService):
             projected_file_count=len(projection.files),
             projected_resource_counts=projection.spec.resource_count_map(),
         )
-        commit = await transport.write_files(
+        commit = await _write_push(
+            transport,
             url=url,
+            params=params,
             files=projection.files,
-            message=params.message,
-            branch=params.branch,
-            create_pr=params.create_pr,
-            pr_base_branch=params.pr_base_branch,
-            delete_missing_paths_under=delete_missing_paths_under,
+            base=base,
+            delete_roots=delete_missing_paths_under,
         )
         await self.session.commit()
         return WorkspaceSyncExportResult(
@@ -304,6 +327,7 @@ class WorkspaceSyncService(SyncMappingService):
             include_schedules=include_schedules,
             create_missing_mappings=False,
             validate_export=True,
+            owns_repository=resource_ids is None,
         )
         self._require_projected_export_scopes(projection.spec)
         self._validate_projected_workspace_dependencies(projection.spec)
@@ -328,6 +352,7 @@ class WorkspaceSyncService(SyncMappingService):
         package_include: list[str] | None,
         remote_include: Callable[[], Awaitable[str | None]],
         create_missing_mappings: bool,
+        base: VcsTreeSnapshot | None = None,
     ) -> PushProjection:
         """Project what a push writes and which stale paths it may delete.
 
@@ -336,7 +361,9 @@ class WorkspaceSyncService(SyncMappingService):
         include file selects the resources, and every other resource file is
         deleted. ``package_include`` replaces the include file;
         ``remote_include`` reads the one already in the repository and is
-        only awaited when ``package_include`` is ``None``.
+        only awaited when ``package_include`` is ``None``. ``base`` is the
+        tree the push writes onto; when given, the push also deletes the old
+        files of resources that moved and refuses to overwrite another one.
 
         Raises:
             TracecatValidationError: ``package_include`` was sent for a
@@ -351,23 +378,24 @@ class WorkspaceSyncService(SyncMappingService):
                     "resources source workspace"
                 )
             resource_ids = await self._local_ids_from_resource_refs(resources)
+            full_workspace_export = resource_ids is None
             projection = await self.project_workspace(
                 resource_ids=resource_ids,
                 include_schedules=include_schedules,
                 create_missing_mappings=create_missing_mappings,
                 validate_export=True,
+                owns_repository=full_workspace_export,
             )
             self._require_projected_export_scopes(projection.spec)
             self._validate_projected_workspace_dependencies(projection.spec)
+            projection = await self._without_managed(projection)
             delete_roots = await self._export_delete_roots(
                 projection,
-                full_workspace_export=resource_ids is None,
+                full_workspace_export=full_workspace_export,
                 resource_ids=resource_ids,
+                base=base,
             )
-            return PushProjection(
-                projection=await self._without_managed(projection),
-                delete_roots=delete_roots,
-            )
+            return PushProjection(projection=projection, delete_roots=delete_roots)
 
         include_text = (
             render_package_include(package_include)
@@ -464,12 +492,11 @@ class WorkspaceSyncService(SyncMappingService):
         managed = await self._managed_ids_by_type()
         if not managed:
             return projection
-        dropped = {
-            (target.resource_type, target.source_id)
-            for target in projection.mapping_targets
-            if target.local_id
-            in managed.get(SyncResourceType(target.resource_type), ())
-        }
+        dropped: set[tuple[SyncResourceType, str]] = set()
+        for target in projection.mapping_targets:
+            resource_type = SyncResourceType(target.resource_type)
+            if target.local_id in managed.get(resource_type, ()):
+                dropped.add((resource_type, target.source_id))
         if not dropped:
             return projection
         # Projection created customer mappings for these before they were
@@ -485,26 +512,32 @@ class WorkspaceSyncService(SyncMappingService):
                     WorkspaceSyncResourceMapping.local_id.in_(local_ids),
                 )
             )
+        kept = without_resources(
+            {
+                adapter.resource_type: adapter.specs(projection.spec)
+                for adapter in WORKSPACE_RESOURCE_ADAPTERS
+            },
+            dropped,
+        )
         spec = workspace_spec_from_maps(
             {
-                adapter.spec_attr: {
-                    source_id: resource_spec
-                    for source_id, resource_spec in adapter.specs(
-                        projection.spec
-                    ).items()
-                    if (adapter.resource_type.value, source_id) not in dropped
-                }
+                adapter.spec_attr: kept[adapter.resource_type]
                 for adapter in WORKSPACE_RESOURCE_ADAPTERS
             }
         )
+        paths = without_resources(projection.paths, dropped)
         return projection.model_copy(
             update={
                 "spec": spec,
-                "files": self._files_from_spec(manifest=projection.manifest, spec=spec),
+                "files": self._files_from_spec(
+                    manifest=projection.manifest, spec=spec, paths=paths
+                ),
+                "paths": paths,
                 "mapping_targets": [
                     target
                     for target in projection.mapping_targets
-                    if (target.resource_type, target.source_id) not in dropped
+                    if (SyncResourceType(target.resource_type), target.source_id)
+                    not in dropped
                 ],
             }
         )
@@ -549,6 +582,7 @@ class WorkspaceSyncService(SyncMappingService):
                     identities.setdefault(adapter.resource_type, set()).add(identity)
 
         adopted_by_source_id = await self._managed_source_id_keys(managed)
+        incoming_paths = _snapshot_paths(snapshot)
         skipped: list[str] = []
         kept: dict[str, dict[str, BaseModel]] = {}
         for adapter in WORKSPACE_RESOURCE_ADAPTERS:
@@ -565,13 +599,19 @@ class WorkspaceSyncService(SyncMappingService):
                     )
                     or source_id in adopted_by_source_id.get(adapter.resource_type, ())
                 ):
-                    skipped.append(adapter.source_path(source_id))
+                    skipped.append(adapter.path_in(incoming_paths, source_id))
                     continue
                 kept[adapter.spec_attr][source_id] = resource_spec
         if not skipped:
             return snapshot, []
+        kept_spec = workspace_spec_from_maps(kept)
         return (
-            snapshot.model_copy(update={"spec": workspace_spec_from_maps(kept)}),
+            snapshot.model_copy(
+                update={
+                    "spec": kept_spec,
+                    "paths": plan_resource_paths(kept_spec, fixed=snapshot.paths),
+                }
+            ),
             sorted(skipped),
         )
 
@@ -618,15 +658,21 @@ class WorkspaceSyncService(SyncMappingService):
             source_id: mapping.local_id for (_, source_id), mapping in mappings.items()
         }
 
-    async def _remote_package_include(
+    async def _read_push_base(
         self,
         transport: VcsSyncTransport,
         *,
         url: GitUrl,
         branch: str,
         base_branch: str | None,
-    ) -> str | None:
-        """Read the include file from ``branch``, or its base if it is new."""
+        resource_filter: Callable[[str], bool],
+    ) -> PushBase | None:
+        """Read the tree a push writes onto: ``branch``, or its base if new.
+
+        ``resource_filter`` picks the resource files whose contents are read;
+        the manifest and package include file are always read. Returns
+        ``None`` for a repository with no branch to start from.
+        """
         ref: str | None = branch
         if not await transport.branch_exists(url=url, branch=branch):
             ref = (
@@ -634,8 +680,13 @@ class WorkspaceSyncService(SyncMappingService):
             )
             if not ref:
                 return None
-        tree = await transport.read_files(url=url, ref=ref, ref_kind="branch")
-        return tree.files.get(PACKAGE_INCLUDE_FILENAME)
+        tree = await transport.read_files(
+            url=url,
+            ref=ref,
+            ref_kind="branch",
+            resource_filter=resource_filter,
+        )
+        return PushBase(ref=ref, tree=tree)
 
     async def empty_projection(self) -> WorkspaceProjection:
         """Return a projection with no resources, only the manifest."""
@@ -648,10 +699,14 @@ class WorkspaceSyncService(SyncMappingService):
         )
 
     def files_from_spec(
-        self, *, manifest: WorkspaceManifest, spec: WorkspaceSpec
+        self,
+        *,
+        manifest: WorkspaceManifest,
+        spec: WorkspaceSpec,
+        paths: PathsByType | None = None,
     ) -> dict[str, str]:
         """Serialize a manifest and spec into repository files."""
-        return self._files_from_spec(manifest=manifest, spec=spec)
+        return self._files_from_spec(manifest=manifest, spec=spec, paths=paths)
 
     async def entitled_resource_roots(
         self, resources: WorkspaceManifestResources
@@ -697,6 +752,7 @@ class WorkspaceSyncService(SyncMappingService):
             package_include=params.package_include,
             remote_include=remote_include,
             create_missing_mappings=False,
+            base=remote_tree,
         )
         projection = push.projection
         self.logger.info(
@@ -716,7 +772,9 @@ class WorkspaceSyncService(SyncMappingService):
         return WorkspaceSyncExportPreview(
             resource_counts=projection.spec.resource_count_map(),
             files=sorted(projection.files),
-            resources=_preview_resources_from_spec(projection.spec),
+            resources=_preview_resources_from_spec(
+                projection.spec, paths=projection.paths
+            ),
             resource_diffs=resource_diffs,
         )
 
@@ -741,6 +799,7 @@ class WorkspaceSyncService(SyncMappingService):
                 "the package from Git sync instead of a single workflow."
             )
         url = await self._workspace_git_url()
+        transport = self._transport_for_provider()
         projection = await self.project_workspace(
             workflow_ids=[WorkflowUUID.new(workflow.id)],
             include_schedules=params.include_schedules,
@@ -750,14 +809,22 @@ class WorkspaceSyncService(SyncMappingService):
         )
         self._validate_projected_workspace_dependencies(projection.spec)
         projection = await self._without_managed(projection)
-        transport = self._transport_for_provider()
-        commit = await transport.write_files(
+        # Cleanup only concerns the resource types this push writes, so a
+        # publish reads only those types' primary files from the branch.
+        base = await self._read_push_base(
+            transport,
             url=url,
-            files=projection.files,
-            message=params.message,
             branch=params.branch,
-            create_pr=params.create_pr,
-            pr_base_branch=params.pr_base_branch,
+            base_branch=params.pr_base_branch,
+            resource_filter=primary_resource_filter(projection.spec),
+        )
+        commit = await _write_push(
+            transport,
+            url=url,
+            params=params,
+            files=projection.files,
+            base=base,
+            delete_roots=_moved_resource_roots(projection, base.tree if base else None),
         )
         workflow.git_sync_branch = commit.ref
         self.session.add(workflow)
@@ -819,7 +886,9 @@ class WorkspaceSyncService(SyncMappingService):
                 message=f"Failed to validate workspace spec: {len(diagnostics)} issue(s)",
                 resource_counts=resource_counts,
                 files=sorted(snapshot.files),
-                resources=_sync_preview_resources_from_spec(snapshot.spec),
+                resources=_sync_preview_resources_from_spec(
+                    snapshot.spec, paths=snapshot.paths
+                ),
             )
         await self._require_spec_entitlements(snapshot.spec)
         self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
@@ -906,7 +975,9 @@ class WorkspaceSyncService(SyncMappingService):
             resource_counts=resource_counts,
             resource_diffs=resource_diffs,
             files=sorted(snapshot.files),
-            resources=_sync_preview_resources_from_spec(snapshot.spec),
+            resources=_sync_preview_resources_from_spec(
+                snapshot.spec, paths=snapshot.paths
+            ),
             secret_store_mapping_requirements=prepared.secret_store_mapping_requirements,
             library_skill_installs=prepared.library_skill_installs,
             skipped_managed=skipped_managed,
@@ -923,6 +994,7 @@ class WorkspaceSyncService(SyncMappingService):
         workflow_dsl_overrides: Mapping[uuid.UUID, DSLInput] | None = None,
         validate_export: bool = False,
         skip_unpublished: bool = False,
+        owns_repository: bool = False,
     ) -> WorkspaceProjection:
         """Project the workspace into a manifest, spec, and serialized files.
 
@@ -930,8 +1002,11 @@ class WorkspaceSyncService(SyncMappingService):
         referenced by alias or id), then projects non-workflow resources reached
         from the selected workflow/resource dependency graph. When
         ``create_missing_mappings`` is set, sync mappings are minted for any
-        newly projected resource; pass ``False`` for read-only previews. A
-        ``None`` selection exports the whole workspace.
+        newly projected resource and refreshed with the path this projection
+        writes; pass ``False`` for read-only previews. A ``None`` selection
+        exports the whole workspace. ``owns_repository`` says whether a push
+        of this projection deletes every other resource file, as full and
+        package pushes do; otherwise other resources' paths stay reserved.
         """
         # Normalize the two selection inputs into one per-type map (None = all).
         selection = _selection_from_workflow_ids(
@@ -988,7 +1063,6 @@ class WorkspaceSyncService(SyncMappingService):
                 dsl_by_id[workflow.id] = dsl
             source_id = await self._source_id_for_workflow(
                 workflow=workflow,
-                create=False,
                 reserved_source_ids=set(specs),
             )
             try:
@@ -1044,6 +1118,13 @@ class WorkspaceSyncService(SyncMappingService):
                 },
             }
         )
+        # Name each resource's folder after its current name. See
+        # ``plan_push_paths``.
+        paths = plan_push_paths(
+            spec,
+            mapped=await self._mapped_source_paths(),
+            owns_repository=owns_repository,
+        )
         if validate_export:
             await self._validate_workflow_export_dependencies(
                 spec,
@@ -1051,76 +1132,68 @@ class WorkspaceSyncService(SyncMappingService):
                     source_workflow_ids[WorkflowUUID.new(workflow.id)]: workflow
                     for workflow in workflows
                 },
+                paths=paths,
             )
             self._validate_projected_workspace_dependencies(spec)
-        # Persist only after the entire push projection has passed validation.
-        if create_missing_mappings:
-            mapped_workflow_ids = set(
-                await self.session.scalars(
-                    select(WorkspaceSyncResourceMapping.local_id).where(
-                        WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
-                        WorkspaceSyncResourceMapping.provider
-                        == self._mapping_provider_value,
-                        WorkspaceSyncResourceMapping.resource_type
-                        == SyncResourceType.WORKFLOW.value,
-                        WorkspaceSyncResourceMapping.local_id.in_(
-                            [workflow.id for workflow in workflows]
-                        ),
-                    )
-                )
-            )
-            workflow_mappings = [
+        mapping_targets = [
+            *(
                 SyncMappingTarget(
                     resource_type=SyncResourceType.WORKFLOW.value,
-                    source_id=source_workflow_ids[WorkflowUUID.new(workflow.id)],
-                    source_path=workflow_source_path(
-                        source_workflow_ids[WorkflowUUID.new(workflow.id)]
-                    ),
-                    local_id=workflow.id,
+                    source_id=source_id,
+                    source_path=WORKFLOW_RESOURCE_ADAPTER.path_in(paths, source_id),
+                    local_id=local_id,
                 )
-                for workflow in workflows
-                if workflow.id not in mapped_workflow_ids
-            ]
-            await self._upsert_mappings(
-                [
-                    *workflow_mappings,
-                    *[
-                        SyncMappingTarget(
-                            resource_type=resource.resource_type.value,
-                            source_id=resource.source_id,
-                            source_path=resource.source_path,
-                            local_id=resource.local_id,
-                        )
-                        for resource in projected_resources
-                    ],
-                ]
-            )
+                for local_id, source_id in source_workflow_ids.items()
+            ),
+            *(
+                SyncMappingTarget(
+                    resource_type=resource.resource_type.value,
+                    source_id=resource.source_id,
+                    source_path=paths[resource.resource_type][resource.source_id],
+                    local_id=resource.local_id,
+                )
+                for resource in projected_resources
+            ),
+        ]
+        # Persist only after the projection has passed validation. A push's
+        # later base-tree conflict check rolls these back with its transaction.
+        # Existing mappings are refreshed too, so each one records the path
+        # this push writes and a later push can clean it up after a rename.
+        if create_missing_mappings:
+            await self._upsert_mappings(mapping_targets)
 
         return WorkspaceProjection(
             manifest=manifest,
             spec=spec,
-            files=self._files_from_spec(manifest=manifest, spec=spec),
-            mapping_targets=[
-                *(
-                    SyncMappingTarget(
-                        resource_type=SyncResourceType.WORKFLOW.value,
-                        source_id=source_id,
-                        source_path=workflow_source_path(source_id),
-                        local_id=local_id,
-                    )
-                    for local_id, source_id in source_workflow_ids.items()
-                ),
-                *(
-                    SyncMappingTarget(
-                        resource_type=resource.resource_type.value,
-                        source_id=resource.source_id,
-                        source_path=resource.source_path,
-                        local_id=resource.local_id,
-                    )
-                    for resource in projected_resources
-                ),
-            ],
+            files=self._files_from_spec(manifest=manifest, spec=spec, paths=paths),
+            paths=paths,
+            mapping_targets=mapping_targets,
         )
+
+    async def _mapped_source_paths(self) -> ResourcePathMap:
+        """Return the last known repository path of every mapped resource."""
+        rows = await self.session.execute(
+            select(
+                WorkspaceSyncResourceMapping.resource_type,
+                WorkspaceSyncResourceMapping.source_id,
+                WorkspaceSyncResourceMapping.source_path,
+            ).where(
+                WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                WorkspaceSyncResourceMapping.provider == self._mapping_provider_value,
+                WorkspaceSyncResourceMapping.resource_type.in_(
+                    [resource_type.value for resource_type in SyncResourceType]
+                ),
+                WorkspaceSyncResourceMapping.source_path.is_not(None),
+            )
+        )
+        paths: ResourcePathMap = {}
+        for resource_type, source_id, source_path in rows.tuples():
+            # The SQL filter drops nulls; this also skips empty paths.
+            if source_path:
+                paths.setdefault(SyncResourceType(resource_type), {})[source_id] = (
+                    source_path
+                )
+        return paths
 
     async def _workflow_specs_with_case_tag_source_ids(
         self,
@@ -1234,17 +1307,15 @@ class WorkspaceSyncService(SyncMappingService):
                 diagnostics,
             )
 
-        spec, resource_diagnostics = parse_workspace_spec_files(
-            files,
-            manifest=manifest,
-        )
-        diagnostics.extend(resource_diagnostics)
+        parsed = parse_workspace_spec_files(files, manifest=manifest)
+        diagnostics.extend(parsed.diagnostics)
         return (
             WorkspaceRemoteSnapshot(
                 commit_sha=commit_sha,
                 tree_sha=tree_sha,
                 files=files,
-                spec=spec,
+                spec=parsed.spec,
+                paths=parsed.paths,
             ),
             diagnostics,
         )
@@ -1430,8 +1501,19 @@ class WorkspaceSyncService(SyncMappingService):
         *,
         full_workspace_export: bool,
         resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None,
+        base: VcsTreeSnapshot | None,
     ) -> tuple[str, ...]:
-        """Return remote path roots safe for stale-file deletion during export."""
+        """Return remote path roots safe for stale-file deletion during export.
+
+        A full export owns every resource root. A partial export owns only the
+        folders of the resources it writes, plus the old locations in
+        ``base`` of those resources that moved: a rename, or the switch from
+        id-named folders.
+
+        Raises:
+            PushPathConflictError: A partial export would overwrite a file that
+                holds a different resource in ``base``.
+        """
         if full_workspace_export:
             roots: list[str] = []
             for adapter in WORKSPACE_RESOURCE_ADAPTERS:
@@ -1457,12 +1539,13 @@ class WorkspaceSyncService(SyncMappingService):
                 roots.append(cleaned)
 
         for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-            if not isinstance(adapter, DirectoryManifestAdapter):
+            if not adapter.owns_directory:
                 continue
             for source_id in adapter.specs(projection.spec):
-                source_path = adapter.source_path(source_id)
-                if "/" in source_path:
-                    roots.append(source_path.rsplit("/", maxsplit=1)[0])
+                roots.append(
+                    adapter.location(adapter.path_in(projection.paths, source_id))
+                )
+        roots.extend(_moved_resource_roots(projection, base))
         self._enforce_required_scopes(
             sorted(_export_read_scopes_for_projection(projection, roots))
         )
@@ -1473,17 +1556,18 @@ class WorkspaceSyncService(SyncMappingService):
         spec: WorkspaceSpec,
         *,
         workflows_by_source_id: Mapping[str, Workflow],
+        paths: PathsByType,
     ) -> None:
         """Name workflow dependency failures before any mapping or Git writes."""
         failures: list[WorkflowExportDiagnostic] = []
         diagnostics_service = WorkflowExportDiagnosticsService(
             self.session, role=self.role
         )
-        paths = {
-            workflow_source_path(source_id): source_id
+        source_ids_by_path = {
+            WORKFLOW_RESOURCE_ADAPTER.path_in(paths, source_id): source_id
             for source_id in workflows_by_source_id
         }
-        for diagnostic in validate_workspace_dependencies(spec):
+        for diagnostic in validate_workspace_dependencies(spec, paths=paths):
             details = diagnostic.details or {}
             source_ids: set[str] = set()
             if isinstance(source_id := details.get("workflow_source_id"), str):
@@ -1495,7 +1579,7 @@ class WorkspaceSyncService(SyncMappingService):
                     for source_id in duplicate_ids
                     if isinstance(source_id, str)
                 )
-            if source_id := paths.get(diagnostic.workflow_path):
+            if source_id := source_ids_by_path.get(diagnostic.workflow_path):
                 source_ids.add(source_id)
             for source_id in sorted(source_ids):
                 if (workflow := workflows_by_source_id.get(source_id)) is None:
@@ -1564,10 +1648,12 @@ class WorkspaceSyncService(SyncMappingService):
         requested_secret_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
     ) -> PreparedSnapshot:
         """Resolve deployment-local references before validating or importing."""
+        paths = _snapshot_paths(snapshot)
         correlated = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
             self,
             snapshot.spec.agent_presets,
             snapshot.spec.workflows,
+            paths=paths,
             requested_catalog_mappings=requested_catalog_mappings,
         )
         correlated_mcp = (
@@ -1575,6 +1661,7 @@ class WorkspaceSyncService(SyncMappingService):
                 self,
                 correlated.presets,
                 correlated.workflows,
+                paths=paths,
                 requested_mcp_integration_mappings=requested_mcp_integration_mappings,
             )
         )
@@ -1582,12 +1669,13 @@ class WorkspaceSyncService(SyncMappingService):
             await SECRET_METADATA_RESOURCE_ADAPTER.correlate_store_names(
                 self,
                 snapshot.spec.secret_metadata,
+                paths=paths,
                 requested_store_mappings=requested_secret_store_mappings,
             )
         )
         library_diagnostics = (
             await AGENT_PRESET_RESOURCE_ADAPTER.library_skill_diagnostics(
-                self, correlated_mcp.presets
+                self, correlated_mcp.presets, paths=paths
             )
         )
         requested_library_skills = normalize_library_slugs(
@@ -1723,6 +1811,8 @@ class WorkspaceSyncService(SyncMappingService):
         resource writes; synchronous callers may request an immediate commit.
         """
         remote_workflows, local_ids = await self._remote_workflows(snapshot)
+        # Where the pull read each resource, so a later push can clean it up.
+        paths = _snapshot_paths(snapshot)
 
         # Validate before writing anything; bail out on the first set of errors.
         workflow_importer = WorkflowImportService(
@@ -1769,8 +1859,14 @@ class WorkspaceSyncService(SyncMappingService):
                         create_missing_mappings=False,
                     )
                     mapping_targets = projection.mapping_targets
+                # Record where the pull read each resource, like imports do.
                 unchanged_mappings = [
-                    target
+                    replace(
+                        target,
+                        source_path=paths[SyncResourceType(target.resource_type)][
+                            target.source_id
+                        ],
+                    )
                     for target in mapping_targets
                     if (target.resource_type, target.source_id) in unchanged_resources
                 ]
@@ -1854,7 +1950,9 @@ class WorkspaceSyncService(SyncMappingService):
                                     SyncMappingTarget(
                                         resource_type=SyncResourceType.WORKFLOW.value,
                                         source_id=source_id,
-                                        source_path=workflow_source_path(source_id),
+                                        source_path=WORKFLOW_RESOURCE_ADAPTER.path_in(
+                                            paths, source_id
+                                        ),
                                         local_id=local_ids[source_id],
                                     )
                                     for source_id in sorted(snapshot.spec.workflows)
@@ -1863,7 +1961,9 @@ class WorkspaceSyncService(SyncMappingService):
                                     SyncMappingTarget(
                                         resource_type=imported.resource_type.value,
                                         source_id=imported.source_id,
-                                        source_path=imported.source_path,
+                                        source_path=paths[imported.resource_type][
+                                            imported.source_id
+                                        ],
                                         local_id=imported.local_id,
                                     )
                                     for imported in imported_resources
@@ -1883,7 +1983,9 @@ class WorkspaceSyncService(SyncMappingService):
                 else ""
             )
             diagnostic = PullDiagnostic(
-                workflow_path=workflow_source_path(source_ids[e.workflow_id]),
+                workflow_path=WORKFLOW_RESOURCE_ADAPTER.path_in(
+                    paths, source_ids[e.workflow_id]
+                ),
                 workflow_title=title,
                 error_type="transaction",
                 message=f"Failed to import workflow {title!r}{suffix}",
@@ -1960,25 +2062,34 @@ class WorkspaceSyncService(SyncMappingService):
                 }
             )
         target_spec = target_spec.model_copy(update={"agent_presets": target_presets})
+        target_paths = plan_resource_paths(target_spec, fixed=snapshot.paths)
         target_files = self._files_from_spec(
             manifest=WorkspaceManifest(),
             spec=target_spec,
+            paths=target_paths,
         )
-        roots = WorkspaceManifest().resources
+        # Serialize local state at the incoming paths, so a resource renamed
+        # on either side diffs as one changed file, not an add.
+        current_files = self._files_from_spec(
+            manifest=WorkspaceManifest(),
+            spec=current_projection.spec,
+            paths=target_paths,
+        )
+        index = ResourcePathIndex(target_paths)
         diffs: list[PullResourceDiff] = []
         # The preview is a canonical file diff. Adapters own path mapping,
         # serialization, and labels; the service owns comparing the full
         # current projection against the incoming repository snapshot.
         for path, target_content in sorted(target_files.items()):
-            identity = _resource_identity_from_path(path, roots=roots)
-            if identity is None:
+            owner = index.owner(path)
+            if owner is None:
                 continue
 
-            current_content = current_projection.files.get(path)
+            current_content = current_files.get(path)
             if current_content == target_content:
                 continue
 
-            adapter, source_id = identity
+            adapter, source_id = owner.adapter, owner.source_id
             diff, truncated = _unified_resource_diff(
                 path=path,
                 before=current_content,
@@ -2009,21 +2120,22 @@ class WorkspaceSyncService(SyncMappingService):
         delete_missing_paths_under: Sequence[str],
     ) -> list[PullResourceDiff]:
         """Compute per-resource diffs from a repository ref to an export projection."""
-        roots = projection.manifest.resources
+        # Label deleted remote files by the id inside them, so a moved
+        # resource's old folder shows under its real source id.
+        index = ResourcePathIndex(projection.paths, locate_resources(remote_tree.files))
         deletion_roots = _normalized_path_roots(delete_missing_paths_under)
         diffs: list[PullResourceDiff] = []
         remote_paths = remote_tree.blob_paths or frozenset(remote_tree.files)
 
         for path, projected_content in sorted(projection.files.items()):
-            identity = _resource_identity_from_path(path, roots=roots)
-            if identity is None:
+            # Every projected resource file has an owner; the manifest and
+            # include file do not.
+            if (owner := index.owner(path)) is None:
                 continue
-
             remote_content = remote_tree.files.get(path)
             if remote_content == projected_content:
                 continue
 
-            adapter, source_id = identity
             diff, truncated = _unified_resource_diff(
                 path=path,
                 before=remote_content,
@@ -2036,14 +2148,14 @@ class WorkspaceSyncService(SyncMappingService):
                 )
             diffs.append(
                 PullResourceDiff(
-                    resource_type=adapter.resource_type.value,
-                    source_id=source_id,
+                    resource_type=owner.adapter.resource_type.value,
+                    source_id=owner.source_id,
                     source_path=path,
                     change_type="modified" if path in remote_paths else "added",
                     title=_resource_title(
                         projection.spec,
-                        adapter=adapter,
-                        source_id=source_id,
+                        adapter=owner.adapter,
+                        source_id=owner.source_id,
                     ),
                     diff=diff,
                     truncated=truncated,
@@ -2056,12 +2168,7 @@ class WorkspaceSyncService(SyncMappingService):
                     continue
                 if not _path_is_under_roots(path, deletion_roots):
                     continue
-                identity = _resource_identity_from_path(path, roots=roots)
-                resource_type = "file"
-                source_id = path
-                if identity is not None:
-                    adapter, source_id = identity
-                    resource_type = adapter.resource_type.value
+                resource_type, source_id = _diff_identity(index.owner(path), path)
                 if path in remote_tree.files:
                     diff, truncated = _unified_resource_diff(
                         path=path,
@@ -2480,14 +2587,13 @@ class WorkspaceSyncService(SyncMappingService):
         self,
         *,
         workflow: Workflow,
-        create: bool,
         reserved_source_ids: set[str],
     ) -> str:
         """Return the source id for a workflow, minting one when none is mapped.
 
         Reuses the existing sync mapping if present. Otherwise derives a unique
         id from the workflow's short UUID, avoiding ``reserved_source_ids`` and
-        existing mappings, and persists a new mapping when ``create`` is set.
+        existing mappings. Projection persists new mappings after validation.
         """
         mapping = await self._mapping_by_local_id(
             resource_type=SyncResourceType.WORKFLOW.value,
@@ -2501,13 +2607,6 @@ class WorkspaceSyncService(SyncMappingService):
             preferred_source_id=preferred_source_id,
             reserved_source_ids=reserved_source_ids,
         )
-        if create:
-            await self._upsert_mapping(
-                resource_type=SyncResourceType.WORKFLOW.value,
-                source_id=source_id,
-                source_path=workflow_source_path(source_id),
-                local_id=WorkflowUUID.new(workflow.id),
-            )
         return source_id
 
     async def _unique_source_id(
@@ -2655,38 +2754,18 @@ class WorkspaceSyncService(SyncMappingService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _upsert_mapping(
-        self,
-        *,
-        resource_type: str,
-        source_id: str,
-        source_path: str,
-        local_id: uuid.UUID,
-    ) -> WorkspaceSyncResourceMapping:
-        """Create or update the sync mapping for ``source_id``.
-
-        Refreshes ``source_path`` and ``local_id`` on an existing mapping, or
-        inserts a new one, then flushes so the row is visible within the current
-        transaction.
-        """
-        return (
-            await self._upsert_mappings(
-                [
-                    SyncMappingTarget(
-                        resource_type=resource_type,
-                        source_id=source_id,
-                        source_path=source_path,
-                        local_id=local_id,
-                    )
-                ]
-            )
-        )[0]
-
     async def _upsert_mappings(
         self,
         targets: Sequence[SyncMappingTarget],
     ) -> list[WorkspaceSyncResourceMapping]:
-        """Create or update sync mappings for ``targets``, flushing once."""
+        """Create or update sync mappings for ``targets``, flushing once.
+
+        A target re-points an existing mapping found by source id or local
+        row, and sets the path the projection writes. The durable push writes
+        mappings with ``DurableSyncService._write_mapping_targets`` instead,
+        which never re-points: a reviewed apply must not move an identity that
+        changed after its preview.
+        """
         if not targets:
             return []
         source_ids_by_resource_type: dict[str, set[str]] = {}
@@ -2734,13 +2813,18 @@ class WorkspaceSyncService(SyncMappingService):
         *,
         manifest: WorkspaceManifest,
         spec: WorkspaceSpec,
+        paths: PathsByType | None = None,
     ) -> dict[str, str]:
-        """Serialize a manifest and spec into the repository's path-to-content map."""
+        """Serialize a manifest and spec into the repository's path-to-content map.
+
+        Resources in ``paths`` are written there; the rest get readable paths.
+        """
         return serialize_workspace_spec_files(
             manifest=manifest,
             spec=spec,
             manifest_filename=MANIFEST_FILENAME,
             manifest_serializer=canonical_json_text,
+            paths=paths,
         )
 
     def _resource_counts_from_spec(
@@ -2791,7 +2875,9 @@ class WorkspaceSyncService(SyncMappingService):
             resource_counts=resource_counts,
             resource_diffs=resource_diffs,
             files=sorted(snapshot.files),
-            resources=_sync_preview_resources_from_spec(snapshot.spec),
+            resources=_sync_preview_resources_from_spec(
+                snapshot.spec, paths=snapshot.paths
+            ),
             catalog_mapping_requirements=catalog_mapping_requirements,
             mcp_integration_mapping_requirements=(mcp_integration_mapping_requirements),
             secret_store_mapping_requirements=secret_store_mapping_requirements,
@@ -2918,8 +3004,14 @@ def _agent_preset_subagent_refs(
 
 def _preview_resources_from_spec(
     spec: WorkspaceSpec,
+    *,
+    paths: PathsByType | None = None,
 ) -> list[WorkspaceSyncPreviewResource]:
-    """Return displayable resources included in an export preview."""
+    """Return displayable resources included in an export preview.
+
+    Each resource shows its path in ``paths``, or its planned readable path.
+    """
+    planned = plan_resource_paths(spec, fixed=paths)
     resources: list[WorkspaceSyncPreviewResource] = []
     for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         specs = cast(Mapping[str, BaseModel], getattr(spec, adapter.spec_attr))
@@ -2929,7 +3021,7 @@ def _preview_resources_from_spec(
                     resource_type=adapter.resource_type,
                     source_id=source_id,
                     name=_preview_resource_name(resource_spec, fallback=source_id),
-                    path=adapter.source_path(source_id),
+                    path=adapter.path_in(planned, source_id),
                 )
             )
     return sorted(
@@ -2940,6 +3032,8 @@ def _preview_resources_from_spec(
 
 def _sync_preview_resources_from_spec(
     spec: WorkspaceSpec,
+    *,
+    paths: PathsByType | None = None,
 ) -> list[SyncPreviewResource]:
     """Return displayable resources included in a pull preview."""
     return [
@@ -2949,7 +3043,7 @@ def _sync_preview_resources_from_spec(
             name=resource.name,
             path=resource.path,
         )
-        for resource in _preview_resources_from_spec(spec)
+        for resource in _preview_resources_from_spec(spec, paths=paths)
     ]
 
 
@@ -3158,23 +3252,85 @@ def _spec_for_pull_options(
     )
 
 
-def _resource_identity_from_path(
-    path: str,
-    *,
-    roots: WorkspaceManifestResources,
-) -> tuple[ResourceAdapter, str] | None:
-    """Resolve a repository path to its ``(adapter, source_id)``, or ``None``.
+def _snapshot_paths(snapshot: WorkspaceRemoteSnapshot) -> ResourcePathMap:
+    """Return where each snapshot resource was read, planning any it lacks.
 
-    Tries each adapter's primary-file mapping first, then its companion-file
-    mapping, so both kinds of path resolve to the owning resource.
+    A snapshot parsed from a commit records every path. One built from a spec,
+    such as a managed rollout's, gets the paths a push would write.
     """
-    for adapter in (WORKFLOW_RESOURCE_ADAPTER, *NON_WORKFLOW_RESOURCE_ADAPTERS):
-        if source_id := adapter.source_id_from_path(path, roots):
-            return adapter, source_id
-        if extra := adapter.extra_path_from_path(path, roots):
-            source_id, _relative_path = extra
-            return adapter, source_id
-    return None
+    return plan_resource_paths(snapshot.spec, fixed=snapshot.paths)
+
+
+async def _write_push(
+    transport: VcsSyncTransport,
+    *,
+    url: GitUrl,
+    params: WorkspaceSyncExportRequest,
+    files: dict[str, str],
+    base: PushBase | None,
+    delete_roots: Sequence[str],
+) -> CommitInfo:
+    """Write a push onto the base tree its cleanup was planned against.
+
+    Pinning the base commit means a branch that moved in the meantime fails
+    the push instead of receiving deletions planned for another tree.
+
+    Raises:
+        SyncCommitConflictError: The branch moved, or was deleted, while the
+            push ran.
+    """
+    if (
+        base is not None
+        and base.ref == params.branch
+        and not await transport.branch_exists(url=url, branch=params.branch)
+    ):
+        raise SyncCommitConflictError(
+            "The target branch was deleted while this push ran. Push again."
+        )
+    try:
+        return await transport.write_files(
+            url=url,
+            files=files,
+            message=params.message,
+            branch=params.branch,
+            create_pr=params.create_pr,
+            pr_base_branch=params.pr_base_branch,
+            delete_missing_paths_under=delete_roots,
+            branch_start_ref=base.ref if base else None,
+            expected_commit_sha=base.tree.commit_sha if base else None,
+        )
+    except SyncCommitConflictError as e:
+        raise SyncCommitConflictError(
+            "The target branch changed while this push ran. Push again."
+        ) from e
+
+
+def _moved_resource_roots(
+    projection: WorkspaceProjection, base: VcsTreeSnapshot | None
+) -> list[str]:
+    """Return the old locations a partial push deletes from its base tree.
+
+    Raises:
+        PushPathConflictError: The push would write over a different resource.
+    """
+    if base is None:
+        return []
+    return partial_push_delete_roots(projection.paths, locate_resources(base.files))
+
+
+def _no_resource_files(path: str) -> bool:
+    """Read no resource file contents, only the manifest and include file."""
+    return False
+
+
+def _diff_identity(owner: PathOwner | None, path: str) -> tuple[str, str]:
+    """Return a diff entry's resource type and source id.
+
+    A file no resource claims is labelled as a plain file, by its path.
+    """
+    if owner is None:
+        return "file", path
+    return owner.adapter.resource_type.value, owner.source_id
 
 
 def _normalized_path_roots(roots: Sequence[str]) -> tuple[str, ...]:

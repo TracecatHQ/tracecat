@@ -19,11 +19,21 @@ WORKFLOW_B = PackageResourceKey(SyncResourceType.WORKFLOW, "wf-b")
 SKILL = PackageResourceKey(SyncResourceType.SKILL, "triage-notes")
 TABLE = PackageResourceKey(SyncResourceType.TABLE, "iocs")
 
+# Each file is a group of names; these files have one name each.
 PATHS = {
-    WORKFLOW_A: ["workflows/wf-a/definition.yml"],
-    WORKFLOW_B: ["workflows/wf-b/definition.yml"],
-    SKILL: ["skills/triage-notes/skill.yml", "skills/triage-notes/files/SKILL.md"],
-    TABLE: ["tables/iocs/table.yml"],
+    WORKFLOW_A: [("workflows/wf-a/definition.yml",)],
+    WORKFLOW_B: [("workflows/wf-b/definition.yml",)],
+    SKILL: [
+        ("skills/triage-notes/skill.yml",),
+        ("skills/triage-notes/files/SKILL.md",),
+    ],
+    TABLE: [("tables/iocs/table.yml",)],
+}
+
+# Workflow A again, known by a readable path and its stable id path.
+RENAMED = {
+    WORKFLOW_A: [("workflows/Triage/definition.yml", "workflows/wf-a/definition.yml")],
+    WORKFLOW_B: [("workflows/Enrich/definition.yml", "workflows/wf-b/definition.yml")],
 }
 
 
@@ -37,6 +47,27 @@ def test_negation_removes_a_resource_matched_by_a_broader_pattern() -> None:
     include = parse_package_include("workflows/**\n!workflows/wf-b/**\n")
 
     assert matched_resources(include, PATHS) == {WORKFLOW_A}
+
+
+@pytest.mark.parametrize(
+    "negation",
+    [
+        # The stable id form, as the picker writes it.
+        "!workflows/wf-b/**",
+        # The readable form, as someone might type it.
+        "!workflows/Enrich/**",
+    ],
+)
+def test_negation_excludes_a_file_known_by_either_name(negation: str) -> None:
+    include = parse_package_include(f"workflows/**\n{negation}\n")
+
+    assert matched_resources(include, RENAMED) == {WORKFLOW_A}
+
+
+def test_a_later_pattern_re_includes_a_file_known_by_either_name() -> None:
+    include = parse_package_include("!workflows/**\nworkflows/wf-b/**\n")
+
+    assert matched_resources(include, RENAMED) == {WORKFLOW_B}
 
 
 def test_companion_file_match_selects_its_resource() -> None:
@@ -69,7 +100,7 @@ def test_pattern_matching_nothing_is_reported() -> None:
         "workflows/wf-a/**\nworkflows/gone/**\n!workflows/other/**\n"
     )
 
-    all_paths = [path for paths in PATHS.values() for path in paths]
+    all_paths = [name for files in PATHS.values() for names in files for name in names]
     # Negations are not reported even when they remove nothing.
     assert unmatched_patterns(include, all_paths) == ["workflows/gone/**"]
 

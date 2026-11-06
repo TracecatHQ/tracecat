@@ -73,9 +73,12 @@ REPO_URL = "git+ssh://git@github.com/TracecatHQ/managed-package.git"
 GIT_URL = GitUrl(host="github.com", org="TracecatHQ", repo="managed-package")
 BRANCH = "package/update"
 
+# Workflow folders are named after workflow titles. Include patterns below
+# still name workflows by source id (``workflows/qa-root/**``): the id path
+# keeps matching after a rename, so the picker writes that form.
 ROOT_CLOSURE = {
-    "workflows/qa-root/definition.yml",
-    "workflows/qa-child/definition.yml",
+    "workflows/qa-root-orchestrator/definition.yml",
+    "workflows/qa-child-enrichment/definition.yml",
     "agent_presets/qa-triage-parent/preset.yml",
     "tables/qa_indicators/table.yml",
     "variables/default/qa_config.yml",
@@ -181,7 +184,7 @@ async def test_package_export_writes_only_the_include_closure(
     assert "workflows/qa-orphan/definition.yml" not in files
     assert "workflows/qa-root/**" in files[PACKAGE_INCLUDE_FILENAME]
     # Schedules never ship with a package.
-    assert "schedules" not in files["workflows/qa-root/definition.yml"]
+    assert "schedules" not in files["workflows/qa-root-orchestrator/definition.yml"]
 
     package = workspace_manifest_from_json(files[MANIFEST_FILENAME]).package
     assert package is not None
@@ -259,7 +262,7 @@ async def test_package_preview_reports_what_is_added_and_removed(
 
     changes = {(diff.source_path, diff.change_type) for diff in preview.resource_diffs}
     assert ("workflows/qa-orphan/definition.yml", "deleted") in changes
-    assert ("workflows/qa-child/definition.yml", "added") in changes
+    assert ("workflows/qa-child-enrichment/definition.yml", "added") in changes
 
 
 @pytest.mark.anyio
@@ -273,8 +276,11 @@ async def test_read_package_marks_explicit_implied_and_excluded(
     assert package.is_source is True
     assert package.patterns == ["workflows/qa-root/**"]
     by_path = {resource.path: resource for resource in package.resources}
-    assert by_path["workflows/qa-root/definition.yml"].status == "explicit"
-    child = by_path["workflows/qa-child/definition.yml"]
+    root = by_path["workflows/qa-root-orchestrator/definition.yml"]
+    assert root.status == "explicit"
+    # The picker writes the stable id pattern, not the readable path.
+    assert root.pattern == "workflows/qa-root/**"
+    child = by_path["workflows/qa-child-enrichment/definition.yml"]
     assert child.status == "implied"
     assert child.implied_by == ["qa-root-orchestrator"]
     assert by_path["workflows/qa-orphan/definition.yml"].status == "excluded"

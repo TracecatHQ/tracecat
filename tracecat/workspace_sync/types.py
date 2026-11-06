@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         WorkspaceProjection,
         WorkspaceRemoteSnapshot,
     )
+    from tracecat.workspace_sync.transport import VcsTreeSnapshot
 
 
 class CorrelatedAgentPresets(NamedTuple):
@@ -151,6 +152,16 @@ class PushProjection:
     delete_roots: tuple[str, ...]
     package_include: str | None = None
     """Include file text when the push is a managed resources package export."""
+
+
+@dataclass(frozen=True, slots=True)
+class PushBase:
+    """The branch tree a push writes onto."""
+
+    ref: str
+    """Branch name the push starts from: its target, or that branch's base."""
+    tree: VcsTreeSnapshot
+    """Resource files at that branch head."""
 
 
 @dataclass(frozen=True, slots=True)

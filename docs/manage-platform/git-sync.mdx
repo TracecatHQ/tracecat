@@ -77,7 +77,11 @@ Click `Change` beside the repository to edit its SSH URL, then `Save`. Changing 
 
 ## What an export contains
 
-A full export writes `tracecat.json` and one directory per resource type: workflows, agent presets, skills, tables, case fields, case tags, case dropdowns, case durations, variables, and secret metadata. Tracecat writes each workflow to `workflows/<id>/definition.yml` and excludes schedules.
+A full export writes `tracecat.json` and one directory per resource type: workflows, agent presets, skills, tables, case fields, case tags, case dropdowns, case durations, variables, and secret metadata. Tracecat excludes schedules.
+
+Each resource's folder or file is named after its current name, such as `workflows/Triage-alerts/definition.yml` or `tables/indicators/table.yml`. The `id` field inside each file identifies the resource, so renaming a resource moves its file on the next push and pullers update the same resource in place. When two resources of one type share a name, Tracecat appends the `id` to the later one: `workflows/Triage-alerts-wf_4f2a.../definition.yml`. Keep each `id` unique: a pull rejects two files with the same `id`, so duplicate a resource in Tracecat rather than by copying its folder. If two branches rename the same resource and both merge, the repository holds two copies with one `id`; push that resource from Tracecat to remove the extra copy.
+
+Repositories pushed by earlier versions name folders by `id`, such as `workflows/wf_4f2a.../definition.yml`. Pulls still read them, and the next push moves each resource it writes to its readable path and deletes the old folder.
 
 Exports carry configuration, not data:
 

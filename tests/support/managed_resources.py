@@ -94,7 +94,7 @@ async def mark_managed(
         local_id=local_id,
         source_id=source_id,
         # The path a rollout records: the adapter's repository path.
-        source_path=RESOURCE_ADAPTERS_BY_TYPE[resource_type].source_path(source_id),
+        source_path=RESOURCE_ADAPTERS_BY_TYPE[resource_type].legacy_id_path(source_id),
         deployed_tag=tag,
         deployed_commit_sha="a" * 40,
     )

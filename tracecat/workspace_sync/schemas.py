@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -46,6 +47,12 @@ CASE_DURATION_ROOT = "case_durations"
 VARIABLE_ROOT = "variables"
 SECRET_METADATA_ROOT = "secret_metadata"
 WORKFLOW_DEFINITION_FILENAME = "definition.yml"
+
+type ResourcePathMap = dict[SyncResourceType, dict[str, str]]
+"""Repository path of each resource, by type then source id."""
+
+type PathsByType = Mapping[SyncResourceType, Mapping[str, str]]
+"""Read-only view of a :data:`ResourcePathMap`, for function parameters."""
 
 
 class WorkspaceManifestResources(BaseModel):
@@ -179,6 +186,11 @@ def manifest_resource_roots(manifest: WorkspaceManifest) -> tuple[str, ...]:
     )
 
 
+def normalize_workflow_source_id(value: str) -> str:
+    """Trim the whitespace and slashes a workflow ``id`` is stored without."""
+    return value.strip().strip("/")
+
+
 class WorkflowResourceSpec(BaseModel):
     """Canonical Git-owned desired state for a workflow resource."""
 
@@ -188,7 +200,7 @@ class WorkflowResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the workflow's single-segment file path key.",
+        description="Stable source id. It identifies the workflow; its path does not.",
     )
     alias: str | None = Field(
         default=None,
@@ -226,7 +238,7 @@ class WorkflowResourceSpec(BaseModel):
     @classmethod
     def validate_source_id(cls, value: str) -> str:
         """Require the workflow id to be a non-empty single path segment."""
-        cleaned = value.strip().strip("/")
+        cleaned = normalize_workflow_source_id(value)
         if not cleaned:
             raise ValueError("workflow source id cannot be empty")
         if "/" in cleaned or "\\" in cleaned:
@@ -288,7 +300,7 @@ class AgentPresetResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the preset's single-segment file path key.",
+        description="Stable source id. It identifies the preset; its path does not.",
     )
     slug: str = Field(
         min_length=1, description="Unique preset slug used for cross-references."
@@ -424,7 +436,7 @@ class SkillResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the skill's single-segment file path key.",
+        description="Stable source id. It identifies the skill; its path does not.",
     )
     slug: str = Field(
         min_length=1, description="Unique skill slug used for cross-references."
@@ -482,7 +494,7 @@ class TableResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the table's single-segment file path key.",
+        description="Stable source id. It identifies the table; its path does not.",
     )
     name: str = Field(min_length=1, description="Table name.")
     columns: list[TableColumnSpec] = Field(
@@ -501,7 +513,7 @@ class CaseTagResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the case tag's single-segment file path key.",
+        description="Stable source id. It identifies the case tag; its path does not.",
     )
     name: str = Field(min_length=1, description="Case tag name.")
     color: str | None = Field(default=None, description="Optional display color.")
@@ -518,7 +530,7 @@ class CaseDropdownResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the dropdown's single-segment file path key.",
+        description="Stable source id. It identifies the dropdown; its path does not.",
     )
     name: str = Field(min_length=1, description="Case dropdown field name.")
     options: list[dict[str, Any]] = Field(
@@ -568,7 +580,7 @@ class CaseDurationResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the duration's single-segment file path key.",
+        description="Stable source id. It identifies the duration; its path does not.",
     )
     name: str = Field(min_length=1, description="Case duration metric name.")
     description: str | None = Field(
@@ -593,7 +605,7 @@ class CaseFieldResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the field's single-segment file path key.",
+        description="Stable source id. It identifies the field; its path does not.",
     )
     name: str = Field(min_length=1, description="Case field name.")
     display_name: str | None = Field(
@@ -632,7 +644,7 @@ class VariableResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the variable's single-segment file path key.",
+        description="Stable source id. It identifies the variable; its path does not.",
     )
     name: str = Field(min_length=1, description="Variable name.")
     environment: str = Field(
@@ -672,7 +684,7 @@ class SecretMetadataResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the secret's single-segment file path key.",
+        description="Stable source id. It identifies the secret; its path does not.",
     )
     name: str = Field(min_length=1, description="Secret name.")
     environment: str = Field(
@@ -832,6 +844,13 @@ class WorkspaceProjection(BaseModel):
     files: dict[str, str] = Field(
         description="Serialized repository files keyed by repository-relative path."
     )
+    paths: ResourcePathMap = Field(
+        default_factory=dict,
+        description=(
+            "Primary file path of each projected resource, by resource type "
+            "then source id."
+        ),
+    )
 
 
 class WorkspaceRemoteSnapshot(BaseModel):
@@ -846,6 +865,13 @@ class WorkspaceRemoteSnapshot(BaseModel):
     )
     spec: WorkspaceSpec = Field(
         description="Workspace desired state parsed from the commit."
+    )
+    paths: ResourcePathMap = Field(
+        default_factory=dict,
+        description=(
+            "Primary file path each resource was read from, by resource type "
+            "then source id. Empty when the snapshot was not parsed from files."
+        ),
     )
 
 
