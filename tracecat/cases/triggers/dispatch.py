@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import timedelta
 
 from pydantic import ValidationError
-from sqlalchemy import exists, func, select, update
+from sqlalchemy import ColumnElement, and_, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -57,6 +58,10 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
 CASE_TRIGGER_SERVICE_ID = "tracecat-case-triggers"
 OUTBOX_BATCH_SIZE = 100
+# A row that failed sits out batches this long before its next attempt, so a
+# row that keeps failing cannot fail every batch and hold the activity in
+# retry backoff while other rows wait.
+OUTBOX_RETRY_DELAY = timedelta(seconds=30)
 # Errors from bad input that fail every attempt the same way, such as a
 # workflow timeout too large to convert. Retrying them would hold the row
 # forever, so the start is logged and dropped as the Redis consumer did.
@@ -77,24 +82,54 @@ def case_trigger_exec_id(
     return f"{WorkflowUUID.new(workflow_id).short()}/{exec_uuid.short()}"
 
 
+def _ready_to_dispatch() -> ColumnElement[bool]:
+    """Rows never attempted, or whose last failure is older than the retry delay.
+
+    Both timestamps start as the insert time; a failed attempt touches only
+    ``updated_at``.
+    """
+    return ~and_(
+        CaseTriggerOutbox.updated_at > CaseTriggerOutbox.created_at,
+        CaseTriggerOutbox.updated_at > func.now() - OUTBOX_RETRY_DELAY,
+    )
+
+
 async def outbox_has_rows() -> bool:
-    """Whether any outbox row is waiting to be dispatched."""
+    """Whether any outbox row is ready to be dispatched."""
     async with get_async_session_bypass_rls_context_manager() as session:
-        return bool(
-            await session.scalar(select(exists().select_from(CaseTriggerOutbox)))
-        )
+        return bool(await session.scalar(select(exists().where(_ready_to_dispatch()))))
 
 
 async def list_outbox_row_ids(limit: int = OUTBOX_BATCH_SIZE) -> list[int]:
-    """The outbox rows to dispatch next, least recently attempted first.
+    """The outbox rows to dispatch next, taken from each workspace in turn.
 
-    A failed row is touched after each attempt, so rows that keep failing move
-    behind newer rows instead of filling every batch.
+    The batch holds every workspace's least recently attempted row, then every
+    workspace's second, and so on, so a burst in one workspace cannot fill the
+    batch ahead of the others. A failed row is touched after each attempt and
+    sits out batches for ``OUTBOX_RETRY_DELAY``, then rejoins its workspace
+    behind the rows that were queued before it failed, so rows that keep
+    failing cannot fill every batch.
     """
+    dispatch_order = (CaseTriggerOutbox.updated_at, CaseTriggerOutbox.surrogate_id)
+    ranked = (
+        select(
+            CaseTriggerOutbox.surrogate_id,
+            CaseTriggerOutbox.updated_at,
+            func.row_number()
+            .over(partition_by=CaseTriggerOutbox.workspace_id, order_by=dispatch_order)
+            .label("workspace_turn"),
+        )
+        .where(_ready_to_dispatch())
+        .subquery()
+    )
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.scalars(
-            select(CaseTriggerOutbox.surrogate_id)
-            .order_by(CaseTriggerOutbox.updated_at, CaseTriggerOutbox.surrogate_id)
+            select(ranked.c.surrogate_id)
+            .order_by(
+                ranked.c.workspace_turn,
+                ranked.c.updated_at,
+                ranked.c.surrogate_id,
+            )
             .limit(limit)
         )
         return list(result.all())
@@ -194,6 +229,18 @@ def _parse_comment_workflow(
         return None
 
 
+class CaseTriggerRetryNotRecordedError(Exception):
+    """A row failed and its retry delay could not be recorded.
+
+    The row is ready again at once, so the batch must fail and back off rather
+    than retry it in a tight loop.
+    """
+
+    def __init__(self, row_id: int) -> None:
+        super().__init__(f"Could not record the retry delay of outbox row {row_id}")
+        self.row_id = row_id
+
+
 class CaseTriggerStartUnknownError(Exception):
     """Temporal could not say whether a run's start was accepted; retry later."""
 
@@ -236,7 +283,11 @@ async def _load_event_and_case(
 
 
 class CaseTriggerOutboxDispatcher:
-    """Dispatch outbox rows one at a time, each in its own transaction."""
+    """Dispatch outbox rows, each in its own transactions.
+
+    One dispatcher may handle several rows at once; rows share nothing but the
+    role and entitlement caches.
+    """
 
     def __init__(self, heartbeat: Callable[[], None] | None = None) -> None:
         self._heartbeat = heartbeat or (lambda: None)
@@ -253,7 +304,8 @@ class CaseTriggerOutboxDispatcher:
 
         Another dispatcher holding the row's lock means it is already being
         handled, so the row is skipped. Transient failures raise and leave the
-        row in place, moved to the back of the queue, for the next attempt.
+        row in place; it sits out batches for ``OUTBOX_RETRY_DELAY`` before the
+        next attempt.
         """
         try:
             comment_error = await self._dispatch_comment_workflow(row_id)
@@ -263,7 +315,10 @@ class CaseTriggerOutboxDispatcher:
             if comment_error is not None:
                 raise comment_error
         except Exception:
-            await _touch_outbox_row(row_id)
+            try:
+                await _touch_outbox_row(row_id)
+            except Exception as e:
+                raise CaseTriggerRetryNotRecordedError(row_id) from e
             raise
 
     async def _dispatch_comment_workflow(self, row_id: int) -> Exception | None:
@@ -346,11 +401,13 @@ class CaseTriggerOutboxDispatcher:
             )
             return
 
+        # Rows dispatch concurrently and may turn the same triggers offline;
+        # a fixed order makes them lock those triggers in the same order.
         triggers = (
             await session.scalars(
-                select(CaseTrigger).where(
-                    online_trigger_filter(case.workspace_id, event.type)
-                )
+                select(CaseTrigger)
+                .where(online_trigger_filter(case.workspace_id, event.type))
+                .order_by(CaseTrigger.id)
             )
         ).all()
         filter_tag_refs = _filter_tag_refs(case, event)
