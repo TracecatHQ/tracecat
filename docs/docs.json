@@ -322,6 +322,7 @@
               "tools/splunk",
               "tools/spur",
               "tools/sublime",
+              "tools/swif",
               "tools/tavily",
               "tools/tenable_sc",
               "tools/terraform",

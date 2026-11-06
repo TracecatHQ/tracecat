@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: List teams
+  description: >-
+    List the organization's active teams, sorted by name. Use team IDs to scope device,
+    employee, and script report queries. Calls GET /restful/organization/teams.
+  display_group: Swif.ai (UEM)
+  doc_url: https://help.swif.ai/en/articles/9341271-public-apis-device-and-evidence-retrieval
+  namespace: tools.swif
+  name: list_teams
+  secrets:
+    - name: swif
+      keys: ["SWIF_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Swif API base URL. Defaults to https://api.swifteam.com (global tenants). Use
+        https://api.eu.swifteam.com for EU tenants.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.swif.base_url || "https://api.swifteam.com" }}/restful/organization/teams
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.swif.SWIF_API_KEY }}
+  returns: ${{ steps.request.result }}
