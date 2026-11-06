@@ -1,7 +1,7 @@
 """add case trigger outbox
 
 Revision ID: ef408b9720a6
-Revises: 4a17af960e05
+Revises: b0debed4e0c6
 Create Date: 2026-11-03 12:00:00.000000
 
 """
@@ -19,7 +19,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "ef408b9720a6"
-down_revision: str | None = "4a17af960e05"
+down_revision: str | None = "b0debed4e0c6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
