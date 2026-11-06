@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Run custom script on endpoints
+  description: >-
+    Run custom script. Runs custom script. Calls POST /v3.0/response/endpoints/runScript.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Custom-Script/paths/~1v3.0~1response~1endpoints~1runScript/post
+  namespace: tools.trend_vision_one
+  name: run_custom_script
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    endpoints:
+      # Generic: the request body is a JSON array of per-target objects whose
+      # documented shape is a oneOf union, so no single named field set applies.
+      type: list[dict[str, Any]]
+      description: >-
+        JSON array sent as the request body. Documented item fields: exactly one of
+        agentGuid | endpointName; description, fileName (required), parameter.
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/response/endpoints/runScript
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        payload: ${{ inputs.endpoints }}
+  returns: ${{ steps.request.result }}

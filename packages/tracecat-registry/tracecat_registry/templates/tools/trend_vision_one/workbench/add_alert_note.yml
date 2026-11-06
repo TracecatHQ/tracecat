@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Add alert note
+  description: >-
+    Add alert note. Adds a note to the specified Workbench alert. Calls POST
+    /v3.0/workbench/alerts/{alertId}/notes.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Workbench-notes/paths/~1v3.0~1workbench~1alerts~1{alertId}~1notes/post
+  namespace: tools.trend_vision_one
+  name: add_alert_note
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    alertId:
+      type: str
+      description: >-
+        Unique alphanumeric string that identifies a Workbench alert.
+    content:
+      type: str
+      description: >-
+        Content of the note. Maximum 500,000 characters.
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/workbench/alerts/${{ FN.url_encode(inputs.alertId) }}/notes
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        payload:
+          content: ${{ inputs.content }}
+  returns: ${{ steps.request.result }}

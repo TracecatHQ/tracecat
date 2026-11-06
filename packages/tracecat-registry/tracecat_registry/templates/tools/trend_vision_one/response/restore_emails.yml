@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Restore email messages
+  description: >-
+    Restore email message. Restore quarantined email messages. Calls POST
+    /v3.0/response/emails/restore.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Email/paths/~1v3.0~1response~1emails~1restore/post
+  namespace: tools.trend_vision_one
+  name: restore_emails
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    emails:
+      # Generic: the request body is a JSON array of per-target objects whose
+      # documented shape is a oneOf union, so no single named field set applies.
+      type: list[dict[str, Any]]
+      description: >-
+        JSON array sent as the request body. Documented item fields: exactly one of
+        messageId | uniqueId; description, mailBox.
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/response/emails/restore
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        payload: ${{ inputs.emails }}
+  returns: ${{ steps.request.result }}
