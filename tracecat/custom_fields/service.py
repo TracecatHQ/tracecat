@@ -21,6 +21,7 @@ from tracecat.tables.service import (
     RLS_BYPASS_VAR,
     RLS_WORKSPACE_VAR,
     TableEditorService,
+    assign_dynamic_owner,
     is_internal_column_name,
     sanitize_identifier,
     validate_identifier,
@@ -128,9 +129,12 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         # Held until the caller's transaction ends, so a waiter sees committed DDL.
         await pg_advisory_xact_lock(self.session, lock_key)
         await self.session.execute(CreateSchema(self.schema_name, if_not_exists=True))
+        conn = await self.session.connection()
+        await assign_dynamic_owner(conn, "SCHEMA", f'"{self.schema_name}"')
         await self.session.execute(
             CreateTable(self._table_definition(), if_not_exists=True)
         )
+        await assign_dynamic_owner(conn, "TABLE", self._full_table_name())
         await self._enable_workspace_rls_for_base_table()
         self._schema_initialized = True
 

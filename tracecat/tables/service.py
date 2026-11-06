@@ -132,6 +132,30 @@ RLS_BYPASS_ON = "on"
 SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
 
 
+async def assign_dynamic_owner(
+    conn: AsyncConnection,
+    object_type: Literal["SCHEMA", "TABLE"],
+    quoted_name: str,
+) -> None:
+    """Give a dynamic schema or table to ``TRACECAT__DB_DYNAMIC_OWNER_ROLE``.
+
+    No-op when the setting is unset. Uses ``ALTER ... OWNER`` rather than
+    ``SET ROLE``: the owner role has no DML grants on ``public``, so later
+    writes in the same transaction would fail under ``SET ROLE``. The caller
+    keeps owner rights through its membership in the owner role.
+    """
+    if not (role_name := config.TRACECAT__DB_DYNAMIC_OWNER_ROLE):
+        return
+    owner = conn.dialect.identifier_preparer.quote(role_name)
+    # Both names go through the context: DDL %-formats the statement.
+    await conn.execute(
+        sa.DDL(
+            f"ALTER {object_type} %(name)s OWNER TO %(owner)s",
+            {"name": quoted_name, "owner": owner},
+        )
+    )
+
+
 def visible_column_names(column_names: Sequence[str]) -> list[str]:
     """Build the API-facing column order for dynamic table row payloads."""
     visible_names: list[str] = list(SYSTEM_VISIBLE_COLUMN_NAMES)
@@ -666,6 +690,7 @@ class BaseTablesService(BaseWorkspaceService):
         # Create schema if it doesn't exist
         conn = await self.session.connection()
         await conn.execute(sa.DDL('CREATE SCHEMA IF NOT EXISTS "%s"', schema_name))
+        await assign_dynamic_owner(conn, "SCHEMA", f'"{schema_name}"')
 
         # Define table using SQLAlchemy schema objects
         new_table = sa.Table(
@@ -704,9 +729,9 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Create the physical table
         await conn.run_sync(new_table.create)
-        await self._enable_workspace_rls_for_physical_table(
-            conn, self._full_table_name(table_name)
-        )
+        full_table_name = self._full_table_name(table_name)
+        await assign_dynamic_owner(conn, "TABLE", full_table_name)
+        await self._enable_workspace_rls_for_physical_table(conn, full_table_name)
 
         # Create metadata entry
         table = Table(workspace_id=self.ws_uuid, name=table_name)
