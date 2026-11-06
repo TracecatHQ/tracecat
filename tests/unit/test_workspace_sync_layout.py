@@ -297,6 +297,21 @@ def test_readable_name_never_takes_another_resources_id_path() -> None:
     assert matched == {PackageResourceKey(SyncResourceType.TABLE, "Assets")}
 
 
+def test_package_selection_keeps_its_collision_suffixed_path() -> None:
+    # The full projection placed wf_b at Triage-wf_b, and the include pattern
+    # matched that path. Planned without wf_a, wf_b would move to Triage/ and
+    # stop matching; fixing it to the full projection's paths keeps it put.
+    a, b = _workflow("wf_a", "Triage"), _workflow("wf_b", "Triage")
+    full = plan_resource_paths(_workflows(a, b))
+    assert full[WORKFLOW]["wf_b"] == "workflows/Triage-wf_b/definition.yml"
+
+    selection = plan_push_paths(
+        _workflows(b), mapped={}, owns_repository=True, fixed=full
+    )
+
+    assert selection[WORKFLOW] == {"wf_b": "workflows/Triage-wf_b/definition.yml"}
+
+
 def test_fixed_paths_of_absent_resources_stay_reserved() -> None:
     # The pull preview places local state at the incoming paths. A local-only
     # workflow must not land on an incoming workflow's path.

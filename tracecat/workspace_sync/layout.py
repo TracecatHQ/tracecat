@@ -172,6 +172,7 @@ def plan_push_paths(
     *,
     mapped: PathsByType,
     owns_repository: bool,
+    fixed: PathsByType | None = None,
 ) -> ResourcePathMap:
     """Plan the paths a push writes, from local state alone.
 
@@ -184,6 +185,8 @@ def plan_push_paths(
         owns_repository: Whether the push deletes every other resource file,
             as full and package pushes do. Otherwise other resources' files
             stay, so their last known paths are off limits.
+        fixed: Paths to keep as they are, such as the full projection's paths
+            when a package push writes a selection of it.
     """
     others = {
         adapter.resource_type: {
@@ -195,6 +198,7 @@ def plan_push_paths(
     }
     return plan_resource_paths(
         spec,
+        fixed=fixed,
         previous=mapped,
         reserved=(
             None

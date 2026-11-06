@@ -995,6 +995,7 @@ class WorkspaceSyncService(SyncMappingService):
         validate_export: bool = False,
         skip_unpublished: bool = False,
         owns_repository: bool = False,
+        fixed_paths: PathsByType | None = None,
     ) -> WorkspaceProjection:
         """Project the workspace into a manifest, spec, and serialized files.
 
@@ -1007,6 +1008,7 @@ class WorkspaceSyncService(SyncMappingService):
         exports the whole workspace. ``owns_repository`` says whether a push
         of this projection deletes every other resource file, as full and
         package pushes do; otherwise other resources' paths stay reserved.
+        Resources in ``fixed_paths`` keep those paths as they are.
         """
         # Normalize the two selection inputs into one per-type map (None = all).
         selection = _selection_from_workflow_ids(
@@ -1124,6 +1126,7 @@ class WorkspaceSyncService(SyncMappingService):
             spec,
             mapped=await self._mapped_source_paths(),
             owns_repository=owns_repository,
+            fixed=fixed_paths,
         )
         if validate_export:
             await self._validate_workflow_export_dependencies(

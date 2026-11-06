@@ -233,6 +233,10 @@ async def resolve_package(
         validate_export=True,
         # A package push deletes every other resource file.
         owns_repository=True,
+        # Keep the paths the include patterns were matched against. Planned
+        # without the unselected resources, a collision-suffixed path such
+        # as ``workflows/Triage-wf_b`` would move and stop matching.
+        fixed_paths=full.paths,
     )
     implied = resource_keys(projection) - explicit
     return PackageResolution(

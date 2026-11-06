@@ -344,10 +344,12 @@ def parse_workflow_spec(
     """Parse a workflow YAML file into a spec, or a :class:`PullDiagnostic`.
 
     Accepts both the current ``type: workflow`` format and the legacy
-    :class:`RemoteWorkflowDefinition` layout. The ``id`` inside the file is the
-    workflow's identity; the folder name is only used when the file has no
-    ``id``. Returns ``(spec, None)`` on success or ``(None, diagnostic)``
-    describing the parse or validation failure.
+    :class:`RemoteWorkflowDefinition` layout. A current-format file is
+    identified by its ``id``, or by its folder name if it has none. A
+    legacy-format file is always identified by its folder name, because its
+    in-file ``id`` is a workspace-local workflow id. Returns ``(spec, None)``
+    on success or ``(None, diagnostic)`` describing the parse or validation
+    failure.
     """
     yaml_data: dict[str, Any] | None = None
     try:
