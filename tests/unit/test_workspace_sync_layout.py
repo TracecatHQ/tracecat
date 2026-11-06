@@ -139,6 +139,30 @@ def test_existing_resource_keeps_its_folder_when_a_same_named_one_appears() -> N
     }
 
 
+def test_suffixed_path_survives_its_collision_going_away() -> None:
+    # wf_b was pushed at Triage-wf_b next to wf_a. Deleting wf_a must not move
+    # wf_b: only renaming wf_b itself does.
+    mapped = {WORKFLOW: {"wf_b": "workflows/Triage-wf_b/definition.yml"}}
+
+    kept = plan_resource_paths(_workflows(_workflow("wf_b", "Triage")), previous=mapped)
+    renamed = plan_resource_paths(
+        _workflows(_workflow("wf_b", "Enrich")), previous=mapped
+    )
+
+    assert kept[WORKFLOW] == {"wf_b": "workflows/Triage-wf_b/definition.yml"}
+    assert renamed[WORKFLOW] == {"wf_b": "workflows/Enrich/definition.yml"}
+
+
+def test_case_only_rename_moves_the_folder() -> None:
+    mapped = {WORKFLOW: {"wf_a": "workflows/triage/definition.yml"}}
+
+    paths = plan_resource_paths(
+        _workflows(_workflow("wf_a", "Triage")), previous=mapped
+    )
+
+    assert paths[WORKFLOW] == {"wf_a": "workflows/Triage/definition.yml"}
+
+
 def test_reserved_paths_are_never_reused() -> None:
     spec = _workflows(_workflow("wf_new", "Triage"))
 
