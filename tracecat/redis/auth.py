@@ -374,6 +374,8 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
             try:
                 async with self._lock:
                     token = await self._fetch_token()
+                    # Keep the previous token if this one is unusable.
+                    username = _token_username(token.token)
                     changed = token.token != current.token
                     self._token = token
             except Exception as exc:
@@ -383,17 +385,14 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
                 )
                 continue
             if changed:
-                await self._publish(token)
+                await self._publish(token, username)
 
-    async def _publish(self, token: AccessToken) -> None:
+    async def _publish(self, token: AccessToken, username: str) -> None:
         if self._on_next is None:
             return
         now_ms = time.time() * 1000
         redis_token = SimpleToken(
-            token.token,
-            token.expires_on * 1000,
-            now_ms,
-            {"oid": _token_username(token.token)},
+            token.token, token.expires_on * 1000, now_ms, {"oid": username}
         )
         try:
             if (result := self._on_next(redis_token)) is not None:

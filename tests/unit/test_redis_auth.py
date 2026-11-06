@@ -315,8 +315,8 @@ async def test_azure_refresh_publishes_new_token_for_reauth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(auth, "AZURE_REFRESH_RETRY_SECONDS", 0.01)
-    # First token is already inside the refresh lead, so the loop refreshes
-    # after the retry interval; the second is long-lived.
+    # First token reaches the refresh lead about 1 s from now, so the loop
+    # refreshes then; the second is long-lived.
     first = _access_token("object-id-1", auth.AZURE_REFRESH_LEAD_SECONDS + 1)
     second = _access_token("object-id-1", 3600)
     credential = FakeAzureCredential([first, second])
@@ -338,13 +338,22 @@ async def test_azure_refresh_publishes_new_token_for_reauth(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        RuntimeError("token endpoint"),
+        AccessToken("opaque-not-a-jwt", int(time.time()) + 3600),
+    ],
+    ids=["fetch-error", "malformed-token"],
+)
 async def test_azure_refresh_failure_keeps_retrying(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, failure: AccessToken | Exception
 ) -> None:
+    """A failed or unusable refresh keeps the old token and tries again."""
     monkeypatch.setattr(auth, "AZURE_REFRESH_RETRY_SECONDS", 0.01)
     first = _access_token("object-id-1", auth.AZURE_REFRESH_LEAD_SECONDS + 1)
     second = _access_token("object-id-1", 3600)
-    credential = FakeAzureCredential([first, RuntimeError("token endpoint"), second])
+    credential = FakeAzureCredential([first, failure, second])
     provider = _azure_provider(credential)
     published: asyncio.Queue[TokenInterface] = asyncio.Queue()
 
@@ -380,7 +389,8 @@ async def test_azure_reauth_that_hangs_is_abandoned(
 
     provider.on_next(hang)
     await asyncio.wait_for(
-        provider._publish(_access_token("object-id-1", 3600)), timeout=2
+        provider._publish(_access_token("object-id-1", 3600), "object-id-1"),
+        timeout=2,
     )
     assert cancelled.is_set()
 

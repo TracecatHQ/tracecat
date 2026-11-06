@@ -2,10 +2,12 @@ import base64
 import binascii
 import logging
 import os
+import re
 import uuid
 from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
+from urllib.parse import urlsplit
 
 from tracecat import __version__
 from tracecat.agent.constants import (
@@ -1440,17 +1442,25 @@ if REDIS_AUTH_MODE == "aws_iam":
         raise ValueError(
             f"REDIS_AUTH_MODE=aws_iam requires {', '.join(_missing_redis_aws)}"
         )
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", REDIS_AWS_IAM_REPLICATION_GROUP_ID):
+        raise ValueError(
+            "REDIS_AWS_IAM_REPLICATION_GROUP_ID must be the replication group ID, "
+            "not an endpoint"
+        )
 
 # Fail at startup when the URL is known up front. A URL read from
 # REDIS_URL__ARN is checked again when the client is built.
-if (
-    REDIS_AUTH_MODE != "password"
-    and not REDIS_URL__ARN
-    and not REDIS_URL.startswith("rediss://")
-):
-    raise ValueError(
-        f"REDIS_AUTH_MODE={REDIS_AUTH_MODE} requires TLS: REDIS_URL must use rediss://"
-    )
+if REDIS_AUTH_MODE != "password" and not REDIS_URL__ARN:
+    if not REDIS_URL.startswith("rediss://"):
+        raise ValueError(
+            f"REDIS_AUTH_MODE={REDIS_AUTH_MODE} requires TLS: REDIS_URL must use rediss://"
+        )
+    _redis_url_parts = urlsplit(REDIS_URL)
+    if _redis_url_parts.username or _redis_url_parts.password:
+        raise ValueError(
+            f"REDIS_AUTH_MODE={REDIS_AUTH_MODE} logs in with a token: remove the "
+            "username and password from REDIS_URL"
+        )
 
 TRACECAT__CASE_TRIGGERS_ENABLED = env_bool(
     "TRACECAT__CASE_TRIGGERS_ENABLED", default=True

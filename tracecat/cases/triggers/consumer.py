@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import socket
 import uuid
@@ -76,18 +77,24 @@ class CaseTriggerConsumer:
             logger.info("Case triggers disabled; skipping consumer")
             return
 
-        await self._ensure_group()
-        logger.info(
-            "Case trigger consumer started",
-            stream_key=self.stream_key,
-            group=self.group,
-            consumer=self.consumer_name,
-        )
         last_pending_check = monotonic()
         retry_delay = REDIS_RETRY_BACKOFF_BASE_SECONDS
+        group_ready = False
+        started = False
         try:
             while not self._stop_signalled():
                 try:
+                    if not group_ready:
+                        await self._ensure_group()
+                        group_ready = True
+                    if not started:
+                        logger.info(
+                            "Case trigger consumer started",
+                            stream_key=self.stream_key,
+                            group=self.group,
+                            consumer=self.consumer_name,
+                        )
+                        started = True
                     messages = await self.client.xreadgroup(
                         group_name=self.group,
                         consumer_name=self.consumer_name,
@@ -119,7 +126,7 @@ class CaseTriggerConsumer:
                             group=self.group,
                             error=str(e),
                         )
-                        await self._ensure_group()
+                        group_ready = False
                         continue
                     # Redis outage or failover outlasted the client's retries,
                     # or Redis rejected the login. Unacked messages stay
@@ -136,7 +143,7 @@ class CaseTriggerConsumer:
                         error=str(e),
                         retry_in_seconds=retry_delay,
                     )
-                    await asyncio.sleep(retry_delay)
+                    await self._wait_before_retry(retry_delay)
                     retry_delay = min(retry_delay * 2, REDIS_RETRY_BACKOFF_MAX_SECONDS)
                     continue
                 retry_delay = REDIS_RETRY_BACKOFF_BASE_SECONDS
@@ -149,6 +156,14 @@ class CaseTriggerConsumer:
             raise
         else:
             logger.info("Case trigger consumer stopped gracefully")
+
+    async def _wait_before_retry(self, delay: float) -> None:
+        """Back off, but return as soon as shutdown is signalled."""
+        if self._stop_event is None:
+            await asyncio.sleep(delay)
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
 
     def _is_nogroup_error(self, error: Exception) -> bool:
         if isinstance(error, ResponseError):

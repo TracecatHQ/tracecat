@@ -39,7 +39,8 @@ def _response_error_code(error: ResponseError) -> str:
     return message.split(" ", 1)[0] if message else ""
 
 
-def _resolve_redis_url() -> str:
+def resolve_redis_url() -> str:
+    """Return ``REDIS_URL``, or the URL stored at ``REDIS_URL__ARN`` when set."""
     if not REDIS_URL__ARN:
         return REDIS_URL
 
@@ -109,7 +110,7 @@ class RedisClient:
         """Ensure the Redis connection pool is initialized."""
         if RedisClient._client is None:
             RedisClient._client = create_redis_client(
-                _resolve_redis_url(),
+                resolve_redis_url(),
                 encoding="utf-8",
                 decode_responses=True,
                 max_connections=50,
