@@ -233,8 +233,15 @@ class TableReadMinimal(Schema):
 
     id: TableID
     name: str
+    folder_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class TableMoveToFolder(Schema):
+    """Payload for moving a table into a folder or the workspace root."""
+
+    folder_path: str | None = Field(default=None)
 
 
 class TableRead(Schema):
@@ -274,6 +281,10 @@ class TableCreate(BaseModel):
     columns: list[TableColumnCreate] = Field(
         default_factory=list,
         description="The columns of the table",
+    )
+    folder_path: str | None = Field(
+        default=None,
+        description="Folder to create the table in. Defaults to the workspace root.",
     )
 
     @field_validator("name")

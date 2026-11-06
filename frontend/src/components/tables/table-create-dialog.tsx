@@ -129,9 +129,11 @@ type CreateTableSchema = z.infer<typeof createTableSchema>
 export function CreateTableDialog({
   open,
   onOpenChange,
+  folderPath = "/",
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  folderPath?: string
 }) {
   const workspaceId = useWorkspaceId()
   const { createTable, createTableIsPending } = useCreateTable()
@@ -176,6 +178,7 @@ export function CreateTableDialog({
         requestBody: {
           name: data.name,
           columns: payloadColumns,
+          folder_path: folderPath === "/" ? null : folderPath,
         },
         workspaceId,
       })

@@ -29,6 +29,7 @@ from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import ColumnHasDuplicateValuesError
 from tracecat.tables.enums import SqlType
 from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.folders.service import TableFolderService
 from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
     InferredColumn,
@@ -37,6 +38,7 @@ from tracecat.tables.schemas import (
     TableColumnUpdate,
     TableCreate,
     TableImportResponse,
+    TableMoveToFolder,
     TableRead,
     TableReadMinimal,
     TableRowBatchDelete,
@@ -144,6 +146,15 @@ async def create_table(
 ) -> TableRead:
     """Create a new table."""
     service = TablesService(session, role=role)
+    folder_service = TableFolderService(session, role=role)
+    folder = None
+    if params.folder_path and params.folder_path != "/":
+        folder = await folder_service.get_folder_by_path(params.folder_path)
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path '{params.folder_path}' not found",
+            )
     try:
         table = await service.create_table(params)
     except ValueError as e:
@@ -172,6 +183,8 @@ async def create_table(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the table",
         ) from e
+    if folder is not None:
+        await folder_service.move_table(table.id, folder)
     return await _build_table_read(service, table.id)
 
 
@@ -255,6 +268,32 @@ async def delete_table(
             detail=str(e),
         ) from e
     await service.delete_table(table)
+
+
+@router.post("/{table_id}/move", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("table:update")
+async def move_table(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    table_id: TableID,
+    params: TableMoveToFolder,
+) -> None:
+    """Move a table to a folder or the workspace root."""
+    folder_service = TableFolderService(session, role=role)
+    folder = None
+    if params.folder_path is not None and params.folder_path != "/":
+        folder = await folder_service.get_folder_by_path(params.folder_path)
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path {params.folder_path} not found",
+            )
+    try:
+        await folder_service.move_table(table_id, folder)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
 
 
 @router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)
