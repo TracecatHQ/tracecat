@@ -137,6 +137,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
+    verify_rls_enforceable_login,
 )
 from tracecat.db.errors import is_data_error
 from tracecat.db.exceptions import AuthPoolExhaustedError
@@ -254,6 +255,7 @@ async def lifespan(app: FastAPI):
     # by tests and OpenAPI generation, before secrets are available.
     get_user_auth_secret()
     assert_soft_delete_listener_registered()
+    await verify_rls_enforceable_login()
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)

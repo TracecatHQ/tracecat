@@ -12,6 +12,7 @@ from sqlalchemy import event
 from sqlalchemy.engine import Result
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 from sqlalchemy.sql.selectable import TypedReturnsRows
 
 from tracecat import config
@@ -29,6 +30,7 @@ from tracecat.db.locks import (
     require_lock_holder_on_commit,
 )
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
+from tracecat.db.roles import assert_login_can_enforce_rls
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
@@ -326,6 +328,26 @@ def _create_async_auth_db_engine() -> AsyncEngine:
             }
         },
     )
+
+
+async def verify_rls_enforceable_login() -> None:
+    """Fail startup when RLS is enforced but the app's login would bypass it.
+
+    No-op unless ``TRACECAT__RLS_MODE=enforce``. Uses a throwaway connection,
+    so it can run before (or outside) the event loop that owns the pools.
+
+    Raises:
+        UnsafeDatabaseLoginError: The login is a superuser, has BYPASSRLS or
+            can act as an owner of ``public`` tables.
+    """
+    if config.TRACECAT__RLS_MODE != config.RLSMode.ENFORCE:
+        return
+    engine = create_async_engine(_get_db_uri(driver="asyncpg"), poolclass=NullPool)
+    try:
+        async with engine.connect() as conn:
+            await assert_login_can_enforce_rls(conn)
+    finally:
+        await engine.dispose()
 
 
 def get_async_engine() -> AsyncEngine:

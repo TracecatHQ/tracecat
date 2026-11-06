@@ -15,6 +15,7 @@ from tracecat.cases.triggers.dispatcher import (
     dispatch_case_trigger_outbox_batch,
     wait_for_case_trigger_outbox,
 )
+from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
 from tracecat.managed_resources.workflows import (
@@ -57,6 +58,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     shutdown_event = shutdown_event or asyncio.Event()
     initialize_platform_tracing("tracecat-background-worker")
     initialize_worker_sentry_from_environment()
+    await verify_rls_enforceable_login()
     async with AsyncExitStack() as cleanup:
         cleanup.callback(shutdown_platform_tracing)
         cleanup.push_async_callback(close_storage_client_cache)

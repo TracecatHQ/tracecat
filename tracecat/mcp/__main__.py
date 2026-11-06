@@ -6,10 +6,12 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import sys
 import time
 
+from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.logger import logger
 from tracecat.mcp.config import (
     TRACECAT_MCP__HOST,
@@ -36,6 +38,7 @@ def _run_mcp_server() -> None:
 
 def main() -> None:
     """Start the MCP server with bounded startup retries."""
+    asyncio.run(verify_rls_enforceable_login())
     max_attempts = max(TRACECAT_MCP__STARTUP_MAX_ATTEMPTS, 1)
     for attempt in range(1, max_attempts + 1):
         try:
