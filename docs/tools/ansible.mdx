@@ -34,7 +34,7 @@ Host name to use in the inventory
 
 <ParamField path="playbook" type="array[object]" required>
 
-List of plays to run
+List of plays to run. Plays run only on the inventory host, so use `hosts: all`.
 
 </ParamField>
 
@@ -47,6 +47,14 @@ SSH user to connect as
 <ParamField path="envvars" type="object | null">
 
 Environment variables to be used when running Ansible
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="error_patterns" type="array[string] | null">
+
+Text that marks the run as failed when raise_on_failure is enabled. The action raises if the playbook output contains any item exactly as written: case-sensitive, and characters like `*`, `.` or `^` match themselves (no wildcards or regex). Example: `["FAILED!", "UNREACHABLE!"]`. Up to 20 items, each 1-256 characters.
 
 Default: `null`.
 
@@ -73,6 +81,14 @@ Default: `null`.
 Optional mapping from password prompt to value. Example: &#123;"SSH password:": "$&#123;&#123; SECRETS.your_secret_name.some_password &#125;&#125;"&#125;.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="raise_on_failure" type="boolean">
+
+Raise an error when the playbook fails, times out, is canceled, or its output contains any error_patterns. Defaults to returning the events.
+
+Default: `false`.
 
 </ParamField>
 
