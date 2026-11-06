@@ -103,6 +103,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "workspace_sync_operation",
     "case_search_word",
     "managed_detached_copy",
+    "case_trigger_outbox",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

@@ -2,9 +2,10 @@
 
 The background worker (`tracecat.background.worker`) runs the dispatcher and its
 activities on `TRACECAT__BACKGROUND_QUEUE`, sharing its activity slots
-(`TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES`, default eight) with Git sync.
-The dispatcher runs at most six indexing activities across the deployment, so
-with N replicas at least `8N - 6` slots stay free for other work.
+(`TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES`, default ten) with Git sync and
+the case trigger dispatcher. The dispatcher runs at most six indexing activities
+across the deployment and the case trigger dispatcher at most two, so with N
+replicas at least `10N - 8` slots stay free for other work.
 In a managed background task, the worker reconciles Temporal schedule
 `semantic-search-dispatch-v1` at startup and every ten minutes, pointing it at
 that queue. Each attempt has a 30-second timeout; failures log only their type

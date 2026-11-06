@@ -9,6 +9,12 @@ from temporalio.worker import Worker
 
 from tracecat import config
 from tracecat.background.sandbox import new_sandbox_runner
+from tracecat.cases.triggers.dispatcher import (
+    CaseTriggerDispatcher,
+    case_trigger_dispatcher_lifespan,
+    dispatch_case_trigger_outbox_batch,
+    wait_for_case_trigger_outbox,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
 from tracecat.managed_resources.workflows import (
@@ -64,6 +70,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                     WorkspaceSyncLifecycleWorkflow,
                     ManagedRolloutWorkflow,
                     SearchIndexDispatcher,
+                    CaseTriggerDispatcher,
                 ],
                 workflow_runner=new_sandbox_runner(),
                 activities=[
@@ -80,12 +87,15 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                     managed_rollout_fail,
                     discover_search_collections,
                     index_search_collection,
+                    wait_for_case_trigger_outbox,
+                    dispatch_case_trigger_outbox_batch,
                 ],
                 max_concurrent_activities=config.TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES,
                 disable_eager_activity_execution=True,
                 graceful_shutdown_timeout=timedelta(seconds=30),
             ),
             search_schedule_lifespan(client, config.TRACECAT__BACKGROUND_QUEUE),
+            case_trigger_dispatcher_lifespan(client, config.TRACECAT__BACKGROUND_QUEUE),
         ):
             logger.info("Background worker started")
             await shutdown_event.wait()

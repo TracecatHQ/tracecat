@@ -23,6 +23,8 @@ from tracecat.agent.preset.activities import (
     resolve_agent_preset_version_ref_activity,
 )
 from tracecat.agent.worker import get_activities as get_agent_worker_activities
+from tracecat.cases.triggers import dispatcher as case_trigger_dispatcher
+from tracecat.cases.triggers.dispatcher import CaseTriggerDispatcher
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 from tracecat.search import indexing_schedule
@@ -62,14 +64,25 @@ def test_dsl_worker_registers_preset_version_resolution_activity() -> None:
 
 
 @pytest.mark.anyio
-async def test_background_worker_runs_search_indexing_on_background_queue(
+async def test_background_worker_runs_search_and_case_triggers_on_background_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tracecat.background import worker
 
     shutdown_event = asyncio.Event()
-    schedule = AsyncMock(side_effect=lambda *_: shutdown_event.set())
+    started: set[str] = set()
+
+    def _started(name: str) -> None:
+        started.add(name)
+        if started == {"search", "case_triggers"}:
+            shutdown_event.set()
+
+    schedule = AsyncMock(side_effect=lambda *_: _started("search"))
     monkeypatch.setattr(indexing_schedule, "ensure_search_schedule", schedule)
+    dispatcher = AsyncMock(side_effect=lambda *_: _started("case_triggers"))
+    monkeypatch.setattr(
+        case_trigger_dispatcher, "ensure_case_trigger_dispatcher", dispatcher
+    )
     captured: dict[str, object] = {}
 
     class _FakeWorker:
@@ -95,10 +108,18 @@ async def test_background_worker_runs_search_indexing_on_background_queue(
     assert schedule.await_args is not None
     assert schedule.await_args.args[1] == "test-bg-queue"
     assert captured["task_queue"] == "test-bg-queue"
-    assert SearchIndexDispatcher in cast(Sequence[type], captured["workflows"])
-    assert {"discover_search_collections", "index_search_collection"} <= (
-        _activity_names(cast(Sequence[object], captured["activities"]))
-    )
+    dispatcher.assert_awaited_once()
+    assert dispatcher.await_args is not None
+    assert dispatcher.await_args.args[1] == "test-bg-queue"
+    workflows = cast(Sequence[type], captured["workflows"])
+    assert SearchIndexDispatcher in workflows
+    assert CaseTriggerDispatcher in workflows
+    assert {
+        "discover_search_collections",
+        "index_search_collection",
+        "wait_for_case_trigger_outbox",
+        "dispatch_case_trigger_outbox_batch",
+    } <= _activity_names(cast(Sequence[object], captured["activities"]))
 
 
 def test_agent_worker_registers_preset_resolution_activities() -> None:

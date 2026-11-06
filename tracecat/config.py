@@ -527,7 +527,7 @@ TRACECAT__BACKGROUND_QUEUE = (
     os.environ.get("TRACECAT__BACKGROUND_QUEUE") or "shared-background-queue"
 )
 TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES = int(
-    os.environ.get("TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES") or 8
+    os.environ.get("TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES") or 10
 )
 if TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES < 1:
     raise ValueError(
@@ -1392,7 +1392,11 @@ REDIS_URL__ARN = os.environ.get("REDIS_URL__ARN")
 TRACECAT__CASE_TRIGGERS_ENABLED = env_bool(
     "TRACECAT__CASE_TRIGGERS_ENABLED", default=True
 )
-"""Enable case event workflow triggers. Defaults to true."""
+"""Enable case event workflow triggers. Defaults to true.
+
+Set it on the API and the background worker: the API stops writing outbox
+rows, and the background worker's dispatcher leaves queued rows in place.
+"""
 
 TRACECAT__CASE_TRIGGERS_STREAM_KEY = os.environ.get(
     "TRACECAT__CASE_TRIGGERS_STREAM_KEY", "case-events"

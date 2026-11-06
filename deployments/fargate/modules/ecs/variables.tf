@@ -1120,7 +1120,7 @@ variable "background_worker_desired_count" {
 
 variable "background_worker_max_concurrent_activities" {
   type    = number
-  default = 8
+  default = 10
 
   validation {
     condition     = var.background_worker_max_concurrent_activities > 0 && floor(var.background_worker_max_concurrent_activities) == var.background_worker_max_concurrent_activities

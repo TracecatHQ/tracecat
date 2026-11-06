@@ -25,9 +25,9 @@ from tracecat.cases.event_schemas import (
     CaseEventVariant,
     CaseViewedEvent,
 )
-from tracecat.cases.triggers.publisher import publish_case_event_payload
+from tracecat.cases.triggers.outbox import enqueue_case_trigger
+from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.db.models import Case, CaseEvent
-from tracecat.db.session_events import AfterCommitQueue
 from tracecat.service import BaseWorkspaceService
 
 CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
@@ -77,11 +77,18 @@ class CaseEventsService(BaseWorkspaceService):
         event: CaseEventVariant,
         *,
         publish_case_trigger: bool = True,
+        comment_workflow: CaseCommentWorkflowTrigger | None = None,
         sync_durations: bool = True,
         system_generated: bool = False,
         record_agent_interaction: bool = True,
     ) -> CaseEvent:
-        """Create a non-committing activity record for a case."""
+        """Create a non-committing activity record for a case.
+
+        With ``publish_case_trigger``, a case trigger outbox row is added in the
+        same transaction when the event may start a workflow.
+        ``comment_workflow`` is the workflow a user picked on a comment; it
+        always gets a row.
+        """
         db_event = CaseEvent(
             workspace_id=self.workspace_id,
             case_id=case.id,
@@ -102,26 +109,14 @@ class CaseEventsService(BaseWorkspaceService):
                 operation=CaseAgentSessionInteractionOperation.UPDATE,
             )
 
-        event_id = str(db_event.id)
         event_type = (
             db_event.type.value if hasattr(db_event.type, "value") else db_event.type
         )
-        created_at = db_event.created_at or datetime.now(UTC)
-        case_id = str(case.id)
-        workspace_id = str(case.workspace_id)
 
         if publish_case_trigger:
-
-            async def _publish_case_event() -> None:
-                await publish_case_event_payload(
-                    event_id=event_id,
-                    case_id=case_id,
-                    workspace_id=workspace_id,
-                    event_type=event_type,
-                    created_at=created_at,
-                )
-
-            AfterCommitQueue.of(self.session).add(_publish_case_event)
+            await enqueue_case_trigger(
+                self.session, event=db_event, comment_workflow=comment_workflow
+            )
 
         if sync_durations:
             enqueue_case_duration_sync_after_commit(

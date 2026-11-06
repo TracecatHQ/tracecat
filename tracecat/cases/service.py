@@ -115,7 +115,8 @@ from tracecat.cases.search_service import (
     parse_case_short_id,
 )
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.cases.triggers.publisher import publish_case_event_payload
+from tracecat.cases.triggers.audit import audit_comment_workflow_execution
+from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.cases.versions.schemas import CaseVersionRestoreRead
 from tracecat.cases.versions.service import CaseVersionsService
 from tracecat.contexts import ctx_run
@@ -2029,49 +2030,6 @@ class CaseCommentsService(BaseWorkspaceService):
             raise TracecatValidationError("Workflow is not published")
         return workflow
 
-    async def _audit_workflow_execution_event(
-        self,
-        *,
-        workflow: Workflow,
-        status: AuditEventStatus,
-        case_id: uuid.UUID,
-        comment_id: uuid.UUID,
-        parent_id: uuid.UUID | None,
-        wf_exec_id: str,
-    ) -> None:
-        async with AuditService.with_session(
-            role=self.role, session=self.session
-        ) as svc:
-            await svc.create_event(
-                resource_type="workflow_execution",
-                action="create",
-                resource_id=workflow.id,
-                status=status,
-                data={
-                    "case_id": str(case_id),
-                    "comment_id": str(comment_id),
-                    "parent_id": str(parent_id) if parent_id is not None else None,
-                    "workflow_id": str(workflow.id),
-                    "wf_exec_id": wf_exec_id,
-                    "trigger_type": "case",
-                },
-            )
-
-    async def _mark_comment_workflow_status(
-        self,
-        *,
-        comment_id: uuid.UUID,
-        status: CaseCommentWorkflowStatus,
-    ) -> None:
-        await self.session.execute(
-            sa.update(CaseComment)
-            .where(
-                CaseComment.workspace_id == self.workspace_id,
-                CaseComment.id == comment_id,
-            )
-            .values(workflow_status=status.value)
-        )
-
     async def _audit_comment_event(
         self,
         *,
@@ -2519,7 +2477,6 @@ class CaseCommentsService(BaseWorkspaceService):
         workflow: Workflow | None = None
         workflow_status: CaseCommentWorkflowStatus | None = None
         wf_exec_id: str | None = None
-        workflow_trigger_publish: dict[str, Any] | None = None
         if params.workflow_id is not None:
             await self._require_replies_entitlement()
             await self._require_workflow_execute_scope()
@@ -2579,55 +2536,39 @@ class CaseCommentsService(BaseWorkspaceService):
                 invocation_ids=[invocation.id for invocation in invocations],
                 role=self.role,
             )
-            db_event = await CaseEventsService(
-                session=self.session, role=self.role
-            ).create_event(
+            comment_workflow = (
+                CaseCommentWorkflowTrigger(
+                    workflow_id=workflow.id,
+                    wf_exec_id=wf_exec_id,
+                    comment_id=comment.id,
+                    parent_id=comment.parent_id,
+                    comment=comment.content,
+                    triggered_by_type=self.role.type,
+                    triggered_by_user_id=self.role.user_id,
+                    triggered_by_service_id=self.role.service_id,
+                )
+                if workflow is not None and wf_exec_id is not None
+                else None
+            )
+            await CaseEventsService(session=self.session, role=self.role).create_event(
                 case=case,
                 event=self._comment_event(
                     comment_id=comment.id,
                     parent_id=comment.parent_id,
                 ),
-                publish_case_trigger=workflow is None or wf_exec_id is None,
+                comment_workflow=comment_workflow,
             )
             if workflow is not None and wf_exec_id is not None:
-                await self._audit_workflow_execution_event(
-                    workflow=workflow,
+                await audit_comment_workflow_execution(
+                    self.session,
+                    self.role,
                     status=AuditEventStatus.ATTEMPT,
+                    workflow_id=workflow.id,
                     case_id=case.id,
                     comment_id=comment.id,
                     parent_id=comment.parent_id,
                     wf_exec_id=wf_exec_id,
                 )
-                workflow_trigger_publish = {
-                    "event_id": str(db_event.id),
-                    "case_id": str(case.id),
-                    "workspace_id": str(case.workspace_id),
-                    "event_type": (
-                        db_event.type.value
-                        if hasattr(db_event.type, "value")
-                        else db_event.type
-                    ),
-                    "created_at": db_event.created_at or datetime.now(UTC),
-                    "extra_fields": {
-                        "comment_id": str(comment.id),
-                        "parent_id": (
-                            str(comment.parent_id)
-                            if comment.parent_id is not None
-                            else None
-                        ),
-                        "comment": comment.content,
-                        "text": comment.content,
-                        "workflow_id": str(workflow.id),
-                        "wf_exec_id": wf_exec_id,
-                        "triggered_by_type": self.role.type,
-                        "triggered_by_user_id": (
-                            str(self.role.user_id)
-                            if self.role.user_id is not None
-                            else None
-                        ),
-                        "triggered_by_service_id": self.role.service_id,
-                    },
-                }
             await self.agent_session_interactions.record_from_context(
                 case_id=case.id,
                 operation=CaseAgentSessionInteractionOperation.UPDATE,
@@ -2642,33 +2583,6 @@ class CaseCommentsService(BaseWorkspaceService):
                 data=audit_data,
             )
             raise
-
-        if workflow is not None and wf_exec_id is not None and workflow_trigger_publish:
-            try:
-                await publish_case_event_payload(**workflow_trigger_publish)
-            except Exception as e:
-                self.logger.error(
-                    "Failed to publish workflow-backed case comment trigger",
-                    case_id=str(case.id),
-                    comment_id=str(comment.id),
-                    workflow_id=str(workflow.id),
-                    wf_exec_id=wf_exec_id,
-                    error=str(e),
-                )
-                await self._mark_comment_workflow_status(
-                    comment_id=comment.id,
-                    status=CaseCommentWorkflowStatus.FAILED,
-                )
-                await self._audit_workflow_execution_event(
-                    workflow=workflow,
-                    status=AuditEventStatus.FAILURE,
-                    case_id=case.id,
-                    comment_id=comment.id,
-                    parent_id=comment.parent_id,
-                    wf_exec_id=wf_exec_id,
-                )
-                await self.session.commit()
-                await self.session.refresh(comment)
 
         await self._audit_comment_success_event(
             action="create",

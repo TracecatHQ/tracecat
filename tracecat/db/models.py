@@ -1890,7 +1890,15 @@ class CaseTrigger(WorkspaceModel):
     """Configuration for case event triggers per workflow."""
 
     __tablename__ = "case_trigger"
-    __table_args__ = (UniqueConstraint("workflow_id"),)
+    __table_args__ = (
+        UniqueConstraint("workflow_id"),
+        # Case writes check for an online trigger in their workspace.
+        Index(
+            "ix_case_trigger_online_workspace_id",
+            "workspace_id",
+            postgresql_where=text("status = 'online'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -3503,6 +3511,44 @@ class CaseEvent(WorkspaceModel):
     )
 
     case: Mapped[Case] = relationship("Case", back_populates="events")
+
+
+class CaseTriggerOutbox(WorkspaceModel):
+    """A committed case event that still has to start its case-triggered runs.
+
+    Rows are written in the case transaction and deleted by the background
+    worker's case trigger dispatcher once Temporal has accepted every start.
+    """
+
+    __tablename__ = "case_trigger_outbox"
+    __table_args__ = (
+        # The dispatcher takes the least recently attempted rows first.
+        Index("ix_case_trigger_outbox_dispatch_order", "updated_at", "surrogate_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_event.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    extras: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Fields for an explicitly selected comment workflow, if any",
+    )
 
 
 class CaseTask(WorkspaceModel):
