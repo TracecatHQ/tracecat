@@ -10,6 +10,7 @@ Imported only when ``REDIS_AUTH_MODE=azure_entra``.
 
 import asyncio
 import base64
+import contextlib
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Final
@@ -188,9 +189,15 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
         A later login (for example from a client still holding the old pool)
         starts a fresh credential and refresh task.
         """
-        if self._refresh_task is not None:
-            self._refresh_task.cancel()
+        if (task := self._refresh_task) is not None:
             self._refresh_task = None
+            task.cancel()
+            # Let a refresh that is mid-fetch finish unwinding before the
+            # credential closes. A task from an earlier event loop (RedisClient
+            # rebuilds clients on a loop change) can't be awaited here.
+            if task.get_loop() is asyncio.get_running_loop():
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         if self._credential is not None:
             credential, self._credential = self._credential, None
             await credential.close()

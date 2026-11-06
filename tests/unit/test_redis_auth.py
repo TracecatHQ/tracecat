@@ -443,6 +443,48 @@ async def test_azure_credential_failure_is_a_connection_error() -> None:
     assert isinstance(exc_info.value.__cause__, ClientAuthenticationError)
 
 
+@pytest.mark.anyio
+async def test_azure_aclose_waits_for_refresh_before_closing_credential() -> None:
+    """A refresh stuck in get_token finishes unwinding before the credential closes."""
+    fetching = asyncio.Event()
+    order: list[str] = []
+
+    class SlowCredential(FakeAzureCredential):
+        async def get_token(
+            self,
+            *scopes: str,
+            claims: str | None = None,
+            tenant_id: str | None = None,
+            enable_cae: bool = False,
+            **kwargs: object,
+        ) -> AccessToken:
+            if self.calls:
+                fetching.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    order.append("refresh cancelled")
+                    raise
+            return await super().get_token(
+                *scopes, claims=claims, tenant_id=tenant_id, enable_cae=enable_cae
+            )
+
+        async def close(self) -> None:
+            order.append("credential closed")
+            await super().close()
+
+    # The first token is already inside the refresh lead, so the loop refetches
+    # after the (fast) retry interval and blocks in get_token.
+    credential = SlowCredential([_access_token("object-id-1", 1)])
+    provider = _azure_provider(credential)
+    await provider.get_credentials_async()
+    await asyncio.wait_for(fetching.wait(), timeout=2)
+
+    await provider.aclose()
+
+    assert order == ["refresh cancelled", "credential closed"]
+
+
 def test_azure_token_without_identity_claim_is_rejected() -> None:
     with pytest.raises(ValueError, match="no oid or sub"):
         token_username(_jwt({"exp": 1}))
