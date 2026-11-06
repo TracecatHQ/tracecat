@@ -445,6 +445,61 @@ def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     assert resolved_model("custom") == "hosted_vllm/custom"
 
 
+@pytest.mark.anyio
+async def test_litellm_config_does_not_cool_down_per_request_credentials() -> None:
+    # Injected keys make LiteLLM register one deployment per credential and
+    # model; a cooldown would turn this caller's next 401 into a gateway 503.
+    config_path = (
+        Path(__file__).resolve().parents[2]
+        / "tracecat"
+        / "agent"
+        / "litellm_config.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text())
+    router = Router(
+        model_list=config["model_list"],
+        **config["router_settings"],
+        num_retries=0,
+        retry_after=0,
+    )
+    calls = 0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            401,
+            request=request,
+            json={
+                "error": {
+                    "message": "Incorrect API key provided",
+                    "type": "invalid_request_error",
+                    "code": "invalid_api_key",
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+        for _ in range(3):
+            client = AsyncOpenAI(
+                api_key="synthetic-invalid-key",
+                http_client=http_client,
+                max_retries=0,
+            )
+            with pytest.raises(AuthenticationError):
+                await router.acompletion(
+                    model="openai/synthetic-model",
+                    messages=[{"role": "user", "content": "synthetic prompt"}],
+                    api_key="synthetic-invalid-key",
+                    client=client,
+                )
+
+    assert calls == 3
+    assert not await router.cooldown_cache.async_get_active_cooldowns(
+        model_ids=router.get_model_ids(), parent_otel_span=None
+    )
+
+
 def _make_request(
     path: str,
     *,
