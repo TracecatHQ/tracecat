@@ -7,9 +7,10 @@ and deletes every other resource file. The include file and the package
 metadata in ``tracecat.json`` are written in the same commit, so the
 selection and the contents never drift.
 
-Example: an include file with ``workflows/triage/**`` exports the ``triage``
-workflow as *explicit*, and the table and child workflow it uses as
-*implied*.
+Example: an include file with ``workflows/wf_abc/**`` exports that workflow
+as *explicit*, and the table and child workflow it uses as *implied*.
+Patterns match each resource's readable path and its stable id path, so
+either form works; the picker writes the id form so renames are safe.
 """
 
 from __future__ import annotations
@@ -45,16 +46,14 @@ from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
-    WORKFLOW_RESOURCE_ADAPTER,
 )
-from tracecat.workspace_sync.adapters.base import DirectoryManifestAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.layout import ResourcePathIndex
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     PackageRegistryRequirement,
     PackageResourceEntry,
     PackageResourceStatus,
-    WorkspaceManifestResources,
     WorkspacePackageManifest,
     WorkspacePackageRead,
     WorkspacePackageResource,
@@ -104,33 +103,35 @@ def include_reader(text: str | None) -> Callable[[], Awaitable[str | None]]:
     return read
 
 
-def paths_by_resource(
+def file_names_by_resource(
     projection: WorkspaceProjection,
-) -> dict[PackageResourceKey, list[str]]:
-    """Group a projection's files by the resource that owns each one.
+) -> dict[PackageResourceKey, list[tuple[str, ...]]]:
+    """Return the names include patterns match for each resource's files.
+
+    Each file is known by its real path and, when that differs, by the same
+    file under the resource's legacy id path (``workflows/<source id>/...``).
+    The id path is an alias, not a file in the repository. It never changes,
+    so a pattern the picker wrote keeps selecting a resource after a rename.
+    Path planning keeps every readable path off other resources' id paths,
+    so one id pattern can only ever name one resource.
 
     The manifest and the include file belong to no resource and are skipped.
     """
-    roots = projection.manifest.resources
-    grouped: dict[PackageResourceKey, list[str]] = defaultdict(list)
+    index = ResourcePathIndex(projection.paths)
+    grouped: dict[PackageResourceKey, list[tuple[str, ...]]] = defaultdict(list)
     for path in sorted(projection.files):
         if path in (MANIFEST_FILENAME, PACKAGE_INCLUDE_FILENAME):
             continue
-        if (key := resource_key_from_path(path, roots=roots)) is not None:
-            grouped[key].append(path)
+        if (owner := index.owner(path)) is None:
+            continue
+        adapter, source_id = owner.adapter, owner.source_id
+        location = adapter.location(adapter.path_in(projection.paths, source_id))
+        id_location = adapter.location(adapter.legacy_id_path(source_id))
+        # Files inside a resource folder keep their place in the folder.
+        alias = id_location + path.removeprefix(location)
+        names = (path,) if alias == path else (path, alias)
+        grouped[PackageResourceKey(adapter.resource_type, source_id)].append(names)
     return dict(grouped)
-
-
-def resource_key_from_path(
-    path: str, *, roots: WorkspaceManifestResources
-) -> PackageResourceKey | None:
-    """Resolve an export path to the resource that owns it, or ``None``."""
-    for adapter in (WORKFLOW_RESOURCE_ADAPTER, *NON_WORKFLOW_RESOURCE_ADAPTERS):
-        if source_id := adapter.source_id_from_path(path, roots):
-            return PackageResourceKey(adapter.resource_type, source_id)
-        if extra := adapter.extra_path_from_path(path, roots):
-            return PackageResourceKey(adapter.resource_type, extra[0])
-    return None
 
 
 def resource_keys(projection: WorkspaceProjection) -> set[PackageResourceKey]:
@@ -150,16 +151,18 @@ def resource_keys(projection: WorkspaceProjection) -> set[PackageResourceKey]:
 def include_pattern_for(key: PackageResourceKey) -> str:
     """Return the include pattern the picker writes for one resource.
 
+    The pattern uses the legacy id path, not the readable path, because the id
+    path never changes: renaming a resource must not drop it from the package.
+    :func:`file_names_by_resource` names every file by its id path too.
+
     Directory layouts select the whole resource directory, so companion files
     such as skill files come along. Flat layouts name the one file.
     """
     adapter = RESOURCE_ADAPTERS_BY_TYPE[key.resource_type]
-    path = adapter.source_path(key.source_id)
-    if key.resource_type == SyncResourceType.WORKFLOW or isinstance(
-        adapter, DirectoryManifestAdapter
-    ):
-        return f"{path.rsplit('/', 1)[0]}/**"
-    return path
+    location = adapter.location(adapter.legacy_id_path(key.source_id))
+    if adapter.owns_directory:
+        return f"{location}/**"
+    return location
 
 
 def _selection(
@@ -197,17 +200,21 @@ async def resolve_package(
     # package that does not select it. The selected closure is projected
     # below with full validation.
     full = await service.project_workspace(
-        create_missing_mappings=create_missing_mappings, skip_unpublished=True
+        create_missing_mappings=create_missing_mappings,
+        skip_unpublished=True,
+        owns_repository=True,
     )
-    explicit = matched_resources(include, paths_by_resource(full))
+    full_files = file_names_by_resource(full)
+    explicit = matched_resources(include, full_files)
     warnings = tuple(
         f"Pattern {pattern!r} matches no resource"
         for pattern in unmatched_patterns(
             include,
             (
-                path
-                for path in full.files
-                if path not in (MANIFEST_FILENAME, PACKAGE_INCLUDE_FILENAME)
+                name
+                for files in full_files.values()
+                for names in files
+                for name in names
             ),
         )
     )
@@ -224,6 +231,8 @@ async def resolve_package(
         resource_ids=_selection(full.mapping_targets, explicit),
         create_missing_mappings=create_missing_mappings,
         validate_export=True,
+        # A package push deletes every other resource file.
+        owns_repository=True,
     )
     implied = resource_keys(projection) - explicit
     return PackageResolution(
@@ -286,7 +295,9 @@ async def package_push_projection(
             )
         }
     )
-    files = service.files_from_spec(manifest=manifest, spec=projection.spec)
+    files = service.files_from_spec(
+        manifest=manifest, spec=projection.spec, paths=projection.paths
+    )
     files[PACKAGE_INCLUDE_FILENAME] = include_text
     return PackagePushProjection(
         projection=projection.model_copy(update={"manifest": manifest, "files": files}),
