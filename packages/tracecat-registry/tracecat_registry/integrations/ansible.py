@@ -269,9 +269,12 @@ def run_playbook(
         list[str] | None,
         Field(
             description=(
-                "Literal, case-sensitive substrings that mark the run as failed when found "
-                "in the playbook output. Only checked when raise_on_failure is enabled. "
-                "Not regular expressions. Up to 20 items of at most 256 characters."
+                "Text that marks the run as failed when raise_on_failure is enabled. "
+                "The action raises if the playbook output contains any item exactly "
+                "as written: case-sensitive, and characters like `*`, `.` or `^` "
+                "match themselves (no wildcards or regex). Example: "
+                '`["FAILED!", "UNREACHABLE!"]`. '
+                "Up to 20 items, each 1-256 characters."
             )
         ),
     ] = None,

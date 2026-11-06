@@ -165,9 +165,12 @@ def execute_command(
     error_patterns: Annotated[
         list[str] | None,
         Doc(
-            "Literal, case-sensitive substrings that mark the command as failed when found "
-            "in stdout or stderr. Only checked when raise_on_error is enabled. "
-            "Not regular expressions. Up to 20 items of at most 256 characters."
+            "Text that marks the command as failed when raise_on_error is enabled. "
+            "The action raises if stdout or stderr contains any item exactly as "
+            "written: case-sensitive, and characters like `*`, `.` or `^` match "
+            "themselves (no wildcards or regex). Example: "
+            '`["Permission denied", "FATAL:"]`. '
+            "Up to 20 items, each 1-256 characters."
         ),
     ] = None,
 ) -> SSHCommandResult:
