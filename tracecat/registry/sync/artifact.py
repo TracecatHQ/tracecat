@@ -20,15 +20,19 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import aiofiles
 import tracecat_registry
 
 from tracecat import config
 from tracecat.logger import logger
+from tracecat.registry.artifact_keys import get_actions_s3_key, parse_s3_uri
+from tracecat.registry.sync.schemas import RegistryActionsAdapter
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
+    from tracecat.registry.actions.schemas import RegistryActionCreate
     from tracecat.ssh import SshEnv
 
 
@@ -680,6 +684,42 @@ async def upload_squashfs_venv(
         size=squashfs_path.stat().st_size,
     )
     return s3_uri
+
+
+async def upload_registry_actions(
+    actions: list[RegistryActionCreate],
+    *,
+    artifact_uri: str,
+) -> str:
+    """Upload discovered actions beside their artifact, out of Temporal history.
+
+    A full registry's actions are several MB of JSON, more than a Temporal
+    payload may carry, so the sync result carries only this object's URI.
+    Each upload gets its own key so overlapping syncs and activity retries
+    cannot overwrite the actions referenced by another result.
+    """
+    bucket, artifact_key = parse_s3_uri(artifact_uri)
+    key = get_actions_s3_key(artifact_key, upload_id=uuid4())
+    await blob.upload_file(
+        content=RegistryActionsAdapter.dump_json(actions),
+        key=key,
+        bucket=bucket,
+        content_type="application/json",
+    )
+    s3_uri = f"s3://{bucket}/{key}"
+    logger.info(
+        "Registry actions uploaded",
+        s3_uri=s3_uri,
+        num_actions=len(actions),
+    )
+    return s3_uri
+
+
+async def download_registry_actions(actions_uri: str) -> list[RegistryActionCreate]:
+    """Download the actions a registry sync uploaded with `upload_registry_actions`."""
+    bucket, key = parse_s3_uri(actions_uri)
+    content = await blob.download_file(key=key, bucket=bucket)
+    return RegistryActionsAdapter.validate_json(content)
 
 
 async def download_tarball_venv(

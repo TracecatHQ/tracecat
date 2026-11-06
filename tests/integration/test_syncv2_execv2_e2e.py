@@ -55,6 +55,7 @@ from tracecat.dsl.schemas import (
     RunContext,
 )
 from tracecat.dsl.worker import new_sandbox_runner
+from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.enums import ExecutorBackendType
@@ -68,6 +69,7 @@ from tracecat.executor.service import (
     get_registry_artifacts_for_lock,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.artifact_keys import REGISTRY_ARTIFACT_FILENAME
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
@@ -118,12 +120,9 @@ def _parse_s3_uri(uri: str) -> tuple[str, str]:
 
 def _artifact_keys_for_tarball_uri(tarball_uri: str) -> list[str]:
     _, key = _parse_s3_uri(tarball_uri)
-    if not key.endswith("site-packages.tar.gz"):
+    if not key.endswith(f"/{REGISTRY_ARTIFACT_FILENAME}"):
         raise ValueError(f"Unexpected registry artifact URI: {tarball_uri}")
-    return [
-        key,
-        key.removesuffix(".tar.gz") + ".squashfs",
-    ]
+    return [key]
 
 
 def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
@@ -197,6 +196,9 @@ def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
                 "    build:",
                 "      target: test",
                 "    privileged: true",
+                '    user: "0:0"',
+                "    cgroup: private",
+                "    pids_limit: 4096",
                 "    security_opt:",
                 "      - seccomp:unconfined",
                 "      - systempaths=unconfined",
@@ -240,8 +242,11 @@ def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
                 "--build",
                 "-T",
                 "--entrypoint",
-                "sh",
+                "python",
                 "executor",
+                "-m",
+                "tracecat.sandbox.bootstrap",
+                "sh",
                 "-lc",
                 "uv run python -m tests.integration.test_syncv2_execv2_e2e "
                 "--run-sync-artifact-sandbox-smoke",
@@ -731,11 +736,7 @@ class TestSyncv2MinioIntegration:
         try:
             stat = minio_client.stat_object(bucket, key)
             assert stat.size is not None and stat.size > 0
-            assert stat.content_type in (
-                "application/gzip",
-                "application/x-gzip",
-                "application/octet-stream",
-            )
+            assert stat.content_type == "application/vnd.squashfs"
         except Exception as e:
             pytest.fail(f"Tarball not found in MinIO: {e}")
 
@@ -1778,13 +1779,18 @@ async def _run_sync_artifact_sandbox_smoke_child() -> None:
         executor_token="mock-token-for-testing",
     )
 
-    backend = EphemeralBackend()
-    result = await backend.execute(
-        input_data,
-        role,
-        resolved_context=resolved_context,
-        timeout=120.0,
-    )
+    action_gateway = ActionGateway()
+    try:
+        await action_gateway.start()
+        backend = EphemeralBackend()
+        result = await backend.execute(
+            input_data,
+            role,
+            resolved_context=resolved_context,
+            timeout=120.0,
+        )
+    finally:
+        await action_gateway.stop()
     if not isinstance(result, ExecutorResultSuccess):
         raise AssertionError(f"Expected sandbox execution success, got: {result}")
 
