@@ -56,8 +56,9 @@ export function parseSessionFeedEvent(data: string): SessionFeedEvent | null {
 
 /**
  * Decide what a feed event asks of the tab. A segment the tab already attached
- * to is not attached again; a reconnect snapshot refreshes only when the run
- * state changed or the feed moved on while this tab was away.
+ * to is not attached again. The first snapshot refreshes; a reconnect snapshot
+ * refreshes only when the run state changed or the feed moved on while this
+ * tab was away.
  */
 export function feedActionFor(
   event: SessionFeedEvent,
@@ -70,12 +71,14 @@ export function feedActionFor(
         if (attach) return attach
       }
       const known = state.known
+      // The transcript loaded before the feed's cursor; anything in between is
+      // not replayed, so the first snapshot always refreshes.
+      if (known === null) return { kind: "refresh" }
       const changed =
-        known !== null &&
-        (known.runId !== event.run_id ||
-          known.paused !== event.paused ||
-          known.streamId !== event.stream_id ||
-          known.feedId !== (event.feed_id ?? null))
+        known.runId !== event.run_id ||
+        known.paused !== event.paused ||
+        known.streamId !== event.stream_id ||
+        known.feedId !== (event.feed_id ?? null)
       return changed ? { kind: "refresh" } : null
     }
     case "run.started":

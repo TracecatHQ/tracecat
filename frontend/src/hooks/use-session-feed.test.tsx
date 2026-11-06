@@ -162,8 +162,6 @@ describe("feedActionFor", () => {
       stream_id: null,
       paused: false,
     } as const
-    // The first snapshot after opening matches the transcript already shown.
-    expect(feedActionFor(idleSnapshot, idle)).toBeNull()
     expect(
       feedActionFor(idleSnapshot, {
         attachedStreamId: null,
@@ -230,7 +228,24 @@ describe("feedActionFor", () => {
         { type: "snapshot", run_id: "r1", stream_id: null, paused: false },
         idle
       )
-    ).toBeNull()
+    ).toEqual({ kind: "refresh" })
+  })
+
+  it("refreshes on the first snapshot that does not attach", () => {
+    // A run can finish or pause between loading the transcript and opening
+    // the feed; only the first snapshot shows it.
+    for (const snapshot of [
+      { type: "snapshot", run_id: null, stream_id: null, paused: false },
+      { type: "snapshot", run_id: "r1", stream_id: "s0", paused: true },
+    ] as const) {
+      expect(feedActionFor(snapshot, idle)).toEqual({ kind: "refresh" })
+    }
+    expect(
+      feedActionFor(
+        { type: "snapshot", run_id: "r1", stream_id: "s0", paused: false },
+        idle
+      )
+    ).toEqual({ kind: "attach", streamId: "s0" })
   })
 })
 
