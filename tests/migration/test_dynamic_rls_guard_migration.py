@@ -12,12 +12,17 @@ Invariants:
 - The upgrade enables and forces RLS on dynamic tables that have RLS or a
   policy but aren't both; downgrade removes the guard and leaves the flags.
 - A migration role that can't create event triggers skips the guard with a
-  warning and leaves nothing behind. A guard function another role created
-  first is replaced, so that role can't keep control of it.
+  warning and leaves nothing behind, and keeps a guard an admin already
+  installed. A guard function another role created first is replaced, or the
+  upgrade fails with instructions when the migration role can't drop it.
+- The upgrade logs a warning for each workspace table whose RLS differs from
+  what the app creates, and a policy renamed before the upgrade doesn't let
+  its table leave the workspace schema afterwards.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import uuid
 from collections.abc import Iterator, Sequence
@@ -277,6 +282,21 @@ def _app_runtime_ddl(db: GuardDb) -> list[str]:
         f'DROP SCHEMA "{db.fields_schema}" CASCADE',
         f'DROP SCHEMA "{s}" CASCADE',
     ]
+
+
+def _install_statements() -> list[str]:
+    """MANUAL_INSTALL_SQL from the migration, as separate statements."""
+    spec = importlib.util.spec_from_file_location(
+        "dynamic_rls_guard",
+        ALEMBIC_DIR
+        / "versions"
+        / f"{MIGRATION_REVISION}_guard_rls_on_dynamic_workspace_tables.py",
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load the guard migration")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return [*module.UNINSTALL_STATEMENTS, *module.GUARD_STATEMENTS]
 
 
 def _guard_objects(url: str) -> list[tuple[object, ...]]:
@@ -560,3 +580,82 @@ class TestDynamicRlsGuardMigration:
         # The savepoint rolled back the function too.
         assert _guard_objects(guard_db.db_url) == []
         _run(guard_db.app_url, _blocked(guard_db, "disable"))
+
+    def test_rerun_without_privilege_keeps_an_installed_guard(
+        self,
+        guard_db: GuardDb,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _run_committed(guard_db.db_url, _install_statements())
+        _run_committed(
+            guard_db.db_url,
+            [
+                f'ALTER TABLE "{schema}"."{table}" '
+                "ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY"
+                for schema, table in _stragglers(guard_db)
+            ],
+        )
+
+        with caplog.at_level(logging.INFO, logger="alembic.runtime.migration"):
+            _alembic(monkeypatch, guard_db.migrator_url, "upgrade", MIGRATION_REVISION)
+
+        assert "already installed" in caplog.text
+        assert len(_guard_objects(guard_db.db_url)) == 3
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
+
+    def test_upgrade_refuses_a_guard_function_it_cannot_drop(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _run_committed(
+            guard_db.migrator_url,
+            [
+                f"CREATE FUNCTION {GUARD_FUNCTION} RETURNS event_trigger "
+                "LANGUAGE plpgsql AS $$ BEGIN END $$"
+            ],
+        )
+
+        # admin is no superuser and not a member of the migrator role.
+        with pytest.raises(RuntimeError, match="already exists and is owned by"):
+            _alembic(monkeypatch, guard_db.admin_url, "upgrade", MIGRATION_REVISION)
+
+    def test_upgrade_logs_rls_drift(
+        self,
+        guard_db: GuardDb,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # Pre-guard tampering: same name, same flags, no tenant filter.
+        _run_committed(
+            guard_db.app_url,
+            [
+                f"ALTER POLICY {POLICY} ON {guard_db.table} "
+                "USING (true) WITH CHECK (true)"
+            ],
+        )
+
+        with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
+            _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
+
+        drift = sorted(
+            r.getMessage() for r in caplog.records if "RLS drift" in r.getMessage()
+        )
+        assert len(drift) == 2
+        moved, tampered = sorted(drift, key=lambda m: guard_db.moved_schema not in m)
+        assert guard_db.moved_schema in moved
+        assert "outside a workspace schema" in moved
+        assert guard_db.tables_schema in tampered
+        assert "workspace policy differs from the app's" in tampered
+
+    def test_policy_renamed_before_upgrade_cannot_carry_table_out(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _run_committed(
+            guard_db.app_url,
+            [f"ALTER POLICY {POLICY} ON {guard_db.table} RENAME TO renamed"],
+        )
+
+        _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
+
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "set_schema"))
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "rename_schema"))

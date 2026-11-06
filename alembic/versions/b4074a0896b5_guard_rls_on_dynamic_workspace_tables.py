@@ -22,7 +22,8 @@ one policy:
 - `ALTER POLICY`;
 - a second permissive policy;
 - inheritance or partitioning, with the workspace table as parent or child;
-- moving a table with the workspace policy out of a workspace schema, by
+- moving a workspace table (one with the workspace policy or the
+  `__tc_workspace_id` column) out of a workspace schema, by
   `ALTER TABLE ... SET SCHEMA` or by renaming the schema.
 
 The app's runtime DDL still works: creating schemas and tables, the
@@ -39,23 +40,27 @@ Limits:
   bypasses every policy. RLS guards against missing tenant filters in app
   queries, not against SQL injection.
 - It doesn't repair changes made before it was installed. `AUDIT_SQL` lists
-  dynamic tables whose RLS differs from what the app creates.
+  workspace tables whose RLS differs from what the app creates.
 
 `CREATE EVENT TRIGGER` needs a superuser (`rds_superuser` on RDS). When the
 migration role can't create it, the upgrade logs a warning and skips the
 guard rather than failing: the guard only matters with
-`TRACECAT__RLS_MODE=enforce`. The upgrade first drops any existing guard
-objects; any failure other than creating the event triggers, such as an
-existing guard owned by another role, fails the upgrade. An admin can install the
-guard later by running the statements in `GUARD_STATEMENTS` in order, as a
-superuser, against the Tracecat database; see `MANUAL_INSTALL_SQL`. Run
+`TRACECAT__RLS_MODE=enforce`. An admin can install it later by running
+`MANUAL_INSTALL_SQL` as a superuser against the Tracecat database. Run
 migrations as that admin, or as a member of it, so they keep full DDL rights
 on dynamic tables.
+
+The upgrade keeps a guard that is already installed (both triggers enabled
+and owned by the function's owner). Otherwise it drops any partial guard and
+installs a fresh one; a stray guard function owned by a role it can't drop
+fails the upgrade with instructions. After installing, it runs `AUDIT_SQL`
+and logs a warning for each workspace table whose RLS differs from what the
+app creates.
 
 Managed Postgres blocks major version upgrades while event triggers exist
 (RDS and Azure Flexible Server both say to drop them first). Drop the guard
 with the statements in `UNINSTALL_STATEMENTS` before a major upgrade, and run
-`GUARD_STATEMENTS` again afterwards.
+`MANUAL_INSTALL_SQL` again afterwards.
 
 The upgrade also enables and forces RLS on any dynamic table that has RLS
 enabled or a policy but isn't both enabled and forced, for example one an
@@ -137,9 +142,14 @@ BEGIN
                   AND EXISTS (
                       SELECT 1
                       FROM pg_class c
-                      JOIN pg_policy p ON p.polrelid = c.oid
                       WHERE c.relnamespace = n.oid
-                        AND p.polname = 'rls_policy_dynamic_workspace'
+                        AND (EXISTS (SELECT 1 FROM pg_policy p
+                                     WHERE p.polrelid = c.oid
+                                       AND p.polname = 'rls_policy_dynamic_workspace')
+                             OR EXISTS (SELECT 1 FROM pg_attribute a
+                                        WHERE a.attrelid = c.oid
+                                          AND a.attname = '__tc_workspace_id'
+                                          AND NOT a.attisdropped))
                   );
             ELSE
                 IF cmd.classid = 'pg_policy'::regclass THEN
@@ -191,6 +201,14 @@ BEGIN
                         FROM pg_policy p
                         WHERE p.polrelid = c.oid
                     ) pol
+                    CROSS JOIN LATERAL (
+                        SELECT EXISTS (
+                            SELECT 1 FROM pg_attribute a
+                            WHERE a.attrelid = c.oid
+                              AND a.attname = '__tc_workspace_id'
+                              AND NOT a.attisdropped
+                        ) AS tenant_column
+                    ) col
                     WHERE (c.oid = target
                            OR c.oid IN (SELECT i.inhrelid FROM pg_inherits i
                                         WHERE i.inhparent = target)
@@ -198,7 +216,11 @@ BEGIN
                                         WHERE i.inhrelid = target))
                       AND c.relkind IN ('r', 'p')
                       AND ((s.dynamic AND pol.policies > 0)
-                           OR (NOT s.dynamic AND pol.workspace_policy))
+                           -- Workspace tables outside workspace schemas, found
+                           -- by policy name or tenant column, so renaming one
+                           -- of the two doesn't let a table out.
+                           OR (NOT s.dynamic AND c.relpersistence <> 't'
+                               AND (pol.workspace_policy OR col.tenant_column)))
                 ) t
                 WHERE t.reason IS NOT NULL
                 LIMIT 1;
@@ -224,7 +246,7 @@ GUARD_STATEMENTS: tuple[str, ...] = (
     f"CREATE EVENT TRIGGER {DROP_TRIGGER} ON sql_drop "
     f"EXECUTE FUNCTION {GUARD_FUNCTION}",
 )
-"""Install the guard. Run in order, as a superuser (`rds_superuser` on RDS)."""
+"""The guard function and its two event triggers, in install order."""
 
 UNINSTALL_STATEMENTS: tuple[str, ...] = (
     f"DROP EVENT TRIGGER IF EXISTS {DDL_TRIGGER}",
@@ -232,31 +254,77 @@ UNINSTALL_STATEMENTS: tuple[str, ...] = (
     f"DROP FUNCTION IF EXISTS {GUARD_FUNCTION}",
 )
 
-MANUAL_INSTALL_SQL = ";\n".join(GUARD_STATEMENTS) + ";\n"
-"""The install statements as one script, for an admin to run by hand."""
+MANUAL_INSTALL_SQL = ";\n".join((*UNINSTALL_STATEMENTS, *GUARD_STATEMENTS)) + ";\n"
+"""Drop and reinstall the guard, for an admin to run by hand as a superuser.
 
-AUDIT_SQL = r"""
-SELECT c.oid::regclass AS dynamic_table,
-       c.relrowsecurity AS enabled,
-       c.relforcerowsecurity AS forced,
-       array_agg(p.polname || CASE WHEN p.polpermissive THEN '' ELSE ' (restrictive)' END
-                 || ': ' || coalesce(pg_get_expr(p.polqual, p.polrelid), '-'))
-           FILTER (WHERE p.oid IS NOT NULL) AS policies
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-LEFT JOIN pg_policy p ON p.polrelid = c.oid
-WHERE c.relkind IN ('r', 'p')
-  AND (n.nspname LIKE 'tables\_%' OR n.nspname LIKE 'custom\_fields\_%')
-GROUP BY c.oid, c.relrowsecurity, c.relforcerowsecurity
-HAVING NOT (c.relrowsecurity AND c.relforcerowsecurity)
-    OR count(*) FILTER (WHERE p.polname = 'rls_policy_dynamic_workspace') <> 1
-    OR count(*) FILTER (WHERE p.polpermissive) <> 1
+Dropping first matters: `CREATE OR REPLACE FUNCTION` keeps an existing
+function's owner, who could later rewrite it.
 """
-"""Dynamic tables whose RLS differs from what the app creates. Expect no rows.
 
-The guard blocks new weakening DDL but doesn't repair earlier changes. Also
-compare the listed policy expressions with the one in
-`tracecat.tables.service`.
+# pg_get_expr's rendering of the policy expression in tracecat.tables.service.
+_WORKSPACE_POLICY_EXPR = (
+    "((current_setting('app.rls_bypass'::text, true) = 'on'::text) OR "
+    "(__tc_workspace_id = (NULLIF(current_setting("
+    "'app.current_workspace_id'::text, true), ''::text))::uuid))"
+)
+
+AUDIT_SQL = rf"""
+WITH workspace_tables AS (
+    SELECT c.oid, c.relrowsecurity, c.relforcerowsecurity,
+           n.nspname LIKE 'tables\_%' OR n.nspname LIKE 'custom\_fields\_%'
+               AS in_workspace_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind IN ('r', 'p')
+      AND c.relpersistence <> 't'
+      AND (n.nspname LIKE 'tables\_%'
+           OR n.nspname LIKE 'custom\_fields\_%'
+           OR EXISTS (SELECT 1 FROM pg_policy p
+                      WHERE p.polrelid = c.oid
+                        AND p.polname = 'rls_policy_dynamic_workspace')
+           OR EXISTS (SELECT 1 FROM pg_attribute a
+                      WHERE a.attrelid = c.oid
+                        AND a.attname = '__tc_workspace_id'
+                        AND NOT a.attisdropped))
+)
+SELECT t.workspace_table, t.problems
+FROM (
+    SELECT w.oid::regclass::text AS workspace_table,
+           array_remove(ARRAY[
+               CASE WHEN NOT w.in_workspace_schema
+                    THEN 'outside a workspace schema' END,
+               CASE WHEN NOT w.relrowsecurity THEN 'RLS disabled' END,
+               CASE WHEN NOT w.relforcerowsecurity THEN 'RLS not forced' END,
+               CASE WHEN wp.oid IS NULL THEN 'no workspace policy' END,
+               CASE WHEN wp.oid IS NOT NULL AND NOT (
+                        wp.polpermissive
+                        AND wp.polcmd = '*'
+                        AND wp.polroles = '{{0}}'::oid[]
+                        AND pg_get_expr(wp.polqual, wp.polrelid)
+                            = '{_WORKSPACE_POLICY_EXPR.replace("'", "''")}'
+                        AND pg_get_expr(wp.polwithcheck, wp.polrelid)
+                            = '{_WORKSPACE_POLICY_EXPR.replace("'", "''")}')
+                    THEN 'workspace policy differs from the app''s' END,
+               CASE WHEN EXISTS (SELECT 1 FROM pg_policy o
+                                 WHERE o.polrelid = w.oid AND o.polpermissive
+                                   AND o.polname <> 'rls_policy_dynamic_workspace')
+                    THEN 'extra permissive policy' END,
+               CASE WHEN EXISTS (SELECT 1 FROM pg_inherits i
+                                 WHERE w.oid IN (i.inhrelid, i.inhparent))
+                    THEN 'inheritance or partitioning' END
+           ], NULL) AS problems
+    FROM workspace_tables w
+    LEFT JOIN pg_policy wp
+      ON wp.polrelid = w.oid AND wp.polname = 'rls_policy_dynamic_workspace'
+) t
+WHERE cardinality(t.problems) > 0
+ORDER BY 1
+"""
+"""Workspace tables whose RLS differs from what the app creates. Expect no rows.
+
+The upgrade runs it and logs a warning per problem table. The guard blocks
+new weakening DDL but doesn't repair earlier changes; fix them as the
+migration role.
 """
 
 
@@ -287,12 +355,66 @@ def _protect_dynamic_tables() -> None:
         )
 
 
-def upgrade() -> None:
-    _protect_dynamic_tables()
+def _guard_installed() -> bool:
+    """Both triggers are enabled, call the guard, and share its owner."""
+    installed = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                """
+            SELECT count(*) = 2
+            FROM pg_event_trigger t
+            JOIN pg_proc f ON f.oid = t.evtfoid
+            WHERE t.evtname IN (:ddl_trigger, :drop_trigger)
+              AND t.evtenabled <> 'D'
+              AND f.oid = to_regprocedure(:function)
+              AND f.proowner = t.evtowner
+            """
+            ),
+            {
+                "ddl_trigger": DDL_TRIGGER,
+                "drop_trigger": DROP_TRIGGER,
+                "function": GUARD_FUNCTION,
+            },
+        )
+        .scalar_one()
+    )
+    return bool(installed)
+
+
+def _assert_guard_function_droppable() -> None:
+    """Fail clearly if another role owns a function with the guard's name."""
+    owner = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                """
+                SELECT pg_get_userbyid(proowner) FROM pg_proc
+                WHERE oid = to_regprocedure(:function)
+                  AND NOT pg_has_role(current_user, proowner, 'MEMBER')
+                """
+            ),
+            {"function": GUARD_FUNCTION},
+        )
+        .scalar_one_or_none()
+    )
+    if owner is not None:
+        raise RuntimeError(
+            f"{GUARD_FUNCTION} already exists and is owned by {owner!r}, which "
+            "this migration role can't drop. That role could rewrite the "
+            "guard. Drop the function as a superuser or as its owner, then "
+            "rerun the upgrade."
+        )
+
+
+def _install_guard() -> None:
     bind = op.get_bind()
-    # Start clean, so a guard function some other role created can't keep its
-    # owner (CREATE OR REPLACE keeps it). Only CREATE EVENT TRIGGER may fail
-    # softly; failing to drop or create the function aborts the upgrade.
+    if _guard_installed():
+        logger.info("Dynamic-table RLS guard is already installed; keeping it.")
+        return
+    _assert_guard_function_droppable()
+    # Start clean: CREATE OR REPLACE would keep a stray function's owner. Only
+    # CREATE EVENT TRIGGER may fail softly.
     for statement in UNINSTALL_STATEMENTS:
         bind.execute(sa.text(statement))
     bind.execute(sa.text(_GUARD_FUNCTION_SQL))
@@ -310,12 +432,29 @@ def upgrade() -> None:
             "create event triggers, which needs a superuser (rds_superuser on "
             "RDS). Until an admin installs it, the app role can switch RLS off "
             "on tables_* and custom_fields_* tables. Install it before setting "
-            "TRACECAT__RLS_MODE=enforce: run GUARD_STATEMENTS from this "
+            "TRACECAT__RLS_MODE=enforce: run MANUAL_INSTALL_SQL from this "
             "migration as a superuser. Error: %s",
             revision,
             role,
             exc.orig,
         )
+
+
+def _log_rls_drift() -> None:
+    rows = op.get_bind().execute(sa.text(AUDIT_SQL)).tuples().all()
+    for workspace_table, problems in rows:
+        logger.warning(
+            "Workspace table %s has RLS drift: %s. Fix it as the migration "
+            "role; the guard keeps the app role from changing it.",
+            workspace_table,
+            ", ".join(problems),
+        )
+
+
+def upgrade() -> None:
+    _protect_dynamic_tables()
+    _install_guard()
+    _log_rls_drift()
 
 
 def downgrade() -> None:
