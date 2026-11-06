@@ -611,6 +611,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.proofpoint_threat_protection": createIconRenderer(ProofpointIcon),
     "tools.runreveal": createIconRenderer(RunRevealIcon),
     "tools.spur": createIconRenderer(SpurIcon),
+    "tools.trend_vision_one": createIconRenderer(TrendMicroIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
     "tools.typesafe": createIconRenderer(TypeSafeIcon, {
@@ -1173,6 +1174,11 @@ export const secretIcons: Record<
   spur: ({ className, ...rest }) => (
     <div className={className}>
       <SpurIcon {...rest} />
+    </div>
+  ),
+  trend_vision_one: ({ className, ...rest }) => (
+    <div className={className}>
+      <TrendMicroIcon {...rest} />
     </div>
   ),
   incident_io: createCatalogIconRenderer("incident_io_mcp"),
@@ -2994,6 +3000,18 @@ export function SpurIcon({ className, ...rest }: IconProps) {
       <path
         fill="currentColor"
         d="M19.7852 0C20.1147 5.07404 20.293 10.1515 20.293 15.2256C20.293 20.2996 20.114 25.3742 19.7852 30.4482H18.7705C18.4517 25.3742 18.2627 20.2996 18.2627 15.2256C18.2627 10.1515 18.4517 5.07404 18.7705 0H19.7852ZM15.7314 13.6963C16.0219 14.1289 16.2379 14.6054 16.2393 15.1055C16.2378 15.6054 16.0219 16.0541 15.7314 16.4873L8.12012 27.3975H7.10449C7.11677 27.3747 12.4345 17.501 13.4482 16.9941V16.2334C11.9258 16.2334 0 15.7256 0 15.7256V14.7109C0 14.7109 11.9258 14.2031 13.4482 14.2031V13.4424C12.4333 12.4274 7.10449 3.03906 7.10449 3.03906H8.12012L15.7314 13.6963ZM31.46 3.03906C31.46 3.03906 26.1312 12.4274 25.1162 13.4424V14.2031C26.6386 14.2031 38.5645 14.7109 38.5645 14.7109V15.7256C38.5645 15.7256 26.6386 16.2334 25.1162 16.2334V16.9941C26.1301 18.008 31.4485 27.3772 31.46 27.3975H30.4443L22.833 16.4873C22.5426 16.0541 22.3266 15.6054 22.3252 15.1055C22.3265 14.6055 22.5425 14.1289 22.833 13.6963L30.4443 3.03906H31.46Z"
+      />
+    </svg>
+  )
+}
+
+export function TrendMicroIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>Trend Micro</title>
+      <path
+        fill="#D71921"
+        d="M12 0C5.38 0 0 5.37 0 12C0 14.45 .734 16.72 2 18.62C1.5 17.45 1.58 15.94 2.19 14.29L2.2 14.25L2.25 14.12L2.3 14L2.32 13.95C2.54 13.4 2.82 12.83 3.16 12.26C3.21 12.16 3.25 12.07 3.3 12L1.86 12L2.21 11.21C3.4 10.88 5.38 10.22 7.27 8.39L7.32 8.39H8.32L7.03 11.14L9.1 11.14L8.72 11.96L6.66 11.96S5.69 13.9 5.36 15.28C5.11 16.82 5.36 18 6.74 18.41C7.59 18.67 8.66 18.61 9.81 18.29C12.5 17.45 15.34 15.62 17.43 13.18C20.87 9.19 20.94 5.1 17.58 4.05C15.43 3.38 12.39 4.13 9.58 5.8C13.08 3.54 16.94 2.5 19.59 3.31C20.09 3.46 20.53 3.68 20.89 3.94A11.97 11.97 0 0 0 12 0M22.17 5.63C23 7.81 21.97 11.07 19.2 14.29C15.04 19.13 8.47 22.05 4.5 20.83A4.46 4.46 0 0 1 3.24 20.21A11.96 11.96 0 0 0 12 24C18.63 24 24 18.63 24 12C24 9.66 23.33 7.5 22.17 5.63Z"
       />
     </svg>
   )

@@ -1,0 +1,89 @@
+type: action
+definition:
+  title: List case contents
+  description: >-
+    Get case contents. Allows supported ticketing systems to retrieve the contents of the
+    specified case in Case Management. Calls GET /v3.0/caseManagement/cases/{id}/contents.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1{id}~1contents/get
+  namespace: tools.trend_vision_one
+  name: list_case_contents
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: >-
+        The case ID.
+    tmv1_filter:
+      type: str | None
+      description: >-
+        Filter for retrieving a subset of case contents. Supported fields: creatorId. Sent
+        as the TMV1-Filter header.
+      default: null
+    top:
+      type: int | None
+      description: >-
+        The number of case notes retrieved per page. If no value is specified, the request
+        retrieves a maximum of the top 50 notes. Allowed values: 10, 50, 100. Provider
+        default: 50.
+      default: null
+    startDateTime:
+      type: str | None
+      description: >-
+        The date and time of the start of data retrieval in ISO 8601 format. Provider
+        default: 1970-01-01T00:00:00Z.
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        The date and time of the end of data retrieval in ISO 8601 format. Provider default:
+        Current date time.
+      default: null
+    dateTimeTarget:
+      type: str | None
+      description: >-
+        A parameter that allows you to sort by either created date or updated date. Allowed
+        values: createdDateTime, updatedDateTime. Provider default: createdDateTime.
+      default: null
+    orderBy:
+      type: str | None
+      description: >-
+        The fields by which the results are sorted. You can indicate multiple fields
+        separated by commas (`,`). Provider default: createdDateTime desc.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/caseManagement/cases/${{ FN.url_encode(inputs.id) }}/contents
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+          TMV1-Filter: ${{ inputs.tmv1_filter }}
+        params:
+          top: ${{ inputs.top }}
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          dateTimeTarget: ${{ inputs.dateTimeTarget }}
+          orderBy: ${{ inputs.orderBy }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}
