@@ -99,6 +99,8 @@ READONLY_HIDDEN_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("organization_domain", ("verification_token",)),
     ("user", ("hashed_password",)),
     ("mfa_recovery_code", ("code_hash",)),
+    # Legacy rows keep Slack tokens and secrets in plaintext.
+    ("agent_channel_token", ("config",)),
 )
 """Columns ``tracecat_readonly`` never reads: bearer tokens stored in plaintext
 and crackable password or recovery-code hashes. Encrypted columns stay
@@ -253,20 +255,25 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         must_not_be_in_iam += f" OR rolname IN ({logins})"
     return _do(
         "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
-        f"             WHERE rolname IN ({managed}) AND (rolsuper OR rolbypassrls)) THEN\n"
-        "    RAISE EXCEPTION 'A Tracecat role is SUPERUSER or BYPASSRLS; RLS would not apply to it';\n"
+        f"             WHERE rolname IN ({managed})\n"
+        "               AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolreplication)) THEN\n"
+        # CREATEROLE can grant itself the owner keyring; REPLICATION reads the WAL.
+        "    RAISE EXCEPTION 'A Tracecat role is SUPERUSER, BYPASSRLS, CREATEROLE or REPLICATION';\n"
         "  END IF;\n"
         "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
         f"             WHERE rolname IN ({keyrings}) AND rolcanlogin) THEN\n"
         "    RAISE EXCEPTION 'A Tracecat keyring role can log in';\n"
         "  END IF;\n"
         "  IF EXISTS (\n"
-        "    SELECT FROM pg_catalog.pg_database d\n"
-        f"    JOIN pg_catalog.pg_roles r ON r.rolname IN ({managed})\n"
-        "    WHERE d.datname <> current_database()\n"
-        # Ownership too: a NULL datacl still gives the owner every privilege.
-        "      AND (d.datdba = r.oid\n"
-        "           OR r.oid IN (SELECT a.grantee FROM pg_catalog.aclexplode(d.datacl) a))\n"
+        # pg_shdepend records every owner and ACL dependency on a role, in every
+        # database; dbid 0 holds shared objects such as databases themselves.
+        "    SELECT FROM pg_catalog.pg_shdepend s\n"
+        "    JOIN pg_catalog.pg_roles r ON r.oid = s.refobjid\n"
+        "    WHERE s.refclassid = 'pg_catalog.pg_authid'::pg_catalog.regclass\n"
+        f"      AND r.rolname IN ({managed})\n"
+        "      AND s.dbid <> (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())\n"
+        "      AND NOT (s.classid = 'pg_catalog.pg_database'::pg_catalog.regclass\n"
+        "               AND s.objid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()))\n"
         "  ) THEN\n"
         "    RAISE EXCEPTION 'A Tracecat role already has privileges on another database'\n"
         "      USING HINT = 'Roles are cluster-wide: run one Tracecat install per cluster, '\n"
@@ -504,7 +511,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 LOGIN_CHECK_SQL = text(
     """
-    SELECT r.rolname, r.rolsuper, r.rolbypassrls,
+    SELECT r.rolname, r.rolsuper, r.rolbypassrls, r.rolcreaterole, r.rolreplication,
            EXISTS (
              SELECT FROM pg_catalog.pg_class c
              JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -522,7 +529,7 @@ LOGIN_CHECK_SQL = text(
 
 
 async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
-    """Refuse a login that is a superuser, BYPASSRLS, or a ``public`` table owner.
+    """Refuse a login that is privileged or a ``public`` table owner.
 
     Postgres never applies RLS to a superuser or a ``BYPASSRLS`` role, and a
     table owner (or a member of the owner role) can turn RLS off. This is a
@@ -535,22 +542,29 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
 
     Raises:
         UnsafeDatabaseLoginError: The login, or any role it is a member of,
-            is a superuser, has ``BYPASSRLS`` or can act as a ``public`` owner.
+            is a superuser, has ``BYPASSRLS``, ``CREATEROLE`` or ``REPLICATION``,
+            or can act as a ``public`` owner.
     """
     problems: list[str] = []
-    for name, is_super, bypass, owns in (await conn.execute(LOGIN_CHECK_SQL)).tuples():
+    rows = (await conn.execute(LOGIN_CHECK_SQL)).tuples()
+    for name, is_super, bypass, createrole, replication, owns in rows:
         if is_super:
             problems.append(f"{name} is a superuser")
         if bypass:
             problems.append(f"{name} has BYPASSRLS")
+        if createrole:
+            # It can grant itself the owner role and then turn RLS off.
+            problems.append(f"{name} has CREATEROLE")
+        if replication:
+            problems.append(f"{name} has REPLICATION")
         if owns:
             problems.append(
                 f"{name} owns tables in public (or is a member of their owner)"
             )
     if problems:
         raise UnsafeDatabaseLoginError(
-            "TRACECAT__RLS_MODE=enforce needs a login that is not a superuser, "
-            "BYPASSRLS or a public table owner: "
+            "TRACECAT__RLS_MODE=enforce needs a login without SUPERUSER, BYPASSRLS, "
+            "CREATEROLE or REPLICATION that owns no public table: "
             + "; ".join(problems)
             + ". Log in as the 'app' role (python -m tracecat.db.roles bootstrap)."
         )

@@ -16,6 +16,7 @@ Invariants:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -31,6 +32,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.db.engine import verify_rls_enforceable_login
+from tracecat.db.models import Base
 from tracecat.db.roles import (
     READONLY_HIDDEN_COLUMNS,
     LoginMethod,
@@ -227,15 +229,26 @@ def test_readonly_keyring_can_only_select(topology: Topology) -> None:
 def test_readonly_keyring_never_reads_credentials(topology: Topology) -> None:
     """Bearer tokens and password hashes stay hidden; the rest of the row doesn't."""
     roles = topology.roles
+    # The security contract, kept apart from the implementation on purpose:
+    # dropping a column from READONLY_HIDDEN_COLUMNS must fail this test.
+    credential_columns = {
+        ("access_token", "token"),
+        ("oauth_account", "access_token"),
+        ("oauth_account", "refresh_token"),
+        ("invitation", "token"),
+        ("organization_invitation", "token"),
+        ("organization_domain", "verification_token"),
+        ("user", "hashed_password"),
+        ("mfa_recovery_code", "code_hash"),
+        ("agent_channel_token", "config"),
+    }
     with psycopg.connect(topology.url(topology.admin)) as conn:
-        for table, hidden in READONLY_HIDDEN_COLUMNS:
-            rel = f'public."{table}"'
-            for column in hidden:
-                row = conn.execute(
-                    "SELECT has_column_privilege(%s, %s::regclass, %s, 'SELECT')",
-                    (roles.readonly, rel, column),
-                ).fetchone()
-                assert row == (False,), (table, column)
+        for table, column in sorted(credential_columns):
+            row = conn.execute(
+                "SELECT has_column_privilege(%s, %s::regclass, %s, 'SELECT')",
+                (roles.readonly, f'public."{table}"', column),
+            ).fetchone()
+            assert row == (False,), (table, column)
         visible = conn.execute(
             "SELECT has_column_privilege(%s, 'public.\"user\"'::regclass, 'email', 'SELECT'), "
             "has_column_privilege(%s, 'public.access_token'::regclass, 'user_id', 'SELECT')",
@@ -275,14 +288,16 @@ def test_app_creates_and_alters_dynamic_table_owned_by_keyring(
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("user", "safe"),
-    [("app", True), ("migrator", False), ("postgres", False)],
+    [("app", True), ("migrator", False), ("postgres", False), ("admin", False)],
 )
 async def test_login_check_accepts_only_app(
     topology: Topology, user: str, safe: bool
 ) -> None:
     roles = topology.roles
-    login = {"app": roles.app, "migrator": roles.migrator}.get(user, user)
-    password = "postgres" if user == "postgres" else PASSWORD
+    login = {"app": roles.app, "migrator": roles.migrator, "admin": topology.admin}.get(
+        user, user
+    )
+    password = {"postgres": "postgres", "admin": "admin"}.get(user, PASSWORD)
     engine = create_async_engine(_url(login, password, topology.database, "+asyncpg"))
     try:
         async with engine.connect() as conn:
@@ -496,6 +511,47 @@ def test_refuses_roles_already_granted_on_another_database(scratch: Scratch) -> 
             _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(other)} WITH (FORCE)")
 
 
+def test_refuses_roles_with_object_grants_in_another_database(scratch: Scratch) -> None:
+    """A legacy install that only granted tables (default PUBLIC CONNECT) counts too."""
+    roles = scratch.roles
+    other = f"{scratch.database}_objs"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+        _run(conn, f"CREATE DATABASE {quote_ident(other)}")
+    try:
+        with psycopg.connect(
+            _url("postgres", "postgres", other), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE legacy (id int)")
+            _run(conn, f"GRANT SELECT ON legacy TO {quote_ident(roles.app)}")
+        with (
+            psycopg.connect(
+                _url("postgres", "postgres", scratch.database), autocommit=True
+            ) as conn,
+            pytest.raises(psycopg.errors.RaiseException, match="another database"),
+        ):
+            run_bootstrap(
+                conn, LoginMethod.PASSWORD, LoginPasswords(app=PASSWORD), roles
+            )
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(other)} WITH (FORCE)")
+
+
+def test_refuses_a_login_role_with_createrole(scratch: Scratch) -> None:
+    """CREATEROLE lets a login grant itself the owner keyring."""
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN CREATEROLE")
+    with (
+        psycopg.connect(
+            _url("postgres", "postgres", scratch.database), autocommit=True
+        ) as conn,
+        pytest.raises(psycopg.errors.RaiseException, match="CREATEROLE"),
+    ):
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+
+
 def test_refuses_roles_that_own_another_database(scratch: Scratch) -> None:
     """A legacy install's login owning its database (default NULL ACL) counts too."""
     roles = scratch.roles
@@ -535,3 +591,55 @@ def test_admin_uri_never_falls_back_to_plaintext(
     conninfo = _admin_conninfo()
     assert conninfo.startswith("postgresql://a:b@h/db")
     assert conninfo.endswith(expected)
+
+
+CREDENTIAL_NAME = re.compile(
+    r"token|password|secret|hash|credential|private_key|api_key|signing|refresh",
+    re.IGNORECASE,
+)
+# Credential-looking columns that are safe for people to read. Anything new
+# that matches CREDENTIAL_NAME must go here or in READONLY_HIDDEN_COLUMNS.
+SAFE_CREDENTIAL_NAMED_COLUMNS = {
+    ("agent_catalog", "last_refreshed_at"),
+    ("agent_custom_provider", "api_key_header"),  # a header name
+    ("agent_custom_provider", "last_refreshed_at"),
+    ("agent_session_command", "payload_hash"),
+    ("mcp_personal_access_token", "hashed"),  # hash of a random key
+    ("mcp_refresh_token", "token_hash"),  # hash of a random token
+    ("oauth_integration", "use_workspace_credentials"),
+    ("oauth_integration", "token_type"),
+    ("oauth_integration", "token_endpoint"),
+    ("oauth_integration", "token_endpoint_auth_method"),
+    ("oauth_provider", "token_endpoint"),
+    ("platform_registry_action", "secrets"),  # names of required secrets
+    ("platform_registry_index", "secrets"),
+    ("registry_action", "secrets"),
+    ("registry_index", "secrets"),
+    ("scim_connection", "hashed"),
+    ("search_chunk", "input_hash"),
+    ("search_embedding_config", "credential_id"),
+    ("search_embedding_config", "credential_environment"),
+    ("search_embedding_config", "input_token_limit"),
+    ("service_account_api_key", "hashed"),
+    ("watchtower_agent", "fingerprint_hash"),
+    ("webauthn_credential", "credential_id"),
+    ("webhook_api_key", "hashed"),
+}
+
+
+def test_every_credential_named_column_is_classified() -> None:
+    """New credential columns must be hidden from readonly or marked safe.
+
+    Encrypted columns (``encrypted_*``) are readable: their key is not in the
+    database.
+    """
+    hidden = {(t, c) for t, cols in READONLY_HIDDEN_COLUMNS for c in cols}
+    unclassified = sorted(
+        (table.name, column.name)
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+        if CREDENTIAL_NAME.search(column.name)
+        and not column.name.startswith("encrypted_")
+        and (table.name, column.name) not in hidden | SAFE_CREDENTIAL_NAMED_COLUMNS
+    )
+    assert unclassified == []
