@@ -8,7 +8,9 @@ Keyrings (NOLOGIN, never in ``rds_iam``) own objects:
 - ``tracecat_owner`` owns ``public``. It is a member of ``app_owner``.
 - ``app_owner`` owns the dynamic ``tables_*`` / ``custom_fields_*`` schemas
   (``TRACECAT__DB_DYNAMIC_OWNER_ROLE``).
-- ``tracecat_readonly`` holds ``SELECT`` on ``public`` for people.
+- ``tracecat_readonly`` holds ``SELECT`` on ``public`` for people, except the
+  columns in :data:`READONLY_HIDDEN_COLUMNS`. Each bootstrap run grants it
+  the tables that exist then; there is no auto-grant for future tables.
 
 Login roles are members of keyrings, never the other way round:
 
@@ -89,6 +91,20 @@ class RoleNames:
 
 # Honour an existing TRACECAT__DB_DYNAMIC_OWNER_ROLE so the app and the
 # bootstrap agree on the role that owns dynamic tables.
+READONLY_HIDDEN_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("access_token", ("token",)),
+    ("oauth_account", ("access_token", "refresh_token")),
+    ("invitation", ("token",)),
+    ("organization_invitation", ("token",)),
+    ("organization_domain", ("verification_token",)),
+    ("user", ("hashed_password",)),
+    ("mfa_recovery_code", ("code_hash",)),
+)
+"""Columns ``tracecat_readonly`` never reads: bearer tokens stored in plaintext
+and crackable password or recovery-code hashes. Encrypted columns stay
+readable because their key is not in the database. Add new credential columns
+here."""
+
 DEFAULT_ROLES = RoleNames(
     dynamic_owner=config.TRACECAT__DB_DYNAMIC_OWNER_ROLE or "app_owner"
 )
@@ -187,6 +203,32 @@ def _create_extension(name: str) -> str:
     )
 
 
+def _hide_readonly_columns(readonly: str) -> str:
+    """Swap table-level SELECT for every column but the hidden ones."""
+    rows = ",\n".join(
+        f"      ({quote_literal(table)}, ARRAY[{', '.join(quote_literal(c) for c in cols)}]::text[])"
+        for table, cols in READONLY_HIDDEN_COLUMNS
+    )
+    ro = quote_literal(readonly)
+    return (
+        "DO $bootstrap$\n"
+        "DECLARE\n  t text;\n  hidden text[];\n  rel regclass;\n  keep text;\n"
+        "BEGIN\n"
+        f"  FOR t, hidden IN SELECT * FROM (VALUES\n{rows}\n    ) AS v(t, hidden) LOOP\n"
+        "    rel := pg_catalog.to_regclass(format('public.%I', t));\n"
+        "    CONTINUE WHEN rel IS NULL;\n"
+        f"    EXECUTE format('REVOKE SELECT ON TABLE %s FROM %I', rel, {ro});\n"
+        "    SELECT string_agg(quote_ident(attname), ', ' ORDER BY attnum) INTO keep\n"
+        "    FROM pg_catalog.pg_attribute\n"
+        "    WHERE attrelid = rel AND attnum > 0 AND NOT attisdropped AND NOT (attname = ANY (hidden));\n"
+        "    IF keep IS NOT NULL THEN\n"
+        f"      EXECUTE format('GRANT SELECT (%s) ON TABLE %s TO %I', keep, rel, {ro});\n"
+        "    END IF;\n"
+        "  END LOOP;\n"
+        "END\n$bootstrap$;"
+    )
+
+
 def _verify(login: LoginMethod, roles: RoleNames) -> str:
     """Fail the bootstrap if the topology's safety rules don't hold.
 
@@ -199,6 +241,9 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
     # MEMBER counts every grant, including the ADMIN-only grant PG 16 gives a
     # CREATEROLE admin on roles it creates. Strict on purpose: which grants RDS
     # treats as IAM-only isn't documented, and a lockout is worse than a refusal.
+    # On RDS 16.13 the master creating IAM login roles was verified not to be a
+    # MEMBER of rds_iam (staging, 2026-11-06), so this does not block RDS; the
+    # IAM role exists nowhere else.
     in_iam = f"pg_catalog.pg_has_role(oid, {iam}, 'MEMBER')"
     # A superuser is a member of every role; RDS has no superuser login.
     must_not_be_in_iam = (
@@ -217,9 +262,11 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         "  END IF;\n"
         "  IF EXISTS (\n"
         "    SELECT FROM pg_catalog.pg_database d\n"
-        "    CROSS JOIN LATERAL pg_catalog.aclexplode(d.datacl) a\n"
-        "    JOIN pg_catalog.pg_roles r ON r.oid = a.grantee\n"
-        f"    WHERE d.datname <> current_database() AND r.rolname IN ({managed})\n"
+        f"    JOIN pg_catalog.pg_roles r ON r.rolname IN ({managed})\n"
+        "    WHERE d.datname <> current_database()\n"
+        # Ownership too: a NULL datacl still gives the owner every privilege.
+        "      AND (d.datdba = r.oid\n"
+        "           OR r.oid IN (SELECT a.grantee FROM pg_catalog.aclexplode(d.datacl) a))\n"
         "  ) THEN\n"
         "    RAISE EXCEPTION 'A Tracecat role already has privileges on another database'\n"
         "      USING HINT = 'Roles are cluster-wide: run one Tracecat install per cluster, '\n"
@@ -300,6 +347,7 @@ def bootstrap_statements(
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {app};",
         f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {app};",
         f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {ro};",
+        _hide_readonly_columns(roles.readonly),
         # custom_fields_*.case_fields has an FK to case; app inherits this.
         _do(
             "  IF pg_catalog.to_regclass('public.\"case\"') IS NOT NULL THEN\n"
@@ -313,7 +361,6 @@ def bootstrap_statements(
     statements += [
         f"{default} SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app};",
         f"{default} USAGE, SELECT, UPDATE ON SEQUENCES TO {app};",
-        f"{default} SELECT ON TABLES TO {ro};",
         _verify(login, roles),
     ]
     return statements

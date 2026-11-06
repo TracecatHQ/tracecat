@@ -32,6 +32,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.db.roles import (
+    READONLY_HIDDEN_COLUMNS,
     LoginMethod,
     LoginPasswords,
     RoleNames,
@@ -221,6 +222,26 @@ def test_readonly_keyring_can_only_select(topology: Topology) -> None:
             (roles.readonly, roles.readonly),
         ).fetchone()
     assert row == (True, False)
+
+
+def test_readonly_keyring_never_reads_credentials(topology: Topology) -> None:
+    """Bearer tokens and password hashes stay hidden; the rest of the row doesn't."""
+    roles = topology.roles
+    with psycopg.connect(topology.url(topology.admin)) as conn:
+        for table, hidden in READONLY_HIDDEN_COLUMNS:
+            rel = f'public."{table}"'
+            for column in hidden:
+                row = conn.execute(
+                    "SELECT has_column_privilege(%s, %s::regclass, %s, 'SELECT')",
+                    (roles.readonly, rel, column),
+                ).fetchone()
+                assert row == (False,), (table, column)
+        visible = conn.execute(
+            "SELECT has_column_privilege(%s, 'public.\"user\"'::regclass, 'email', 'SELECT'), "
+            "has_column_privilege(%s, 'public.access_token'::regclass, 'user_id', 'SELECT')",
+            (roles.readonly, roles.readonly),
+        ).fetchone()
+    assert visible == (True, True)
 
 
 def test_app_creates_and_alters_dynamic_table_owned_by_keyring(
@@ -470,6 +491,30 @@ def test_refuses_roles_already_granted_on_another_database(scratch: Scratch) -> 
                 run_bootstrap(
                     conn, LoginMethod.PASSWORD, LoginPasswords(app="other"), roles
                 )
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(other)} WITH (FORCE)")
+
+
+def test_refuses_roles_that_own_another_database(scratch: Scratch) -> None:
+    """A legacy install's login owning its database (default NULL ACL) counts too."""
+    roles = scratch.roles
+    other = f"{scratch.database}_owned"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+        _run(
+            conn, f"CREATE DATABASE {quote_ident(other)} OWNER {quote_ident(roles.app)}"
+        )
+    try:
+        with (
+            psycopg.connect(
+                _url("postgres", "postgres", scratch.database), autocommit=True
+            ) as conn,
+            pytest.raises(psycopg.errors.RaiseException, match="another database"),
+        ):
+            run_bootstrap(
+                conn, LoginMethod.PASSWORD, LoginPasswords(app=PASSWORD), roles
+            )
     finally:
         with _superuser() as conn:
             _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(other)} WITH (FORCE)")
