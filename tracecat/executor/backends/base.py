@@ -15,6 +15,7 @@ import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from tracecat import config
 from tracecat.dsl.enums import PlatformAction
@@ -26,7 +27,9 @@ from tracecat.executor.schemas import (
     ExecutorResultFailure,
     ExecutorResultSuccess,
 )
+from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.sandbox import (
+    PackageIndex,
     PackageInstallError,
     SandboxExecutionError,
     SandboxService,
@@ -34,11 +37,23 @@ from tracecat.sandbox import (
     SandboxValidationError,
     validate_run_python_script,
 )
+from tracecat.settings.service import get_python_package_index
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
     from tracecat.executor.schemas import ResolvedContext
+
+
+def _redact_package_index_password(
+    message: str, package_index: PackageIndex | None
+) -> str:
+    """Defense in depth: uv redacts URL credentials, but never rely on it alone."""
+    if package_index is None or not package_index.password:
+        return message
+    for secret in {package_index.password, quote(package_index.password, safe="")}:
+        message = message.replace(secret, "***")
+    return message
 
 
 class ExecutorBackend(ABC):
@@ -137,6 +152,27 @@ class ExecutorBackend(ABC):
             user_env_vars=args.get("env_vars"),
         )
 
+        package_index: PackageIndex | None = None
+        if args.get("dependencies"):
+            package_index = await get_python_package_index(role=role)
+            if package_index is not None:
+                try:
+                    # Re-check at run time in case DNS changed since save.
+                    await validate_url_resolves_public_async(package_index.url)
+                except DisallowedUrlError:
+                    return ExecutorResultFailure(
+                        error=ExecutorActionErrorInfo(
+                            action_name="core.script.run_python",
+                            type="PackageInstallError",
+                            message=(
+                                "The organization's Python package index URL "
+                                "must resolve to a public address"
+                            ),
+                            filename="base.py",
+                            function="_execute_run_python",
+                        )
+                    )
+
         artifact_uris = await self._get_artifact_uris(input, role)
         if not artifact_uris:
             # Local-repository mode imports straight from the repo checkout, so
@@ -151,6 +187,7 @@ class ExecutorBackend(ABC):
                 registry_paths=local_registry_paths,
                 resolved_context=resolved_context,
                 timeout=timeout,
+                package_index=package_index,
             )
 
         # The lease is held for the whole sandbox run so cache eviction cannot
@@ -165,6 +202,7 @@ class ExecutorBackend(ABC):
                 registry_paths=registry_paths,
                 resolved_context=resolved_context,
                 timeout=timeout,
+                package_index=package_index,
             )
 
     async def _run_python_in_sandbox(
@@ -176,6 +214,7 @@ class ExecutorBackend(ABC):
         registry_paths: list[Path],
         resolved_context: ResolvedContext,
         timeout: float,
+        package_index: PackageIndex | None = None,
     ) -> ExecutorResult:
         """Run a validated run_python script against resolved registry paths.
 
@@ -186,6 +225,7 @@ class ExecutorBackend(ABC):
             registry_paths: Import roots for the sandboxed script.
             resolved_context: Pre-resolved execution context.
             timeout: Action timeout that caps the script's own timeout_seconds.
+            package_index: Optional org package index for dependency installs.
 
         Returns:
             ExecutorResultSuccess on success, ExecutorResultFailure on a
@@ -204,6 +244,7 @@ class ExecutorBackend(ABC):
                 python_path_dirs=registry_paths,
                 workspace_id=resolved_context.workspace_id,
                 action_gateway_socket=action_gateway_socket_path(),
+                package_index=package_index,
             )
             return ExecutorResultSuccess(result=result)
         except (
@@ -215,7 +256,7 @@ class ExecutorBackend(ABC):
             error_info = ExecutorActionErrorInfo(
                 action_name="core.script.run_python",
                 type=type(e).__name__,
-                message=str(e),
+                message=_redact_package_index_password(str(e), package_index),
                 filename="base.py",
                 function="_execute_run_python",
             )

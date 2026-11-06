@@ -36,6 +36,7 @@ from tracecat.sandbox.exceptions import (
 from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailExecutor
 from tracecat.sandbox.file_io import copy_tree_without_following_symlinks
 from tracecat.sandbox.types import (
+    PackageIndex,
     ResourceLimits,
     SandboxConfig,
     SandboxErrorCode,
@@ -193,7 +194,10 @@ class SandboxService:
             shutil.rmtree(job_dir, ignore_errors=True)
 
     def _compute_cache_key(
-        self, dependencies: list[str], workspace_id: str | None = None
+        self,
+        dependencies: list[str],
+        workspace_id: str | None = None,
+        package_index: PackageIndex | None = None,
     ) -> str:
         """Compute a cache key from dependencies and optional workspace ID.
 
@@ -205,6 +209,8 @@ class SandboxService:
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
                 When provided, packages installed by one workspace cannot be
                 reused by another, preventing potential supply chain attacks.
+            package_index: Optional org package index. Its credential-free
+                fingerprint scopes the cache so changing the index reinstalls.
 
         Returns:
             16-character hexadecimal cache key.
@@ -216,6 +222,8 @@ class SandboxService:
             hash_input = f"{workspace_id}\n" + "\n".join(normalized)
         else:
             hash_input = "\n".join(normalized)
+        if package_index is not None:
+            hash_input += f"\nindex:{package_index.cache_fingerprint}"
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
     async def _install_packages(
@@ -224,6 +232,7 @@ class SandboxService:
         dependencies: list[str],
         cache_key: str,
         timeout_seconds: int = 300,
+        package_index: PackageIndex | None = None,
     ) -> None:
         """Install packages inside the sandbox.
 
@@ -234,6 +243,7 @@ class SandboxService:
             dependencies: List of packages to install.
             cache_key: Cache key for storing installed packages.
             timeout_seconds: Maximum installation time.
+            package_index: Optional org package index replacing the deployment index.
 
         Raises:
             PackageInstallError: If package installation fails.
@@ -262,7 +272,7 @@ class SandboxService:
 
         # Run installation with network enabled
         result = await self.nsjail_executor.execute_install(
-            job_dir, cache_key, timeout_seconds
+            job_dir, cache_key, timeout_seconds, package_index=package_index
         )
 
         if not result.success:
@@ -423,6 +433,7 @@ class SandboxService:
         python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
         action_gateway_socket: Path | None = None,
+        package_index: PackageIndex | None = None,
     ) -> Any:
         """Execute a Python script in a sandbox.
 
@@ -446,6 +457,8 @@ class SandboxService:
             action_gateway_socket: Optional host-side action gateway Unix socket.
                 Internal Tracecat SDK calls use this socket even when outbound
                 network access is disabled.
+            package_index: Optional org package index used instead of the
+                deployment index when installing dependencies.
 
         Returns:
             The return value of the script's main function.
@@ -474,6 +487,7 @@ class SandboxService:
                 python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
                 action_gateway_socket=resolved_action_gateway_socket,
+                package_index=package_index,
             )
         else:
             logger.info(
@@ -495,6 +509,7 @@ class SandboxService:
                 env_vars=resolved_env_vars,
                 python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
+                package_index=package_index,
             )
 
             if not result.success:
@@ -529,6 +544,7 @@ class SandboxService:
         python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
         action_gateway_socket: Path | None = None,
+        package_index: PackageIndex | None = None,
     ) -> Any:
         """Execute a Python script using the nsjail sandbox.
 
@@ -548,6 +564,7 @@ class SandboxService:
             python_path_dirs: Read-only Python path roots to expose to the sandbox.
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
             action_gateway_socket: Optional host-side action gateway Unix socket.
+            package_index: Optional org package index for dependency installs.
 
         Returns:
             The return value of the script's main function.
@@ -568,7 +585,9 @@ class SandboxService:
 
             # Phase 1: Install packages if needed
             if dependencies:
-                cache_key = self._compute_cache_key(dependencies, workspace_id)
+                cache_key = self._compute_cache_key(
+                    dependencies, workspace_id, package_index
+                )
                 cached_path = self.package_cache / cache_key / "site-packages"
 
                 if not cached_path.exists():
@@ -582,6 +601,7 @@ class SandboxService:
                         dependencies,
                         cache_key,
                         timeout_seconds=timeout_seconds,
+                        package_index=package_index,
                     )
                 else:
                     logger.debug(

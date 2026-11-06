@@ -1,5 +1,6 @@
 from enum import StrEnum
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -384,6 +385,99 @@ class AgentOtelSettingsUpdate(BaseSettingsGroup):
             return value
         validate_otel_header_items(cast(dict[str, Any], value))
         return value
+
+
+PYTHON_PACKAGE_INDEX_URL_MAX_LENGTH = 2048
+PYTHON_PACKAGE_INDEX_USERNAME_MAX_LENGTH = 256
+PYTHON_PACKAGE_INDEX_PASSWORD_MAX_LENGTH = 4096
+
+
+def _reject_control_characters(value: str, *, field: str) -> str:
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ValueError(f"{field} must not contain control characters")
+    return value
+
+
+class PythonPackageSettingsRead(BaseSettingsGroup):
+    python_package_index_url: str | None = None
+    python_package_index_username: str | None = None
+    python_package_index_password_configured: bool = False
+
+
+class PythonPackageSettingsUpdate(BaseSettingsGroup):
+    python_package_index_url: str | None = Field(
+        default=None,
+        max_length=PYTHON_PACKAGE_INDEX_URL_MAX_LENGTH,
+        description=(
+            "HTTPS URL of a PEP 503 simple index (e.g. a JFrog Artifactory PyPI "
+            "repository) used instead of PyPI to install run_python dependencies. "
+            "Null restores the deployment default."
+        ),
+    )
+    python_package_index_username: str | None = Field(
+        default=None,
+        max_length=PYTHON_PACKAGE_INDEX_USERNAME_MAX_LENGTH,
+        description="Username for the package index.",
+    )
+    python_package_index_password: str | None = Field(
+        default=None,
+        max_length=PYTHON_PACKAGE_INDEX_PASSWORD_MAX_LENGTH,
+        description=(
+            "Encrypted, write-only password or access token for the package index. "
+            "Omit to keep the saved value; null clears it. Changing the URL clears "
+            "the saved password unless a new one is sent in the same request."
+        ),
+    )
+
+    @field_validator("python_package_index_url", mode="before")
+    @classmethod
+    def validate_python_package_index_url(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        if not value:
+            return None
+        _reject_control_characters(value, field="Package index URL")
+        try:
+            parsed = urlsplit(value)
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("Package index URL is invalid") from exc
+        if parsed.scheme != "https":
+            raise ValueError("Package index URL must use https")
+        if not parsed.hostname:
+            raise ValueError("Package index URL must include a hostname")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError(
+                "Package index URL must not embed credentials; "
+                "use the username and password fields"
+            )
+        if parsed.query or parsed.fragment:
+            raise ValueError(
+                "Package index URL must not include a query string or fragment"
+            )
+        if port == 0:
+            raise ValueError("Package index URL port is invalid")
+        return value
+
+    @field_validator("python_package_index_username", mode="before")
+    @classmethod
+    def validate_python_package_index_username(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        if not value:
+            return None
+        return _reject_control_characters(value, field="Package index username")
+
+    @field_validator("python_package_index_password", mode="before")
+    @classmethod
+    def validate_python_package_index_password(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        if not value:
+            return None
+        return _reject_control_characters(value, field="Package index password")
 
 
 class ValueType(StrEnum):
