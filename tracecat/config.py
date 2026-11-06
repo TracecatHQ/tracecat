@@ -327,6 +327,15 @@ TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
+TRACECAT__DB_DYNAMIC_OWNER_ROLE = (
+    os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or None
+)
+"""Role that owns new dynamic schemas and tables (``tables_*``, ``custom_fields_*``).
+
+Unset keeps them owned by the connecting role. When set, the connecting role
+must be a member of this role.
+"""
+
 TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW") or 60)
 """The maximum number of connections to allow in the pool."""
 TRACECAT__DB_POOL_SIZE = int(os.environ.get("TRACECAT__DB_POOL_SIZE") or 10)
