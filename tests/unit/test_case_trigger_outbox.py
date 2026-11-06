@@ -33,10 +33,12 @@ from tracecat.cases.events import CaseEventsService
 from tracecat.cases.schemas import CaseCommentWorkflowStatus, CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.cases.triggers.dispatch import (
+    OUTBOX_RETRY_DELAY,
     CaseTriggerOutboxDispatcher,
     CaseTriggerStartUnknownError,
     case_trigger_exec_id,
     list_outbox_row_ids,
+    outbox_has_rows,
 )
 from tracecat.cases.triggers.dispatcher import (
     dispatch_case_trigger_outbox_batch,
@@ -405,10 +407,16 @@ class TestOutboxDispatch:
         assert start.await_count == 2
         assert len(await _outbox_rows(session, case_id)) == int(row_kept)
 
-    async def test_failed_row_moves_behind_newer_rows(
+    async def test_failed_row_sits_out_batches_for_the_retry_delay(
         self, session: AsyncSession, svc_role: Role, test_case: Case
     ) -> None:
-        """Rows that keep failing cannot fill every batch and starve newer rows."""
+        """A row that keeps failing cannot fail every batch.
+
+        Even alone in its workspace, where it would take the first turn of
+        every batch, a failed row sits out batches, and the wait for rows,
+        until the retry delay has passed. The rest of the queue keeps
+        dispatching meanwhile.
+        """
         await _add_trigger(session, svc_role, event_types=["case_updated"])
         await _add_update_event(session, svc_role, test_case)
         await _add_update_event(session, svc_role, test_case)
@@ -417,9 +425,26 @@ class TestOutboxDispatch:
         start = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
         with _dispatch_mocks(start), pytest.raises(RuntimeError):
             await CaseTriggerOutboxDispatcher().dispatch_row(first)
+        assert await list_outbox_row_ids() == [second]
 
-        assert await list_outbox_row_ids() == [second, first]
-        assert await list_outbox_row_ids(limit=1) == [second]
+        with _dispatch_mocks(start), pytest.raises(RuntimeError):
+            await CaseTriggerOutboxDispatcher().dispatch_row(second)
+        assert await list_outbox_row_ids() == []
+        # The dispatcher waits instead of running empty batches.
+        assert not await outbox_has_rows()
+
+        # Both failures are now older than the retry delay.
+        await session.execute(
+            update(CaseTriggerOutbox).values(
+                created_at=CaseTriggerOutbox.created_at - timedelta(minutes=5),
+                updated_at=CaseTriggerOutbox.updated_at
+                - OUTBOX_RETRY_DELAY
+                - timedelta(minutes=1),
+            )
+        )
+        await session.commit()
+        assert await outbox_has_rows()
+        assert await list_outbox_row_ids() == [first, second]
 
     async def test_batches_take_each_workspace_in_turn(
         self, session: AsyncSession, svc_role: Role, test_case: Case
@@ -437,13 +462,14 @@ class TestOutboxDispatch:
         event = await CaseEventsService(session=session, role=svc_role).create_event(
             test_case, UpdatedEvent(field="summary", old="a", new="b")
         )
-        start = datetime.now(UTC)
+        start = datetime.now(UTC) - timedelta(minutes=1)
         # The busy workspace's rows are all older than the quiet one's.
         rows = [
             CaseTriggerOutbox(
                 workspace_id=workspace_id,
                 case_id=test_case.id,
                 event_id=event.id,
+                created_at=start + timedelta(seconds=offset),
                 updated_at=start + timedelta(seconds=offset),
             )
             for workspace_id, offset in [

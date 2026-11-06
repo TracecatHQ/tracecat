@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import timedelta
 
 from pydantic import ValidationError
-from sqlalchemy import exists, func, select, update
+from sqlalchemy import ColumnElement, and_, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -57,6 +58,10 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
 CASE_TRIGGER_SERVICE_ID = "tracecat-case-triggers"
 OUTBOX_BATCH_SIZE = 100
+# A row that failed sits out batches this long before its next attempt, so a
+# row that keeps failing cannot fail every batch and hold the activity in
+# retry backoff while other rows wait.
+OUTBOX_RETRY_DELAY = timedelta(seconds=30)
 # Errors from bad input that fail every attempt the same way, such as a
 # workflow timeout too large to convert. Retrying them would hold the row
 # forever, so the start is logged and dropped as the Redis consumer did.
@@ -77,12 +82,22 @@ def case_trigger_exec_id(
     return f"{WorkflowUUID.new(workflow_id).short()}/{exec_uuid.short()}"
 
 
+def _ready_to_dispatch() -> ColumnElement[bool]:
+    """Rows never attempted, or whose last failure is older than the retry delay.
+
+    Both timestamps start as the insert time; a failed attempt touches only
+    ``updated_at``.
+    """
+    return ~and_(
+        CaseTriggerOutbox.updated_at > CaseTriggerOutbox.created_at,
+        CaseTriggerOutbox.updated_at > func.now() - OUTBOX_RETRY_DELAY,
+    )
+
+
 async def outbox_has_rows() -> bool:
-    """Whether any outbox row is waiting to be dispatched."""
+    """Whether any outbox row is ready to be dispatched."""
     async with get_async_session_bypass_rls_context_manager() as session:
-        return bool(
-            await session.scalar(select(exists().select_from(CaseTriggerOutbox)))
-        )
+        return bool(await session.scalar(select(exists().where(_ready_to_dispatch()))))
 
 
 async def list_outbox_row_ids(limit: int = OUTBOX_BATCH_SIZE) -> list[int]:
@@ -90,18 +105,23 @@ async def list_outbox_row_ids(limit: int = OUTBOX_BATCH_SIZE) -> list[int]:
 
     The batch holds every workspace's least recently attempted row, then every
     workspace's second, and so on, so a burst in one workspace cannot fill the
-    batch ahead of the others. Within a workspace, a failed row is touched
-    after each attempt, so rows that keep failing move behind newer rows
-    instead of filling every batch.
+    batch ahead of the others. A failed row is touched after each attempt and
+    sits out batches for ``OUTBOX_RETRY_DELAY``, then rejoins its workspace
+    behind the rows that were queued before it failed, so rows that keep
+    failing cannot fill every batch.
     """
     dispatch_order = (CaseTriggerOutbox.updated_at, CaseTriggerOutbox.surrogate_id)
-    ranked = select(
-        CaseTriggerOutbox.surrogate_id,
-        CaseTriggerOutbox.updated_at,
-        func.row_number()
-        .over(partition_by=CaseTriggerOutbox.workspace_id, order_by=dispatch_order)
-        .label("workspace_turn"),
-    ).subquery()
+    ranked = (
+        select(
+            CaseTriggerOutbox.surrogate_id,
+            CaseTriggerOutbox.updated_at,
+            func.row_number()
+            .over(partition_by=CaseTriggerOutbox.workspace_id, order_by=dispatch_order)
+            .label("workspace_turn"),
+        )
+        .where(_ready_to_dispatch())
+        .subquery()
+    )
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.scalars(
             select(ranked.c.surrogate_id)

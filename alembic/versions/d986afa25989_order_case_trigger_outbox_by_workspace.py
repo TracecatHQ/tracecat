@@ -26,6 +26,8 @@ def upgrade() -> None:
         "case_trigger_outbox",
         ["workspace_id", "updated_at", "surrogate_id"],
         unique=False,
+        # Lets the retry-delay check read the index alone.
+        postgresql_include=["created_at"],
     )
 
 

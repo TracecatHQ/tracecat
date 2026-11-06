@@ -3532,6 +3532,8 @@ class CaseTriggerOutbox(WorkspaceModel):
             "workspace_id",
             "updated_at",
             "surrogate_id",
+            # Lets the retry-delay check read the index alone.
+            postgresql_include=["created_at"],
         ),
     )
 

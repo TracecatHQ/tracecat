@@ -95,8 +95,11 @@ async def dispatch_case_trigger_outbox_batch() -> int:
                 finished += 1
             return True
 
-    results = await asyncio.gather(*(dispatch(row_id) for row_id in row_ids))
-    if failed := results.count(False):
+    # A row's own failure is caught in dispatch(); anything else escaping a
+    # task cancels the rest, so no row keeps running after the activity ends.
+    async with asyncio.TaskGroup() as tasks:
+        dispatched = [tasks.create_task(dispatch(row_id)) for row_id in row_ids]
+    if failed := sum(not task.result() for task in dispatched):
         raise ApplicationError(
             f"{failed} of {len(row_ids)} case trigger outbox rows failed to dispatch",
             type="CaseTriggerDispatchError",
