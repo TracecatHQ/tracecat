@@ -86,12 +86,17 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         await conn.execute(
             sa.DDL("ALTER TABLE %s FORCE ROW LEVEL SECURITY", full_table_name)
         )
-        await conn.execute(
-            sa.DDL(
-                f"DROP POLICY IF EXISTS {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s",
-                full_table_name,
-            )
+        # Keep an existing policy: the dynamic RLS guard (b4074a0896b5)
+        # rejects the app role dropping it. Policy changes belong in migrations.
+        policy_exists = await conn.scalar(
+            sa.text(
+                "SELECT EXISTS (SELECT 1 FROM pg_policy "
+                "WHERE polrelid = to_regclass(:table_name) AND polname = :policy)"
+            ),
+            {"table_name": full_table_name, "policy": DYNAMIC_WORKSPACE_RLS_POLICY},
         )
+        if policy_exists:
+            return
         await conn.execute(
             sa.DDL(
                 f"""
