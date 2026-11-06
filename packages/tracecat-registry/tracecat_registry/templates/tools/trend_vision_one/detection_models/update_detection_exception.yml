@@ -22,7 +22,9 @@ definition:
       type: dict[str, Any]
       description: >-
         API-native JSON request body. Documented fields for PATCH /v3.0/dmm/exceptions/{id}:
-        name, description, targetEntities, event, criteria.
+        name, description, targetEntities (endpointGUID, endpointHostName, endpointIp, src, dst, samUser, suser,
+        mailbox, mailFromAddress), event (category, id, subId),
+        criteria.
     base_url:
       type: str | None
       description: >-

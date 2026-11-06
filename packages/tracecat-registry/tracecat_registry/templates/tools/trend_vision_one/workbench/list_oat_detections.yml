@@ -49,11 +49,11 @@ definition:
         Number of records displayed on a page. Allowed values: 50, 100, 200. Provider
         default: 50.
       default: null
-    skipToken:
+    nextBatchToken:
       type: str | None
       description: >-
-        Pagination token from the skipToken query parameter of the nextLink returned by the
-        previous page. Reuse the same filters when requesting the next page.
+        Pagination token from the nextBatchToken query parameter of the nextLink returned by
+        the previous page. Reuse the same filters when requesting the next page.
       default: null
     base_url:
       type: str | None
@@ -81,5 +81,5 @@ definition:
           ingestedStartDateTime: ${{ inputs.ingestedStartDateTime }}
           ingestedEndDateTime: ${{ inputs.ingestedEndDateTime }}
           top: ${{ inputs.top }}
-          skipToken: ${{ inputs.skipToken }}
+          nextBatchToken: ${{ inputs.nextBatchToken }}
   returns: ${{ steps.request.result }}

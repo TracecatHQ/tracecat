@@ -18,9 +18,11 @@ definition:
       type: dict[str, Any]
       description: >-
         API-native JSON request body. Documented fields for POST /v3.0/caseManagement/cases:
-        associatedItemIds, description, externalTicketAlias (required), externalTicketId
-        (required), findings, name (required), priority (required), relatedCaseIds, status
-        (required), holder, externalTicketCreatedDateTime.
+        name (required), priority (required: P0, P1, P2, P3), status (required: Open,
+        In-progress), type (General), description, owners (account IDs from GET
+        /v3.0/iam/accounts), severity (Critical, High, Medium, Low, Information),
+        mailReceivers, associatedItemIds, externalTicketAlias, externalTicketId, findings,
+        relatedCaseIds, holder, externalTicketCreatedDateTime.
     base_url:
       type: str | None
       description: >-

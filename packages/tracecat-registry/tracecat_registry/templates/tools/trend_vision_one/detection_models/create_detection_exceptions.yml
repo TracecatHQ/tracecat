@@ -17,8 +17,9 @@ definition:
       type: list[dict[str, Any]]
       description: >-
         JSON array sent as the request body. Documented item fields: name (required),
-        description, targetEntities, event, criteria (required). Maximum 10 items per
-        request.
+        description, targetEntities (endpointGUID, endpointHostName, endpointIp, src, dst, samUser, suser,
+        mailbox, mailFromAddress), event (category, id, subId), criteria
+        (required). Maximum 10 items per request.
     base_url:
       type: str | None
       description: >-

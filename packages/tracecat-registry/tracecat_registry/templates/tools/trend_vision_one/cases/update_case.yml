@@ -28,7 +28,7 @@ definition:
       description: >-
         API-native JSON request body. Documented fields for PATCH
         /v3.0/caseManagement/cases/{id}: associatedItemIds, description, findings, name,
-        priority, relatedCaseIds, status, holder, externalTicketId,
+        priority, relatedCaseIds, severity, status, holder, externalTicketId,
         externalTicketUpdatedDateTime.
     base_url:
       type: str | None

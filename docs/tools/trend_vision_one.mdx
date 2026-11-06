@@ -384,7 +384,7 @@ Required secrets:
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body. Documented fields for POST /v3.0/caseManagement/cases: associatedItemIds, description, externalTicketAlias (required), externalTicketId (required), findings, name (required), priority (required), relatedCaseIds, status (required), holder, externalTicketCreatedDateTime.
+API-native JSON request body. Documented fields for POST /v3.0/caseManagement/cases: name (required), priority (required: P0, P1, P2, P3), status (required: Open, In-progress), type (General), description, owners (account IDs from GET /v3.0/iam/accounts), severity (Critical, High, Medium, Low, Information), mailReceivers, associatedItemIds, externalTicketAlias, externalTicketId, findings, relatedCaseIds, holder, externalTicketCreatedDateTime.
 
 </ParamField>
 
@@ -414,7 +414,7 @@ Required secrets:
 
 <ParamField path="exceptions" type="array[object]" required>
 
-JSON array sent as the request body. Documented item fields: name (required), description, targetEntities, event, criteria (required). Maximum 10 items per request.
+JSON array sent as the request body. Documented item fields: name (required), description, targetEntities (endpointGUID, endpointHostName, endpointIp, src, dst, samUser, suser, mailbox, mailFromAddress), event (category, id, subId), criteria (required). Maximum 10 items per request.
 
 </ParamField>
 
@@ -2350,9 +2350,9 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="skipToken" type="string | null">
+<ParamField path="nextBatchToken" type="string | null">
 
-Pagination token from the skipToken query parameter of the nextLink returned by the previous page. Reuse the same filters when requesting the next page.
+Pagination token from the nextBatchToken query parameter of the nextLink returned by the previous page. Reuse the same filters when requesting the next page.
 
 Default: `null`.
 
@@ -4344,7 +4344,7 @@ The case ID.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body. Documented fields for PATCH /v3.0/caseManagement/cases/&#123;id&#125;: associatedItemIds, description, findings, name, priority, relatedCaseIds, status, holder, externalTicketId, externalTicketUpdatedDateTime.
+API-native JSON request body. Documented fields for PATCH /v3.0/caseManagement/cases/&#123;id&#125;: associatedItemIds, description, findings, name, priority, relatedCaseIds, severity, status, holder, externalTicketId, externalTicketUpdatedDateTime.
 
 </ParamField>
 
@@ -4438,7 +4438,7 @@ The unique identifier of the exception.
 
 <ParamField path="payload" type="object" required>
 
-API-native JSON request body. Documented fields for PATCH /v3.0/dmm/exceptions/&#123;id&#125;: name, description, targetEntities, event, criteria.
+API-native JSON request body. Documented fields for PATCH /v3.0/dmm/exceptions/&#123;id&#125;: name, description, targetEntities (endpointGUID, endpointHostName, endpointIp, src, dst, samUser, suser, mailbox, mailFromAddress), event (category, id, subId), criteria.
 
 </ParamField>
 
