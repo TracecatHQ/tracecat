@@ -101,12 +101,11 @@ must not go to whatever host the URL names. The managed endpoints present
 certificates for these domains, so verified TLS already rules out others.
 """
 
-_IAM_TLS_OPTIONS = frozenset(
-    {"ssl_cert_reqs", "ssl_check_hostname", "ssl_ca_certs", "ssl_ca_path"}
-)
-"""TLS options the IAM modes accept. The rest (inline CA data, verify flags,
-ciphers, minimum version, client certificates) could weaken or re-root
-verification from the URL."""
+_IAM_TLS_OPTIONS = frozenset({"ssl_cert_reqs", "ssl_check_hostname"})
+"""TLS options the IAM modes accept. Every other ``ssl_*`` option (CA files or
+data, verify flags, ciphers, minimum version, client certificates) could weaken
+or re-root verification from the URL. The managed endpoints chain to roots in
+the system trust store."""
 
 type ReAuthCallback = Callable[[TokenInterface], Awaitable[None] | None]
 

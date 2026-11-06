@@ -495,19 +495,11 @@ def test_aws_iam_mode_rejects_disabled_hostname_check(check_hostname: object) ->
         )
 
 
-@pytest.mark.anyio
+@pytest.mark.parametrize("option", ["ssl_ca_certs", "ssl_ca_data", "ssl_certfile"])
 @pytest.mark.usefixtures("aws_iam_mode")
-async def test_aws_iam_mode_accepts_a_ca_bundle_path() -> None:
-    client = create_redis_client(
-        f"rediss://{AWS_HOST}:6379?ssl_ca_certs=/etc/ssl/ca.pem"
-    )
-    try:
-        assert (
-            client.connection_pool.connection_kwargs["ssl_ca_certs"]
-            == "/etc/ssl/ca.pem"
-        )
-    finally:
-        await close_redis_client(client)
+def test_aws_iam_mode_rejects_url_trust_material(option: str) -> None:
+    with pytest.raises(ValueError, match=f"does not accept TLS options {option}"):
+        create_redis_client(f"rediss://{AWS_HOST}:6379?{option}=/tmp/ca.pem")
 
 
 @pytest.mark.parametrize(
