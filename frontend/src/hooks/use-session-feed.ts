@@ -27,17 +27,18 @@ export type SessionFeedEvent = z.infer<typeof feedEventSchema>
 
 /** What a feed event asks an idle tab to do. */
 export type FeedAction =
-  | { kind: "attach"; streamId: string | null }
+  | { kind: "attach"; streamId: string }
   | { kind: "refresh" }
 
 /** What this tab last learned about the session's run. */
 export type FeedState = {
-  /** The segment this tab last attached to through the feed. */
+  /** The segment this tab last attached to and received output from. */
   attachedStreamId: string | null
   /** The run state from the latest event, or null before the first snapshot. */
   known: {
     runId: string | null
     paused: boolean
+    streamId: string | null
     /** The feed entry id last seen; a newer one means events were missed. */
     feedId: string | null
   } | null
@@ -64,7 +65,7 @@ export function feedActionFor(
 ): FeedAction | null {
   switch (event.type) {
     case "snapshot": {
-      if (event.run_id && !event.paused) {
+      if (event.run_id && !event.paused && event.stream_id) {
         const attach = attachUnlessHeld(event.stream_id, state)
         if (attach) return attach
       }
@@ -73,11 +74,15 @@ export function feedActionFor(
         known !== null &&
         (known.runId !== event.run_id ||
           known.paused !== event.paused ||
+          known.streamId !== event.stream_id ||
           known.feedId !== (event.feed_id ?? null))
       return changed ? { kind: "refresh" } : null
     }
     case "run.started":
     case "run.resumed":
+      // Without its own segment, a run shares the session buffer, which can
+      // still hold the previous run; show the transcript instead.
+      if (event.stream_id === null) return { kind: "refresh" }
       return attachUnlessHeld(event.stream_id, state)
     case "run.paused":
     case "run.finished":
@@ -86,10 +91,10 @@ export function feedActionFor(
 }
 
 function attachUnlessHeld(
-  streamId: string | null,
+  streamId: string,
   state: FeedState
 ): FeedAction | null {
-  if (streamId !== null && streamId === state.attachedStreamId) return null
+  if (streamId === state.attachedStreamId) return null
   return { kind: "attach", streamId }
 }
 
@@ -103,15 +108,26 @@ export function knownStateAfter(
       return {
         runId: event.run_id,
         paused: event.paused,
+        streamId: event.stream_id,
         feedId: event.feed_id ?? null,
       }
     case "run.started":
     case "run.resumed":
-      return { runId: event.run_id, paused: false, feedId: entryId }
+      return {
+        runId: event.run_id,
+        paused: false,
+        streamId: event.stream_id,
+        feedId: entryId,
+      }
     case "run.paused":
-      return { runId: event.run_id, paused: true, feedId: entryId }
+      return {
+        runId: event.run_id,
+        paused: true,
+        streamId: event.stream_id,
+        feedId: entryId,
+      }
     case "run.finished":
-      return { runId: null, paused: false, feedId: entryId }
+      return { runId: null, paused: false, streamId: null, feedId: entryId }
   }
 }
 
@@ -123,7 +139,9 @@ const FEED_MAX_REOPENS = 6
 
 /**
  * Follow a session's run state, so runs started elsewhere reach this tab.
- * While `busy`, the latest action waits and runs once the tab is idle. The
+ * While `busy`, the latest action waits and runs once the tab is idle. A
+ * segment counts as attached only once `onAttach` settles it as held, so an
+ * attach that found nothing to stream is retried by later events. The
  * feed closes while the tab is hidden and reopens with a fresh snapshot; a
  * failed connection reopens a bounded number of times.
  */
@@ -138,7 +156,11 @@ export function useSessionFeed({
   workspaceId: string
   /** A request or reconnect is in flight. */
   busy: boolean
-  onAttach: () => void
+  /**
+   * Attach to the live segment, then call `settle` with whether the tab now
+   * holds it. Call it before `busy` clears, or not at all if nothing started.
+   */
+  onAttach: (settle: (held: boolean) => void) => void
   onRefresh: () => void
 }) {
   const handlersRef = useRef({ onAttach, onRefresh })
@@ -154,12 +176,16 @@ export function useSessionFeed({
       return
     }
     deferredRef.current = null
-    if (action.kind === "attach") {
-      stateRef.current.attachedStreamId = action.streamId
-      handlersRef.current.onAttach()
-    } else {
+    if (action.kind === "refresh") {
       handlersRef.current.onRefresh()
+      return
     }
+    const state = stateRef.current
+    // The attach that kept the tab busy may have settled this segment already.
+    if (action.streamId === state.attachedStreamId) return
+    handlersRef.current.onAttach((held) => {
+      if (held) state.attachedStreamId = action.streamId
+    })
   }
   const runRef = useRef(run)
   runRef.current = run

@@ -149,7 +149,7 @@ describe("feedActionFor", () => {
       }) as const
     const held: FeedState = {
       attachedStreamId: "s0",
-      known: { runId: "r1", paused: false, feedId: "3-0" },
+      known: { runId: "r1", paused: false, streamId: "s0", feedId: "3-0" },
     }
     expect(feedActionFor(liveAt("3-0"), held)).toBeNull()
     expect(feedActionFor(liveAt("5-0"), held)).toEqual({ kind: "refresh" })
@@ -167,13 +167,13 @@ describe("feedActionFor", () => {
     expect(
       feedActionFor(idleSnapshot, {
         attachedStreamId: null,
-        known: { runId: null, paused: false, feedId: null },
+        known: { runId: null, paused: false, streamId: null, feedId: null },
       })
     ).toBeNull()
     expect(
       feedActionFor(idleSnapshot, {
         attachedStreamId: "s0",
-        known: { runId: "r1", paused: true, feedId: null },
+        known: { runId: "r1", paused: true, streamId: "s0", feedId: null },
       })
     ).toEqual({ kind: "refresh" })
   })
@@ -196,6 +196,41 @@ describe("feedActionFor", () => {
     }
     expect(feedActionFor(idleAt("7-0"), seen)).toBeNull()
     expect(feedActionFor(idleAt("9-0"), seen)).toEqual({ kind: "refresh" })
+  })
+
+  it("refreshes on a paused snapshot whose segment moved", () => {
+    const pausedOn = (streamId: string) =>
+      ({
+        type: "snapshot",
+        run_id: "r1",
+        stream_id: streamId,
+        paused: true,
+        feed_id: "4-0",
+      }) as const
+    const seen: FeedState = {
+      attachedStreamId: "s0",
+      known: knownStateAfter(
+        { type: "run.paused", run_id: "r1", stream_id: "s0" },
+        "4-0"
+      ),
+    }
+    expect(feedActionFor(pausedOn("s0"), seen)).toBeNull()
+    expect(feedActionFor(pausedOn("s1"), seen)).toEqual({ kind: "refresh" })
+  })
+
+  it("never attaches to a run without its own segment", () => {
+    expect(
+      feedActionFor(
+        { type: "run.started", run_id: "r1", stream_id: null },
+        idle
+      )
+    ).toEqual({ kind: "refresh" })
+    expect(
+      feedActionFor(
+        { type: "snapshot", run_id: "r1", stream_id: null, paused: false },
+        idle
+      )
+    ).toBeNull()
   })
 })
 
@@ -330,6 +365,27 @@ const NO_CONTENT: FakeResponse = {
   body: null,
   text: async () => "",
 }
+
+/** A `/stream` response carrying these UI message chunks. */
+function sseResponse(chunks: object[]): FakeResponse {
+  const frames = [...chunks.map((c) => JSON.stringify(c)), "[DONE]"]
+    .map((data) => `data: ${data}\n\n`)
+    .join("")
+  return {
+    ok: true,
+    status: 200,
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(frames))
+        controller.close()
+      },
+    }),
+    text: async () => frames,
+  }
+}
+
+/** What `/stream` sends for a turn Temporal cannot see yet or that ended. */
+const FINISHED_ONLY = [{ type: "start", messageId: "m1" }, { type: "finish" }]
 
 describe("useVercelChat with the session feed", () => {
   const fetchMock = jest.fn(
@@ -565,6 +621,57 @@ describe("useVercelChat with the session feed", () => {
         queryKey: ["chat", "chat-1", "workspace-1", "vercel"],
       })
     )
+    expect(streamRequests()).toHaveLength(1)
+  })
+
+  it("re-attaches a segment whose reconnect found nothing to stream", async () => {
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(sseResponse(FINISHED_ONLY))
+    )
+    const { result } = renderChat(new QueryClient())
+    const started = { type: "run.started", run_id: "r1", stream_id: "s0" }
+
+    // A snapshot between the ownership commit and the workflow start.
+    act(() => {
+      FakeEventSource.latest().deliver({
+        ...started,
+        type: "snapshot",
+        paused: false,
+      })
+    })
+    await waitFor(() => expect(streamRequests()).toHaveLength(1))
+    await waitFor(() => expect(result.current.status).toBe("ready"))
+
+    act(() => {
+      FakeEventSource.latest().deliver(started)
+    })
+    await waitFor(() => expect(streamRequests()).toHaveLength(2))
+  })
+
+  it("does not re-attach a segment that streamed", async () => {
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        sseResponse([
+          { type: "start", messageId: "m1" },
+          { type: "text-start", id: "t1" },
+          { type: "text-delta", id: "t1", delta: "hi" },
+          { type: "text-end", id: "t1" },
+          { type: "finish" },
+        ])
+      )
+    )
+    const { result } = renderChat(new QueryClient())
+    const started = { type: "run.started", run_id: "r1", stream_id: "s0" }
+
+    act(() => {
+      FakeEventSource.latest().deliver(started)
+    })
+    await waitFor(() => expect(streamRequests()).toHaveLength(1))
+    await waitFor(() => expect(result.current.status).toBe("ready"))
+
+    act(() => {
+      FakeEventSource.latest().deliver(started)
+    })
     expect(streamRequests()).toHaveLength(1)
   })
 })
