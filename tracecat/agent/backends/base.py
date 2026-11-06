@@ -47,6 +47,7 @@ from tracecat.agent.backends.types import (
 from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.references.contracts import ReferenceCapabilities
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
 from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -108,6 +109,16 @@ async def claim_unstarted_workflow_id(client: Client, workflow_id: str) -> bool:
             "Failed to terminate agent turn tombstone", workflow_id=workflow_id
         )
     return True
+
+
+async def _publish_run_finished(context: SessionTurnContext, run_id: UUID) -> None:
+    """Tell open tabs a released reservation will not produce more output."""
+    await publish_session_event(
+        workspace_id=context.session.workspace_id,
+        session_id=context.session.id,
+        type=SessionFeedEventType.RUN_FINISHED,
+        run_id=run_id,
+    )
 
 
 class AgentBackend[InputT, OutputT](ABC):
@@ -314,7 +325,10 @@ class AgentBackend[InputT, OutputT](ABC):
             .returning(AgentSession.id)
         )
         await context.db.commit()
-        return released is not None
+        if released is None:
+            return False
+        await _publish_run_finished(context, run_id)
+        return True
 
     @staticmethod
     async def _outlived_start_deadline(context: SessionTurnContext) -> bool:
@@ -419,6 +433,13 @@ class AgentBackend[InputT, OutputT](ABC):
                 else:
                     await context.db.rollback()
         else:
+            await publish_session_event(
+                workspace_id=context.session.workspace_id,
+                session_id=session_id,
+                type=SessionFeedEventType.RUN_STARTED,
+                run_id=context.run_id,
+                stream_id=context.stream_id,
+            )
             return
         if not dispatch.committed:
             if dispatch.commit_attempted and not commit_reconciled:
@@ -451,6 +472,7 @@ class AgentBackend[InputT, OutputT](ABC):
                 pass
             else:
                 if released is not None:
+                    await _publish_run_finished(context, context.run_id)
                     raise RuntimeError("Agent workflow start was rejected")
         # Raise outside the handler so SDK context cannot leak. Ownership stays
         # reserved because a lost acknowledgement cannot prove dispatch failed.
@@ -487,10 +509,14 @@ class AgentBackend[InputT, OutputT](ABC):
                     .returning(AgentSession.id)
                 )
                 await db.commit()
-            # If ownership changed, suppress the router's less restrictive cleanup.
-            return released is not None
         except Exception:
             return False
+        else:
+            # If ownership changed, suppress the router's less restrictive cleanup.
+            if released is None:
+                return False
+            await _publish_run_finished(context, context.run_id)
+            return True
         finally:
             ctx_role.reset(role_token)
 

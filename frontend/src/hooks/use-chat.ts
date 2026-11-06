@@ -33,6 +33,7 @@ import {
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { useSessionFeed } from "@/hooks/use-session-feed"
 import { getBaseUrl } from "@/lib/api"
 import {
   CHAT_MESSAGES_THROTTLE_MS,
@@ -781,6 +782,8 @@ export function useVercelChat({
   // on. Read it through a ref when the request is built instead.
   const pageContextRef = useRef(pageContext)
   pageContextRef.current = pageContext
+  // Whether the reconnect in flight streamed turn output, not just a finish.
+  const reconnectStreamedRef = useRef(false)
 
   // Use Vercel's useChat hook for streaming. On reconnect the server replays the
   // whole active turn from the start (it hides the active run's DB rows mid-turn,
@@ -795,6 +798,9 @@ export function useVercelChat({
     transport: new CoalescingChatTransport({
       api: apiEndpoint,
       credentials: "include",
+      onReconnectContent: () => {
+        reconnectStreamedRef.current = true
+      },
       prepareReconnectToStreamRequest: () => {
         if (!chatId) throw new Error("Reconnecting needs a chat id")
         return {
@@ -912,23 +918,64 @@ export function useVercelChat({
   } | null>(null)
   const statusRef = useRef(status)
   statusRef.current = status
+  // State, not just the ref, so the feed sees a 204 reconnect settle.
+  const [resumePending, setResumePending] = useState(false)
+  const startResume = useCallback(
+    (onSettled?: (streamed: boolean) => void) => {
+      if (!chatKey) return
+      // A strict-mode re-run reuses the reconnect already in flight, and a
+      // request already in flight owns the turn it would reconnect to.
+      if (pendingResumeRef.current?.chatKey === chatKey) return
+      if (
+        statusRef.current === "submitted" ||
+        statusRef.current === "streaming"
+      )
+        return
+      requestKindRef.current = "resume"
+      reconnectStreamedRef.current = false
+      setResumePending(true)
+      const done = resumeStream().finally(() => {
+        if (pendingResumeRef.current?.done === done) {
+          pendingResumeRef.current = null
+          // Before the feed sees the tab idle, so held events see the outcome.
+          onSettled?.(reconnectStreamedRef.current)
+          setResumePending(false)
+        }
+      })
+      pendingResumeRef.current = { chatKey, done }
+    },
+    [chatKey, resumeStream]
+  )
   // A chat Retry reconnected resumes even when `resume` is off.
   const shouldResume = Boolean(chatKey) && (resume || generation > 0)
   useEffect(() => {
-    if (!shouldResume || !chatKey) return
-    // A strict-mode re-run reuses the reconnect already in flight, and a
-    // request already in flight owns the turn it would reconnect to.
-    if (pendingResumeRef.current?.chatKey === chatKey) return
-    if (statusRef.current === "submitted" || statusRef.current === "streaming")
-      return
-    requestKindRef.current = "resume"
-    const done = resumeStream().finally(() => {
-      if (pendingResumeRef.current?.done === done) {
-        pendingResumeRef.current = null
+    if (shouldResume) startResume()
+  }, [shouldResume, startResume])
+  // Runs started, resumed, or finished elsewhere reach this tab through the feed.
+  const refreshFromFeed = useCallback(() => {
+    invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
+  }, [queryClient, chatId, workspaceId])
+  useSessionFeed({
+    chatId,
+    workspaceId,
+    busy: status === "submitted" || status === "streaming" || resumePending,
+    onAttach: (settle) => {
+      // A dropped stream's Chat keeps its partial state, so a replay would
+      // duplicate it; Retry owns reconnecting with a fresh Chat.
+      const dropped =
+        statusRef.current === "error" &&
+        lastError !== null &&
+        lastError.chatKey === chatKey &&
+        lastError.disconnected
+      if (dropped) {
+        refreshFromFeed()
+        settle(true)
+      } else {
+        startResume(settle)
       }
-    })
-    pendingResumeRef.current = { chatKey, done }
-  }, [chatKey, shouldResume, resumeStream])
+    },
+    onRefresh: refreshFromFeed,
+  })
   const waitForResume = useCallback(async () => {
     const pending = pendingResumeRef.current
     if (pending && pending.chatKey === chatKey) await pending.done

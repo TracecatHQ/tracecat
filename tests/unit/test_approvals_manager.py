@@ -26,6 +26,7 @@ from tracecat_ee.agent.context import AgentContext
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession, Approval, User
@@ -312,6 +313,47 @@ class TestRecordApprovalRequestsActivity:
             assert approval2.tool_name == "test_tool_2"
             assert approval2.tool_call_args == {"param": "value2"}
             assert approval2.status == ApprovalStatus.PENDING
+
+    @pytest.mark.parametrize("running", [True, False])
+    async def test_record_approvals_publishes_pause_for_the_running_turn(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+        running: bool,
+    ) -> None:
+        """Open tabs learn the turn is waiting on a decision."""
+        run_id, stream_id = uuid.uuid4(), uuid.uuid4()
+        if running:
+            mock_agent_session.curr_run_id = run_id
+            mock_agent_session.active_stream_id = stream_id
+            await session.commit()
+        input_data = PersistApprovalsActivityInputs(
+            role=svc_role,
+            session_id=mock_agent_session.id,
+            approvals=[
+                ToolApprovalPayload(
+                    tool_call_id="call_123", tool_name="test_tool", args={}
+                )
+            ],
+        )
+
+        with patch(
+            "tracecat_ee.agent.approvals.service.publish_session_event",
+            new_callable=AsyncMock,
+        ) as publish:
+            await ApprovalManager.record_approval_requests(input_data)
+
+        if running:
+            publish.assert_awaited_once_with(
+                workspace_id=svc_role.workspace_id,
+                session_id=mock_agent_session.id,
+                type=SessionFeedEventType.RUN_PAUSED,
+                run_id=run_id,
+                stream_id=stream_id,
+            )
+        else:
+            publish.assert_not_awaited()
 
     async def test_record_approvals_upsert_existing(
         self,

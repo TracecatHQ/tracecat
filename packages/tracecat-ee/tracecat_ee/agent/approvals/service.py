@@ -15,6 +15,7 @@ from temporalio import activity, workflow
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
+from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
 from tracecat.agent.types import (
     DeferredToolApprovalResult,
     DeferredToolResults,
@@ -23,7 +24,7 @@ from tracecat.agent.types import (
 )
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
-from tracecat.db.models import Approval, User, Workflow
+from tracecat.db.models import AgentSession, Approval, User, Workflow
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat_ee.agent.activities import (
@@ -626,3 +627,22 @@ class ApprovalManager:
                             tool_call_args=approval_args,
                         )
                     )
+            owner = (
+                await service.session.execute(
+                    select(
+                        AgentSession.curr_run_id, AgentSession.active_stream_id
+                    ).where(
+                        AgentSession.id == input.session_id,
+                        AgentSession.workspace_id == service.workspace_id,
+                    )
+                )
+            ).one_or_none()
+
+        if owner is not None and owner.curr_run_id is not None:
+            await publish_session_event(
+                workspace_id=service.workspace_id,
+                session_id=input.session_id,
+                type=SessionFeedEventType.RUN_PAUSED,
+                run_id=owner.curr_run_id,
+                stream_id=owner.active_stream_id,
+            )
