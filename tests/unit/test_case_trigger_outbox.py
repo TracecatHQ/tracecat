@@ -18,6 +18,7 @@ from tracecat.cases.event_schemas import (
     ClosedEvent,
     CommentCreatedEvent,
     CreatedEvent,
+    TagAddedEvent,
     UpdatedEvent,
 )
 from tracecat.cases.events import CaseEventsService
@@ -432,6 +433,35 @@ class TestOutboxDispatch:
         assert [call.kwargs["wf_id"] for call in start.await_args_list] == [
             WorkflowUUID.new(matching.workflow_id)
         ]
+
+    @pytest.mark.parametrize(
+        ("event_tag_ref", "started"), [("filtered", True), ("unrelated", False)]
+    )
+    async def test_tag_events_match_the_event_tag(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+        event_tag_ref: str,
+        started: bool,
+    ) -> None:
+        """A tag event matches the tag it added, not the case's current tags."""
+        await _add_trigger(
+            session, svc_role, event_types=["tag_added"], tag_filters=["filtered"]
+        )
+        await CaseEventsService(session=session, role=svc_role).create_event(
+            test_case,
+            TagAddedEvent(
+                tag_id=uuid.uuid4(), tag_ref=event_tag_ref, tag_name=event_tag_ref
+            ),
+        )
+        await session.commit()
+
+        start = AsyncMock()
+        with _dispatch_mocks(start):
+            await _dispatch_only_row()
+
+        assert start.await_count == int(started)
 
     async def test_invalid_trigger_definition_disables_trigger(
         self, session: AsyncSession, svc_role: Role, test_case: Case

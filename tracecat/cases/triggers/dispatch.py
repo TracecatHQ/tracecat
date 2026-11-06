@@ -21,6 +21,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.cases.enums import CaseEventType
 from tracecat.cases.schemas import CaseCommentWorkflowStatus
 from tracecat.cases.triggers.audit import audit_comment_workflow_execution
 from tracecat.cases.triggers.outbox import online_trigger_filter
@@ -65,6 +66,7 @@ PERMANENT_START_ERRORS: tuple[type[Exception], ...] = (
     TypeError,
     ArithmeticError,
 )
+_TAG_EVENT_TYPES = frozenset({CaseEventType.TAG_ADDED, CaseEventType.TAG_REMOVED})
 
 
 def case_trigger_exec_id(
@@ -106,6 +108,18 @@ async def _touch_outbox_row(row_id: int) -> None:
             .values(updated_at=func.clock_timestamp())
         )
         await session.commit()
+
+
+def _filter_tag_refs(case: Case, event: CaseEvent) -> set[str]:
+    """Tag refs that a trigger's tag_filters are matched against.
+
+    Tag events match the added or removed tag; other events match the case's
+    current tags.
+    """
+    if event.type in _TAG_EVENT_TYPES:
+        tag_ref = event.data.get("tag_ref") if event.data else None
+        return {tag_ref} if tag_ref else set()
+    return {tag.ref for tag in case.tags}
 
 
 def _tags_payload(case: Case) -> list[CaseTriggerTag]:
@@ -339,14 +353,14 @@ class CaseTriggerOutboxDispatcher:
                 )
             )
         ).all()
-        case_tag_refs = {tag.ref for tag in case.tags}
+        filter_tag_refs = _filter_tag_refs(case, event)
         for trigger in triggers:
             if (
                 comment_workflow is not None
                 and trigger.workflow_id == comment_workflow.workflow_id
             ):
                 continue
-            if trigger.tag_filters and not case_tag_refs.intersection(
+            if trigger.tag_filters and not filter_tag_refs.intersection(
                 trigger.tag_filters
             ):
                 continue
