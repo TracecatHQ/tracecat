@@ -116,7 +116,7 @@ def _connect() -> duckdb.DuckDBPyConnection:
     _cap_malloc_arenas()
     config: dict[str, str | bool | int | float | list[str]] = {}
     if extension_directory := _extension_directory():
-        config["extension_directory"] = extension_directory
+        config["extension_directories"] = [extension_directory]
     if (threads := _thread_limit()) is not None:
         config["threads"] = threads
     return duckdb.connect(config=config)
