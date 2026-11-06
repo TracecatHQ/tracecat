@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Get case content
+  description: >-
+    Get case item. Allows supported ticketing systems to retrieved the specified case item in
+    Case Management. Calls GET /v3.0/caseManagement/cases/{id}/contents/{contentId}.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1{id}~1contents~1{contentId}/get
+  namespace: tools.trend_vision_one
+  name: get_case_content
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: >-
+        The case ID.
+    contentId:
+      type: str
+      description: >-
+        The content ID.
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/caseManagement/cases/${{ FN.url_encode(inputs.id) }}/contents/${{ FN.url_encode(inputs.contentId) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+  returns: ${{ steps.request.result }}

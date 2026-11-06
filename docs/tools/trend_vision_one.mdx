@@ -40,6 +40,56 @@ Default: `null`.
 
 </ParamField>
 
+## Add case attachment
+
+Action ID: `tools.trend_vision_one.add_case_attachment`
+
+Add an attachment. Allows supported ticketing systems to add attachments to a case in Case Management. Calls POST /v3.0/caseManagement/cases/&#123;id&#125;/attachments.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1attachments/post](https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1attachments/post)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="file" type="string" required>
+
+Base64-encoded file content to upload.
+
+</ParamField>
+
+<ParamField path="filename" type="string" required>
+
+Name of the uploaded file, including its extension.
+
+</ParamField>
+
+<ParamField path="id" type="string" required>
+
+The case ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="externalAttachmentId" type="string | null">
+
+The attachment ID in the third-party ticketing system
+
+Default: `null`.
+
+</ParamField>
+
 ## Add case content
 
 Action ID: `tools.trend_vision_one.add_case_content`
@@ -220,6 +270,42 @@ Default: `null`.
 
 </ParamField>
 
+## Close case risk events
+
+Action ID: `tools.trend_vision_one.close_case_risk_events`
+
+Close risk events related to case. Sets the status of all the risk events associated to a case ID to any of the following statuses. Calls POST /v3.0/caseManagement/cases/&#123;id&#125;/riskIndicatorEvents/close.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1riskIndicatorEvents~1close/post](https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1riskIndicatorEvents~1close/post)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The ID of the case.
+
+</ParamField>
+
+<ParamField path="status" type="string" required>
+
+The new status of the case's risk events. Supported values: remediated, dismissed, accepted.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
 ## Collect file from endpoints
 
 Action ID: `tools.trend_vision_one.collect_file`
@@ -280,6 +366,114 @@ Default: `null`.
 
 </ParamField>
 
+## Delete alert notes
+
+Action ID: `tools.trend_vision_one.delete_alert_notes`
+
+Delete alert notes. Deletes the specified notes from a Workbench alert. Calls POST /v3.0/workbench/alerts/&#123;alertId&#125;/notes/delete.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Workbench-notes/paths/~1v3.0~1workbench~1alerts~1&#123;alertId&#125;~1notes~1delete/post](https://automation.trendmicro.com/xdr/api-v3/#tag/Workbench-notes/paths/~1v3.0~1workbench~1alerts~1&#123;alertId&#125;~1notes~1delete/post)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="alertId" type="string" required>
+
+Unique alphanumeric string that identifies a Workbench alert.
+
+</ParamField>
+
+<ParamField path="notes" type="array[object]" required>
+
+JSON array sent as the request body. Documented item fields: id (required).
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+## Delete case attachment
+
+Action ID: `tools.trend_vision_one.delete_case_attachment`
+
+Delete an attachment. Allows supported ticketing systems to delete the specified attachment from a case in Case Management. Calls DELETE /v3.0/caseManagement/cases/&#123;id&#125;/attachments/&#123;attachmentId&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1attachments~1&#123;attachmentId&#125;/delete](https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1attachments~1&#123;attachmentId&#125;/delete)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="attachmentId" type="string" required>
+
+The attachment ID.
+
+</ParamField>
+
+<ParamField path="id" type="string" required>
+
+The case ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+## Delete case content
+
+Action ID: `tools.trend_vision_one.delete_case_content`
+
+Delete case content using content ID. Allows supported ticketing systems to delete the specified item from a case in Case Management. Calls DELETE /v3.0/caseManagement/cases/&#123;id&#125;/contents/&#123;contentId&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1contents~1&#123;contentId&#125;/delete](https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1contents~1&#123;contentId&#125;/delete)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="contentId" type="string" required>
+
+The content ID.
+
+</ParamField>
+
+<ParamField path="id" type="string" required>
+
+The case ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
 ## Delete email messages
 
 Action ID: `tools.trend_vision_one.delete_emails`
@@ -329,6 +523,42 @@ Required secrets:
 <ParamField path="accounts" type="array[object]" required>
 
 JSON array sent as the request body. Documented item fields: accountName (required), description.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+## Download case attachment
+
+Action ID: `tools.trend_vision_one.download_case_attachment`
+
+Download attachment by attachment ID. Allows supported ticketing systems to retrieve the specified attachment from a case in Case Management. Calls GET /v3.0/caseManagement/cases/&#123;id&#125;/attachments/&#123;attachmentId&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1attachments~1&#123;attachmentId&#125;/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1attachments~1&#123;attachmentId&#125;/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="attachmentId" type="string" required>
+
+The attachment ID.
+
+</ParamField>
+
+<ParamField path="id" type="string" required>
+
+The case ID.
 
 </ParamField>
 
@@ -490,6 +720,42 @@ Default: `null`.
 
 </ParamField>
 
+## Get alert note
+
+Action ID: `tools.trend_vision_one.get_alert_note`
+
+Get alert note. Displays the specified Workbench alert note. Calls GET /v3.0/workbench/alerts/&#123;alertId&#125;/notes/&#123;id&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Workbench-notes/paths/~1v3.0~1workbench~1alerts~1&#123;alertId&#125;~1notes~1&#123;id&#125;/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Workbench-notes/paths/~1v3.0~1workbench~1alerts~1&#123;alertId&#125;~1notes~1&#123;id&#125;/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="alertId" type="string" required>
+
+Unique alphanumeric string that identifies a Workbench alert.
+
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+
+Numeric string that identifies a Workbench alert note.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
 ## Get case
 
 Action ID: `tools.trend_vision_one.get_case`
@@ -509,6 +775,42 @@ Required secrets:
 <ParamField path="id" type="string" required>
 
 Case ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+## Get case content
+
+Action ID: `tools.trend_vision_one.get_case_content`
+
+Get case item. Allows supported ticketing systems to retrieved the specified case item in Case Management. Calls GET /v3.0/caseManagement/cases/&#123;id&#125;/contents/&#123;contentId&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1contents~1&#123;contentId&#125;/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1contents~1&#123;contentId&#125;/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="contentId" type="string" required>
+
+The content ID.
+
+</ParamField>
+
+<ParamField path="id" type="string" required>
+
+The case ID.
 
 </ParamField>
 
@@ -1245,6 +1547,68 @@ Default: `null`.
 <ParamField path="top" type="integer | null">
 
 The number of case notes retrieved per page. If no value is specified, the request retrieves a maximum of the top 50 notes. Allowed values: 10, 50, 100. Provider default: 50.
+
+Default: `null`.
+
+</ParamField>
+
+## List case risk events
+
+Action ID: `tools.trend_vision_one.list_case_risk_events`
+
+Get risk indicators in specified case. Displays the risk indicators associated to a case ID. Calls GET /v3.0/caseManagement/cases/&#123;id&#125;/riskIndicatorEvents.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1riskIndicatorEvents/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1riskIndicatorEvents/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The ID of the case on the Trend Vision One platform.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="orderBy" type="string | null">
+
+The field by which the results are sorted. Provider default: detectedDateTime desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="skipToken" type="string | null">
+
+Pagination token from the skipToken query parameter of the nextLink returned by the previous page. Reuse the same filters when requesting the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tmv1_filter" type="string | null">
+
+The filter for retrieving a subset of the cloud asset information list. Supported fields: id, riskLevel, riskFactor, status, detectedDateTime. Sent as the TMV1-Filter header.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="top" type="integer | null">
+
+The number of records displayed on a page. Allowed values: 10, 50, 100, 200, 500, 1000. Provider default: 100.
 
 Default: `null`.
 
@@ -3530,6 +3894,56 @@ Default: `null`.
 
 </ParamField>
 
+## Update alert note
+
+Action ID: `tools.trend_vision_one.update_alert_note`
+
+Edit alert note. Modifies the content of the specified Workbench alert note. Calls PATCH /v3.0/workbench/alerts/&#123;alertId&#125;/notes/&#123;id&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Workbench-notes/paths/~1v3.0~1workbench~1alerts~1&#123;alertId&#125;~1notes~1&#123;id&#125;/patch](https://automation.trendmicro.com/xdr/api-v3/#tag/Workbench-notes/paths/~1v3.0~1workbench~1alerts~1&#123;alertId&#125;~1notes~1&#123;id&#125;/patch)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="alertId" type="string" required>
+
+Unique alphanumeric string that identifies a Workbench alert.
+
+</ParamField>
+
+<ParamField path="content" type="string" required>
+
+New content of the alert note (up to 500,000 characters).
+
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+
+Numeric string that identifies a Workbench alert note.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="if_match" type="string | null">
+
+Parameter that allows you to specify the version of the resource to be updated. Sent as the If-Match header.
+
+Default: `null`.
+
+</ParamField>
+
 ## Update case
 
 Action ID: `tools.trend_vision_one.update_case`
@@ -3555,6 +3969,56 @@ The case ID.
 <ParamField path="payload" type="object" required>
 
 API-native JSON request body. Documented fields for PATCH /v3.0/caseManagement/cases/&#123;id&#125;: associatedItemIds, description, findings, name, priority, relatedCaseIds, status, holder, externalTicketId, externalTicketUpdatedDateTime.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="if_match" type="string | null">
+
+Provide the ETag of the resource to be updated. Sent as the If-Match header.
+
+Default: `null`.
+
+</ParamField>
+
+## Update case content
+
+Action ID: `tools.trend_vision_one.update_case_content`
+
+Update the case content. Allows supported ticketing systems to update the specified case item in Case Management. Calls PATCH /v3.0/caseManagement/cases/&#123;id&#125;/contents/&#123;contentId&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1contents~1&#123;contentId&#125;/patch](https://automation.trendmicro.com/xdr/api-v3/#tag/Case/paths/~1v3.0~1caseManagement~1cases~1&#123;id&#125;~1contents~1&#123;contentId&#125;/patch)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="contentId" type="string" required>
+
+The content ID.
+
+</ParamField>
+
+<ParamField path="id" type="string" required>
+
+The case ID.
+
+</ParamField>
+
+<ParamField path="payload" type="object" required>
+
+API-native JSON request body. Documented fields for PATCH /v3.0/caseManagement/cases/&#123;id&#125;/contents/&#123;contentId&#125;: attachmentIds, comment.
 
 </ParamField>
 
