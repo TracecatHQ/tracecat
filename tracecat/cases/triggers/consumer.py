@@ -87,6 +87,10 @@ class CaseTriggerConsumer:
                     if not group_ready:
                         await self._ensure_group()
                         group_ready = True
+                        # Group setup can take a while; don't start a blocking
+                        # read if shutdown began meanwhile.
+                        if self._stop_signalled():
+                            break
                     if not started:
                         logger.info(
                             "Case trigger consumer started",

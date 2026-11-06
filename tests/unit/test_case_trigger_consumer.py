@@ -1072,8 +1072,12 @@ async def test_case_trigger_consumer_backoff_returns_on_stop(
     consumer._ensure_group = AsyncMock()
 
     task = asyncio.create_task(consumer.run())
-    while client.xreadgroup.await_count == 0:
-        await asyncio.sleep(0.01)
+
+    async def first_read() -> None:
+        while client.xreadgroup.await_count == 0:
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(first_read(), timeout=2)
     stop.set()
 
     await asyncio.wait_for(task, timeout=2)
