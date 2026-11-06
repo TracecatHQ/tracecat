@@ -15,11 +15,13 @@ from datetime import timedelta
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy
+from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
     from tracecat.cases.triggers.dispatch import (
         CaseTriggerOutboxDispatcher,
+        CaseTriggerRetryNotRecordedError,
         list_outbox_row_ids,
         outbox_has_rows,
     )
@@ -66,13 +68,15 @@ async def dispatch_case_trigger_outbox_batch() -> int:
     at once, each committing on its own, so one failing row does not hold back
     or cancel the rest. A row that fails stays queued and sits out batches for
     ``OUTBOX_RETRY_DELAY``; it does not fail the activity, so the activity's
-    retry backoff never delays healthy rows. The activity fails only when the
-    batch itself cannot run. Heartbeats carry the number of rows finished so
-    far.
+    retry backoff never delays healthy rows. The activity fails when the batch
+    itself cannot run, or, once every row was tried, when a failed row's retry
+    delay could not be recorded. Heartbeats carry the number of rows finished
+    so far.
     """
     if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
         return 0
     finished = 0
+    unrecorded = 0
     dispatcher = CaseTriggerOutboxDispatcher(
         heartbeat=lambda: activity.heartbeat(finished)
     )
@@ -80,11 +84,19 @@ async def dispatch_case_trigger_outbox_batch() -> int:
     slots = asyncio.Semaphore(config.TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY)
 
     async def dispatch(row_id: int) -> bool:
-        nonlocal finished
+        nonlocal finished, unrecorded
         async with slots:
             activity.heartbeat(finished)
             try:
                 await dispatcher.dispatch_row(row_id)
+            except CaseTriggerRetryNotRecordedError as e:
+                unrecorded += 1
+                logger.warning(
+                    "Failed to record a case trigger outbox row's retry delay",
+                    outbox_row=row_id,
+                    error_type=type(e.__cause__).__name__,
+                )
+                return False
             except Exception as e:
                 logger.warning(
                     "Failed to dispatch case trigger outbox row",
@@ -101,6 +113,12 @@ async def dispatch_case_trigger_outbox_batch() -> int:
     # task cancels the rest, so no row keeps running after the activity ends.
     async with asyncio.TaskGroup() as tasks:
         dispatched = [tasks.create_task(dispatch(row_id)) for row_id in row_ids]
+    if unrecorded:
+        raise ApplicationError(
+            f"{unrecorded} failed case trigger outbox rows could not record "
+            "their retry delay",
+            type="CaseTriggerDispatchError",
+        )
     return sum(task.result() for task in dispatched)
 
 

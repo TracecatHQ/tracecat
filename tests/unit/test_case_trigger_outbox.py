@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
 from tracecat.auth.types import Role
@@ -35,6 +35,7 @@ from tracecat.cases.service import CasesService
 from tracecat.cases.triggers.dispatch import (
     OUTBOX_RETRY_DELAY,
     CaseTriggerOutboxDispatcher,
+    CaseTriggerRetryNotRecordedError,
     CaseTriggerStartUnknownError,
     case_trigger_exec_id,
     list_outbox_row_ids,
@@ -448,6 +449,29 @@ class TestOutboxDispatch:
         assert await outbox_has_rows()
         assert await list_outbox_row_ids() == [first, second]
 
+    async def test_unrecorded_retry_delay_is_reported_apart(
+        self, session: AsyncSession, svc_role: Role, test_case: Case
+    ) -> None:
+        """A failed row whose retry delay can't be recorded is ready again at once.
+
+        It raises its own error so the batch can fail and back off instead of
+        retrying the row in a tight loop.
+        """
+        await _add_trigger(session, svc_role, event_types=["case_updated"])
+        await _add_update_event(session, svc_role, test_case)
+        (row_id,) = await list_outbox_row_ids()
+
+        start = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
+        with (
+            _dispatch_mocks(start),
+            patch(
+                "tracecat.cases.triggers.dispatch._touch_outbox_row",
+                new=AsyncMock(side_effect=RuntimeError("pool timeout")),
+            ),
+            pytest.raises(CaseTriggerRetryNotRecordedError),
+        ):
+            await CaseTriggerOutboxDispatcher().dispatch_row(row_id)
+
     async def test_batches_take_each_workspace_in_turn(
         self, session: AsyncSession, svc_role: Role, test_case: Case
     ) -> None:
@@ -829,6 +853,33 @@ async def test_batch_dispatches_rows_concurrently_up_to_the_bound(
     assert len(progress) == len(row_ids)
     assert progress == sorted(progress)
     assert progress[-1] == len(row_ids) - 3
+
+
+@pytest.mark.anyio
+async def test_batch_fails_after_all_rows_when_a_retry_delay_is_not_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row that could not record its retry delay fails the batch into backoff,
+    but only after every other row in the batch was dispatched.
+    """
+    row_ids = [1, 2, 3, 4]
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.dispatcher.list_outbox_row_ids",
+        AsyncMock(return_value=row_ids),
+    )
+    finished: list[int] = []
+
+    async def dispatch_row(_: CaseTriggerOutboxDispatcher, row_id: int) -> None:
+        if row_id == 2:
+            raise CaseTriggerRetryNotRecordedError(row_id)
+        await asyncio.sleep(0.01)
+        finished.append(row_id)
+
+    monkeypatch.setattr(CaseTriggerOutboxDispatcher, "dispatch_row", dispatch_row)
+
+    with pytest.raises(ApplicationError, match="could not record"):
+        await ActivityEnvironment().run(dispatch_case_trigger_outbox_batch)
+    assert sorted(finished) == [1, 3, 4]
 
 
 @pytest.mark.anyio

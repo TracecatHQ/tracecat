@@ -229,6 +229,18 @@ def _parse_comment_workflow(
         return None
 
 
+class CaseTriggerRetryNotRecordedError(Exception):
+    """A row failed and its retry delay could not be recorded.
+
+    The row is ready again at once, so the batch must fail and back off rather
+    than retry it in a tight loop.
+    """
+
+    def __init__(self, row_id: int) -> None:
+        super().__init__(f"Could not record the retry delay of outbox row {row_id}")
+        self.row_id = row_id
+
+
 class CaseTriggerStartUnknownError(Exception):
     """Temporal could not say whether a run's start was accepted; retry later."""
 
@@ -303,7 +315,10 @@ class CaseTriggerOutboxDispatcher:
             if comment_error is not None:
                 raise comment_error
         except Exception:
-            await _touch_outbox_row(row_id)
+            try:
+                await _touch_outbox_row(row_id)
+            except Exception as e:
+                raise CaseTriggerRetryNotRecordedError(row_id) from e
             raise
 
     async def _dispatch_comment_workflow(self, row_id: int) -> Exception | None:
