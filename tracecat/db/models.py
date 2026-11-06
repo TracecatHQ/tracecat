@@ -3522,6 +3522,9 @@ class CaseTriggerOutbox(WorkspaceModel):
 
     __tablename__ = "case_trigger_outbox"
     __table_args__ = (
+        # The previous dispatch order; kept for the previous app version during
+        # rollout and dropped in a later release.
+        Index("ix_case_trigger_outbox_dispatch_order", "updated_at", "surrogate_id"),
         # The dispatcher takes each workspace's least recently attempted rows
         # in turn.
         Index(

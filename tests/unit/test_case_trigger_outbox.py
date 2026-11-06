@@ -857,15 +857,22 @@ async def test_overlapping_batches_start_each_run_once(
         ]
         session.add_all(events)
         await session.flush()
-        session.add_all(
+        rows = [
             CaseTriggerOutbox(
                 workspace_id=workspace_id, case_id=case.id, event_id=event.id
             )
             for event in events
-        )
+        ]
+        session.add_all(rows)
         await session.commit()
         workflow_id, case_id = workflow.id, case.id
         expected = sorted(case_trigger_exec_id(e.id, workflow_id) for e in events)
+    # This database is shared, so both attempts take only this test's rows and
+    # never dispatch queued work that belongs to anything else.
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.dispatcher.list_outbox_row_ids",
+        AsyncMock(return_value=[row.surrogate_id for row in rows]),
+    )
 
     started: list[str] = []
 
