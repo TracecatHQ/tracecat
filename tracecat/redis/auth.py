@@ -13,8 +13,11 @@
   expiry and redis-py re-sends ``AUTH`` on every pooled connection.
 
 Both IAM modes require verified TLS and retry transient handshake errors such
-as ElastiCache's ``IAM Authentication service is not available.`` Every mode
-reconnects and re-sends a command once the server has dropped its connection.
+as ElastiCache's ``IAM Authentication service is not available.``
+
+Dropped connections need no extra handling: before handing out an idle pooled
+connection, redis-py checks for the server's close and reconnects. A command
+in flight when its connection drops still fails, so nothing is replayed.
 """
 
 import asyncio
@@ -41,16 +44,13 @@ from redis.asyncio.connection import (
     SSLConnection,
     parse_url,
 )
-from redis.asyncio.retry import Retry
 from redis.auth.token import SimpleToken, TokenInterface
-from redis.backoff import ExponentialWithJitterBackoff
 from redis.credentials import CredentialProvider, StreamingCredentialProvider
 from redis.exceptions import (
     AuthenticationError,
     AuthorizationError,
     ConnectionError,
     ResponseError,
-    TimeoutError,
 )
 
 from tracecat import config
@@ -72,17 +72,21 @@ lead must stay under 300 seconds for a refresh to return a different token.
 AZURE_REFRESH_RETRY_SECONDS = 15
 """Wait between attempts while a refresh fails or returns the same token."""
 
+AZURE_REAUTH_TIMEOUT_SECONDS = 30
+"""Deadline for re-authenticating the pool after a refresh.
+
+redis-py holds the pool lock while it re-AUTHs idle connections. A half-open
+socket would otherwise hold it forever; cancelling closes that connection.
+"""
+
+AZURE_REDIS_SCOPE = "https://redis.azure.com/.default"
+"""Entra token scope (audience) for Azure Managed Redis."""
+
 IAM_AUTH_MAX_ATTEMPTS = 4
 """Handshake attempts per connection before a transient auth error is raised."""
 
 IAM_AUTH_BACKOFF_SECONDS = 0.5
 """Base for the exponential backoff between handshake attempts (0.5, 1, 2 s)."""
-
-RECONNECT_RETRIES = 3
-"""Times a command is re-sent on a fresh connection after a connection error."""
-
-RECONNECT_BACKOFF_BASE_SECONDS = 0.1
-RECONNECT_BACKOFF_CAP_SECONDS = 1.0
 
 _REPLICATION_GROUP_ID = re.compile(r"[a-z][a-z0-9-]*")
 
@@ -135,21 +139,6 @@ class IamHandshakeRetry(AbstractConnection):
 
 class IamSSLConnection(IamHandshakeRetry, SSLConnection):
     """Verified-TLS connection used by the IAM auth modes."""
-
-
-def reconnect_retry() -> Retry:
-    """Retry policy that replaces a dropped connection and re-sends the command.
-
-    redis-py does not notice a connection the server closed while it sat idle
-    in the pool, so without this the next command on it fails. Moving
-    ElastiCache to IAM (or a failover) closes every connection at once.
-    """
-    return Retry(
-        ExponentialWithJitterBackoff(
-            base=RECONNECT_BACKOFF_BASE_SECONDS, cap=RECONNECT_BACKOFF_CAP_SECONDS
-        ),
-        RECONNECT_RETRIES,
-    )
 
 
 def aws_iam_signing_url(replication_group_id: str, user_id: str) -> str:
@@ -270,7 +259,7 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
     def __init__(
         self,
         *,
-        scope: str,
+        scope: str = AZURE_REDIS_SCOPE,
         client_id: str | None = None,
         credential_factory: Callable[[], AsyncTokenCredential] | None = None,
     ) -> None:
@@ -349,7 +338,7 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
         )
         try:
             if (result := self._on_next(redis_token)) is not None:
-                await result
+                await asyncio.wait_for(result, timeout=AZURE_REAUTH_TIMEOUT_SECONDS)
         except Exception as exc:
             # Connections that miss the re-AUTH are closed by Azure at expiry
             # and reconnect with the new token.
@@ -405,9 +394,7 @@ def build_credential_provider() -> (
                 region=config.REDIS_AWS_REGION,
             )
         case "azure_entra":
-            return AzureEntraCredentialProvider(
-                scope=config.REDIS_AZURE_SCOPE, client_id=config.REDIS_AZURE_CLIENT_ID
-            )
+            return AzureEntraCredentialProvider(client_id=config.REDIS_AZURE_CLIENT_ID)
         case "password":
             raise ValueError("Password mode does not use a credential provider")
 
@@ -425,24 +412,20 @@ def _validate_iam_url(url: str, options: dict[str, Any]) -> None:
         )
     if options.get("ssl_cert_reqs", "required") not in ("required", ssl.CERT_REQUIRED):
         raise ValueError(f"REDIS_AUTH_MODE={mode} requires ssl_cert_reqs=required")
-    if options.get("ssl_check_hostname") is False:
+    if not options.get("ssl_check_hostname", True):
         raise ValueError(f"REDIS_AUTH_MODE={mode} requires ssl_check_hostname")
 
 
 def create_redis_client(url: str, **kwargs: Any) -> redis.Redis:
     """Create an asyncio Redis client that logs in per ``REDIS_AUTH_MODE``.
 
-    Takes the same arguments as ``redis.asyncio.Redis.from_url``. Every mode
-    re-sends a command on a fresh connection after a connection error
-    (``reconnect_retry``) unless the caller passes its own ``retry``. In
-    password mode it is otherwise ``from_url``. In the IAM modes the pool gets
-    the credential provider and ``IamSSLConnection``, after checking the URL
-    uses verified TLS and carries no static credentials.
+    Takes the same arguments as ``redis.asyncio.Redis.from_url``. In password
+    mode it is exactly ``from_url``. In the IAM modes the pool gets the
+    credential provider and ``IamSSLConnection``, after checking the URL uses
+    verified TLS and carries no static credentials.
 
     Close the client with ``close_redis_client`` so a token refresh task stops.
     """
-    kwargs.setdefault("retry", reconnect_retry())
-    kwargs.setdefault("retry_on_error", [ConnectionError, TimeoutError])
     if config.REDIS_AUTH_MODE == "password":
         return redis.from_url(url, **kwargs)
 

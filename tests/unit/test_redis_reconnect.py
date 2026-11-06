@@ -2,7 +2,9 @@
 
 Moving ElastiCache from an auth token to IAM (and any failover) closes every
 open client connection once. These tests reproduce that against the local
-Redis with ``CLIENT KILL`` and check each kind of Redis user keeps working:
+Redis with ``CLIENT KILL`` and check each kind of Redis user keeps working
+(idle connections are replaced transparently; a command in flight fails and
+is retried only where the caller already retries):
 pooled commands, blocking stream reads, the case-trigger and case-duration
 consumers, the factory clients used by MCP, and IAM-mode pools (token login
 and Entra re-AUTH) on top of the same factory.
@@ -77,6 +79,17 @@ def kill_connections() -> int:
         return killed
 
 
+async def drop_connections() -> int:
+    """Kill connections, then let the event loop see the server close them.
+
+    In production the loop keeps running after a cutover; the kill above is a
+    blocking call, so without this pause no connection has noticed yet.
+    """
+    killed = kill_connections()
+    await asyncio.sleep(0.05)
+    return killed
+
+
 async def wait_for(
     condition: Callable[[], bool | Awaitable[bool]], timeout: float = 5.0
 ) -> None:
@@ -122,7 +135,7 @@ async def test_pooled_commands_recover_after_connections_are_killed(
     raw = await redis_client._get_client()
     client_id_before = await raw.client_id()
 
-    assert kill_connections() >= 1
+    assert await drop_connections() >= 1
 
     assert await redis_client.get("key") == "before"
     await redis_client.set("key", "after")
@@ -140,9 +153,10 @@ async def test_raw_client_users_recover_after_connections_are_killed(
     await raw.set("raw", "1")
     script = raw.register_script("return redis.call('INCR', KEYS[1])")
 
-    assert kill_connections() >= 1
+    assert await drop_connections() >= 1
 
-    # The pool replaces a dead idle connection before handing it out.
+    # The pool replaces a dead idle connection before handing it out, so
+    # callers without retries (no command is ever replayed) keep working.
     assert await script(keys=["raw"]) == 2
     pipe = raw.pipeline(transaction=False)
     pipe.set("dedup", "1", nx=True, ex=60)
@@ -228,9 +242,16 @@ async def test_case_trigger_consumer_survives_a_redis_outage(
         stop.set()
         return []
 
+    captured: list[BaseException] = []
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.capture_api_background_task_failure",
+        lambda error, *, task_name: captured.append(error),
+    )
     monkeypatch.setattr(redis_client, "xreadgroup", flaky_read)
     await asyncio.wait_for(consumer.run(), timeout=5)
     assert calls == 3
+    # One report per failure streak, not one per retry.
+    assert len(captured) == 1
 
 
 @pytest.mark.anyio
@@ -277,8 +298,28 @@ async def test_factory_client_recovers_after_connections_are_killed() -> None:
     client = create_redis_client(os.environ["REDIS_URL"], decode_responses=True)
     try:
         await client.set("mcp", "state")
-        assert kill_connections() >= 1
+        assert await drop_connections() >= 1
         assert await client.get("mcp") == "state"
+    finally:
+        await close_redis_client(client)
+
+
+@pytest.mark.anyio
+async def test_factory_client_does_not_replay_in_flight_commands() -> None:
+    """A command whose reply is lost fails instead of being re-sent.
+
+    Re-sending a ``SET NX`` batch whose replies were lost would report every
+    key as already seen, and dedup callers would silently drop those items.
+    """
+    client = create_redis_client(os.environ["REDIS_URL"], decode_responses=True)
+    try:
+        # execute_command: blpop/ping are annotated for the sync and asyncio clients.
+        read = asyncio.create_task(client.execute_command("BLPOP", "never-pushed", 10))
+        await wait_for(blocked_in("blpop"))
+        assert kill_connections() >= 1
+        with pytest.raises(RedisConnectionError):
+            await asyncio.wait_for(read, timeout=5)
+        assert await client.execute_command("PING")
     finally:
         await close_redis_client(client)
 
@@ -386,7 +427,7 @@ async def test_aws_iam_pool_logs_in_with_token_and_reconnects(
     client = create_redis_client(os.environ["REDIS_URL"], decode_responses=True)
     try:
         assert await client.acl_whoami() == user
-        assert kill_connections() >= 1
+        assert await drop_connections() >= 1
         assert await client.acl_whoami() == user
     finally:
         await close_redis_client(client)
@@ -413,9 +454,7 @@ async def test_azure_entra_pool_reauths_open_connections_on_refresh(
     acl_user(second_user, second.token)
 
     credential = ScriptedCredential([first, second])
-    provider = AzureEntraCredentialProvider(
-        scope=config.REDIS_AZURE_SCOPE, credential_factory=lambda: credential
-    )
+    provider = AzureEntraCredentialProvider(credential_factory=lambda: credential)
     monkeypatch.setattr(config, "REDIS_AUTH_MODE", "azure_entra")
     monkeypatch.setattr(auth, "build_credential_provider", lambda: provider)
 
@@ -430,7 +469,7 @@ async def test_azure_entra_pool_reauths_open_connections_on_refresh(
         await wait_for(reauthed)
         assert await client.client_id() == connection_id
 
-        assert kill_connections() >= 1
+        assert await drop_connections() >= 1
         assert await client.acl_whoami() == second_user
     finally:
         await close_redis_client(client)

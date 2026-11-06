@@ -335,6 +335,30 @@ async def test_azure_refresh_failure_keeps_retrying(
         await provider.aclose()
 
 
+@pytest.mark.anyio
+async def test_azure_reauth_that_hangs_is_abandoned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A re-AUTH stuck on a half-open socket must not hold the pool lock forever."""
+    monkeypatch.setattr(auth, "AZURE_REAUTH_TIMEOUT_SECONDS", 0.05)
+    provider = _azure_provider(FakeAzureCredential([]))
+    cancelled = asyncio.Event()
+
+    async def hang(token: TokenInterface) -> None:
+        del token
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    provider.on_next(hang)
+    await asyncio.wait_for(
+        provider._publish(_access_token("object-id-1", 3600)), timeout=2
+    )
+    assert cancelled.is_set()
+
+
 def test_azure_token_without_identity_claim_is_rejected() -> None:
     with pytest.raises(ValueError, match="no oid or sub"):
         auth._token_username(_jwt({"exp": 1}))
@@ -362,8 +386,6 @@ async def test_password_mode_is_plain_from_url(monkeypatch: pytest.MonkeyPatch) 
         assert pool.connection_class is Connection
         assert pool.connection_kwargs["password"] == "pass"
         assert pool.connection_kwargs.get("credential_provider") is None
-        connection = pool.make_connection()
-        assert connection.retry.get_retries() == auth.RECONNECT_RETRIES
     finally:
         await close_redis_client(client)
 
@@ -402,11 +424,12 @@ def test_aws_iam_mode_rejects_insecure_urls(url: str, message: str) -> None:
         create_redis_client(url)
 
 
+@pytest.mark.parametrize("check_hostname", [False, 0, None])
 @pytest.mark.usefixtures("aws_iam_mode")
-def test_aws_iam_mode_rejects_disabled_hostname_check() -> None:
+def test_aws_iam_mode_rejects_disabled_hostname_check(check_hostname: object) -> None:
     with pytest.raises(ValueError, match="ssl_check_hostname"):
         create_redis_client(
-            "rediss://cache.example.internal:6379", ssl_check_hostname=False
+            "rediss://cache.example.internal:6379", ssl_check_hostname=check_hostname
         )
 
 

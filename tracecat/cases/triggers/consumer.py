@@ -28,6 +28,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatDSLError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_api_background_task_failure
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.tiers.access import is_org_entitled
@@ -120,8 +121,14 @@ class CaseTriggerConsumer:
                         )
                         await self._ensure_group()
                         continue
-                    # Redis outage or failover outlasted the client's retries.
-                    # Unacked messages stay pending and are reclaimed later.
+                    # Redis outage or failover outlasted the client's retries,
+                    # or Redis rejected the login. Unacked messages stay
+                    # pending and are reclaimed later. Report the first failure
+                    # of each streak so a lasting outage still alerts.
+                    if retry_delay == REDIS_RETRY_BACKOFF_BASE_SECONDS:
+                        capture_api_background_task_failure(
+                            e, task_name="case_trigger_consumer"
+                        )
                     logger.warning(
                         "Case trigger consumer lost Redis; retrying",
                         error=str(e),

@@ -1426,11 +1426,6 @@ REDIS_AWS_REGION = (
 REDIS_AZURE_CLIENT_ID = os.environ.get("REDIS_AZURE_CLIENT_ID", "").strip() or None
 """(azure_entra) Client ID of the managed or workload identity. Defaults to AZURE_CLIENT_ID."""
 
-REDIS_AZURE_SCOPE = (
-    os.environ.get("REDIS_AZURE_SCOPE") or "https://redis.azure.com/.default"
-).strip()
-"""(azure_entra) Token scope for Azure Managed Redis."""
-
 if REDIS_AUTH_MODE == "aws_iam":
     _missing_redis_aws = [
         name
