@@ -9,10 +9,11 @@ Invariants:
 - The app's runtime DDL on dynamic tables still works after the upgrade.
 - Superusers and members of the trigger owner (the migration role) keep full
   DDL rights, including b0debed4e0c6's FORCE / NO FORCE.
-- The upgrade forces RLS on dynamic tables that have it enabled but not
-  forced; downgrade removes the guard and leaves FORCE in place.
+- The upgrade enables and forces RLS on dynamic tables that have RLS or a
+  policy but aren't both; downgrade removes the guard and leaves the flags.
 - A migration role that can't create event triggers skips the guard with a
-  warning and leaves nothing behind.
+  warning and leaves nothing behind. A guard function another role created
+  first is replaced, so that role can't keep control of it.
 """
 
 from __future__ import annotations
@@ -35,10 +36,12 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.identifiers.workflow import WorkspaceUUID
 
 MIGRATION_REVISION = "b4074a0896b5"
+GUARD_FUNCTION = "public.tracecat_guard_dynamic_rls()"
 PREVIOUS_REVISION = "ef408b9720a6"
 ALEMBIC_DIR = Path(__file__).resolve().parents[2] / "alembic"
 TABLE_NAME = "probe"
 STRAGGLER_TABLE = "straggler"
+DISABLED_TABLE = "disabled"
 POLICY = "rls_policy_dynamic_workspace"
 POLICY_EXPR = (
     "current_setting('app.rls_bypass', true) = 'on' "
@@ -62,10 +65,15 @@ class GuardDb:
     owner: str
     tables_schema: str
     fields_schema: str
+    moved_schema: str
 
     @property
     def table(self) -> str:
         return f'"{self.tables_schema}"."{TABLE_NAME}"'
+
+    @property
+    def moved_table(self) -> str:
+        return f'"{self.moved_schema}"."{TABLE_NAME}"'
 
 
 def _url_for(db_url: str, user: str, password: str) -> str:
@@ -102,6 +110,16 @@ def _run(url: str, statements: Sequence[str]) -> None:
                     conn.execute(text(statement))
             finally:
                 tx.rollback()
+    finally:
+        engine.dispose()
+
+
+def _run_committed(url: str, statements: Sequence[str]) -> None:
+    engine = create_engine(url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
     finally:
         engine.dispose()
 
@@ -177,10 +195,26 @@ def _blocked(db: GuardDb, case: str) -> list[str]:
                 f"'ALTER TABLE %s NO FORCE ROW LEVEL SECURITY', '{t}'); END $$"
             ]
         case "search_path_shadowing":
+            # A pg_has_role that always says yes, ahead of pg_catalog.
             return [
-                "SET LOCAL search_path = public, pg_catalog",
+                f'CREATE SCHEMA "{escape}"',
+                f'CREATE FUNCTION "{escape}".pg_has_role(name, oid, text) '
+                "RETURNS boolean LANGUAGE sql AS 'SELECT true'",
+                f'SET LOCAL search_path = "{escape}", pg_catalog',
                 f"ALTER TABLE {t} DISABLE ROW LEVEL SECURITY",
             ]
+        case "inherited_by_new_table":
+            return [f'CREATE TABLE "{s}".child () INHERITS ({t})']
+        case "inherited_by_outside_table":
+            return [
+                f'CREATE SCHEMA "{escape}"',
+                f'CREATE TABLE "{escape}".sneaky (LIKE {t})',
+                f'ALTER TABLE "{escape}".sneaky INHERIT {t}',
+            ]
+        case "disable_moved_table":
+            return [f"ALTER TABLE {db.moved_table} DISABLE ROW LEVEL SECURITY"]
+        case "drop_policy_moved_table":
+            return [f"DROP POLICY {POLICY} ON {db.moved_table}"]
         case _:
             raise ValueError(case)
 
@@ -202,6 +236,10 @@ BLOCKED_CASES = (
     "set_role_owner",
     "dynamic_sql",
     "search_path_shadowing",
+    "inherited_by_new_table",
+    "inherited_by_outside_table",
+    "disable_moved_table",
+    "drop_policy_moved_table",
 )
 
 
@@ -254,16 +292,25 @@ def _guard_objects(url: str) -> list[tuple[object, ...]]:
     )
 
 
-def _force_flag(url: str, schema_name: str, table_name: str) -> bool:
+def _rls_flags(url: str, schema_name: str, table_name: str) -> tuple[bool, bool]:
+    """Return (enabled, forced) for a table."""
     rows = _query(
         url,
         f"""
-        SELECT c.relforcerowsecurity FROM pg_class c
+        SELECT c.relrowsecurity, c.relforcerowsecurity FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = '{schema_name}' AND c.relname = '{table_name}'
         """,
     )
-    return bool(rows[0][0])
+    return bool(rows[0][0]), bool(rows[0][1])
+
+
+def _stragglers(db: GuardDb) -> list[tuple[str, str]]:
+    return [
+        (db.tables_schema, STRAGGLER_TABLE),
+        (db.fields_schema, STRAGGLER_TABLE),
+        (db.tables_schema, DISABLED_TABLE),
+    ]
 
 
 @pytest.fixture
@@ -277,6 +324,11 @@ def guard_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[GuardDb]:
     on staging.
     `migrator` is a non-superuser that can run migrations but not create
     event triggers.
+
+    Stragglers: one table per workspace schema with RLS enabled but not
+    forced, and one with a policy but RLS disabled. `moved_*` holds a fully
+    protected workspace table outside the workspace schema names, as if it
+    had been moved there before the guard existed.
     """
     sys_engine = create_engine(
         TEST_DB_CONFIG.sys_url_sync, isolation_level="AUTOCOMMIT"
@@ -290,6 +342,7 @@ def guard_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[GuardDb]:
     password = uuid.uuid4().hex
     short = WorkspaceUUID.new(uuid.uuid4()).short()
     tables_schema, fields_schema = f"tables_{short}", f"custom_fields_{short}"
+    moved_schema = f"moved_{suffix}"
     terminate = text(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
         "WHERE datname = :db_name AND pid <> pg_backend_pid()"
@@ -325,17 +378,21 @@ def guard_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[GuardDb]:
                     text(f'GRANT CREATE ON DATABASE "{db_name}" TO "{app}", "{owner}"')
                 )
                 conn.execute(text(f'GRANT CREATE ON SCHEMA public TO "{migrator}"'))
+                # (schema, table, enable, force)
                 tables = [
-                    (tables_schema, TABLE_NAME, True),
-                    (fields_schema, TABLE_NAME, True),
-                    (tables_schema, STRAGGLER_TABLE, False),
+                    (tables_schema, TABLE_NAME, True, True),
+                    (fields_schema, TABLE_NAME, True, True),
+                    (moved_schema, TABLE_NAME, True, True),
+                    (tables_schema, STRAGGLER_TABLE, True, False),
+                    (fields_schema, STRAGGLER_TABLE, True, False),
+                    (tables_schema, DISABLED_TABLE, False, False),
                 ]
-                for schema_name in (tables_schema, fields_schema):
+                for schema_name in (tables_schema, fields_schema, moved_schema):
                     conn.execute(text(f'CREATE SCHEMA "{schema_name}"'))
                     conn.execute(
                         text(f'ALTER SCHEMA "{schema_name}" OWNER TO "{owner}"')
                     )
-                for schema_name, table_name, force in tables:
+                for schema_name, table_name, enable, force in tables:
                     qualified = f'"{schema_name}"."{table_name}"'
                     conn.execute(
                         text(
@@ -343,9 +400,10 @@ def guard_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[GuardDb]:
                             '"__tc_workspace_id" UUID NOT NULL)'
                         )
                     )
-                    conn.execute(
-                        text(f"ALTER TABLE {qualified} ENABLE ROW LEVEL SECURITY")
-                    )
+                    if enable:
+                        conn.execute(
+                            text(f"ALTER TABLE {qualified} ENABLE ROW LEVEL SECURITY")
+                        )
                     if force:
                         conn.execute(
                             text(f"ALTER TABLE {qualified} FORCE ROW LEVEL SECURITY")
@@ -381,6 +439,7 @@ def guard_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[GuardDb]:
             owner=owner,
             tables_schema=tables_schema,
             fields_schema=fields_schema,
+            moved_schema=moved_schema,
         )
     finally:
         with sys_engine.connect() as conn:
@@ -428,15 +487,16 @@ class TestDynamicRlsGuardMigration:
             ],
         )
 
-    def test_upgrade_forces_unforced_tables_and_downgrade_removes_guard(
+    def test_upgrade_protects_stragglers_and_downgrade_removes_guard(
         self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        schema = guard_db.tables_schema
-        assert not _force_flag(guard_db.db_url, schema, STRAGGLER_TABLE)
+        before = [_rls_flags(guard_db.db_url, *t) for t in _stragglers(guard_db)]
+        assert before == [(True, False), (True, False), (False, False)]
 
         _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
 
-        assert _force_flag(guard_db.db_url, schema, STRAGGLER_TABLE)
+        after = [_rls_flags(guard_db.db_url, *t) for t in _stragglers(guard_db)]
+        assert after == [(True, True)] * 3
         assert _guard_objects(guard_db.db_url) == [
             ("tracecat_guard_dynamic_rls",),
             ("tracecat_guard_dynamic_rls_ddl",),
@@ -446,8 +506,32 @@ class TestDynamicRlsGuardMigration:
         _alembic(monkeypatch, guard_db.db_url, "downgrade", PREVIOUS_REVISION)
 
         assert _guard_objects(guard_db.db_url) == []
-        assert _force_flag(guard_db.db_url, schema, STRAGGLER_TABLE)
+        after = [_rls_flags(guard_db.db_url, *t) for t in _stragglers(guard_db)]
+        assert after == [(True, True)] * 3
         _run(guard_db.app_url, _blocked(guard_db, "disable"))
+
+    def test_upgrade_replaces_a_guard_function_another_role_created(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # CREATE OR REPLACE would keep this owner, who could then rewrite the
+        # function to let everything through.
+        _run_committed(
+            guard_db.migrator_url,
+            [
+                f"CREATE FUNCTION {GUARD_FUNCTION} RETURNS event_trigger "
+                "LANGUAGE plpgsql AS $$ BEGIN END $$"
+            ],
+        )
+
+        _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
+
+        superuser = _query(guard_db.db_url, "SELECT current_user")[0][0]
+        assert _query(
+            guard_db.db_url,
+            "SELECT pg_get_userbyid(proowner) FROM pg_proc "
+            "WHERE proname = 'tracecat_guard_dynamic_rls'",
+        ) == [(superuser,)]
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
 
     def test_non_superuser_migration_skips_guard(
         self,
@@ -455,19 +539,16 @@ class TestDynamicRlsGuardMigration:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # The migrator doesn't own the straggler; force it so the upgrade's
-        # backfill has nothing to do.
-        engine = create_engine(guard_db.db_url, poolclass=NullPool)
-        try:
-            with engine.begin() as conn:
-                conn.execute(
-                    text(
-                        f'ALTER TABLE "{guard_db.tables_schema}".{STRAGGLER_TABLE} '
-                        "FORCE ROW LEVEL SECURITY"
-                    )
-                )
-        finally:
-            engine.dispose()
+        # The migrator doesn't own the stragglers; protect them so the
+        # upgrade's backfill has nothing to do.
+        _run_committed(
+            guard_db.db_url,
+            [
+                f'ALTER TABLE "{schema}"."{table}" '
+                "ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY"
+                for schema, table in _stragglers(guard_db)
+            ],
+        )
 
         with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
             _alembic(monkeypatch, guard_db.migrator_url, "upgrade", MIGRATION_REVISION)

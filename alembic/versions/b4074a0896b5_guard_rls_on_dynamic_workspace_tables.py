@@ -21,7 +21,7 @@ one policy:
   `DROP COLUMN ... CASCADE`);
 - `ALTER POLICY`;
 - a second permissive policy;
-- inheritance or partitioning;
+- inheritance or partitioning, with the workspace table as parent or child;
 - moving a table with the workspace policy out of a workspace schema, by
   `ALTER TABLE ... SET SCHEMA` or by renaming the schema.
 
@@ -29,23 +29,39 @@ The app's runtime DDL still works: creating schemas and tables, the
 ENABLE/FORCE/CREATE POLICY sequence, column changes, indexes, and dropping a
 whole table or schema.
 
+Limits:
+- The guard only binds a login that is neither a superuser nor a member of
+  the trigger owner. Where the app logs in as the migration role (the Compose
+  default `postgres`, or any single-role install) it has no effect; it needs a
+  separate app login such as staging's `app`.
+- It covers DDL only. `app.rls_bypass` and `app.current_workspace_id` are
+  custom settings any role can set, so arbitrary SQL as the app role still
+  bypasses every policy. RLS guards against missing tenant filters in app
+  queries, not against SQL injection.
+- It doesn't repair changes made before it was installed. `AUDIT_SQL` lists
+  dynamic tables whose RLS differs from what the app creates.
+
 `CREATE EVENT TRIGGER` needs a superuser (`rds_superuser` on RDS). When the
 migration role can't create it, the upgrade logs a warning and skips the
 guard rather than failing: the guard only matters with
-`TRACECAT__RLS_MODE=enforce`. An admin can install it later by running the
-statements in `GUARD_STATEMENTS` in order, as a superuser, against the
-Tracecat database; see `MANUAL_INSTALL_SQL`. Run migrations as that admin, or
-as a member of it, so they keep full DDL rights on dynamic tables.
+`TRACECAT__RLS_MODE=enforce`. The upgrade first drops any existing guard
+objects; any failure other than creating the event triggers, such as an
+existing guard owned by another role, fails the upgrade. An admin can install the
+guard later by running the statements in `GUARD_STATEMENTS` in order, as a
+superuser, against the Tracecat database; see `MANUAL_INSTALL_SQL`. Run
+migrations as that admin, or as a member of it, so they keep full DDL rights
+on dynamic tables.
 
 Managed Postgres blocks major version upgrades while event triggers exist
 (RDS and Azure Flexible Server both say to drop them first). Drop the guard
 with the statements in `UNINSTALL_STATEMENTS` before a major upgrade, and run
 `GUARD_STATEMENTS` again afterwards.
 
-The upgrade also forces RLS on any dynamic table that has RLS enabled but not
-forced, for example one an older app version created after b0debed4e0c6 ran.
-Without that, the guard would reject later column changes on such a table.
-Downgrade leaves FORCE in place: b0debed4e0c6 owns that state.
+The upgrade also enables and forces RLS on any dynamic table that has RLS
+enabled or a policy but isn't both enabled and forced, for example one an
+older app version created after b0debed4e0c6 ran. Without that, the guard
+would reject later column changes on such a table. Downgrade leaves those
+flags in place: b0debed4e0c6 and the app own that state.
 """
 
 import logging
@@ -101,7 +117,8 @@ BEGIN
         FROM pg_event_trigger_dropped_objects() d
         WHERE d.object_type = 'policy'
           AND (d.address_names[1] LIKE 'tables\_%'
-               OR d.address_names[1] LIKE 'custom\_fields\_%')
+               OR d.address_names[1] LIKE 'custom\_fields\_%'
+               OR d.address_names[3] = 'rls_policy_dynamic_workspace')
           AND to_regclass(format('%I.%I', d.address_names[1],
                                  d.address_names[2])) IS NOT NULL
         LIMIT 1;
@@ -133,8 +150,9 @@ BEGIN
                 ELSE
                     CONTINUE;
                 END IF;
-                -- Check the table and its children: ATTACH PARTITION reports
-                -- only the parent.
+                -- Check the table, its children and its parents: ATTACH
+                -- PARTITION reports only the parent, and INHERITS reports only
+                -- the child.
                 SELECT format('%s: %s', t.rel::regclass, t.reason)
                 INTO problem
                 FROM (
@@ -152,9 +170,10 @@ BEGIN
                                 'only the workspace policy may be permissive'
                             WHEN EXISTS (
                                 SELECT 1 FROM pg_inherits i
-                                WHERE i.inhrelid = c.oid
+                                WHERE c.oid IN (i.inhrelid, i.inhparent)
                             ) THEN
-                                'workspace tables cannot inherit or be partitions'
+                                'workspace tables cannot take part in '
+                                'inheritance or partitioning'
                         END AS reason
                     FROM pg_class c
                     JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -174,7 +193,9 @@ BEGIN
                     ) pol
                     WHERE (c.oid = target
                            OR c.oid IN (SELECT i.inhrelid FROM pg_inherits i
-                                        WHERE i.inhparent = target))
+                                        WHERE i.inhparent = target)
+                           OR c.oid IN (SELECT i.inhparent FROM pg_inherits i
+                                        WHERE i.inhrelid = target))
                       AND c.relkind IN ('r', 'p')
                       AND ((s.dynamic AND pol.policies > 0)
                            OR (NOT s.dynamic AND pol.workspace_policy))
@@ -214,9 +235,33 @@ UNINSTALL_STATEMENTS: tuple[str, ...] = (
 MANUAL_INSTALL_SQL = ";\n".join(GUARD_STATEMENTS) + ";\n"
 """The install statements as one script, for an admin to run by hand."""
 
+AUDIT_SQL = r"""
+SELECT c.oid::regclass AS dynamic_table,
+       c.relrowsecurity AS enabled,
+       c.relforcerowsecurity AS forced,
+       array_agg(p.polname || CASE WHEN p.polpermissive THEN '' ELSE ' (restrictive)' END
+                 || ': ' || coalesce(pg_get_expr(p.polqual, p.polrelid), '-'))
+           FILTER (WHERE p.oid IS NOT NULL) AS policies
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_policy p ON p.polrelid = c.oid
+WHERE c.relkind IN ('r', 'p')
+  AND (n.nspname LIKE 'tables\_%' OR n.nspname LIKE 'custom\_fields\_%')
+GROUP BY c.oid, c.relrowsecurity, c.relforcerowsecurity
+HAVING NOT (c.relrowsecurity AND c.relforcerowsecurity)
+    OR count(*) FILTER (WHERE p.polname = 'rls_policy_dynamic_workspace') <> 1
+    OR count(*) FILTER (WHERE p.polpermissive) <> 1
+"""
+"""Dynamic tables whose RLS differs from what the app creates. Expect no rows.
 
-def _force_unforced_dynamic_tables() -> None:
-    """Force RLS on dynamic tables that have it enabled but not forced."""
+The guard blocks new weakening DDL but doesn't repair earlier changes. Also
+compare the listed policy expressions with the one in
+`tracecat.tables.service`.
+"""
+
+
+def _protect_dynamic_tables() -> None:
+    """Enable and force RLS on dynamic tables that have RLS or a policy."""
     bind = op.get_bind()
     rows = bind.execute(
         sa.text(
@@ -225,27 +270,40 @@ def _force_unforced_dynamic_tables() -> None:
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind IN ('r', 'p')
-              AND c.relrowsecurity
-              AND NOT c.relforcerowsecurity
               AND (n.nspname LIKE 'tables\_%' OR n.nspname LIKE 'custom\_fields\_%')
+              AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
+              AND (c.relrowsecurity
+                   OR EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid))
             ORDER BY 1
             """
         )
     )
     for (qualified_table,) in rows.tuples():
-        op.execute(sa.text(f"ALTER TABLE {qualified_table} FORCE ROW LEVEL SECURITY"))
+        op.execute(
+            sa.text(
+                f"ALTER TABLE {qualified_table} "
+                "ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY"
+            )
+        )
 
 
 def upgrade() -> None:
-    _force_unforced_dynamic_tables()
+    _protect_dynamic_tables()
     bind = op.get_bind()
+    # Start clean, so a guard function some other role created can't keep its
+    # owner (CREATE OR REPLACE keeps it). Only CREATE EVENT TRIGGER may fail
+    # softly; failing to drop or create the function aborts the upgrade.
+    for statement in UNINSTALL_STATEMENTS:
+        bind.execute(sa.text(statement))
+    bind.execute(sa.text(_GUARD_FUNCTION_SQL))
     try:
         with bind.begin_nested():
-            for statement in GUARD_STATEMENTS:
+            for statement in GUARD_STATEMENTS[1:]:
                 bind.execute(sa.text(statement))
     except DBAPIError as exc:
         if not isinstance(exc.orig, psycopg.errors.InsufficientPrivilege):
             raise
+        bind.execute(sa.text(f"DROP FUNCTION {GUARD_FUNCTION}"))
         role = bind.execute(sa.text("SELECT session_user")).scalar_one()
         logger.warning(
             "Skipped the dynamic-table RLS guard (revision %s): role %r can't "
