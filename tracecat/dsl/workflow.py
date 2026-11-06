@@ -92,7 +92,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.error_policy import (
         adapt_error_handler_details,
         build_terminal_application_error,
+        is_worker_shutdown_error,
         raise_child_failures_application_error,
+        raise_worker_shutdown_error,
     )
     from tracecat.dsl.init_activities import (
         ResolveTimeAnchorActivityInputs,
@@ -1993,27 +1995,55 @@ class DSLWorkflow:
     async def _execute_action_activity(
         self, task: ActionStatement, arg: RunActionInput
     ) -> StoredObject:
-        """Dispatch an action, retrying one executor heartbeat interruption."""
-        try:
-            stored = await self._execute_action_activity_once(task, arg)
-        except ActivityError as exc:
-            cause = exc.cause
-            should_retry_heartbeat = (
-                task.retry_policy.max_attempts == 1
-                and isinstance(cause, TemporalTimeoutError)
-                and cause.type is TimeoutType.HEARTBEAT
-                and workflow.patched(WorkflowPatch.ACTION_HEARTBEAT_TIMEOUT_RETRY)
-            )
-            if not should_retry_heartbeat:
-                raise
+        """Dispatch an action, retrying one executor interruption.
 
-            self.logger.warning(
-                "Retrying action after activity heartbeat timeout",
-                task_ref=task.ref,
-            )
-            stored = await self._execute_action_activity_once(task, arg)
+        An executor interruption is a heartbeat timeout (the executor died) or a
+        ``WorkerShutdown`` failure (the executor's graceful drain ended first).
+        Actions with configured retries already retry both through Temporal.
+        """
+        try:
+            try:
+                stored = await self._execute_action_activity_once(task, arg)
+            except ActivityError as exc:
+                if not self._should_retry_interrupted_action(task, exc.cause):
+                    raise
+                self.logger.warning(
+                    "Retrying action after executor interruption",
+                    task_ref=task.ref,
+                    cause_type=type(exc.cause).__name__,
+                )
+                stored = await self._execute_action_activity_once(task, arg)
+        except ActivityError as exc:
+            # Classifying changes terminal owner attribution and error-path
+            # control flow, so pre-patch histories keep the unclassified error.
+            if is_worker_shutdown_error(exc.cause) and workflow.patched(
+                WorkflowPatch.ACTION_WORKER_SHUTDOWN_RETRY
+            ):
+                raise_worker_shutdown_error(
+                    exc.cause, ref=task.ref, stream_id=arg.stream_id
+                )
+            raise
 
         return StoredObjectValidator.validate_python(stored)
+
+    @staticmethod
+    def _should_retry_interrupted_action(
+        task: ActionStatement, cause: BaseException | None
+    ) -> bool:
+        """Retry an executor interruption once when Temporal will not retry it.
+
+        Each patch is checked only for its own failure so the marker is recorded
+        exactly where the retry decision is made.
+        """
+        if task.retry_policy.max_attempts != 1:
+            return False
+        if isinstance(cause, TemporalTimeoutError):
+            return cause.type is TimeoutType.HEARTBEAT and workflow.patched(
+                WorkflowPatch.ACTION_HEARTBEAT_TIMEOUT_RETRY
+            )
+        if is_worker_shutdown_error(cause):
+            return workflow.patched(WorkflowPatch.ACTION_WORKER_SHUTDOWN_RETRY)
+        return False
 
     async def _execute_action_activity_once(
         self, task: ActionStatement, arg: RunActionInput

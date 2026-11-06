@@ -5,8 +5,15 @@ from temporalio.exceptions import (
     TimeoutType,
 )
 
-from tracecat.dsl.interceptor import _unclassified_retry_disposition
-from tracecat.runtime.errors import RetryDisposition
+from tracecat.dsl.interceptor import (
+    _fallback_classification,
+    _unclassified_retry_disposition,
+)
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 
 
 def _activity_error_from(cause: BaseException) -> ActivityError:
@@ -67,3 +74,27 @@ def test_unclassified_explicit_application_error_keeps_retryability() -> None:
             raise ApplicationError("Explicit retryable failure") from error
     except ApplicationError as wrapped:
         assert _unclassified_retry_disposition(wrapped) is RetryDisposition.RETRYABLE
+
+
+def test_fallback_names_worker_shutdown_found_in_chain() -> None:
+    error = _activity_error_from(
+        ApplicationError(
+            "Worker is shutting down and this activity did not complete in time",
+            type="WorkerShutdown",
+        )
+    )
+
+    classification = _fallback_classification(error)
+
+    assert classification.kind is RuntimeErrorKind.EXECUTOR_WORKER_SHUTDOWN
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+def test_fallback_keeps_unclassified_for_other_failures() -> None:
+    error = _activity_error_from(ApplicationError("Other", type="SomethingElse"))
+
+    classification = _fallback_classification(error)
+
+    assert classification.kind is RuntimeErrorKind.RUNTIME_UNCLASSIFIED
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
