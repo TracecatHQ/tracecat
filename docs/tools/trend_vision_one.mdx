@@ -336,6 +336,36 @@ Default: `null`.
 
 </ParamField>
 
+## Configure isolation traffic exceptions
+
+Action ID: `tools.trend_vision_one.set_isolation_traffic_exceptions`
+
+Configure network traffic exceptions. Configures the exceptions that allow network traffic to and from isolated endpoints. Note: You can specify up to 50 inbound and 50 outbound exceptions. Calls POST /v3.0/response/isolatedTrafficExceptions/register.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1isolatedTrafficExceptions~1register/post](https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1isolatedTrafficExceptions~1register/post)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="exceptions" type="array[object]" required>
+
+JSON array sent as the request body. Documented item fields: direction (required), protocol, ip (required), port.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
 ## Create case
 
 Action ID: `tools.trend_vision_one.create_case`
@@ -355,6 +385,36 @@ Required secrets:
 <ParamField path="payload" type="object" required>
 
 API-native JSON request body. Documented fields for POST /v3.0/caseManagement/cases: associatedItemIds, description, externalTicketAlias (required), externalTicketId (required), findings, name (required), priority (required), relatedCaseIds, status (required), holder, externalTicketCreatedDateTime.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+## Create detection model exceptions
+
+Action ID: `tools.trend_vision_one.create_detection_exceptions`
+
+Create an exception. Creates a custom exception. Calls POST /v3.0/dmm/exceptions.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions/post](https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions/post)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="exceptions" type="array[object]" required>
+
+JSON array sent as the request body. Documented item fields: name (required), description, targetEntities, event, criteria (required). Maximum 10 items per request.
 
 </ParamField>
 
@@ -463,6 +523,36 @@ The content ID.
 <ParamField path="id" type="string" required>
 
 The case ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+## Delete detection model exceptions
+
+Action ID: `tools.trend_vision_one.delete_detection_exceptions`
+
+Delete a custom exception. Deletes the specified custom exception. Calls POST /v3.0/dmm/exceptions/delete.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions~1delete/post](https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions~1delete/post)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="exceptions" type="array[object]" required>
+
+JSON array sent as the request body. Documented item fields: id (required). Maximum 10 items per request.
 
 </ParamField>
 
@@ -619,6 +709,36 @@ Required secrets:
 <ParamField path="accounts" type="array[object]" required>
 
 JSON array sent as the request body. Documented item fields: accountName (required), description.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+## Exclude endpoints from response actions
+
+Action ID: `tools.trend_vision_one.add_response_action_exclusions`
+
+Exclude endpoints from response actions. Configures exclusions to prevent specific response actions from affecting selected endpoints. Note: Each exclusion supports a maximum of 2000 endpoints. Calls POST /v3.0/response/endpointActionExceptions/register.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1endpointActionExceptions~1register/post](https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1endpointActionExceptions~1register/post)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="exclusions" type="array[object]" required>
+
+JSON array sent as the request body. Documented item fields: action (required), endpoints (required).
 
 </ParamField>
 
@@ -852,6 +972,36 @@ Default: `null`.
 
 </ParamField>
 
+## Get detection model exception
+
+Action ID: `tools.trend_vision_one.get_detection_exception`
+
+Get a custom exception. Retrieves the specified custom exception. Calls GET /v3.0/dmm/exceptions/&#123;id&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions~1&#123;id&#125;/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions~1&#123;id&#125;/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The unique identifier of the exception.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
 ## Get device risk profile
 
 Action ID: `tools.trend_vision_one.get_device_risk_profile`
@@ -945,6 +1095,144 @@ The ID of the task.
 <ParamField path="base_url" type="string | null">
 
 Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+## Get insight impact scope
+
+Action ID: `tools.trend_vision_one.get_insight_impact_scope`
+
+Get insight details (impact scope). Displays impact scope of the specified Workbench insight. Calls GET /v3.0/workbench/insights/&#123;id&#125;/impactScopeEntities.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Insight/paths/~1v3.0~1workbench~1insights~1&#123;id&#125;~1impactScopeEntities/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Insight/paths/~1v3.0~1workbench~1insights~1&#123;id&#125;~1impactScopeEntities/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The Workbench insight ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="skipToken" type="string | null">
+
+Pagination token from the skipToken query parameter of the nextLink returned by the previous page. Reuse the same filters when requesting the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="top" type="integer | null">
+
+The number of records displayed on a page. Allowed values: 50. Provider default: 50.
+
+Default: `null`.
+
+</ParamField>
+
+## Get insight indicators
+
+Action ID: `tools.trend_vision_one.get_insight_indicators`
+
+Get insight details (indicators). Displays indicators of the specified Workbench insight. Calls GET /v3.0/workbench/insights/&#123;id&#125;/indicators.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Insight/paths/~1v3.0~1workbench~1insights~1&#123;id&#125;~1indicators/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Insight/paths/~1v3.0~1workbench~1insights~1&#123;id&#125;~1indicators/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The Workbench insight ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="skipToken" type="string | null">
+
+Pagination token from the skipToken query parameter of the nextLink returned by the previous page. Reuse the same filters when requesting the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="top" type="integer | null">
+
+The number of records displayed on a page. Allowed values: 50. Provider default: 50.
+
+Default: `null`.
+
+</ParamField>
+
+## Get insight matched highlights
+
+Action ID: `tools.trend_vision_one.get_insight_matched_highlights`
+
+Get insight details (matched highlights). Displays the matched SAE filters and threat intelligence indicator patterns of the specified Workbench insight. Calls GET /v3.0/workbench/insights/&#123;id&#125;/matchedHighlights.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Insight/paths/~1v3.0~1workbench~1insights~1&#123;id&#125;~1matchedHighlights/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Insight/paths/~1v3.0~1workbench~1insights~1&#123;id&#125;~1matchedHighlights/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The Workbench insight ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="skipToken" type="string | null">
+
+Pagination token from the skipToken query parameter of the nextLink returned by the previous page. Reuse the same filters when requesting the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="top" type="integer | null">
+
+The number of records displayed on a page. Allowed values: 50. Provider default: 50.
 
 Default: `null`.
 
@@ -1806,6 +2094,30 @@ Default: `null`.
 
 </ParamField>
 
+## List detection model exceptions
+
+Action ID: `tools.trend_vision_one.list_detection_exceptions`
+
+Get all custom exceptions. Retrieves all your custom exceptions. Calls GET /v3.0/dmm/exceptions.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
 ## List endpoint security tasks
 
 Action ID: `tools.trend_vision_one.list_endpoint_tasks`
@@ -1950,6 +2262,38 @@ Default: `null`.
 
 </ParamField>
 
+## List isolation traffic exceptions
+
+Action ID: `tools.trend_vision_one.list_isolation_traffic_exceptions`
+
+Get network traffic exceptions for isolated endpoints. Retrieves the list of exceptions that allow network traffic to and from isolated endpoints. Note: This method can only retrieve the entire exception list at once. Calls GET /v3.0/response/isolatedTrafficExceptions.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1isolatedTrafficExceptions/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1isolatedTrafficExceptions/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tmv1_filter" type="string | null">
+
+Filter for retrieving a subset of the network traffic exceptions list. Supported fields: direction, ip, protocol, port. Sent as the TMV1-Filter header.
+
+Default: `null`.
+
+</ParamField>
+
 ## List Observed Attack Techniques events
 
 Action ID: `tools.trend_vision_one.list_oat_detections`
@@ -2065,6 +2409,38 @@ Default: `null`.
 <ParamField path="top" type="integer | null">
 
 Allowed values: 50, 100, 200. Provider default: 50.
+
+Default: `null`.
+
+</ParamField>
+
+## List response action exclusions
+
+Action ID: `tools.trend_vision_one.list_response_action_exclusions`
+
+Get endpoint response action exclusion list. Retrieves all exclusions including response actions and excluded endpoints in a paginated list. Calls GET /v3.0/response/endpointActionExceptions.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1endpointActionExceptions/get](https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1endpointActionExceptions/get)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tmv1_filter" type="string | null">
+
+Filter for retrieving a subset of the endpoint response action exclusion list. Supported fields: action, endpointName, endpointAgentGuid. Sent as the TMV1-Filter header.
 
 Default: `null`.
 
@@ -4033,6 +4409,42 @@ Default: `null`.
 <ParamField path="if_match" type="string | null">
 
 Provide the ETag of the resource to be updated. Sent as the If-Match header.
+
+Default: `null`.
+
+</ParamField>
+
+## Update detection model exception
+
+Action ID: `tools.trend_vision_one.update_detection_exception`
+
+Update a custom exception. Updates the specified custom exception. Calls PATCH /v3.0/dmm/exceptions/&#123;id&#125;.
+
+Reference: [https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions~1&#123;id&#125;/patch](https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions~1&#123;id&#125;/patch)
+
+### Secrets
+
+Required secrets:
+
+- `trend_vision_one`: required values `TREND_VISION_ONE_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The unique identifier of the exception.
+
+</ParamField>
+
+<ParamField path="payload" type="object" required>
+
+API-native JSON request body. Documented fields for PATCH /v3.0/dmm/exceptions/&#123;id&#125;: name, description, targetEntities, event, criteria.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com (United States). Other regions: https://api.eu.xdr.trendmicro.com, https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com, https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp, https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com, https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com (FedRAMP).
 
 Default: `null`.
 

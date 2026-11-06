@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Create detection model exceptions
+  description: >-
+    Create an exception. Creates a custom exception. Calls POST /v3.0/dmm/exceptions.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Exceptions/paths/~1v3.0~1dmm~1exceptions/post
+  namespace: tools.trend_vision_one
+  name: create_detection_exceptions
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    exceptions:
+      # Generic: the request body is a top-level JSON array of objects,
+      # so it cannot be expressed as named body fields.
+      type: list[dict[str, Any]]
+      description: >-
+        JSON array sent as the request body. Documented item fields: name (required),
+        description, targetEntities, event, criteria (required). Maximum 10 items per
+        request.
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/dmm/exceptions
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        payload: ${{ inputs.exceptions }}
+  returns: ${{ steps.request.result }}
