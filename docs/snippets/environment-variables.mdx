@@ -143,7 +143,7 @@ These settings control the [tunnel gateways](/self-hosting/kubernetes#tunnels) t
 | `REDIS_HOST` | `redis` | Redis hostname. |
 | `REDIS_PORT` | `6379` | Redis port. |
 | `REDIS_URL` | `redis://${REDIS_HOST}:${REDIS_PORT}` | Full Redis connection URL. Override this when using an external Redis instance. |
-| `REDIS_AUTH_MODE` | `password` | How Tracecat logs in to Redis: `password` (credentials from `REDIS_URL`), `aws_iam` (ElastiCache IAM token), or `azure_entra` (Azure Managed Redis Entra ID token). The IAM modes need a `rediss://` URL with no username or password, for example `rediss://master.my-cache.abc123.use1.cache.amazonaws.com:6379`. |
+| `REDIS_AUTH_MODE` | `password` | How Tracecat logs in to Redis: `password` (credentials from `REDIS_URL`), `aws_iam` (ElastiCache IAM token), or `azure_entra` (Azure Managed Redis Entra ID token). The IAM modes need a `rediss://` URL with no username or password, on the cloud's own endpoint (`*.cache.amazonaws.com` for `aws_iam`; `*.redis.azure.net` or `*.redis.cache.windows.net` for `azure_entra`), for example `rediss://master.my-cache.abc123.use1.cache.amazonaws.com:6379`. A private CA bundle can be set with `?ssl_ca_certs=/path/ca.pem`. |
 | `REDIS_AWS_IAM_USER_ID` | | `aws_iam` only. ElastiCache user ID (equal to its user name) with IAM authentication, for example `tracecat-app`. |
 | `REDIS_AWS_IAM_REPLICATION_GROUP_ID` | | `aws_iam` only. Lowercase replication group ID the token is signed for, for example `my-cache`. Not the endpoint. |
 | `REDIS_AWS_REGION` | `AWS_REGION` | `aws_iam` only. Region of the cache, for example `us-east-1`. |

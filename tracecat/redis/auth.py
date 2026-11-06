@@ -90,6 +90,24 @@ IAM_AUTH_BACKOFF_SECONDS = 0.5
 
 _REPLICATION_GROUP_ID = re.compile(r"[a-z][a-z0-9-]*")
 
+IAM_HOST_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "aws_iam": (".cache.amazonaws.com", ".cache.amazonaws.com.cn"),
+    "azure_entra": (".redis.azure.net", ".redis.cache.windows.net"),
+}
+"""Hosts each IAM mode sends its token to.
+
+A token minted from the workload identity is valid at the real cache, so it
+must not go to whatever host the URL names. The managed endpoints present
+certificates for these domains, so verified TLS already rules out others.
+"""
+
+_IAM_TLS_OPTIONS = frozenset(
+    {"ssl_cert_reqs", "ssl_check_hostname", "ssl_ca_certs", "ssl_ca_path"}
+)
+"""TLS options the IAM modes accept. The rest (inline CA data, verify flags,
+ciphers, minimum version, client certificates) could weaken or re-root
+verification from the URL."""
+
 type ReAuthCallback = Callable[[TokenInterface], Awaitable[None] | None]
 
 
@@ -462,6 +480,19 @@ def _validate_iam_url(url: str, options: dict[str, Any]) -> None:
         raise ValueError(f"REDIS_AUTH_MODE={mode} requires ssl_cert_reqs=required")
     if not options.get("ssl_check_hostname", True):
         raise ValueError(f"REDIS_AUTH_MODE={mode} requires ssl_check_hostname")
+    if unsupported := sorted(
+        key for key in options if key.startswith("ssl_") and key not in _IAM_TLS_OPTIONS
+    ):
+        raise ValueError(
+            f"REDIS_AUTH_MODE={mode} does not accept TLS options {', '.join(unsupported)}"
+        )
+    host = str(options.get("host", "")).lower().rstrip(".")
+    suffixes = IAM_HOST_SUFFIXES[mode]
+    if not host.endswith(suffixes):
+        raise ValueError(
+            f"REDIS_AUTH_MODE={mode} only sends tokens to hosts ending in "
+            f"{' or '.join(suffixes)}"
+        )
 
 
 def create_redis_client(url: str, **kwargs: Any) -> redis.Redis:

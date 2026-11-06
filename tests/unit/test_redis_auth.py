@@ -436,7 +436,7 @@ async def test_password_mode_is_plain_from_url(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.usefixtures("aws_iam_mode")
 async def test_aws_iam_mode_builds_tls_pool_with_provider() -> None:
     client = create_redis_client(
-        "rediss://cache.example.internal:6379/0",
+        "rediss://master.tracecat-redis.abc123.use1.cache.amazonaws.com:6379/0",
         decode_responses=True,
         max_connections=7,
     )
@@ -452,12 +452,31 @@ async def test_aws_iam_mode_builds_tls_pool_with_provider() -> None:
         await close_redis_client(client)
 
 
+AWS_HOST = "master.tracecat-redis.abc123.use1.cache.amazonaws.com"
+
+
 @pytest.mark.parametrize(
     ("url", "message"),
     [
-        ("redis://cache.example.internal:6379", "requires TLS"),
-        ("rediss://default:secret@cache.example.internal:6379", "remove the username"),
-        ("rediss://cache.example.internal:6379?ssl_cert_reqs=none", "ssl_cert_reqs"),
+        (
+            "redis://master.tracecat-redis.abc123.use1.cache.amazonaws.com:6379",
+            "requires TLS",
+        ),
+        ("rediss://collector.example.com:6379", "only sends tokens to hosts ending in"),
+        ("rediss://cache.amazonaws.com.example.com:6379", "only sends tokens to hosts"),
+        (
+            f"rediss://{AWS_HOST}:6379?ssl_ca_data=-----BEGIN%20CERTIFICATE-----",
+            "does not accept TLS options ssl_ca_data",
+        ),
+        (f"rediss://{AWS_HOST}:6379?ssl_ciphers=NULL", "ssl_ciphers"),
+        (
+            "rediss://default:secret@master.tracecat-redis.abc123.use1.cache.amazonaws.com:6379",
+            "remove the username",
+        ),
+        (
+            "rediss://master.tracecat-redis.abc123.use1.cache.amazonaws.com:6379?ssl_cert_reqs=none",
+            "ssl_cert_reqs",
+        ),
     ],
 )
 @pytest.mark.usefixtures("aws_iam_mode")
@@ -471,8 +490,37 @@ def test_aws_iam_mode_rejects_insecure_urls(url: str, message: str) -> None:
 def test_aws_iam_mode_rejects_disabled_hostname_check(check_hostname: object) -> None:
     with pytest.raises(ValueError, match="ssl_check_hostname"):
         create_redis_client(
-            "rediss://cache.example.internal:6379", ssl_check_hostname=check_hostname
+            "rediss://master.tracecat-redis.abc123.use1.cache.amazonaws.com:6379",
+            ssl_check_hostname=check_hostname,
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("aws_iam_mode")
+async def test_aws_iam_mode_accepts_a_ca_bundle_path() -> None:
+    client = create_redis_client(
+        f"rediss://{AWS_HOST}:6379?ssl_ca_certs=/etc/ssl/ca.pem"
+    )
+    try:
+        assert (
+            client.connection_pool.connection_kwargs["ssl_ca_certs"]
+            == "/etc/ssl/ca.pem"
+        )
+    finally:
+        await close_redis_client(client)
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["tracecat.westus2.redis.azure.net", "tracecat.redis.cache.windows.net"],
+)
+def test_azure_entra_mode_accepts_azure_hosts(
+    monkeypatch: pytest.MonkeyPatch, host: str
+) -> None:
+    monkeypatch.setattr(config, "REDIS_AUTH_MODE", "azure_entra")
+    auth._validate_iam_url(f"rediss://{host}:10000", {"host": host})
+    with pytest.raises(ValueError, match="redis.azure.net"):
+        auth._validate_iam_url(f"rediss://{AWS_HOST}:6379", {"host": AWS_HOST})
 
 
 # --- Startup validation ---
