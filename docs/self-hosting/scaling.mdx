@@ -1,6 +1,6 @@
 ---
 title: Scaling action throughput
-description: "Size a Docker Compose deployment for a target sustained action throughput: executor replicas, concurrency settings, PostgreSQL connections, and host hardware from the default settings up to 256 actions per second."
+description: "Size a Docker Compose deployment for a target sustained action throughput: executor replicas, concurrency settings, PostgreSQL connections, Redis memory, and host hardware from the default settings up to 256 actions per second."
 sidebarTitle: Scaling
 ---
 
@@ -149,6 +149,92 @@ The executor tier is measured; the other services are sized from defaults and op
 
 Add worker replicas when workflow-task schedule-to-start latency in the Temporal UI grows while executor CPU stays idle.
 Lower `TEMPORAL__THREADPOOL_MAX_WORKERS` and `TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS` from 100 on workers with fewer than 4 cores.
+
+## Size Redis
+
+Redis holds short-lived coordination state: agent chat streams, case event streams, deduplication digests, and concurrency permits.
+Size Redis for memory first.
+Tracecat's command rate rarely saturates the single Redis core before memory runs out, so add memory, not CPU, until monitoring shows otherwise.
+
+### What uses memory
+
+| Data | Keys | Bound | Grows with |
+| :--- | :--- | :---- | :--------- |
+| Agent chat streams | `agent-stream:*` | About 10,000 events per turn. A turn's buffer expires 5 minutes after a connected reader sees it finish, otherwise `REDIS_CHAT_TTL_SECONDS` (default 3 days) after its last event | Agent turns per TTL window, events per turn, and event size |
+| Deduplication digests | `dedup:*` | One key per unique item, kept for the `expire_seconds` input of `core.transform.deduplicate` (default 1 hour) | Unique items per second and `expire_seconds` |
+| Case events | `case-events` stream | About 30,000 entries (`TRACECAT__CASE_TRIGGERS_MAXLEN`) | Fixed |
+| Case duration sync | `case-duration-sync` stream | Entries are deleted after processing | Grows only while the consumer is down |
+| Concurrency permits | `tier:org:*` | One member per running workflow or action | Concurrent workflows and actions |
+| Search windows, MFA, OAuth, and Slack approval state | `search:*` and others | TTLs from 5 minutes to 24 hours | Small at every tier |
+
+Agent streams and deduplication digests are the only entries that grow with usage.
+Estimate them with:
+
+```text
+agent stream memory ≈ agent turns per REDIS_CHAT_TTL_SECONDS × events per turn × bytes per event
+dedup memory        ≈ unique items per second × expire_seconds × 180 bytes
+```
+
+A stream entry costs about its payload size plus 20 bytes, so a full 10,000-event turn of 300-byte events uses about 3.5 MB.
+Tool results make up most of an event's size, so measure your own turns with `MEMORY USAGE <key>` instead of assuming 300 bytes.
+A deduplication digest costs about 180 bytes, so 100 unique items per second with `expire_seconds: 86400` holds about 8.6 million keys and 1.6 GB.
+
+To cut memory without adding capacity, lower `REDIS_CHAT_TTL_SECONDS` (for example to `86400`) when agent streams dominate, or lower `expire_seconds` when digests dominate.
+Each new event refreshes a stream's TTL, so a shorter TTL only drops buffers that have been idle that long.
+
+### Eviction policy
+
+Keep evictions at zero.
+With `volatile-lru`, the ElastiCache default, Redis evicts keys that have a TTL, which includes agent streams and deduplication digests: an evicted digest lets a duplicate item through.
+With `noeviction`, writes fail instead and Tracecat logs the errors.
+Set `noeviction` when deduplication correctness matters more than agent chat availability, and alert on memory at 75% under either policy.
+
+The Compose `redis` service sets no `maxmemory`, so it grows until the container's memory limit kills it.
+Set `maxmemory` to about 75% of the container limit:
+
+```yaml
+services:
+  redis:
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "768mb", "--maxmemory-policy", "noeviction"]
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+```
+
+Keep `--requirepass` in the command if you set a [Redis password](/self-hosting/security).
+
+### Connections and availability
+
+Each Tracecat process opens a Redis connection pool of up to 50 connections, so peak connections stay below `50 × Tracecat processes`.
+This is well under the Redis `maxclients` default of 10,000, so connection count rarely limits a tier.
+
+Agent streaming, case triggers, deduplication, workflow and action concurrency permits, and search all call Redis on the request path.
+In production, run a primary with at least one replica and automatic failover.
+Tracecat connects to a single Redis endpoint with a standalone client, so use a non-clustered Redis (ElastiCache cluster mode disabled).
+Replicas add failover, not capacity; scale by node size.
+
+### Redis tiers
+
+These tiers are sized from defaults and operational experience, not benchmarks.
+Pick the row whose memory estimate covers your agent and deduplication load, even if your action throughput is lower.
+
+| Tier | Typical load | Docker Compose | Managed Redis (ElastiCache example) |
+| :--- | :----------- | :------------- | :---------------------------------- |
+| Default | Up to 8 actions/s, a few agent users, short dedup windows | 1 GiB limit, `maxmemory 768mb` | `cache.t4g.small` (1.37 GiB), 1 node |
+| Standard | 16–32 actions/s, daily agent use across a team | 4 GiB limit, `maxmemory 3gb` | `cache.t4g.medium` (3.09 GiB), primary and 2 replicas, Multi-AZ |
+| Large | 64+ actions/s, or hundreds of agent turns a day | Move to managed Redis | `cache.m7g.large` (6.38 GiB), primary and 1+ replica, Multi-AZ |
+| Memory-bound | High agent volume or dedup windows of a day or more | Move to managed Redis | `cache.r7g.large` (13.07 GiB) or larger, primary and 1+ replica, Multi-AZ |
+
+The Default row matches the [AWS Fargate](/self-hosting/aws-fargate) Terraform default and the Standard row matches the EKS Terraform default.
+Burstable `t4g` nodes throttle when their CPU credits run out; move to `m7g` if `CPUCreditBalance` trends toward zero.
+
+### Verify Redis headroom
+
+- `redis-cli INFO memory`: `used_memory` should stay below 75% of `maxmemory`.
+- `redis-cli INFO stats`: `evicted_keys` and `rejected_connections` should stay at 0.
+- `redis-cli --memkeys`: if `agent-stream:*` keys dominate, lower `REDIS_CHAT_TTL_SECONDS`. If `dedup:*` keys dominate, lower `expire_seconds` or move up a tier.
+- On ElastiCache, alert on `DatabaseMemoryUsagePercentage`, `Evictions`, `EngineCPUUtilization`, and `CPUCreditBalance`.
 
 ## Related pages
 
