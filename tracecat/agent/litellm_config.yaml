@@ -62,6 +62,12 @@ general_settings:
   custom_auth: tracecat.agent.gateway.user_api_key_auth
   database_url: null
 
+router_settings:
+  # Credentials are injected per request, so each caller's key becomes its own
+  # single-deployment group with nothing to fail over to. A cooldown would only
+  # replace that caller's real provider error (e.g. a 401) with a gateway 503.
+  disable_cooldowns: true
+
 litellm_settings:
   callbacks:
     - tracecat.agent.gateway.callback_handler

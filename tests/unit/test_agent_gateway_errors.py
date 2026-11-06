@@ -142,8 +142,8 @@ async def test_provider_auth_cooldown_does_not_establish_next_callers_auth_failu
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Explicit deployments can enter cooldown in the pinned LiteLLM version;
-    # the bundled provider wildcard routes are exempt. Exercise the real router
-    # because it drops the auth exception on subsequent requests.
+    # the bundled config disables cooldowns. Exercise the real router because
+    # it drops the auth exception on subsequent requests.
     router = Router(
         model_list=[
             {
