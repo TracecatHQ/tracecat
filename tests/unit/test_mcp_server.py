@@ -9327,3 +9327,26 @@ async def test_delete_variable_reports_missing_variable(monkeypatch):
         )
 
     assert calls["delete"] == []
+
+
+def test_workflow_artifact_redis_uses_resolved_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The artifact client honours REDIS_URL__ARN through resolve_redis_url()."""
+    sentinel = object()
+    seen: list[str] = []
+
+    def fake_create(url: str, **kwargs: object) -> object:
+        del kwargs
+        seen.append(url)
+        return sentinel
+
+    monkeypatch.setattr(mcp_server, "_workflow_artifact_redis", None)
+    monkeypatch.setattr(
+        mcp_server, "resolve_redis_url", lambda: "rediss://resolved.example:6379"
+    )
+    monkeypatch.setattr(mcp_server, "create_redis_client", fake_create)
+
+    assert mcp_server._get_workflow_artifact_redis() is sentinel
+    assert mcp_server._get_workflow_artifact_redis() is sentinel
+    assert seen == ["rediss://resolved.example:6379"]

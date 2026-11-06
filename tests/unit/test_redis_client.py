@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Generator
-from types import SimpleNamespace
 
 import pytest
 import tenacity
@@ -71,9 +70,13 @@ class DummyRedis:
         cls.raise_on_xadd_once = False
 
 
-def fake_from_url(*args, **kwargs) -> SimpleNamespace:
-    pool = DummyConnectionPool()
-    return SimpleNamespace(connection_pool=pool)
+def fake_create_redis_client(*args, **kwargs) -> DummyRedis:
+    return DummyRedis(connection_pool=DummyConnectionPool())
+
+
+async def fake_close_redis_client(client: DummyRedis) -> None:
+    await client.close()
+    await client.connection_pool.disconnect()
 
 
 def reset_singleton() -> None:
@@ -89,8 +92,12 @@ def patch_redis(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     DummyConnectionPool.reset()
     reset_singleton()
 
-    monkeypatch.setattr("tracecat.redis.client.redis.Redis", DummyRedis)
-    monkeypatch.setattr("tracecat.redis.client.redis.from_url", fake_from_url)
+    monkeypatch.setattr(
+        "tracecat.redis.client.create_redis_client", fake_create_redis_client
+    )
+    monkeypatch.setattr(
+        "tracecat.redis.client.close_redis_client", fake_close_redis_client
+    )
 
     yield
 

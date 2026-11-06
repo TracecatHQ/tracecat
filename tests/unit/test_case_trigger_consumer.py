@@ -5,6 +5,7 @@ from typing import cast
 from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import ResponseError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -1018,3 +1019,65 @@ async def test_run_does_not_claim_pending_after_stop_signal(
     await asyncio.wait_for(consumer.run(), timeout=5.0)
 
     claim_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_retries_group_setup_after_redis_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A Redis error while creating the group backs off instead of exiting."""
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.REDIS_RETRY_BACKOFF_BASE_SECONDS", 0.01
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.capture_api_background_task_failure",
+        lambda error, *, task_name: None,
+    )
+    stop = asyncio.Event()
+    client = AsyncMock()
+
+    async def read(**kwargs: object) -> list[object]:
+        del kwargs
+        stop.set()
+        return []
+
+    client.xreadgroup = AsyncMock(side_effect=read)
+    consumer = CaseTriggerConsumer(client=client, stop_event=stop)
+    consumer._ensure_group = AsyncMock(
+        side_effect=[RedisConnectionError("Connection refused"), None]
+    )
+
+    await asyncio.wait_for(consumer.run(), timeout=5)
+
+    assert consumer._ensure_group.await_count == 2
+    client.xreadgroup.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_backoff_returns_on_stop(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Shutdown during a Redis backoff does not wait out the delay."""
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.REDIS_RETRY_BACKOFF_BASE_SECONDS", 60.0
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.capture_api_background_task_failure",
+        lambda error, *, task_name: None,
+    )
+    stop = asyncio.Event()
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(side_effect=RedisConnectionError("down"))
+    consumer = CaseTriggerConsumer(client=client, stop_event=stop)
+    consumer._ensure_group = AsyncMock()
+
+    task = asyncio.create_task(consumer.run())
+
+    async def first_read() -> None:
+        while client.xreadgroup.await_count == 0:
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(first_read(), timeout=2)
+    stop.set()
+
+    await asyncio.wait_for(task, timeout=2)
