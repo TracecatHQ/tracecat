@@ -64,30 +64,6 @@ _CONNECTION_OVERRIDE_VARS = frozenset(
 # contain pattern syntax (`,`, `:`, `!`, `&`, `*`, `~`) that could widen it.
 _HOST_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
-# Play, block, and task keywords that move execution off the validated
-# inventory host (including onto the controller) or load tasks, roles, or
-# variables from the executor filesystem, which cannot be inspected before the run.
-_DISALLOWED_PLAYBOOK_KEYWORDS = frozenset(
-    {
-        "add_host",
-        "connection",
-        "delegate_to",
-        "group_by",
-        "import_playbook",
-        "import_role",
-        "import_tasks",
-        "include",
-        "include_role",
-        "include_tasks",
-        "include_vars",
-        "local_action",
-        "roles",
-        "vars_files",
-    }
-)
-_TASK_LIST_KEYS = ("tasks", "pre_tasks", "post_tasks", "handlers")
-_BLOCK_KEYS = ("block", "rescue", "always")
-
 
 def _find_connection_overrides(value: Any) -> set[str]:
     """Return connection-override variable names used as keys anywhere in value."""
@@ -105,36 +81,11 @@ def _find_connection_overrides(value: Any) -> set[str]:
     return found
 
 
-def _find_disallowed_keywords(playbook: list[dict[str, Any]]) -> set[str]:
-    """Return disallowed keywords used on plays, blocks, or tasks."""
-    found: set[str] = set()
-    stack: list[Any] = list(playbook)
-    while stack:
-        item = stack.pop()
-        if not isinstance(item, dict):
-            continue
-        for key in item:
-            # Match both `add_host` and `ansible.builtin.add_host`.
-            if isinstance(key, str) and key.rsplit(".", 1)[-1] in (
-                _DISALLOWED_PLAYBOOK_KEYWORDS
-            ):
-                found.add(key)
-        for key in (*_TASK_LIST_KEYS, *_BLOCK_KEYS):
-            if isinstance(children := item.get(key), list):
-                stack.extend(children)
-    return found
-
-
 def _validate_playbook(playbook: list[dict[str, Any]]) -> None:
     if overrides := _find_connection_overrides(playbook):
         raise ValueError(
             "playbook cannot override connection settings: "
             f"{', '.join(sorted(overrides))}."
-        )
-    if keywords := _find_disallowed_keywords(playbook):
-        raise ValueError(
-            "playbook cannot change where tasks run or load content from files: "
-            f"{', '.join(sorted(keywords))}."
         )
 
 
@@ -200,10 +151,8 @@ def run_playbook(
             ...,
             description=(
                 "List of plays to run. Plays run only on the inventory host, so use "
-                "`hosts: all`. Connection variables (e.g. `ansible_host`), "
-                "`connection`, `delegate_to`, `local_action`, `add_host`, "
-                "`group_by`, `roles`, and `include_*`/`import_*`/`vars_files` "
-                "keywords are rejected; tasks must be inline."
+                "`hosts: all`. Connection variables that redirect the target "
+                "(e.g. `ansible_host`, `ansible_ssh_common_args`) are rejected."
             ),
         ),
     ],

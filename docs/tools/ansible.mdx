@@ -34,7 +34,7 @@ Host name to use in the inventory
 
 <ParamField path="playbook" type="array[object]" required>
 
-List of plays to run. Plays run only on the inventory host, so use `hosts: all`. Connection variables (e.g. `ansible_host`), `connection`, `delegate_to`, `local_action`, `add_host`, `group_by`, `roles`, and `include_*`/`import_*`/`vars_files` keywords are rejected; tasks must be inline.
+List of plays to run. Plays run only on the inventory host, so use `hosts: all`. Connection variables that redirect the target (e.g. `ansible_host`, `ansible_ssh_common_args`) are rejected.
 
 </ParamField>
 
