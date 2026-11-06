@@ -166,7 +166,7 @@ Use `start_delay` to wait a fixed number of seconds before an action starts.
 ### Timeout
 
 Use `timeout` to cap how long the action's function call may run in each attempt.
-Defaults to 300 seconds. Tracecat also caps each function call at `TRACECAT__EXECUTOR_CLIENT_TIMEOUT`, which defaults to 300 seconds (see [Environment variables](/self-hosting/environment-variables)).
+Defaults to 300 seconds. Tracecat also caps each function call at `TRACECAT__EXECUTOR_CLIENT_TIMEOUT`: 300 seconds by default, or 900 seconds on Fargate (see [Environment variables](/self-hosting/environment-variables)).
 
 The timeout covers only the function call. Platform work such as resolving secrets, loading the action's registry code, and starting the sandbox doesn't count toward it. An attempt that hits the timeout fails with `Action execution timed out after <timeout>s` and is retried if `max_attempts` allows it.
 
