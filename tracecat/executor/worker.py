@@ -204,7 +204,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                         max_concurrent_activities=max_concurrent,
                         workflow_runner=new_sandbox_runner(),
                         interceptors=interceptors,
-                        graceful_shutdown_timeout=timedelta(minutes=5),
+                        # 2x DEFAULT_ACTION_TIMEOUT so default-timeout actions finish.
+                        graceful_shutdown_timeout=timedelta(minutes=10),
                     ),
                     # LIFO exit removes readiness before Temporal drains activities.
                     readiness,
