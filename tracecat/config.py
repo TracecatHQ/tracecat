@@ -333,7 +333,9 @@ TRACECAT__DB_DYNAMIC_OWNER_ROLE = (
 """Role that owns new dynamic schemas and tables (``tables_*``, ``custom_fields_*``).
 
 Unset keeps them owned by the connecting role. When set, the connecting role
-must be a member of this role.
+must be a member of this role with INHERIT and SET (for example
+``GRANT app_owner TO app WITH INHERIT TRUE, SET TRUE``), so it keeps owner
+rights on the objects it hands over.
 """
 
 TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW") or 60)

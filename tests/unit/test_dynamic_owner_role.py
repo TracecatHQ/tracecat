@@ -5,6 +5,8 @@ Invariants:
   ``tables_*`` / ``custom_fields_*`` schemas and tables, and the owner role,
   not the login role, owns them. Later writes in the same transaction still
   work, because the login role is never switched to the owner role.
+- Forced RLS still applies to a role that inherits ownership: a member of
+  the owner role without BYPASSRLS sees only its own workspace's rows.
 - Unset: the creating role keeps ownership.
 """
 
@@ -24,6 +26,7 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.cases.schemas import CaseFieldCreate
 from tracecat.cases.service import CaseFieldsService
+from tracecat.db.rls import set_rls_context
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
@@ -41,13 +44,19 @@ def workflow_bucket() -> Iterator[None]:
 class OwnerRoles:
     owner: str
     login: str
+    reader: str
 
 
 @pytest.fixture(scope="session")
 def owner_roles() -> Iterator[OwnerRoles]:
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master").replace("-", "_")
     suffix = f"{worker_id}_{uuid.uuid4().hex[:8]}"
-    roles = OwnerRoles(owner=f"dyn_owner_{suffix}", login=f"dyn_app_{suffix}")
+    # The % in the owner name checks it never reaches a %-format string.
+    roles = OwnerRoles(
+        owner=f"dyn%owner_{suffix}",
+        login=f"dyn_app_{suffix}",
+        reader=f"dyn_reader_{suffix}",
+    )
     engine = create_engine(TEST_DB_CONFIG.sys_url_sync, isolation_level="AUTOCOMMIT")
     try:
         with engine.connect() as conn:
@@ -55,9 +64,12 @@ def owner_roles() -> Iterator[OwnerRoles]:
             # BYPASSRLS keeps the test about ownership, not public-table RLS.
             conn.execute(text(f'CREATE ROLE "{roles.login}" LOGIN BYPASSRLS'))
             conn.execute(text(f'GRANT "{roles.owner}" TO "{roles.login}"'))
+            conn.execute(text(f'CREATE ROLE "{roles.reader}" LOGIN'))
+            conn.execute(text(f'GRANT "{roles.owner}" TO "{roles.reader}"'))
         yield roles
     finally:
         with engine.connect() as conn:
+            conn.execute(text(f'DROP ROLE IF EXISTS "{roles.reader}"'))
             conn.execute(text(f'DROP ROLE IF EXISTS "{roles.login}"'))
             conn.execute(text(f'DROP ROLE IF EXISTS "{roles.owner}"'))
         engine.dispose()
@@ -113,6 +125,26 @@ async def _table_owner(session: AsyncSession, schema_name: str, table: str) -> s
     return result.scalar_one()
 
 
+async def _visible_rows(
+    session: AsyncSession,
+    role: Role,
+    workspace_id: uuid.UUID | None,
+    schema_name: str,
+    table: str,
+) -> int:
+    await set_rls_context(
+        session,
+        org_id=role.organization_id,
+        workspace_id=workspace_id,
+        user_id=role.user_id,
+        bypass=False,
+    )
+    result = await session.execute(
+        text(f'SELECT count(*) FROM "{schema_name}"."{table}"')
+    )
+    return result.scalar_one()
+
+
 async def _create_lookup_table(
     session: AsyncSession, role: Role, name: str = "owned_alerts"
 ) -> tuple[str, str]:
@@ -155,6 +187,16 @@ class TestDynamicOwnerRole:
         assert (
             await _table_owner(session, schema_name, second_table) == owner_roles.owner
         )
+
+        # Inherited owner without BYPASSRLS: forced RLS still filters by workspace.
+        await session.execute(text(f'SET ROLE "{owner_roles.reader}"'))
+        own_rows = await _visible_rows(
+            session, svc_role, svc_role.workspace_id, schema_name, table_name
+        )
+        other_rows = await _visible_rows(
+            session, svc_role, uuid.uuid4(), schema_name, table_name
+        )
+        assert (own_rows, other_rows) == (1, 0)
 
     @pytest.mark.usefixtures("as_login_role")
     async def test_case_fields_owned_by_owner_role(

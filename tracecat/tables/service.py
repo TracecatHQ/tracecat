@@ -147,7 +147,13 @@ async def assign_dynamic_owner(
     if not (role_name := config.TRACECAT__DB_DYNAMIC_OWNER_ROLE):
         return
     owner = conn.dialect.identifier_preparer.quote(role_name)
-    await conn.execute(sa.DDL(f"ALTER {object_type} %s OWNER TO {owner}", quoted_name))
+    # Both names go through the context: DDL %-formats the statement.
+    await conn.execute(
+        sa.DDL(
+            f"ALTER {object_type} %(name)s OWNER TO %(owner)s",
+            {"name": quoted_name, "owner": owner},
+        )
+    )
 
 
 def visible_column_names(column_names: Sequence[str]) -> list[str]:
