@@ -153,6 +153,29 @@ def test_suffixed_path_survives_its_collision_going_away() -> None:
     assert renamed[WORKFLOW] == {"wf_b": "workflows/Enrich/definition.yml"}
 
 
+@pytest.mark.parametrize(
+    ("previous", "expected"),
+    [
+        # A counter the planner writes is kept.
+        ("Triage-wf_b-2", "Triage-wf_b-2"),
+        # Anything else is not a readable choice, so it moves, never crashes.
+        ("Triage-wf_b-²", "Triage"),
+        ("Triage-wf_b-02", "Triage"),
+        ("Triage-wf_b-1", "Triage"),
+    ],
+)
+def test_only_planner_counters_count_as_readable_choices(
+    previous: str, expected: str
+) -> None:
+    mapped = {WORKFLOW: {"wf_b": f"workflows/{previous}/definition.yml"}}
+
+    paths = plan_resource_paths(
+        _workflows(_workflow("wf_b", "Triage")), previous=mapped
+    )
+
+    assert paths[WORKFLOW] == {"wf_b": f"workflows/{expected}/definition.yml"}
+
+
 def test_case_only_rename_moves_the_folder() -> None:
     mapped = {WORKFLOW: {"wf_a": "workflows/triage/definition.yml"}}
 
