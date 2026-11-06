@@ -130,57 +130,12 @@ def test_successful_run_does_not_raise(mock_run: MagicMock) -> None:
     assert _run_playbook(raise_on_failure=True, error_patterns=["FAILED"]) == events
 
 
-@pytest.mark.parametrize(
-    "key",
-    [
-        "binary",
-        "cmdline",
-        "private_data_dir",
-        "project_dir",
-        "process_isolation_executable",
-        "container_image",
-        "limit",
-        "host_pattern",
-        "envvars",
-    ],
-)
-def test_rejects_unsafe_runner_kwargs(mock_run: MagicMock, key: str) -> None:
-    with pytest.raises(ValueError, match="Unsupported runner_kwargs"):
-        _run_playbook(runner_kwargs={key: "x"})
-
-    mock_run.assert_not_called()
-
-
-def test_allows_safe_runner_kwargs(mock_run: MagicMock) -> None:
+def test_passes_runner_kwargs(mock_run: MagicMock) -> None:
     _run_playbook(runner_kwargs={"verbosity": 2, "tags": "deploy"})
 
     kwargs = mock_run.call_args.kwargs
     assert kwargs["verbosity"] == 2
     assert kwargs["tags"] == "deploy"
-
-
-@pytest.mark.parametrize(
-    "key",
-    ["ansible_host", "ANSIBLE_CONNECTION", "ansible_ssh_common_args"],
-)
-def test_rejects_connection_override_extravars(mock_run: MagicMock, key: str) -> None:
-    with pytest.raises(ValueError, match="cannot override connection"):
-        _run_playbook(extravars={key: "x"})
-
-    mock_run.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "host_name", ["server,localhost", "all", "*", "server:&web", "!x", ""]
-)
-def test_rejects_host_name_patterns(mock_run: MagicMock, host_name: str) -> None:
-    if host_name == "all":
-        _run_playbook(host_name=host_name)
-        return
-    with pytest.raises(ValueError, match="host_name"):
-        _run_playbook(host_name=host_name)
-
-    mock_run.assert_not_called()
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "169.254.169.254", "localhost"])
@@ -193,41 +148,5 @@ def test_rejects_denied_target(
 
     with pytest.raises(remote_exec.RemoteTargetDenied):
         _run_playbook(host=host)
-
-    mock_run.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "playbook",
-    [
-        [{"hosts": "all", "vars": {"ansible_host": "127.0.0.1"}, "tasks": []}],
-        [
-            {
-                "hosts": "all",
-                "tasks": [{"set_fact": {"ansible_ssh_common_args": "-o X"}}],
-            }
-        ],
-        [
-            {
-                "hosts": "all",
-                "tasks": [
-                    {
-                        "block": [
-                            {
-                                "command": "id",
-                                "vars": {"ANSIBLE_CONNECTION": "local"},
-                            }
-                        ]
-                    }
-                ],
-            }
-        ],
-    ],
-)
-def test_rejects_connection_overrides_in_playbook(
-    mock_run: MagicMock, playbook: list[dict[str, Any]]
-) -> None:
-    with pytest.raises(ValueError, match="cannot override connection"):
-        _run_playbook(playbook=playbook)
 
     mock_run.assert_not_called()

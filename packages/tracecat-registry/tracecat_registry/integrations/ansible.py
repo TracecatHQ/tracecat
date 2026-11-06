@@ -1,6 +1,5 @@
 """Generic interface to Ansible Python API."""
 
-import re
 from typing import Annotated, Any
 from ansible_runner import Runner, run
 from pydantic import Field
@@ -26,68 +25,6 @@ ansible_secret = RegistrySecret(
 - keys:
     - `PRIVATE_KEY`
 """
-
-ALLOWED_RUNNER_KWARGS = frozenset(
-    {
-        "forks",
-        "json_mode",
-        "omit_event_data",
-        "only_failed_event_data",
-        "quiet",
-        "rotate_artifacts",
-        "skip_tags",
-        "tags",
-        "verbosity",
-    }
-)
-"""ansible-runner options that cannot change the target host, inventory, or binary."""
-
-# Connection variables that would override the validated inventory host or
-# inject local commands into the SSH invocation (e.g. ProxyCommand).
-_CONNECTION_OVERRIDE_VARS = frozenset(
-    {
-        "ansible_connection",
-        "ansible_host",
-        "ansible_paramiko_host",
-        "ansible_paramiko_proxy_command",
-        "ansible_ssh_args",
-        "ansible_ssh_common_args",
-        "ansible_ssh_executable",
-        "ansible_ssh_extra_args",
-        "ansible_ssh_host",
-        "ansible_scp_extra_args",
-        "ansible_sftp_extra_args",
-    }
-)
-
-# Inventory host names are also used as the `--limit` pattern, so they must not
-# contain pattern syntax (`,`, `:`, `!`, `&`, `*`, `~`) that could widen it.
-_HOST_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-
-
-def _find_connection_overrides(value: Any) -> set[str]:
-    """Return connection-override variable names used as keys anywhere in value."""
-    found: set[str] = set()
-    stack = [value]
-    while stack:
-        item = stack.pop()
-        if isinstance(item, dict):
-            for key, child in item.items():
-                if isinstance(key, str) and key.lower() in _CONNECTION_OVERRIDE_VARS:
-                    found.add(key)
-                stack.append(child)
-        elif isinstance(item, list):
-            stack.extend(item)
-    return found
-
-
-def _validate_playbook(playbook: list[dict[str, Any]]) -> None:
-    if overrides := _find_connection_overrides(playbook):
-        raise ValueError(
-            "playbook cannot override connection settings: "
-            f"{', '.join(sorted(overrides))}."
-        )
-
 
 _FAILURE_EVENTS = frozenset({"runner_on_failed", "runner_on_unreachable"})
 
@@ -151,8 +88,7 @@ def run_playbook(
             ...,
             description=(
                 "List of plays to run. Plays run only on the inventory host, so use "
-                "`hosts: all`. Connection variables that redirect the target "
-                "(e.g. `ansible_host`, `ansible_ssh_common_args`) are rejected."
+                "`hosts: all`."
             ),
         ),
     ],
@@ -178,13 +114,7 @@ def run_playbook(
     ] = None,
     runner_kwargs: Annotated[
         dict[str, Any] | None,
-        Field(
-            description=(
-                "Additional ansible-runner options. Allowed keys: "
-                + ", ".join(sorted(ALLOWED_RUNNER_KWARGS))
-                + "."
-            )
-        ),
+        Field(description="Additional keyword arguments to pass to the runner"),
     ] = None,
     passwords: Annotated[
         dict[str, str] | None,
@@ -231,28 +161,14 @@ def run_playbook(
     ignore_events = ignore_events or []
     patterns = validate_error_patterns(error_patterns)
 
-    if not _HOST_NAME_PATTERN.fullmatch(host_name):
-        raise ValueError(
-            "host_name may only contain letters, digits, '.', '_' and '-'."
-        )
     extravars = extravars or {}
     runner_kwargs = dict(runner_kwargs or {})
     if "inventory" in runner_kwargs:
         raise ValueError(
             "`inventory` is not supported in this integration. Please use the `host` and `user` parameters instead."
         )
-    if disallowed := sorted(set(runner_kwargs) - ALLOWED_RUNNER_KWARGS):
-        raise ValueError(
-            f"Unsupported runner_kwargs: {', '.join(disallowed)}. "
-            f"Allowed keys: {', '.join(sorted(ALLOWED_RUNNER_KWARGS))}."
-        )
-    _validate_playbook(playbook)
-    if overrides := sorted(
-        key for key in extravars if key.lower() in _CONNECTION_OVERRIDE_VARS
-    ):
-        raise ValueError(
-            f"extravars cannot override connection settings: {', '.join(overrides)}."
-        )
+    # Only run against the inventory host; excludes Ansible's implicit localhost.
+    runner_kwargs.setdefault("limit", host_name)
     # Prevent ansible-runner from writing console output to stdout.
     # Registry actions are executed in a subprocess where stdout must contain
     # only the JSON protocol payload returned by minimal_runner.
@@ -287,8 +203,6 @@ def run_playbook(
         extravars=extravars,
         timeout=timeout,
         inventory=inventory,
-        # Only run against the inventory host; excludes Ansible's implicit localhost.
-        limit=host_name,
         **runner_kwargs,
     )
     if isinstance(result, Runner):

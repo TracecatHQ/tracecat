@@ -34,7 +34,7 @@ Host name to use in the inventory
 
 <ParamField path="playbook" type="array[object]" required>
 
-List of plays to run. Plays run only on the inventory host, so use `hosts: all`. Connection variables that redirect the target (e.g. `ansible_host`, `ansible_ssh_common_args`) are rejected.
+List of plays to run. Plays run only on the inventory host, so use `hosts: all`.
 
 </ParamField>
 
@@ -94,7 +94,7 @@ Default: `false`.
 
 <ParamField path="runner_kwargs" type="object | null">
 
-Additional ansible-runner options. Allowed keys: forks, json_mode, omit_event_data, only_failed_event_data, quiet, rotate_artifacts, skip_tags, tags, verbosity.
+Additional keyword arguments to pass to the runner
 
 Default: `null`.
 
