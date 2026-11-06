@@ -36,6 +36,7 @@ from tracecat.db.roles import (
     LoginPasswords,
     RoleNames,
     UnsafeDatabaseLoginError,
+    _admin_conninfo,
     assert_login_can_enforce_rls,
     bootstrap_statements,
     quote_ident,
@@ -123,14 +124,14 @@ def topology() -> Iterator[Topology]:
             conn,
             f"CREATE DATABASE {quote_ident(topo.database)} OWNER {quote_ident(topo.admin)}",
         )
-    # Extensions need a superuser here (rds_superuser on RDS), as an admin would.
-    with psycopg.connect(
-        _url("postgres", "postgres", topo.database), autocommit=True
-    ) as conn:
-        conn.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
-        conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
     passwords = LoginPasswords(PASSWORD, PASSWORD, PASSWORD)
     try:
+        # Extensions need a superuser here (rds_superuser on RDS), as an admin would.
+        with psycopg.connect(
+            _url("postgres", "postgres", topo.database), autocommit=True
+        ) as conn:
+            conn.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+            conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
         with psycopg.connect(topo.url(topo.admin), autocommit=True) as conn:
             notes = run_bootstrap(conn, LoginMethod.PASSWORD, passwords, roles)
         assert notes == [f"{name}: password set" for name in roles.logins]
@@ -274,6 +275,29 @@ async def test_login_check_accepts_only_app(
 
 
 @pytest.mark.anyio
+async def test_login_check_refuses_a_bypassrls_role_the_login_can_set(
+    topology: Topology,
+) -> None:
+    """``SET ROLE`` to any role the login is a member of is the same as being it."""
+    roles = topology.roles
+    escape = f"escape_{_suffix()}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(escape)} NOLOGIN BYPASSRLS")
+        _run(conn, f"GRANT {quote_ident(escape)} TO {quote_ident(roles.app)}")
+    engine = create_async_engine(
+        _url(roles.app, PASSWORD, topology.database, "+asyncpg")
+    )
+    try:
+        async with engine.connect() as conn:
+            with pytest.raises(UnsafeDatabaseLoginError, match="BYPASSRLS"):
+                await assert_login_can_enforce_rls(conn)
+    finally:
+        await engine.dispose()
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE {quote_ident(escape)}")
+
+
+@pytest.mark.anyio
 async def test_startup_check_only_runs_in_enforce_mode(
     topology: Topology, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -327,7 +351,142 @@ def test_token_login_methods_never_take_passwords() -> None:
             LoginPasswords(app="x"),
         )
     statements = "\n".join(bootstrap_statements(LoginMethod.AWS_IAM))
-    assert 'GRANT rds_iam TO "migrator", "app", "agent_runtime";' in statements
+    assert 'GRANT "rds_iam" TO "migrator", "app", "agent_runtime";' in statements
     entra = "\n".join(bootstrap_statements(LoginMethod.AZURE_ENTRA))
     assert 'CREATE ROLE "app"' not in entra
     assert "pgaadauth_create_principal_with_oid" in entra
+
+
+@dataclass(frozen=True, slots=True)
+class Scratch:
+    database: str
+    admin: str
+    roles: RoleNames
+
+    def admin_conn(self) -> psycopg.Connection:
+        return psycopg.connect(
+            _url(self.admin, "admin", self.database), autocommit=True
+        )
+
+
+@pytest.fixture
+def scratch() -> Iterator[Scratch]:
+    """An empty database owned by an RDS-shaped admin, plus a fake IAM role."""
+    suffix = _suffix()
+    roles = _with_iam(suffix)
+    scratch = Scratch(f"roles_scratch_{suffix}", f"admin_{suffix}", roles)
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.iam)} NOLOGIN")
+        _run(
+            conn,
+            f"CREATE ROLE {quote_ident(scratch.admin)} LOGIN CREATEROLE PASSWORD 'admin'",
+        )
+        _run(
+            conn,
+            f"CREATE DATABASE {quote_ident(scratch.database)} OWNER {quote_ident(scratch.admin)}",
+        )
+    try:
+        yield scratch
+    finally:
+        _drop_all(
+            scratch.database, [*roles.logins, *roles.keyrings, scratch.admin, roles.iam]
+        )
+
+
+def _with_iam(suffix: str) -> RoleNames:
+    base = _test_roles(suffix)
+    return RoleNames(
+        owner=base.owner,
+        dynamic_owner=base.dynamic_owner,
+        readonly=base.readonly,
+        migrator=base.migrator,
+        app=base.app,
+        agent_runtime=base.agent_runtime,
+        iam=f"iam_{suffix}",
+    )
+
+
+def _role_exists(name: str) -> bool:
+    with _superuser() as conn:
+        row = conn.execute(
+            "SELECT count(*) FROM pg_roles WHERE rolname = %s", (name,)
+        ).fetchone()
+    return row == (1,)
+
+
+def test_admin_in_iam_chain_fails_closed(scratch: Scratch) -> None:
+    """IAM bootstrap where the admin would end up in the IAM role changes nothing.
+
+    PG 16 makes a CREATEROLE admin an ADMIN-only member of each login role it
+    creates, so granting the IAM role to those logins puts the admin in it.
+    """
+    roles = scratch.roles
+    with _superuser() as conn:
+        # The admin needs ADMIN on the IAM role to grant it, as rds_superuser has.
+        _run(
+            conn,
+            f"GRANT {quote_ident(roles.iam)} TO {quote_ident(scratch.admin)} "
+            "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE",
+        )
+    with (
+        scratch.admin_conn() as conn,
+        pytest.raises(psycopg.errors.RaiseException, match="password login"),
+    ):
+        run_bootstrap(conn, LoginMethod.AWS_IAM, LoginPasswords(), roles)
+    assert not any(_role_exists(r) for r in (*roles.keyrings, *roles.logins))
+
+
+def test_password_mode_refuses_login_role_in_iam(scratch: Scratch) -> None:
+    """A password login role left in the IAM role would never accept its password."""
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+        _run(conn, f"GRANT {quote_ident(roles.iam)} TO {quote_ident(roles.app)}")
+    # A superuser admin is exempt from the admin check, so only this rule fires.
+    superuser_url = _url("postgres", "postgres", scratch.database)
+    with (
+        psycopg.connect(superuser_url, autocommit=True) as conn,
+        pytest.raises(psycopg.errors.RaiseException, match="password login"),
+    ):
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(app=PASSWORD), roles)
+    assert not _role_exists(roles.owner)
+
+
+def test_refuses_roles_already_granted_on_another_database(scratch: Scratch) -> None:
+    roles = scratch.roles
+    other = f"{scratch.database}_other"
+    with _superuser() as conn:
+        _run(
+            conn,
+            f"CREATE DATABASE {quote_ident(other)} OWNER {quote_ident(scratch.admin)}",
+        )
+    try:
+        with scratch.admin_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        with psycopg.connect(
+            _url(scratch.admin, "admin", other), autocommit=True
+        ) as conn:
+            with pytest.raises(psycopg.errors.RaiseException, match="another database"):
+                run_bootstrap(
+                    conn, LoginMethod.PASSWORD, LoginPasswords(app="other"), roles
+                )
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(other)} WITH (FORCE)")
+
+
+@pytest.mark.parametrize(
+    ("uri", "expected"),
+    [
+        ("postgresql+psycopg://a:b@h/db", "sslmode=require"),
+        ("postgresql://a:b@h/db?sslmode=verify-full", "sslmode=verify-full"),
+    ],
+)
+def test_admin_uri_never_falls_back_to_plaintext(
+    monkeypatch: pytest.MonkeyPatch, uri: str, expected: str
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", uri)
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "require")
+    conninfo = _admin_conninfo()
+    assert conninfo.startswith("postgresql://a:b@h/db")
+    assert conninfo.endswith(expected)

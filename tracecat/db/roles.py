@@ -15,13 +15,20 @@ Login roles are members of keyrings, never the other way round:
 - ``migrator`` runs migrations as ``tracecat_owner`` (``SET role`` at login).
 - ``app`` runs every app component. It has DML on ``public`` and owner rights
   on dynamic tables through ``app_owner``. FORCE RLS still applies to it.
-- ``agent_runtime`` is the agent runtime's login. ``app`` is a member of it.
-  Its table grants ship with ENG-2315.
+- ``agent_runtime`` is the agent runtime's login. ``app`` is a member of it
+  (the one login-to-login edge): the worker must be able to signal the
+  runtime's backends during a takeover, and ``app`` already holds everything
+  the runtime is granted. Its table grants ship with ENG-2315.
 
 On RDS, any role that is a member of an ``rds_iam`` role, even indirectly or
 with ``INHERIT FALSE``, loses password login. Because memberships only point
 from login roles to keyrings, the admin can join ``tracecat_owner`` and keep
-its password whatever login method the login roles use.
+its password whatever login method the login roles use. The final check
+refuses (and rolls back) any state where the admin or a keyring would be in
+``rds_iam``, or a password login role still is.
+
+Roles are cluster-wide, so the bootstrap refuses to run when a Tracecat role
+already has privileges on another database: one Tracecat install per cluster.
 
 Run as an admin (a superuser, or a ``CREATEROLE`` role such as the RDS master)::
 
@@ -68,6 +75,8 @@ class RoleNames:
     migrator: str = "migrator"
     app: str = "app"
     agent_runtime: str = "agent_runtime"
+    iam: str = "rds_iam"
+    """RDS's IAM-login role, when it exists."""
 
     @property
     def keyrings(self) -> tuple[str, str, str]:
@@ -78,7 +87,11 @@ class RoleNames:
         return (self.migrator, self.app, self.agent_runtime)
 
 
-DEFAULT_ROLES = RoleNames()
+# Honour an existing TRACECAT__DB_DYNAMIC_OWNER_ROLE so the app and the
+# bootstrap agree on the role that owns dynamic tables.
+DEFAULT_ROLES = RoleNames(
+    dynamic_owner=config.TRACECAT__DB_DYNAMIC_OWNER_ROLE or "app_owner"
+)
 
 
 class UnsafeDatabaseLoginError(RuntimeError):
@@ -174,10 +187,25 @@ def _create_extension(name: str) -> str:
     )
 
 
-def _verify(roles: RoleNames) -> str:
-    """Fail the bootstrap if the topology's safety rules don't hold."""
+def _verify(login: LoginMethod, roles: RoleNames) -> str:
+    """Fail the bootstrap if the topology's safety rules don't hold.
+
+    Raising rolls back the whole transaction, so a failed check changes nothing.
+    """
     managed = ", ".join(quote_literal(r) for r in (*roles.keyrings, *roles.logins))
     keyrings = ", ".join(quote_literal(r) for r in roles.keyrings)
+    logins = ", ".join(quote_literal(r) for r in roles.logins)
+    iam = quote_literal(roles.iam)
+    # MEMBER counts every grant, including the ADMIN-only grant PG 16 gives a
+    # CREATEROLE admin on roles it creates. Strict on purpose: which grants RDS
+    # treats as IAM-only isn't documented, and a lockout is worse than a refusal.
+    in_iam = f"pg_catalog.pg_has_role(oid, {iam}, 'MEMBER')"
+    # A superuser is a member of every role; RDS has no superuser login.
+    must_not_be_in_iam = (
+        f"rolname IN ({keyrings}) OR (rolname = session_user AND NOT rolsuper)"
+    )
+    if login is LoginMethod.PASSWORD:
+        must_not_be_in_iam += f" OR rolname IN ({logins})"
     return _do(
         "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
         f"             WHERE rolname IN ({managed}) AND (rolsuper OR rolbypassrls)) THEN\n"
@@ -187,13 +215,24 @@ def _verify(roles: RoleNames) -> str:
         f"             WHERE rolname IN ({keyrings}) AND rolcanlogin) THEN\n"
         "    RAISE EXCEPTION 'A Tracecat keyring role can log in';\n"
         "  END IF;\n"
-        "  IF pg_catalog.to_regrole('rds_iam') IS NOT NULL AND EXISTS (\n"
-        "    SELECT FROM pg_catalog.pg_roles\n"
-        f"    WHERE (rolname IN ({keyrings}) OR rolname = session_user)\n"
-        "      AND pg_catalog.pg_has_role(oid, 'rds_iam', 'MEMBER')\n"
+        "  IF EXISTS (\n"
+        "    SELECT FROM pg_catalog.pg_database d\n"
+        "    CROSS JOIN LATERAL pg_catalog.aclexplode(d.datacl) a\n"
+        "    JOIN pg_catalog.pg_roles r ON r.oid = a.grantee\n"
+        f"    WHERE d.datname <> current_database() AND r.rolname IN ({managed})\n"
         "  ) THEN\n"
-        "    RAISE EXCEPTION 'The admin or a keyring role is a member of rds_iam; '\n"
-        "      'that disables its password login';\n"
+        "    RAISE EXCEPTION 'A Tracecat role already has privileges on another database'\n"
+        "      USING HINT = 'Roles are cluster-wide: run one Tracecat install per cluster, '\n"
+        "        'and check that TRACECAT__DB_ADMIN_URI names the Tracecat database.';\n"
+        "  END IF;\n"
+        f"  IF pg_catalog.to_regrole({iam}) IS NOT NULL AND EXISTS (\n"
+        f"    SELECT FROM pg_catalog.pg_roles WHERE ({must_not_be_in_iam}) AND {in_iam}\n"
+        "  ) THEN\n"
+        f"    RAISE EXCEPTION 'A role that needs password login would be a member of %', {iam}\n"
+        "      USING DETAIL = 'The admin, a keyring, or (with --login password) a login role. Nothing was changed.',\n"
+        "            HINT = 'On PostgreSQL 16 a CREATEROLE admin is an ADMIN-only member of the roles it '\n"
+        "              'creates, which counts here; RDS does not document whether that disables '\n"
+        "              'password login, so bootstrap refuses rather than risk it.';\n"
         "  END IF;"
     )
 
@@ -226,7 +265,7 @@ def bootstrap_statements(
         else:
             statements += _create_role(name, login=True)
     if login is LoginMethod.AWS_IAM:
-        statements.append(f"GRANT rds_iam TO {migrator}, {app}, {runtime};")
+        statements.append(f"GRANT {q(roles.iam)} TO {migrator}, {app}, {runtime};")
 
     statements += [
         _grant_membership(roles.dynamic_owner, roles.owner),
@@ -275,7 +314,7 @@ def bootstrap_statements(
         f"{default} SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app};",
         f"{default} USAGE, SELECT, UPDATE ON SEQUENCES TO {app};",
         f"{default} SELECT ON TABLES TO {ro};",
-        _verify(roles),
+        _verify(login, roles),
     ]
     return statements
 
@@ -313,7 +352,8 @@ def run_bootstrap(
     """Apply the bootstrap in one transaction.
 
     Passwords are hashed with SCRAM on the client, so the plaintext never
-    reaches the server or its statement log.
+    reaches the server. The verifier does, and a server logging all statements
+    records it; verifiers are crackable offline, so treat such logs as secret.
 
     Args:
         conn: Admin connection, not in a transaction.
@@ -375,6 +415,9 @@ def _admin_conninfo() -> str:
         raise SystemExit("Set TRACECAT__DB_ADMIN_URI to an admin connection URI")
     # psycopg takes a libpq URI, without SQLAlchemy's +driver suffix.
     url = make_url(uri).set(drivername="postgresql")
+    if "sslmode" not in url.query:
+        # libpq defaults to sslmode=prefer, which silently falls back to plaintext.
+        url = url.update_query_dict({"sslmode": config.TRACECAT__DB_SSLMODE})
     return url.render_as_string(hide_password=False)
 
 
@@ -422,26 +465,30 @@ LOGIN_CHECK_SQL = text(
                AND pg_catalog.pg_has_role(r.oid, c.relowner, 'MEMBER')
            ) AS owns_public_table
     FROM pg_catalog.pg_roles r
+    -- The login, the role it is set to, and every role it can SET ROLE to
+    -- or inherits from.
     WHERE r.rolname IN (session_user, current_user)
+       OR pg_catalog.pg_has_role(session_user, r.oid, 'MEMBER')
     ORDER BY r.rolname
     """
 )
 
 
 async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
-    """Refuse a login that RLS would not apply to.
+    """Refuse a login that is a superuser, BYPASSRLS, or a ``public`` table owner.
 
     Postgres never applies RLS to a superuser or a ``BYPASSRLS`` role, and a
-    table owner (or a member of the owner role) can turn RLS off. Dynamic
-    tables are owned by ``app_owner`` on purpose and are forced, so only
-    ``public`` ownership counts here.
+    table owner (or a member of the owner role) can turn RLS off. This is a
+    necessary condition for enforce mode, not proof of isolation: dynamic
+    tables are owned by ``app_owner`` on purpose and rely on FORCE RLS plus
+    the DDL guard, and policies still honour ``app.rls_bypass``.
 
     Args:
         conn: A connection logged in as the app's database user.
 
     Raises:
-        UnsafeDatabaseLoginError: The login, or the role it switches to, is
-            a superuser, has ``BYPASSRLS`` or can act as a ``public`` owner.
+        UnsafeDatabaseLoginError: The login, or any role it is a member of,
+            is a superuser, has ``BYPASSRLS`` or can act as a ``public`` owner.
     """
     problems: list[str] = []
     for name, is_super, bypass, owns in (await conn.execute(LOGIN_CHECK_SQL)).tuples():
@@ -455,7 +502,8 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
             )
     if problems:
         raise UnsafeDatabaseLoginError(
-            "TRACECAT__RLS_MODE=enforce needs a database login that RLS applies to: "
+            "TRACECAT__RLS_MODE=enforce needs a login that is not a superuser, "
+            "BYPASSRLS or a public table owner: "
             + "; ".join(problems)
             + ". Log in as the 'app' role (python -m tracecat.db.roles bootstrap)."
         )
