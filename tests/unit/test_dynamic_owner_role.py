@@ -8,17 +8,25 @@ Invariants:
 - Forced RLS still applies to a role that inherits ownership: a member of
   the owner role without BYPASSRLS sees only its own workspace's rows.
 - Unset: the creating role keeps ownership.
+- With the dynamic RLS guard (b4074a0896b5) installed and the login role as
+  ``session_user``, the app's own DDL on dynamic tables still works: creating,
+  altering and dropping tables, columns and case fields, and re-initializing
+  an existing case fields table. Disabling RLS as that role fails.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
+from asyncpg.exceptions import InsufficientPrivilegeError
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.database import TEST_DB_CONFIG
@@ -28,10 +36,32 @@ from tracecat.cases.schemas import CaseFieldCreate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.rls import set_rls_context
 from tracecat.tables.enums import SqlType
-from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.schemas import (
+    TableColumnCreate,
+    TableColumnUpdate,
+    TableCreate,
+    TableRowInsert,
+)
 from tracecat.tables.service import TablesService
 
 pytestmark = pytest.mark.usefixtures("db")
+
+GUARD_MIGRATION = (
+    Path(__file__).resolve().parents[2]
+    / "alembic"
+    / "versions"
+    / "b4074a0896b5_guard_rls_on_dynamic_workspace_tables.py"
+)
+
+
+def _guard_statements() -> tuple[str, ...]:
+    """Load the guard SQL from its migration, so tests can't drift from it."""
+    spec = importlib.util.spec_from_file_location("dynamic_rls_guard", GUARD_MIGRATION)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load {GUARD_MIGRATION}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.GUARD_STATEMENTS
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -83,6 +113,37 @@ async def as_login_role(
 
     Grants live in the test transaction and roll back with it.
     """
+    await _grant_login_role(session, owner_roles, monkeypatch)
+    await session.execute(text(f'SET ROLE "{owner_roles.login}"'))
+    try:
+        yield
+    finally:
+        await session.execute(text("RESET ROLE"))
+
+
+@pytest.fixture
+async def as_guarded_login_role(
+    session: AsyncSession, owner_roles: OwnerRoles, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[None]:
+    """Run as the login role with the dynamic RLS guard installed.
+
+    The guard checks ``session_user``, which ``SET ROLE`` leaves unchanged,
+    so this switches the session authorization instead. The guard and the
+    grants live in the test transaction and roll back with it.
+    """
+    await _grant_login_role(session, owner_roles, monkeypatch)
+    for statement in _guard_statements():
+        await session.execute(text(statement))
+    await session.execute(text(f'SET SESSION AUTHORIZATION "{owner_roles.login}"'))
+    try:
+        yield
+    finally:
+        await session.execute(text("RESET SESSION AUTHORIZATION"))
+
+
+async def _grant_login_role(
+    session: AsyncSession, owner_roles: OwnerRoles, monkeypatch: pytest.MonkeyPatch
+) -> None:
     owner, login = owner_roles.owner, owner_roles.login
     db_name = TEST_DB_CONFIG.test_db_name
     await session.execute(
@@ -96,11 +157,6 @@ async def as_login_role(
         text(f'GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "{login}"')
     )
     monkeypatch.setattr(config, "TRACECAT__DB_DYNAMIC_OWNER_ROLE", owner)
-    await session.execute(text(f'SET ROLE "{login}"'))
-    try:
-        yield
-    finally:
-        await session.execute(text("RESET ROLE"))
 
 
 async def _schema_owner(session: AsyncSession, schema_name: str) -> str:
@@ -223,3 +279,64 @@ class TestDynamicOwnerRole:
         assert await _table_owner(session, tables_schema, lookup_table) == creator
         assert await _schema_owner(session, fields_schema) == creator
         assert await _table_owner(session, fields_schema, fields_table) == creator
+
+
+async def _session_user(session: AsyncSession) -> str:
+    return (await session.execute(text("SELECT session_user"))).scalar_one()
+
+
+@pytest.mark.anyio
+class TestDynamicRlsGuard:
+    @pytest.mark.usefixtures("as_guarded_login_role")
+    async def test_lookup_table_ddl_passes_guard(
+        self, session: AsyncSession, svc_role: Role, owner_roles: OwnerRoles
+    ) -> None:
+        assert await _session_user(session) == owner_roles.login
+        service = TablesService(session=session, role=svc_role)
+        table = await service.create_table(
+            TableCreate(
+                name="guarded_alerts",
+                columns=[TableColumnCreate(name="name", type=SqlType.TEXT)],
+            )
+        )
+        column = await service.create_column(
+            table, TableColumnCreate(name="severity", type=SqlType.TEXT)
+        )
+        column = await service.update_column(
+            column, TableColumnUpdate(name="level", nullable=False, default="low")
+        )
+        await service.insert_row(table, TableRowInsert(data={"name": "a"}))
+        await service.delete_column(column)
+        await service.delete_table(table)
+
+    @pytest.mark.usefixtures("as_guarded_login_role")
+    async def test_case_field_ddl_passes_guard(
+        self, session: AsyncSession, svc_role: Role, owner_roles: OwnerRoles
+    ) -> None:
+        assert await _session_user(session) == owner_roles.login
+        service = CaseFieldsService(session=session, role=svc_role)
+        await service.create_field(
+            CaseFieldCreate(name="triage_note", type=SqlType.TEXT)
+        )
+        # Re-initializing an existing table keeps its policy instead of
+        # dropping it, which the guard would reject.
+        await service.initialize_workspace_schema()
+        await service.delete_field("triage_note")
+        await service.drop_workspace_schema()
+
+    @pytest.mark.usefixtures("as_guarded_login_role")
+    async def test_guard_blocks_disabling_rls(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        schema_name, table_name = await _create_lookup_table(session, svc_role)
+
+        with pytest.raises(DBAPIError) as exc_info:
+            async with session.begin_nested():
+                await session.execute(
+                    text(
+                        f'ALTER TABLE "{schema_name}"."{table_name}" '
+                        "DISABLE ROW LEVEL SECURITY"
+                    )
+                )
+        assert exc_info.value.orig is not None
+        assert isinstance(exc_info.value.orig.__cause__, InsufficientPrivilegeError)
