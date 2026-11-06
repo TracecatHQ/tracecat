@@ -9645,6 +9645,7 @@ export type RuntimeErrorKind =
   | "storage.materialization.invalid_data"
   | "storage.persistence.transport_unavailable"
   | "executor.activity.timed_out"
+  | "executor.worker.shutdown"
   | "executor.backend.initialization_failed"
   | "executor.registry.lease_contention"
   | "executor.registry.capacity_exhausted"
