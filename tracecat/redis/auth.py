@@ -22,7 +22,6 @@ in flight when its connection drops still fails, so nothing is replayed.
 
 import asyncio
 import base64
-import re
 import ssl
 import threading
 import time
@@ -55,6 +54,14 @@ from redis.exceptions import (
 
 from tracecat import config
 from tracecat.logger import logger
+from tracecat.redis.types import (
+    RedisAuth,
+    RedisAuthMode,
+    RedisAwsIamAuth,
+    RedisAzureEntraAuth,
+    RedisIamAuth,
+    RedisPasswordAuth,
+)
 
 AWS_IAM_TOKEN_TTL_SECONDS = 900
 """Lifetime of a signed ElastiCache token. 15 minutes is the ElastiCache maximum."""
@@ -88,11 +95,9 @@ IAM_AUTH_MAX_ATTEMPTS = 4
 IAM_AUTH_BACKOFF_SECONDS = 0.5
 """Base for the exponential backoff between handshake attempts (0.5, 1, 2 s)."""
 
-_REPLICATION_GROUP_ID = re.compile(r"[a-z][a-z0-9-]*")
-
-IAM_HOST_SUFFIXES: dict[str, tuple[str, ...]] = {
-    "aws_iam": (".cache.amazonaws.com", ".cache.amazonaws.com.cn"),
-    "azure_entra": (".redis.azure.net", ".redis.cache.windows.net"),
+IAM_HOST_SUFFIXES: dict[RedisAuthMode, tuple[str, ...]] = {
+    RedisAuthMode.AWS_IAM: (".cache.amazonaws.com", ".cache.amazonaws.com.cn"),
+    RedisAuthMode.AZURE_ENTRA: (".redis.azure.net", ".redis.cache.windows.net"),
 }
 """Hosts each IAM mode sends its token to.
 
@@ -195,15 +200,10 @@ class IamConnectionPool(ConnectionPool):
                 connection.mark_for_reconnect()
 
 
-def aws_iam_signing_url(replication_group_id: str, user_id: str) -> str:
+def aws_iam_signing_url(auth: RedisAwsIamAuth) -> str:
     """Return the URL ElastiCache expects a ``connect`` token to be signed for."""
-    if not _REPLICATION_GROUP_ID.fullmatch(replication_group_id):
-        raise ValueError(
-            "REDIS_AWS_IAM_REPLICATION_GROUP_ID must be the lowercase replication "
-            f"group ID, not an endpoint (got {replication_group_id!r})"
-        )
-    query = urlencode({"Action": "connect", "User": user_id})
-    return f"https://{replication_group_id}/?{query}"
+    query = urlencode({"Action": "connect", "User": auth.user_id})
+    return f"https://{auth.replication_group_id}/?{query}"
 
 
 class AwsIamCredentialProvider(CredentialProvider):
@@ -215,17 +215,15 @@ class AwsIamCredentialProvider(CredentialProvider):
 
     def __init__(
         self,
+        auth: RedisAwsIamAuth,
         *,
-        user_id: str,
-        replication_group_id: str,
-        region: str,
         session: boto3.Session | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._user_id = user_id
-        self._signing_url = aws_iam_signing_url(replication_group_id, user_id)
-        self._region = region
-        self._session = session or boto3.Session(region_name=region)
+        self._user_id = auth.user_id
+        self._signing_url = aws_iam_signing_url(auth)
+        self._region = auth.region
+        self._session = session or boto3.Session(region_name=auth.region)
         self._clock = clock
         self._lock = threading.Lock()
         self._token: str | None = None
@@ -317,13 +315,11 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
 
     def __init__(
         self,
+        auth: RedisAzureEntraAuth,
         *,
-        scope: str = AZURE_REDIS_SCOPE,
-        client_id: str | None = None,
         credential_factory: Callable[[], AsyncTokenCredential] | None = None,
     ) -> None:
-        self._scope = scope
-        self._client_id = client_id
+        self._client_id = auth.client_id
         self._credential_factory = credential_factory or self._default_credential
         self._credential: AsyncTokenCredential | None = None
         self._token: AccessToken | None = None
@@ -342,7 +338,7 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
     async def _fetch_token(self) -> AccessToken:
         if self._credential is None:
             self._credential = self._credential_factory()
-        return await self._credential.get_token(self._scope)
+        return await self._credential.get_token(AZURE_REDIS_SCOPE)
 
     async def _current_token(self) -> AccessToken:
         async with self._lock:
@@ -446,25 +442,18 @@ class AzureEntraCredentialProvider(StreamingCredentialProvider):
             await credential.close()
 
 
-def build_credential_provider() -> (
-    AwsIamCredentialProvider | AzureEntraCredentialProvider
-):
-    """Build the credential provider for the configured IAM auth mode."""
-    match config.REDIS_AUTH_MODE:
-        case "aws_iam":
-            return AwsIamCredentialProvider(
-                user_id=config.REDIS_AWS_IAM_USER_ID,
-                replication_group_id=config.REDIS_AWS_IAM_REPLICATION_GROUP_ID,
-                region=config.REDIS_AWS_REGION,
-            )
-        case "azure_entra":
-            return AzureEntraCredentialProvider(client_id=config.REDIS_AZURE_CLIENT_ID)
-        case "password":
-            raise ValueError("Password mode does not use a credential provider")
+def build_credential_provider(
+    auth: RedisIamAuth,
+) -> AwsIamCredentialProvider | AzureEntraCredentialProvider:
+    """Build the credential provider for an IAM login."""
+    match auth:
+        case RedisAwsIamAuth():
+            return AwsIamCredentialProvider(auth)
+        case RedisAzureEntraAuth():
+            return AzureEntraCredentialProvider(auth)
 
 
-def _validate_iam_url(url: str, options: dict[str, Any]) -> None:
-    mode = config.REDIS_AUTH_MODE
+def _validate_iam_url(url: str, options: dict[str, Any], mode: RedisAuthMode) -> None:
     if not url.startswith("rediss://"):
         raise ValueError(
             f"REDIS_AUTH_MODE={mode} requires TLS: the Redis URL must use rediss://"
@@ -493,24 +482,28 @@ def _validate_iam_url(url: str, options: dict[str, Any]) -> None:
         )
 
 
-def create_redis_client(url: str, **kwargs: Any) -> redis.Redis:
-    """Create an asyncio Redis client that logs in per ``REDIS_AUTH_MODE``.
+def create_redis_client(
+    url: str, *, auth: RedisAuth | None = None, **kwargs: Any
+) -> redis.Redis:
+    """Create an asyncio Redis client that logs in per ``auth``.
 
-    Takes the same arguments as ``redis.asyncio.Redis.from_url``. In password
-    mode it is exactly ``from_url``. In the IAM modes it builds an
-    ``IamConnectionPool`` of ``IamSSLConnection`` with the credential provider,
-    after checking the URL uses verified TLS and carries no static credentials.
+    Takes the same arguments as ``redis.asyncio.Redis.from_url``. ``auth``
+    defaults to ``config.REDIS_AUTH``. With ``RedisPasswordAuth`` it is exactly
+    ``from_url``. For an IAM login it builds an ``IamConnectionPool`` of
+    ``IamSSLConnection`` with the credential provider, after checking the URL
+    uses verified TLS and carries no static credentials.
 
     Close the client with ``close_redis_client`` so a token refresh task stops.
     """
-    if config.REDIS_AUTH_MODE == "password":
+    auth = config.REDIS_AUTH if auth is None else auth
+    if isinstance(auth, RedisPasswordAuth):
         return redis.from_url(url, **kwargs)
 
     # Mirror ConnectionPool.from_url, where URL options win over kwargs.
     # ``ConnectKwargs`` is a TypedDict; widen it to merge with caller kwargs.
     options: dict[str, Any] = {**kwargs, **parse_url(url)}
-    _validate_iam_url(url, options)
-    provider = build_credential_provider()
+    _validate_iam_url(url, options, auth.mode)
+    provider = build_credential_provider(auth)
     options["connection_class"] = IamSSLConnection
     options["credential_provider"] = provider
     pool = IamConnectionPool(**options)

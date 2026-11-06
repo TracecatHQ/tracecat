@@ -44,6 +44,7 @@ from tracecat.redis.auth import (
     create_redis_client,
 )
 from tracecat.redis.client import RedisClient
+from tracecat.redis.types import RedisAwsIamAuth, RedisAzureEntraAuth
 
 pytestmark = pytest.mark.usefixtures("redis_server")
 
@@ -341,7 +342,7 @@ def plain_iam_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     monkeypatch.setattr(auth, "IamSSLConnection", PlainIamConnection)
-    monkeypatch.setattr(auth, "_validate_iam_url", lambda url, options: None)
+    monkeypatch.setattr(auth, "_validate_iam_url", lambda url, options, mode: None)
 
 
 @pytest.fixture
@@ -412,10 +413,11 @@ async def test_aws_iam_pool_logs_in_with_token_and_reconnects(
     monkeypatch: pytest.MonkeyPatch, acl_user: Callable[[str, str], None]
 ) -> None:
     user = f"aws-app-{uuid.uuid4().hex[:8]}"
+    aws_auth = RedisAwsIamAuth(
+        user_id=user, replication_group_id="tracecat-redis", region="us-east-1"
+    )
     provider = AwsIamCredentialProvider(
-        user_id=user,
-        replication_group_id="tracecat-redis",
-        region="us-east-1",
+        aws_auth,
         session=boto3.Session(
             aws_access_key_id="AKIDEXAMPLE",
             aws_secret_access_key="secret",
@@ -424,10 +426,11 @@ async def test_aws_iam_pool_logs_in_with_token_and_reconnects(
     )
     _, token = provider.get_credentials()  # cached for the pool's logins
     acl_user(user, token)
-    monkeypatch.setattr(config, "REDIS_AUTH_MODE", "aws_iam")
-    monkeypatch.setattr(auth, "build_credential_provider", lambda: provider)
+    monkeypatch.setattr(auth, "build_credential_provider", lambda _auth: provider)
 
-    client = create_redis_client(os.environ["REDIS_URL"], decode_responses=True)
+    client = create_redis_client(
+        os.environ["REDIS_URL"], auth=aws_auth, decode_responses=True
+    )
     try:
         assert await client.acl_whoami() == user
         assert await drop_connections() >= 1
@@ -457,11 +460,15 @@ async def test_azure_entra_pool_moves_onto_refreshed_token(
     acl_user(second_user, second.token)
 
     credential = ScriptedCredential([first, second])
-    provider = AzureEntraCredentialProvider(credential_factory=lambda: credential)
-    monkeypatch.setattr(config, "REDIS_AUTH_MODE", "azure_entra")
-    monkeypatch.setattr(auth, "build_credential_provider", lambda: provider)
+    entra_auth = RedisAzureEntraAuth()
+    provider = AzureEntraCredentialProvider(
+        entra_auth, credential_factory=lambda: credential
+    )
+    monkeypatch.setattr(auth, "build_credential_provider", lambda _auth: provider)
 
-    client = create_redis_client(os.environ["REDIS_URL"], decode_responses=True)
+    client = create_redis_client(
+        os.environ["REDIS_URL"], auth=entra_auth, decode_responses=True
+    )
     try:
         assert await client.acl_whoami() == first_user
         connection_id = await client.client_id()

@@ -2,7 +2,6 @@ import base64
 import binascii
 import logging
 import os
-import re
 import uuid
 from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
@@ -17,6 +16,13 @@ from tracecat.agent.constants import (
 from tracecat.auth.enums import AuthType
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
+from tracecat.redis.types import (
+    RedisAuth,
+    RedisAuthMode,
+    RedisAwsIamAuth,
+    RedisAzureEntraAuth,
+    RedisPasswordAuth,
+)
 
 # === Logger === #
 logger = logging.getLogger(__name__)
@@ -1391,74 +1397,74 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 REDIS_URL__ARN = os.environ.get("REDIS_URL__ARN")
 """(AWS only) ARN of the secret containing the Redis URL."""
 
-_redis_auth_mode_raw = (os.environ.get("REDIS_AUTH_MODE") or "password").strip().lower()
-if _redis_auth_mode_raw not in ("password", "aws_iam", "azure_entra"):
-    raise ValueError(
-        "REDIS_AUTH_MODE must be one of password, aws_iam, azure_entra "
-        f"(got {_redis_auth_mode_raw!r})"
-    )
-REDIS_AUTH_MODE: Literal["password", "aws_iam", "azure_entra"] = cast(
-    Literal["password", "aws_iam", "azure_entra"], _redis_auth_mode_raw
-)
-"""How the Redis client logs in. Defaults to password.
 
-- ``password``: credentials, if any, come from the Redis URL.
-- ``aws_iam``: an ElastiCache IAM token, signed with the workload's AWS credentials.
-- ``azure_entra``: an Entra ID token for Azure Managed Redis.
+def _parse_redis_auth() -> RedisAuth:
+    raw_mode = (os.environ.get("REDIS_AUTH_MODE") or "password").strip().lower()
+    try:
+        mode = RedisAuthMode(raw_mode)
+    except ValueError as e:
+        raise ValueError(
+            f"REDIS_AUTH_MODE must be one of {', '.join(RedisAuthMode)} (got {raw_mode!r})"
+        ) from e
+    match mode:
+        case RedisAuthMode.PASSWORD:
+            return RedisPasswordAuth()
+        case RedisAuthMode.AZURE_ENTRA:
+            client_id = os.environ.get("REDIS_AZURE_CLIENT_ID", "").strip() or None
+            return RedisAzureEntraAuth(client_id=client_id)
+        case RedisAuthMode.AWS_IAM:
+            user_id = os.environ.get("REDIS_AWS_IAM_USER_ID", "").strip()
+            group_id = (
+                os.environ.get("REDIS_AWS_IAM_REPLICATION_GROUP_ID", "").strip().lower()
+            )
+            region = (
+                os.environ.get("REDIS_AWS_REGION")
+                or os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or ""
+            ).strip()
+            missing = [
+                name
+                for name, value in (
+                    ("REDIS_AWS_IAM_USER_ID", user_id),
+                    ("REDIS_AWS_IAM_REPLICATION_GROUP_ID", group_id),
+                    ("REDIS_AWS_REGION", region),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"REDIS_AUTH_MODE=aws_iam requires {', '.join(missing)}"
+                )
+            return RedisAwsIamAuth(
+                user_id=user_id, replication_group_id=group_id, region=region
+            )
+
+
+REDIS_AUTH: RedisAuth = _parse_redis_auth()
+"""How the Redis client logs in, from ``REDIS_AUTH_MODE`` (default ``password``).
+
+- ``password``: ``RedisPasswordAuth``; credentials, if any, come from the URL.
+- ``aws_iam``: ``RedisAwsIamAuth`` from ``REDIS_AWS_IAM_USER_ID``,
+  ``REDIS_AWS_IAM_REPLICATION_GROUP_ID`` and ``REDIS_AWS_REGION`` (defaults to
+  ``AWS_REGION``, then ``AWS_DEFAULT_REGION``).
+- ``azure_entra``: ``RedisAzureEntraAuth`` from ``REDIS_AZURE_CLIENT_ID``
+  (optional; DefaultAzureCredential reads ``AZURE_CLIENT_ID`` otherwise).
 
 The IAM modes require a ``rediss://`` URL with no username or password in it.
 """
 
-REDIS_AWS_IAM_USER_ID = os.environ.get("REDIS_AWS_IAM_USER_ID", "").strip()
-"""(aws_iam) ElastiCache user ID. ElastiCache IAM users must have user ID == user name."""
-
-REDIS_AWS_IAM_REPLICATION_GROUP_ID = (
-    os.environ.get("REDIS_AWS_IAM_REPLICATION_GROUP_ID", "").strip().lower()
-)
-"""(aws_iam) ElastiCache replication group ID (not the endpoint) that tokens are signed for."""
-
-REDIS_AWS_REGION = (
-    os.environ.get("REDIS_AWS_REGION")
-    or os.environ.get("AWS_REGION")
-    or os.environ.get("AWS_DEFAULT_REGION")
-    or ""
-).strip()
-"""(aws_iam) Region of the ElastiCache cache. Defaults to AWS_REGION."""
-
-REDIS_AZURE_CLIENT_ID = os.environ.get("REDIS_AZURE_CLIENT_ID", "").strip() or None
-"""(azure_entra) Client ID of the managed or workload identity. Defaults to AZURE_CLIENT_ID."""
-
-if REDIS_AUTH_MODE == "aws_iam":
-    _missing_redis_aws = [
-        name
-        for name, value in (
-            ("REDIS_AWS_IAM_USER_ID", REDIS_AWS_IAM_USER_ID),
-            ("REDIS_AWS_IAM_REPLICATION_GROUP_ID", REDIS_AWS_IAM_REPLICATION_GROUP_ID),
-            ("REDIS_AWS_REGION", REDIS_AWS_REGION),
-        )
-        if not value
-    ]
-    if _missing_redis_aws:
-        raise ValueError(
-            f"REDIS_AUTH_MODE=aws_iam requires {', '.join(_missing_redis_aws)}"
-        )
-    if not re.fullmatch(r"[a-z][a-z0-9-]*", REDIS_AWS_IAM_REPLICATION_GROUP_ID):
-        raise ValueError(
-            "REDIS_AWS_IAM_REPLICATION_GROUP_ID must be the replication group ID, "
-            "not an endpoint"
-        )
-
 # Fail at startup when the URL is known up front. A URL read from
 # REDIS_URL__ARN is checked again when the client is built.
-if REDIS_AUTH_MODE != "password" and not REDIS_URL__ARN:
+if not isinstance(REDIS_AUTH, RedisPasswordAuth) and not REDIS_URL__ARN:
     if not REDIS_URL.startswith("rediss://"):
         raise ValueError(
-            f"REDIS_AUTH_MODE={REDIS_AUTH_MODE} requires TLS: REDIS_URL must use rediss://"
+            f"REDIS_AUTH_MODE={REDIS_AUTH.mode} requires TLS: REDIS_URL must use rediss://"
         )
     _redis_url_parts = urlsplit(REDIS_URL)
     if _redis_url_parts.username or _redis_url_parts.password:
         raise ValueError(
-            f"REDIS_AUTH_MODE={REDIS_AUTH_MODE} logs in with a token: remove the "
+            f"REDIS_AUTH_MODE={REDIS_AUTH.mode} logs in with a token: remove the "
             "username and password from REDIS_URL"
         )
 

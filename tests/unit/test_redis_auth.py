@@ -34,6 +34,12 @@ from tracecat.redis.auth import (
     close_redis_client,
     create_redis_client,
 )
+from tracecat.redis.types import (
+    RedisAuthMode,
+    RedisAwsIamAuth,
+    RedisAzureEntraAuth,
+    RedisPasswordAuth,
+)
 
 
 def _jwt(claims: dict[str, object]) -> str:
@@ -41,6 +47,11 @@ def _jwt(claims: dict[str, object]) -> str:
         return base64.urlsafe_b64encode(orjson.dumps(value)).rstrip(b"=").decode()
 
     return f"{part({'alg': 'none'})}.{part(claims)}.signature"
+
+
+AWS_AUTH = RedisAwsIamAuth(
+    user_id="app-user", replication_group_id="tracecat-redis", region="us-east-1"
+)
 
 
 def _static_session() -> boto3.Session:
@@ -56,7 +67,7 @@ def _static_session() -> boto3.Session:
 
 def test_aws_signing_url_targets_replication_group() -> None:
     assert (
-        aws_iam_signing_url("tracecat-redis", "app-user")
+        aws_iam_signing_url(AWS_AUTH)
         == "https://tracecat-redis/?Action=connect&User=app-user"
     )
 
@@ -65,16 +76,24 @@ def test_aws_signing_url_targets_replication_group() -> None:
     "group",
     ["master.tracecat-redis.abc123.use1.cache.amazonaws.com", "Tracecat", ""],
 )
-def test_aws_signing_url_rejects_endpoints_and_bad_ids(group: str) -> None:
+def test_aws_auth_rejects_endpoints_and_bad_group_ids(group: str) -> None:
     with pytest.raises(ValueError, match="replication group ID"):
-        aws_iam_signing_url(group, "app-user")
+        RedisAwsIamAuth(
+            user_id="app-user", replication_group_id=group, region="us-east-1"
+        )
+
+
+@pytest.mark.parametrize(("user_id", "region"), [("", "us-east-1"), ("app-user", "")])
+def test_aws_auth_requires_user_and_region(user_id: str, region: str) -> None:
+    with pytest.raises(ValueError, match="user ID and a region"):
+        RedisAwsIamAuth(
+            user_id=user_id, replication_group_id="tracecat-redis", region=region
+        )
 
 
 def test_aws_token_is_presigned_connect_url_without_scheme() -> None:
     provider = AwsIamCredentialProvider(
-        user_id="app-user",
-        replication_group_id="tracecat-redis",
-        region="us-east-1",
+        AWS_AUTH,
         session=_static_session(),
     )
 
@@ -96,9 +115,7 @@ def test_aws_token_is_presigned_connect_url_without_scheme() -> None:
 def test_aws_token_is_cached_then_resigned(monkeypatch: pytest.MonkeyPatch) -> None:
     now = [1000.0]
     provider = AwsIamCredentialProvider(
-        user_id="app-user",
-        replication_group_id="tracecat-redis",
-        region="us-east-1",
+        AWS_AUTH,
         session=_static_session(),
         clock=lambda: now[0],
     )
@@ -123,9 +140,7 @@ async def test_aws_async_credentials_sign_lazily(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = AwsIamCredentialProvider(
-        user_id="app-user",
-        replication_group_id="tracecat-redis",
-        region="us-east-1",
+        AWS_AUTH,
         session=_static_session(),
     )
     calls = 0
@@ -148,9 +163,7 @@ def test_aws_missing_credentials_fails_clearly(
 ) -> None:
     session = boto3.Session(region_name="us-east-1")
     provider = AwsIamCredentialProvider(
-        user_id="app-user",
-        replication_group_id="tracecat-redis",
-        region="us-east-1",
+        AWS_AUTH,
         session=session,
     )
     monkeypatch.setattr(session, "get_credentials", lambda: None)
@@ -290,8 +303,7 @@ def _access_token(oid: str, expires_in: float) -> AccessToken:
 
 def _azure_provider(credential: FakeAzureCredential) -> AzureEntraCredentialProvider:
     return AzureEntraCredentialProvider(
-        scope="https://redis.azure.com/.default",
-        credential_factory=lambda: credential,
+        RedisAzureEntraAuth(), credential_factory=lambda: credential
     )
 
 
@@ -421,18 +433,11 @@ def test_azure_token_without_identity_claim_is_rejected() -> None:
 # --- Client factory ---
 
 
-@pytest.fixture
-def aws_iam_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "REDIS_AUTH_MODE", "aws_iam")
-    monkeypatch.setattr(config, "REDIS_AWS_IAM_USER_ID", "app-user")
-    monkeypatch.setattr(config, "REDIS_AWS_IAM_REPLICATION_GROUP_ID", "tracecat-redis")
-    monkeypatch.setattr(config, "REDIS_AWS_REGION", "us-east-1")
-
-
 @pytest.mark.anyio
 async def test_password_mode_is_plain_from_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "REDIS_AUTH_MODE", "password")
-    client = create_redis_client("redis://user:pass@localhost:6379/0")
+    client = create_redis_client(
+        "redis://user:pass@localhost:6379/0", auth=RedisPasswordAuth()
+    )
     try:
         pool = client.connection_pool
         assert pool.connection_class is Connection
@@ -443,10 +448,10 @@ async def test_password_mode_is_plain_from_url(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("aws_iam_mode")
 async def test_aws_iam_mode_builds_tls_pool_with_provider() -> None:
     client = create_redis_client(
         "rediss://master.tracecat-redis.abc123.use1.cache.amazonaws.com:6379/0",
+        auth=AWS_AUTH,
         decode_responses=True,
         max_connections=7,
     )
@@ -489,27 +494,27 @@ AWS_HOST = "master.tracecat-redis.abc123.use1.cache.amazonaws.com"
         ),
     ],
 )
-@pytest.mark.usefixtures("aws_iam_mode")
 def test_aws_iam_mode_rejects_insecure_urls(url: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        create_redis_client(url)
+        create_redis_client(url, auth=AWS_AUTH)
 
 
 @pytest.mark.parametrize("check_hostname", [False, 0, None])
-@pytest.mark.usefixtures("aws_iam_mode")
 def test_aws_iam_mode_rejects_disabled_hostname_check(check_hostname: object) -> None:
     with pytest.raises(ValueError, match="ssl_check_hostname"):
         create_redis_client(
             "rediss://master.tracecat-redis.abc123.use1.cache.amazonaws.com:6379",
+            auth=AWS_AUTH,
             ssl_check_hostname=check_hostname,
         )
 
 
 @pytest.mark.parametrize("option", ["ssl_ca_certs", "ssl_ca_data", "ssl_certfile"])
-@pytest.mark.usefixtures("aws_iam_mode")
 def test_aws_iam_mode_rejects_url_trust_material(option: str) -> None:
     with pytest.raises(ValueError, match=f"does not accept TLS options {option}"):
-        create_redis_client(f"rediss://{AWS_HOST}:6379?{option}=/tmp/ca.pem")
+        create_redis_client(
+            f"rediss://{AWS_HOST}:6379?{option}=/tmp/ca.pem", auth=AWS_AUTH
+        )
 
 
 @pytest.mark.parametrize(
@@ -519,10 +524,56 @@ def test_aws_iam_mode_rejects_url_trust_material(option: str) -> None:
 def test_azure_entra_mode_accepts_azure_hosts(
     monkeypatch: pytest.MonkeyPatch, host: str
 ) -> None:
-    monkeypatch.setattr(config, "REDIS_AUTH_MODE", "azure_entra")
-    auth._validate_iam_url(f"rediss://{host}:10000", {"host": host})
+    mode = RedisAuthMode.AZURE_ENTRA
+    auth._validate_iam_url(f"rediss://{host}:10000", {"host": host}, mode)
     with pytest.raises(ValueError, match="redis.azure.net"):
-        auth._validate_iam_url(f"rediss://{AWS_HOST}:6379", {"host": AWS_HOST})
+        auth._validate_iam_url(f"rediss://{AWS_HOST}:6379", {"host": AWS_HOST}, mode)
+
+
+# --- Parsing REDIS_AUTH from the environment ---
+
+
+@pytest.fixture
+def redis_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    for name in (
+        "REDIS_AUTH_MODE",
+        "REDIS_AWS_IAM_USER_ID",
+        "REDIS_AWS_IAM_REPLICATION_GROUP_ID",
+        "REDIS_AWS_REGION",
+        "AWS_REGION",
+        "AWS_DEFAULT_REGION",
+        "REDIS_AZURE_CLIENT_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def test_parse_redis_auth_defaults_to_password(redis_env: pytest.MonkeyPatch) -> None:
+    assert config._parse_redis_auth() == RedisPasswordAuth()
+
+
+def test_parse_redis_auth_aws(redis_env: pytest.MonkeyPatch) -> None:
+    redis_env.setenv("REDIS_AUTH_MODE", " AWS_IAM ")
+    redis_env.setenv("REDIS_AWS_IAM_USER_ID", "app-user")
+    redis_env.setenv("REDIS_AWS_IAM_REPLICATION_GROUP_ID", "Tracecat-Redis")
+    redis_env.setenv("AWS_DEFAULT_REGION", "eu-west-1")
+
+    assert config._parse_redis_auth() == RedisAwsIamAuth(
+        user_id="app-user", replication_group_id="tracecat-redis", region="eu-west-1"
+    )
+
+
+@pytest.mark.parametrize(
+    ("client_id", "expected"), [(None, None), ("  ", None), ("cid", "cid")]
+)
+def test_parse_redis_auth_azure(
+    redis_env: pytest.MonkeyPatch, client_id: str | None, expected: str | None
+) -> None:
+    redis_env.setenv("REDIS_AUTH_MODE", "azure_entra")
+    if client_id is not None:
+        redis_env.setenv("REDIS_AZURE_CLIENT_ID", client_id)
+
+    assert config._parse_redis_auth() == RedisAzureEntraAuth(client_id=expected)
 
 
 # --- Startup validation ---
