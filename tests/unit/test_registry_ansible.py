@@ -242,6 +242,13 @@ def test_rejects_connection_overrides_in_playbook(
         {"hosts": "all", "tasks": [{"local_action": "command id"}]},
         {"hosts": "all", "tasks": [{"ansible.builtin.add_host": {"name": "x"}}]},
         {"hosts": "all", "tasks": [{"include_vars": "x.yml"}]},
+        {"hosts": "all", "roles": ["x"]},
+        {"hosts": "all", "tasks": [{"ansible.builtin.include_role": {"name": "x"}}]},
+        {"hosts": "all", "tasks": [{"import_role": {"name": "x"}}]},
+        {"hosts": "all", "tasks": [{"include_tasks": "/tmp/x.yml"}]},
+        {"hosts": "all", "tasks": [{"import_tasks": "/tmp/x.yml"}]},
+        {"hosts": "all", "tasks": [{"include": "/tmp/x.yml"}]},
+        {"import_playbook": "/tmp/x.yml"},
         {
             "hosts": "all",
             "handlers": [

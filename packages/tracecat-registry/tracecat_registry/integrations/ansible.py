@@ -65,16 +65,23 @@ _CONNECTION_OVERRIDE_VARS = frozenset(
 _HOST_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Play, block, and task keywords that move execution off the validated
-# inventory host (including onto the controller) or load variables from files
-# that cannot be inspected before the run.
+# inventory host (including onto the controller) or load tasks, roles, or
+# variables from the executor filesystem, which cannot be inspected before the run.
 _DISALLOWED_PLAYBOOK_KEYWORDS = frozenset(
     {
         "add_host",
         "connection",
         "delegate_to",
         "group_by",
+        "import_playbook",
+        "import_role",
+        "import_tasks",
+        "include",
+        "include_role",
+        "include_tasks",
         "include_vars",
         "local_action",
+        "roles",
         "vars_files",
     }
 )
@@ -126,7 +133,7 @@ def _validate_playbook(playbook: list[dict[str, Any]]) -> None:
         )
     if keywords := _find_disallowed_keywords(playbook):
         raise ValueError(
-            "playbook cannot change where tasks run or load variable files: "
+            "playbook cannot change where tasks run or load content from files: "
             f"{', '.join(sorted(keywords))}."
         )
 
@@ -193,9 +200,10 @@ def run_playbook(
             ...,
             description=(
                 "List of plays to run. Plays run only on the inventory host, so use "
-                "`hosts: all`. Connection variables (e.g. `ansible_host`) and the "
+                "`hosts: all`. Connection variables (e.g. `ansible_host`), "
                 "`connection`, `delegate_to`, `local_action`, `add_host`, "
-                "`group_by`, `include_vars`, and `vars_files` keywords are rejected."
+                "`group_by`, `roles`, and `include_*`/`import_*`/`vars_files` "
+                "keywords are rejected; tasks must be inline."
             ),
         ),
     ],
