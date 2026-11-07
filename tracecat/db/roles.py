@@ -505,7 +505,8 @@ def _admin_conninfo() -> str:
 # one. Extension members stay with the extension; sequences owned by a column
 # and table row types move with their table.
 PUBLIC_OBJECTS_TEMPLATE = """
-SELECT 1, CASE c.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW'
+SELECT CASE WHEN c.relkind IN ('v', 'm') THEN 2 ELSE 1 END,
+       CASE c.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW'
                          WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE'
                          ELSE 'TABLE' END,
        c.oid::pg_catalog.regclass::text, pg_catalog.pg_get_userbyid(c.relowner)
@@ -632,6 +633,7 @@ class UpgradeResult:
 
     notes: list[str] = field(default_factory=list)
     moved: list[str] = field(default_factory=list)
+    kept_access: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)
     remaining_public: list[str] = field(default_factory=list)
     remaining_dynamic: list[str] = field(default_factory=list)
@@ -643,7 +645,7 @@ class UpgradeResult:
 
 @dataclass(frozen=True, slots=True)
 class PublicObject:
-    stage: int  # 1: relations, 2: routines and types (after every relation moved)
+    stage: int  # 1: tables and sequences; 2: views, routines, types (after stage 1)
     kind: str
     name: str  # schema-qualified: the upgrade runs with search_path = pg_catalog
     owner: str
@@ -836,16 +838,6 @@ def run_upgrade(
         old_owners = [row[0]] if row else []
     old = [r for r in old_owners if r not in roles.keyrings]
     owner = quote_ident(roles.owner)
-    # An app still running as an old owner keeps its access through the owner
-    # keyring (as the admin does) until it is switched to the new roles.
-    # Topology logins are skipped: app or migrator must never reach the owner.
-    keep_access = [
-        r for r in old if r not in roles.logins and not _is_superuser(conn, r)
-    ]
-    for name in keep_access:
-        with conn.transaction():
-            conn.execute(_grant_membership(roles.owner, name).encode())
-        result.notes.append(f"{name}: kept access through {roles.owner} until cutover")
     # Names must stay schema-qualified between listing and ALTER: with "$user"
     # on the path, a role with CREATE on the database could plant a same-named
     # object in a schema named after the admin and have it re-owned instead.
@@ -853,11 +845,12 @@ def run_upgrade(
     conn.execute("SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)")
     try:
         objects = _public_objects(conn, old)
+        _keep_old_owners_working(conn, objects, roles, result)
         for obj in (o for o in objects if o.stage == 1):
             _move(conn, obj, owner, login, roles, lock_timeout, retries, result)
-        # A SECURITY DEFINER routine moved ahead of a table it uses would lose
-        # access to it, so routines and types wait until every public relation,
-        # whoever owns it, is on the owner keyring.
+        # A view or SECURITY DEFINER routine moved ahead of a table it uses
+        # would lose access to it, so stage 2 waits until every public table
+        # and sequence, whoever owns it, is on the owner keyring.
         relations_left = [o for o in _unmoved_public(conn, old, roles) if o.stage == 1]
         if not result.failed and not relations_left:
             for obj in (o for o in objects if o.stage == 2):
@@ -887,24 +880,17 @@ def run_upgrade(
                 "SELECT pg_catalog.set_config('search_path', %(p)s, false)",
                 {"p": saved[0]},
             )
-    # ALTER ... OWNER rewrites the old owner's ACL entries to the new owner, so
-    # an old owner that is also a topology login (--from app) lost its grants.
-    # Rerunning the bootstrap restores every grant on the moved objects.
-    if result.moved:
-        _bootstrap_with_retries(
-            conn,
-            login,
-            LoginPasswords(),
-            roles,
-            lock_timeout=lock_timeout,
-            retries=retries,
-        )
     if result.complete:
         result.notes.append(
             f"Retire the old login ({', '.join(old)}): once migrations use "
             f"{roles.migrator} and the app uses {roles.app}, rotate its password or "
             "drop it. It still owns the database and can act as the owner keyring."
         )
+        if kept := result.kept_access:
+            revoke = "; ".join(
+                f"REVOKE {quote_ident(roles.owner)} FROM {quote_ident(n)}" for n in kept
+            )
+            result.notes.append(f"At cutover, remove the kept access: {revoke};")
     return result
 
 
@@ -917,6 +903,41 @@ def _superuser_owned_public(
         {"old": list(old), "owner": quote_ident(roles.owner)},
     ).fetchall()
     return [f"{owner}: {count}" for owner, count in rows]
+
+
+def _keep_old_owners_working(
+    conn: psycopg.Connection,
+    objects: Sequence[PublicObject],
+    roles: RoleNames,
+    result: UpgradeResult,
+) -> None:
+    """Let an app still running as an old owner keep its access until cutover.
+
+    Only owners of something about to move get the owner keyring, the same way
+    the admin has it. Topology logins never do: app and migrator must not
+    reach the owner role.
+    """
+    admin = conn.execute("SELECT session_user").fetchone()
+    owners = sorted({o.owner for o in objects})
+    for name in owners:
+        # The admin's membership is the bootstrap's, by design (break-glass).
+        if admin and name == admin[0]:
+            continue
+        if name in roles.logins or _is_superuser(conn, name):
+            continue
+        with conn.transaction():
+            conn.execute(_grant_membership(roles.owner, name).encode())
+        result.kept_access.append(name)
+        result.notes.append(f"{name}: kept access through {roles.owner} until cutover")
+        row = conn.execute(
+            "SELECT rolinherit FROM pg_catalog.pg_roles WHERE rolname = %(r)s",
+            {"r": name},
+        ).fetchone()
+        if row and not row[0]:
+            result.notes.append(
+                f"{name} has NOINHERIT: before PostgreSQL 16 it needs "
+                f"SET ROLE {quote_ident(roles.owner)} (or INHERIT) to keep working"
+            )
 
 
 def _is_superuser(conn: psycopg.Connection, role: str) -> bool:
@@ -936,10 +957,27 @@ def _move(
     retries: int,
     result: UpgradeResult,
 ) -> None:
+    statements = [f"ALTER {obj.kind} {obj.name} OWNER TO {owner}"]
+    if obj.owner == roles.app:
+        # ALTER ... OWNER hands app's own ACL entries to the new owner; give
+        # them back in the same transaction so a running app never loses access.
+        app = quote_ident(roles.app)
+        if obj.kind == "SEQUENCE":
+            statements.append(
+                f"GRANT USAGE, SELECT, UPDATE ON SEQUENCE {obj.name} TO {app}"
+            )
+        elif obj.kind in ("TABLE", "VIEW", "MATERIALIZED VIEW", "FOREIGN TABLE"):
+            statements.append(
+                f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {obj.name} TO {app}"
+            )
+            # Column-owned sequences moved with the table.
+            statements.append(
+                f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {app}"
+            )
     _apply(
         conn,
         obj.label,
-        [f"ALTER {obj.kind} {obj.name} OWNER TO {owner}"],
+        statements,
         lock_timeout=lock_timeout,
         retries=retries,
         result=result,

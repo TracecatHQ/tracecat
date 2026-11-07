@@ -1094,7 +1094,11 @@ def _superuser_upgrade(install: LegacyInstall, old_owners: list[str]) -> Upgrade
 
 
 def test_upgrade_from_an_existing_app_owner_keeps_app_working() -> None:
-    """ALTER OWNER rewrites the old owner's ACL; the post-pass bootstrap restores app's grants."""
+    """ALTER OWNER rewrites app's own ACL; each transfer gives the grants back at once.
+
+    Nothing re-grants after the pass, so app working afterwards means it never
+    lost access between transfers.
+    """
     install = _legacy_install(_suffix(), migrate=False)
     roles = install.roles
     try:
@@ -1106,12 +1110,12 @@ def test_upgrade_from_an_existing_app_owner_keeps_app_working() -> None:
         with psycopg.connect(
             install.url("postgres", "postgres"), autocommit=True
         ) as conn:
-            conn.execute("CREATE TABLE public.items (id int)")
+            conn.execute("CREATE TABLE public.items (id serial)")
             _run(conn, f"ALTER TABLE public.items OWNER TO {quote_ident(roles.app)}")
         result = _superuser_upgrade(install, old_owners=[roles.app])
         assert result.complete
         with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
-            conn.execute("INSERT INTO public.items VALUES (1)")
+            conn.execute("INSERT INTO public.items DEFAULT VALUES")  # uses the sequence
             assert conn.execute("SELECT count(*) FROM public.items").fetchone() == (1,)
     finally:
         _drop_install(install)
@@ -1150,6 +1154,54 @@ def test_superuser_owned_tables_always_count_as_unmoved() -> None:
         result = _superuser_upgrade(install, old_owners=[install.legacy])
         assert result.remaining_public == ["TABLE public.app_data (owner postgres)"]
         assert not result.complete
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_only_keeps_access_for_owners_of_moved_objects() -> None:
+    """A --from role that owns nothing must not be handed the owner keyring."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    analyst = f"analyst_{_suffix()}"
+    try:
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(analyst)} LOGIN")
+        result = _superuser_upgrade(install, [analyst])
+        with _superuser() as conn:
+            member = conn.execute(
+                "SELECT pg_has_role(%s, %s, 'MEMBER')", (analyst, roles.owner)
+            ).fetchone()
+        assert member == (False,)
+        assert result.kept_access == []
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(analyst)}")
+
+
+def test_views_wait_for_the_tables_they_read() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.busy (id int)")
+            conn.execute("CREATE VIEW public.busy_view AS SELECT id FROM public.busy")
+        with psycopg.connect(install.url("postgres", "postgres")) as holder:
+            holder.execute("LOCK TABLE public.busy IN ACCESS SHARE MODE")
+            with install.legacy_conn() as conn:
+                result = run_upgrade(
+                    conn,
+                    LoginMethod.PASSWORD,
+                    LoginPasswords(),
+                    roles,
+                    lock_timeout="200ms",
+                    retries=0,
+                )
+            holder.rollback()
+        assert "VIEW public.busy_view" not in result.moved
+        assert (
+            f"VIEW public.busy_view (owner {install.legacy})" in result.remaining_public
+        )
     finally:
         _drop_install(install)
 
