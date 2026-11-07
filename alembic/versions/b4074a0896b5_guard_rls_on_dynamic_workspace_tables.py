@@ -51,7 +51,8 @@ migrations as that admin, or as a member of it, so they keep full DDL rights
 on dynamic tables.
 
 The upgrade keeps a guard that is already installed (both triggers firing in
-normal sessions, owned by the function's owner, with this revision's body).
+normal sessions for every command of their event, owned by the function's
+owner, with this revision's body).
 Otherwise it drops any old or partial guard and installs a fresh one, in one
 savepoint: when the role can't create event triggers, the old guard stays. A
 stray guard function owned by a role it can't drop fails the upgrade with
@@ -353,12 +354,22 @@ def _protect_dynamic_tables() -> None:
         )
     )
     for (qualified_table,) in rows.tuples():
-        op.execute(
-            sa.text(
-                f"ALTER TABLE {qualified_table} "
-                "ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY"
+        try:
+            op.execute(
+                sa.text(
+                    f"ALTER TABLE {qualified_table} "
+                    "ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY"
+                )
             )
-        )
+        except DBAPIError as exc:
+            if not isinstance(exc.orig, psycopg.errors.InsufficientPrivilege):
+                raise
+            raise RuntimeError(
+                f"Can't enable and force RLS on {qualified_table}: this "
+                "migration role doesn't own it. As its owner or a superuser, "
+                "give it to the dynamic owner role (ALTER TABLE ... OWNER TO "
+                "<TRACECAT__DB_DYNAMIC_OWNER_ROLE>), then rerun the upgrade."
+            ) from exc
 
 
 def _guard_installed() -> bool:
@@ -377,6 +388,10 @@ def _guard_installed() -> bool:
             WHERE t.evtname IN (:ddl_trigger, :drop_trigger)
               -- O and A fire in normal sessions; R only under replication.
               AND t.evtenabled IN ('O', 'A')
+              -- No WHEN TAG filter, and each trigger on its own event.
+              AND t.evttags IS NULL
+              AND t.evtevent = CASE t.evtname WHEN :ddl_trigger
+                                   THEN 'ddl_command_end' ELSE 'sql_drop' END
               AND f.oid = to_regprocedure(:function)
               AND f.proowner = t.evtowner
               AND f.prosrc = :body
@@ -419,20 +434,32 @@ def _assert_guard_function_droppable() -> None:
         )
 
 
-def _guard_present() -> bool:
-    """Either guard trigger exists, current or not."""
-    present = (
+def _guard_firing() -> bool:
+    """Both triggers fire in normal sessions and call the guard, any version."""
+    firing = (
         op.get_bind()
         .execute(
             sa.text(
-                "SELECT EXISTS (SELECT 1 FROM pg_event_trigger "
-                "WHERE evtname IN (:ddl_trigger, :drop_trigger))"
+                """
+                SELECT count(*) = 2
+                FROM pg_event_trigger
+                WHERE evtname IN (:ddl_trigger, :drop_trigger)
+                  AND evtenabled IN ('O', 'A')
+                  AND evttags IS NULL
+                  AND evtevent = CASE evtname WHEN :ddl_trigger
+                                     THEN 'ddl_command_end' ELSE 'sql_drop' END
+                  AND evtfoid = to_regprocedure(:function)
+                """
             ),
-            {"ddl_trigger": DDL_TRIGGER, "drop_trigger": DROP_TRIGGER},
+            {
+                "ddl_trigger": DDL_TRIGGER,
+                "drop_trigger": DROP_TRIGGER,
+                "function": GUARD_FUNCTION,
+            },
         )
         .scalar_one()
     )
-    return bool(present)
+    return bool(firing)
 
 
 def _install_guard() -> None:
@@ -441,7 +468,8 @@ def _install_guard() -> None:
         logger.info("Dynamic-table RLS guard is already installed; keeping it.")
         return
     _assert_guard_function_droppable()
-    had_guard = _guard_present()
+    # Only a guard that fires counts as kept if the reinstall is denied.
+    had_guard = _guard_firing()
     # Drop and reinstall in one savepoint: CREATE OR REPLACE would keep a stray
     # function's owner, and if this role can't create event triggers the
     # rollback restores whatever guard was there.

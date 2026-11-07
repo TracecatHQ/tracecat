@@ -15,7 +15,7 @@ Invariants:
   warning and leaves nothing behind, and keeps a guard an admin already
   installed. A guard function another role created first is replaced, or the
   upgrade fails with instructions when the migration role can't drop it. An
-  outdated or replica-only guard is replaced, or kept when the migration role
+  outdated, replica-only or tag-filtered guard is replaced, or kept when the migration role
   can't recreate event triggers.
 - The upgrade logs a warning for each workspace table whose RLS differs from
   what the app creates, and a policy renamed before the upgrade doesn't let
@@ -694,18 +694,26 @@ class TestDynamicRlsGuardMigration:
         _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "set_schema"))
         _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "rename_schema"))
 
-    def test_upgrade_replaces_a_replica_only_guard(
-        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("drift", ["replica_only", "tag_filtered"])
+    def test_upgrade_replaces_a_guard_that_misses_commands(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch, drift: str
     ) -> None:
-        # ENABLE REPLICA triggers never fire in normal sessions.
-        _run_committed(
-            guard_db.db_url,
-            [
-                *_install_statements(),
-                "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_ddl ENABLE REPLICA",
-                "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_drop ENABLE REPLICA",
-            ],
-        )
+        # Replica-only triggers never fire in normal sessions; a WHEN TAG
+        # filter skips ALTER TABLE.
+        match drift:
+            case "replica_only":
+                tweak = [
+                    "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_ddl ENABLE REPLICA",
+                    "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_drop ENABLE REPLICA",
+                ]
+            case _:
+                tweak = [
+                    "DROP EVENT TRIGGER tracecat_guard_dynamic_rls_ddl",
+                    "CREATE EVENT TRIGGER tracecat_guard_dynamic_rls_ddl "
+                    "ON ddl_command_end WHEN TAG IN ('CREATE TABLE') "
+                    f"EXECUTE FUNCTION {GUARD_FUNCTION}",
+                ]
+        _run_committed(guard_db.db_url, [*_install_statements(), *tweak])
         _run(guard_db.app_url, _blocked(guard_db, "disable"))
 
         _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
@@ -742,3 +750,39 @@ class TestDynamicRlsGuardMigration:
         assert "Kept the existing dynamic-table RLS guard" in caplog.text
         assert len(_guard_objects(guard_db.db_url)) == 3
         _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
+
+    def test_disabled_guard_that_cannot_be_reinstalled_is_reported_as_skipped(
+        self,
+        guard_db: GuardDb,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _run_committed(
+            guard_db.db_url,
+            [
+                *_install_statements(),
+                "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_ddl DISABLE",
+                *(
+                    f'ALTER TABLE "{schema}"."{table}" '
+                    "ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY"
+                    for schema, table in _stragglers(guard_db)
+                ),
+            ],
+        )
+
+        with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
+            _alembic(monkeypatch, guard_db.admin_url, "upgrade", MIGRATION_REVISION)
+
+        assert "Skipped the dynamic-table RLS guard" in caplog.text
+        assert "Kept the existing" not in caplog.text
+
+    def test_backfill_names_a_table_the_migration_role_cannot_alter(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = make_url(guard_db.app_url).username
+        straggler = f'"{guard_db.tables_schema}"."{STRAGGLER_TABLE}"'
+        _run_committed(guard_db.db_url, [f'ALTER TABLE {straggler} OWNER TO "{app}"'])
+
+        # admin is a member of the owner role, not of the app login.
+        with pytest.raises(RuntimeError, match="Can't enable and force RLS on"):
+            _alembic(monkeypatch, guard_db.admin_url, "upgrade", MIGRATION_REVISION)
