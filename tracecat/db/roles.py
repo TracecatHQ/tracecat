@@ -137,7 +137,8 @@ def _create_role(name: str, *, login: bool) -> list[str]:
         f"    CREATE ROLE {quote_ident(name)} {kind};\n"
         "  END IF;"
     )
-    return [create, f"ALTER ROLE {quote_ident(name)} {kind};"]
+    # INHERIT: before PG 16 a member inherits only if the member role has it.
+    return [create, f"ALTER ROLE {quote_ident(name)} {kind} INHERIT;"]
 
 
 def _require_role(name: str) -> str:
@@ -155,7 +156,7 @@ def _grant_membership(role: str, member: str) -> str:
 
     PG 16 records INHERIT/SET per grant and a CREATEROLE admin's automatic
     self-grant has neither, so state them explicitly there. Older versions
-    take inheritance from the member role.
+    take inheritance from the member role, which bootstrap sets to INHERIT.
     """
     args = f"{quote_literal(role)}, {quote_literal(member)}"
     return _do(
@@ -319,7 +320,7 @@ def bootstrap_statements(
     for name in roles.logins:
         if login is LoginMethod.AZURE_ENTRA:
             statements.append(_require_role(name))
-            statements.append(f"ALTER ROLE {q(name)} LOGIN;")
+            statements.append(f"ALTER ROLE {q(name)} LOGIN INHERIT;")
         else:
             statements += _create_role(name, login=True)
     if login is LoginMethod.AWS_IAM:

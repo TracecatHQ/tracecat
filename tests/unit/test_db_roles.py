@@ -567,6 +567,22 @@ def test_refuses_roles_inheriting_grants_in_another_database(scratch: Scratch) -
             _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
 
 
+def test_bootstrap_normalizes_noinherit_roles(scratch: Scratch) -> None:
+    """Before PG 16, a NOINHERIT member gets no owner rights from the keyring."""
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN NOINHERIT")
+    with psycopg.connect(
+        _url("postgres", "postgres", scratch.database), autocommit=True
+    ) as conn:
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        rows = conn.execute(
+            "SELECT bool_and(rolinherit) FROM pg_roles WHERE rolname = ANY(%s)",
+            ([*roles.keyrings, *roles.logins],),
+        ).fetchone()
+    assert rows == (True,)
+
+
 def test_refuses_a_login_role_with_createrole(scratch: Scratch) -> None:
     """CREATEROLE lets a login grant itself the owner keyring."""
     roles = scratch.roles
