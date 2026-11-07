@@ -332,6 +332,23 @@ TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 """The SSL mode to connect to the database with."""
 
+TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
+"""Admin connection for ``python -m tracecat.db.roles`` only.
+
+A superuser or a ``CREATEROLE`` role such as the RDS master. Never give it to
+app components.
+"""
+TRACECAT__DB_MIGRATOR_PASSWORD = (
+    os.environ.get("TRACECAT__DB_MIGRATOR_PASSWORD") or None
+)
+"""Password that ``tracecat.db.roles bootstrap --login password`` sets on ``migrator``."""
+TRACECAT__DB_APP_PASSWORD = os.environ.get("TRACECAT__DB_APP_PASSWORD") or None
+"""Password that ``tracecat.db.roles bootstrap --login password`` sets on ``app``."""
+TRACECAT__DB_AGENT_RUNTIME_PASSWORD = (
+    os.environ.get("TRACECAT__DB_AGENT_RUNTIME_PASSWORD") or None
+)
+"""Password that ``tracecat.db.roles bootstrap --login password`` sets on ``agent_runtime``."""
+
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 

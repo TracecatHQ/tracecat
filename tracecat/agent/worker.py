@@ -50,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.cases.agent_invocations.workflows import (
         CaseCommentAgentInvocationWorkflow,
     )
+    from tracecat.db.engine import verify_rls_enforceable_login
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import (
         RuntimeErrorAttributionInterceptor,
@@ -129,6 +130,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     )
 
     logger.info("Starting AgentWorker")
+    await verify_rls_enforceable_login()
 
     initialize_platform_tracing("tracecat-agent-worker")
 
