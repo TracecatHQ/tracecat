@@ -267,10 +267,14 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         "  IF EXISTS (\n"
         # pg_shdepend records every owner and ACL dependency on a role, in every
         # database; dbid 0 holds shared objects such as databases themselves.
+        # A dependency on any role a Tracecat role is a member of counts too
+        # (inherited access), except the IAM role, which RDS grants itself.
         "    SELECT FROM pg_catalog.pg_shdepend s\n"
-        "    JOIN pg_catalog.pg_roles r ON r.oid = s.refobjid\n"
         "    WHERE s.refclassid = 'pg_catalog.pg_authid'::pg_catalog.regclass\n"
-        f"      AND r.rolname IN ({managed})\n"
+        f"      AND s.refobjid IS DISTINCT FROM pg_catalog.to_regrole({iam})::oid\n"
+        "      AND EXISTS (SELECT FROM pg_catalog.pg_roles r\n"
+        f"                  WHERE r.rolname IN ({managed})\n"
+        "                    AND pg_catalog.pg_has_role(r.oid, s.refobjid, 'MEMBER'))\n"
         "      AND s.dbid <> (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())\n"
         "      AND NOT (s.classid = 'pg_catalog.pg_database'::pg_catalog.regclass\n"
         "               AND s.objid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()))\n"

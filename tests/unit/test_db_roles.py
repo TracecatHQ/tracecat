@@ -538,6 +538,35 @@ def test_refuses_roles_with_object_grants_in_another_database(scratch: Scratch) 
             _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(other)} WITH (FORCE)")
 
 
+def test_refuses_roles_inheriting_grants_in_another_database(scratch: Scratch) -> None:
+    """Access through a legacy group role in another database counts too."""
+    roles = scratch.roles
+    other = f"{scratch.database}_inh"
+    group = f"legacy_reader_{_suffix()}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(group)} NOLOGIN")
+        _run(conn, f"GRANT {quote_ident(group)} TO {quote_ident(roles.app)}")
+        _run(conn, f"CREATE DATABASE {quote_ident(other)}")
+    try:
+        with psycopg.connect(
+            _url("postgres", "postgres", other), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE legacy (id int)")
+            _run(conn, f"GRANT SELECT ON legacy TO {quote_ident(group)}")
+        with (
+            psycopg.connect(
+                _url("postgres", "postgres", scratch.database), autocommit=True
+            ) as conn,
+            pytest.raises(psycopg.errors.RaiseException, match="another database"),
+        ):
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(other)} WITH (FORCE)")
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
+
+
 def test_refuses_a_login_role_with_createrole(scratch: Scratch) -> None:
     """CREATEROLE lets a login grant itself the owner keyring."""
     roles = scratch.roles
