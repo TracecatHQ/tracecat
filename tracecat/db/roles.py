@@ -40,14 +40,21 @@ Run as an admin (a superuser, or a ``CREATEROLE`` role such as the RDS master)::
 
 ``--sql`` prints the same statements, without passwords, for databases where
 the command can't run.
+
+``upgrade`` moves an existing install onto the topology: it runs the bootstrap,
+then hands ``public`` objects owned by the old login (``--from``, default the
+admin) to ``tracecat_owner`` and dynamic schemas to ``app_owner``, one object
+or schema per transaction with a short lock timeout, so a busy install keeps
+running. It never grants the admin membership in a login role.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 import psycopg
@@ -480,8 +487,259 @@ def _admin_conninfo() -> str:
     return url.render_as_string(hide_password=False)
 
 
+# Objects in public that belong to the old owner and can be re-owned one by
+# one. Extension members stay with the extension; sequences owned by a column
+# and table row types move with their table.
+PUBLIC_OBJECTS_SQL = """
+SELECT CASE c.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW'
+                      WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE'
+                      ELSE 'TABLE' END,
+       c.oid::pg_catalog.regclass::text
+FROM pg_catalog.pg_class c
+WHERE c.relnamespace = 'public'::pg_catalog.regnamespace
+  AND pg_catalog.pg_get_userbyid(c.relowner) = ANY(%(old)s)
+  AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+  AND NOT EXISTS (SELECT FROM pg_catalog.pg_depend d
+                  WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+                    AND d.objid = c.oid AND d.deptype = 'e')
+  AND NOT (c.relkind = 'S' AND EXISTS (
+        SELECT FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND d.objid = c.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.deptype IN ('a', 'i')))
+UNION ALL
+SELECT 'ROUTINE', p.oid::pg_catalog.regprocedure::text
+FROM pg_catalog.pg_proc p
+WHERE p.pronamespace = 'public'::pg_catalog.regnamespace
+  AND pg_catalog.pg_get_userbyid(p.proowner) = ANY(%(old)s)
+  AND NOT EXISTS (SELECT FROM pg_catalog.pg_depend d
+                  WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+                    AND d.objid = p.oid AND d.deptype = 'e')
+UNION ALL
+SELECT CASE t.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END,
+       t.oid::pg_catalog.regtype::text
+FROM pg_catalog.pg_type t
+WHERE t.typnamespace = 'public'::pg_catalog.regnamespace
+  AND pg_catalog.pg_get_userbyid(t.typowner) = ANY(%(old)s)
+  AND t.typtype IN ('e', 'd', 'r', 'c')
+  AND (t.typrelid = 0
+       OR (SELECT c.relkind FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid) = 'c')
+  AND NOT EXISTS (SELECT FROM pg_catalog.pg_depend d
+                  WHERE d.classid = 'pg_catalog.pg_type'::pg_catalog.regclass
+                    AND d.objid = t.oid AND d.deptype = 'e')
+ORDER BY 1, 2
+"""
+
+# Dynamic schemas that still need a new owner or FORCE RLS on a table.
+DYNAMIC_SCHEMAS_SQL = """
+SELECT n.nspname
+FROM pg_catalog.pg_namespace n
+WHERE (n.nspname LIKE 'tables\\_%%' OR n.nspname LIKE 'custom\\_fields\\_%%')
+  AND (pg_catalog.pg_get_userbyid(n.nspowner) <> %(dyn)s OR EXISTS (
+        SELECT FROM pg_catalog.pg_class c
+        WHERE c.relnamespace = n.oid AND c.relkind IN ('r', 'p')
+          AND (pg_catalog.pg_get_userbyid(c.relowner) <> %(dyn)s
+               OR (c.relrowsecurity AND NOT c.relforcerowsecurity))))
+ORDER BY 1
+"""
+
+DYNAMIC_TABLES_SQL = """
+SELECT c.oid::pg_catalog.regclass::text,
+       pg_catalog.pg_get_userbyid(c.relowner) <> %(dyn)s,
+       c.relrowsecurity AND NOT c.relforcerowsecurity
+FROM pg_catalog.pg_class c
+WHERE c.relnamespace = %(schema)s::pg_catalog.regnamespace AND c.relkind IN ('r', 'p')
+ORDER BY 1
+"""
+
+# Same rule as the bootstrap's final check, run after every transaction.
+IAM_LOCKOUT_SQL = """
+SELECT CASE WHEN pg_catalog.to_regrole(%(iam)s) IS NULL THEN false
+            ELSE EXISTS (SELECT FROM pg_catalog.pg_roles
+                         WHERE (rolname = ANY(%(keyrings)s)
+                                OR (rolname = session_user AND NOT rolsuper))
+                           AND pg_catalog.pg_has_role(oid, %(iam)s, 'MEMBER'))
+       END
+"""
+
+
+class UpgradeAbortedError(RuntimeError):
+    """The admin or a keyring became a member of the IAM role mid-upgrade."""
+
+
+@dataclass(slots=True)
+class UpgradeResult:
+    """What an upgrade run moved, what it couldn't, and what is left."""
+
+    notes: list[str] = field(default_factory=list)
+    moved: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+    remaining_public: list[str] = field(default_factory=list)
+    remaining_dynamic: list[str] = field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        return not (self.failed or self.remaining_public or self.remaining_dynamic)
+
+
+def _public_objects(
+    conn: psycopg.Connection, old: Sequence[str]
+) -> list[tuple[str, str]]:
+    rows = conn.execute(PUBLIC_OBJECTS_SQL, {"old": list(old)}).fetchall()
+    return [(kind, name) for kind, name in rows]
+
+
+def _dynamic_schemas(conn: psycopg.Connection, roles: RoleNames) -> list[str]:
+    rows = conn.execute(DYNAMIC_SCHEMAS_SQL, {"dyn": roles.dynamic_owner}).fetchall()
+    return [name for (name,) in rows]
+
+
+def _dynamic_statements(
+    conn: psycopg.Connection, schema: str, roles: RoleNames
+) -> list[str]:
+    """ALTER statements that re-own one dynamic schema and force RLS on it."""
+    dyn = quote_ident(roles.dynamic_owner)
+    owner = conn.execute(
+        "SELECT pg_catalog.pg_get_userbyid(nspowner) FROM pg_catalog.pg_namespace "
+        "WHERE nspname = %(schema)s",
+        {"schema": schema},
+    ).fetchone()
+    statements: list[str] = []
+    if owner and owner[0] != roles.dynamic_owner:
+        statements.append(f"ALTER SCHEMA {quote_ident(schema)} OWNER TO {dyn}")
+    tables = conn.execute(
+        DYNAMIC_TABLES_SQL,
+        {"dyn": roles.dynamic_owner, "schema": quote_ident(schema)},
+    ).fetchall()
+    for table, needs_owner, needs_force in tables:
+        if needs_owner:
+            # Moves the table's indexes and owned sequences too.
+            statements.append(f"ALTER TABLE {table} OWNER TO {dyn}")
+        if needs_force:
+            statements.append(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+    return statements
+
+
+def _assert_no_iam_lockout(conn: psycopg.Connection, roles: RoleNames) -> None:
+    row = conn.execute(
+        IAM_LOCKOUT_SQL, {"iam": roles.iam, "keyrings": list(roles.keyrings)}
+    ).fetchone()
+    if row and row[0]:
+        raise UpgradeAbortedError(
+            f"The admin or a keyring is now a member of {roles.iam}; stopping before "
+            "anything else changes. Revoke that membership to restore password login."
+        )
+
+
+def _apply(
+    conn: psycopg.Connection,
+    label: str,
+    statements: Sequence[str],
+    *,
+    lock_timeout: str,
+    retries: int,
+    result: UpgradeResult,
+) -> None:
+    """Run one object's statements in their own short transaction."""
+    for attempt in range(retries + 1):
+        try:
+            with conn.transaction():
+                timeout = f"SET LOCAL lock_timeout = {quote_literal(lock_timeout)}"
+                conn.execute(timeout.encode())
+                for statement in statements:
+                    # Names come from regclass/regprocedure/regtype casts or quote_ident.
+                    conn.execute(statement.encode())
+        except psycopg.errors.LockNotAvailable:
+            if attempt < retries:
+                time.sleep(1)
+                continue
+            result.failed.append((label, "lock timeout; rerun upgrade later"))
+            return
+        except psycopg.Error as exc:
+            result.failed.append((label, str(exc).strip()))
+            return
+        result.moved.append(label)
+        return
+
+
+def run_upgrade(
+    conn: psycopg.Connection,
+    login: LoginMethod,
+    passwords: LoginPasswords,
+    roles: RoleNames = DEFAULT_ROLES,
+    old_owners: Sequence[str] | None = None,
+    *,
+    lock_timeout: str = "5s",
+    retries: int = 3,
+) -> UpgradeResult:
+    """Bootstrap, then move an existing install's objects onto the keyrings.
+
+    Safe to rerun: each pass only touches what still needs moving, and an
+    object that times out on a lock is reported and left for the next run.
+
+    Args:
+        conn: Admin connection, not in a transaction. The admin must be able to
+            act as each old owner (a superuser, or the old owner itself).
+        login: How the login roles authenticate.
+        passwords: Passwords to set when ``login`` is ``password``.
+        roles: Role names.
+        old_owners: Roles whose ``public`` objects move to the owner keyring.
+            Defaults to the admin.
+        lock_timeout: Postgres ``lock_timeout`` for each transaction.
+        retries: Extra attempts for an object that hits the lock timeout.
+
+    Returns:
+        What moved, what failed and what still needs moving.
+
+    Raises:
+        UpgradeAbortedError: The admin or a keyring became a member of the IAM
+            role; nothing after that point runs.
+    """
+    result = UpgradeResult(notes=run_bootstrap(conn, login, passwords, roles))
+    if old_owners is None:
+        row = conn.execute("SELECT session_user").fetchone()
+        old_owners = [row[0]] if row else []
+    old = [r for r in old_owners if r not in (*roles.keyrings, *roles.logins)]
+    owner = quote_ident(roles.owner)
+    for kind, name in _public_objects(conn, old):
+        _apply(
+            conn,
+            f"{kind} {name}",
+            [f"ALTER {kind} {name} OWNER TO {owner}"],
+            lock_timeout=lock_timeout,
+            retries=retries,
+            result=result,
+        )
+        _assert_no_iam_lockout(conn, roles)
+    for schema in _dynamic_schemas(conn, roles):
+        _apply(
+            conn,
+            f"SCHEMA {quote_ident(schema)}",
+            _dynamic_statements(conn, schema, roles),
+            lock_timeout=lock_timeout,
+            retries=retries,
+            result=result,
+        )
+        _assert_no_iam_lockout(conn, roles)
+    result.remaining_public = [f"{k} {n}" for k, n in _public_objects(conn, old)]
+    result.remaining_dynamic = _dynamic_schemas(conn, roles)
+    return result
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point for ``python -m tracecat.db.roles``."""
+    try:
+        return _main(argv)
+    except (psycopg.errors.RaiseException, UpgradeAbortedError) as exc:
+        # A safety check refused; its message says why and what to do.
+        diag = exc.diag if isinstance(exc, psycopg.Error) else None
+        print(f"error: {diag.message_primary if diag else exc}", file=sys.stderr)
+        if diag and diag.message_hint:
+            print(f"hint: {diag.message_hint}", file=sys.stderr)
+        return 1
+
+
+def _main(argv: Sequence[str] | None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tracecat.db.roles")
     commands = parser.add_subparsers(dest="command", required=True)
     bootstrap = commands.add_parser(
@@ -499,9 +757,42 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Print the SQL instead of running it (no passwords included).",
     )
+    upgrade = commands.add_parser(
+        "upgrade",
+        help="Bootstrap, then move an existing install's objects onto the keyrings.",
+    )
+    upgrade.add_argument(
+        "--login",
+        type=LoginMethod,
+        choices=list(LoginMethod),
+        default=LoginMethod.PASSWORD,
+        help="How the login roles authenticate (default: password).",
+    )
+    upgrade.add_argument(
+        "--from",
+        dest="old_owners",
+        action="append",
+        metavar="ROLE",
+        help="Role whose public objects move to tracecat_owner (repeatable; "
+        "default: the admin).",
+    )
     args = parser.parse_args(argv)
 
     login: LoginMethod = args.login
+    if args.command == "upgrade":
+        with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
+            result = run_upgrade(
+                conn, login, LoginPasswords.from_config(), old_owners=args.old_owners
+            )
+        for note in result.notes:
+            print(note, file=sys.stderr)
+        print(f"moved: {len(result.moved)}", file=sys.stderr)
+        for label, reason in result.failed:
+            print(f"failed: {label}: {reason}", file=sys.stderr)
+        for label in (*result.remaining_public, *result.remaining_dynamic):
+            print(f"still to move: {label}", file=sys.stderr)
+        print(f"{DYNAMIC_OWNER_ENV_VAR}={DEFAULT_ROLES.dynamic_owner}")
+        return 0 if result.complete else 1
     if args.sql:
         sys.stdout.write(render_sql(login))
         return 0
