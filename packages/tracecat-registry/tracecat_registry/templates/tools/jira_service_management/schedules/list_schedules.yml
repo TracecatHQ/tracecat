@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: List schedules
+  description: >-
+    Retrieve on-call schedules with pagination and search support.
+    Use this to discover schedule IDs for the on-call lookups.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-schedules/#api-rest-v1-schedules-get
+  namespace: tools.jira_service_management
+  name: list_schedules
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    query:
+      type: str | None
+      description: Search query to filter schedules.
+      default: null
+    size:
+      type: int | None
+      description: Maximum number of items to return.
+      default: null
+    offset:
+      type: int | None
+      description: Starting point within the collection of results.
+      default: null
+    expand:
+      type: str | None
+      description: Comma-separated fields to expand in the response (e.g. rotation).
+      default: null
+  steps:
+    - ref: list_schedules
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/schedules
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          query: ${{ inputs.query }}
+          size: ${{ inputs.size }}
+          offset: ${{ inputs.offset }}
+          expand: ${{ inputs.expand }}
+  returns: ${{ steps.list_schedules.result.data }}

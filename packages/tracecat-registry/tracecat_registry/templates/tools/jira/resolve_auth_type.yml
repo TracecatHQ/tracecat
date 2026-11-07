@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Resolve Jira authentication
+  description: >-
+    Return which Jira credential is configured: `oauth` for the Atlassian OAuth
+    integration or `basic` for a Jira API token. Raises if both or neither are
+    configured.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/security-overview/
+  namespace: tools.jira
+  name: resolve_auth_type
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
+  expects: {}
+  steps:
+    - ref: resolve_auth_type
+      action: core.script.run_python
+      args:
+        # Pass presence flags only so credentials never enter the sandbox.
+        inputs:
+          has_oauth: ${{ FN.not_null(SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) }}
+          has_basic: ${{ FN.not_null(SECRETS.jira.JIRA_USEREMAIL) && FN.not_null(SECRETS.jira.JIRA_API_TOKEN) }}
+        script: |
+          def main(has_oauth, has_basic):
+              if has_oauth and has_basic:
+                  raise ValueError(
+                      "Both the Atlassian OAuth integration and the `jira` API token "
+                      "secret are configured. Disconnect one so Jira authentication "
+                      "is unambiguous."
+                  )
+              if has_oauth:
+                  return "oauth"
+              if has_basic:
+                  return "basic"
+              raise ValueError(
+                  "No Jira credentials are configured. Connect the Atlassian OAuth "
+                  "integration or create a `jira` secret with `JIRA_USEREMAIL` and "
+                  "`JIRA_API_TOKEN`."
+              )
+  returns: ${{ steps.resolve_auth_type.result }}

@@ -7,8 +7,13 @@ definition:
   namespace: tools.jira
   name: update_issue_description
   secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
     - name: jira
       keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
   expects:
     issue_id_or_key:
       type: str
@@ -21,9 +26,14 @@ definition:
         as provided.
     base_url:
       type: str | None
-      description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
+      description: >-
+        Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian
+        OAuth, use https://api.atlassian.com/ex/jira/{cloudId}.
       default: null
   steps:
+    - ref: resolve_auth
+      action: tools.jira.resolve_auth_type
+      args: {}
     - ref: build_description
       action: core.script.run_python
       args:
@@ -56,9 +66,8 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}
         method: PUT
-        auth:
-          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
-          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if steps.resolve_auth.result == "oauth" else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.jira.JIRA_USEREMAIL, SECRETS.jira.JIRA_API_TOKEN))) }}
         payload:
           fields:
             description: ${{ steps.build_description.result }}

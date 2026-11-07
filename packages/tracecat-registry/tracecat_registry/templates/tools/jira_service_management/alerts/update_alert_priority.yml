@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Update alert priority
+  description: Modify the priority level of an alert for dynamic urgency control.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-alerts/#api-rest-v1-alerts-id-priority-patch
+  namespace: tools.jira_service_management
+  name: update_alert_priority
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    alert_id:
+      type: str
+      description: Identifier of the alert.
+    priority:
+      type: str
+      description: New priority level (P1, P2, P3, P4, P5).
+  steps:
+    - ref: update_alert_priority
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/alerts/${{ inputs.alert_id }}/priority
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        payload:
+          priority: ${{ inputs.priority }}
+  returns: ${{ steps.update_alert_priority.result.data }}
