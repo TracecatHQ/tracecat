@@ -66,7 +66,18 @@ _SURROGATES = re.compile(r"[\ud800-\udfff]")
 
 
 def serialize_validation_errors(errors: Sequence[Any]) -> list[Any]:
-    """Make validation errors safe for UTF-8 JSON."""
+    """Make validation errors safe for UTF-8 JSON.
+
+    The rejected input is dropped when it is nested too deeply to serialize,
+    so a malformed request is still rejected with a 422.
+    """
+    try:
+        return _to_safe_jsonable(errors)
+    except (ValueError, RecursionError):
+        return _to_safe_jsonable(without_inputs(errors))
+
+
+def _to_safe_jsonable(errors: Sequence[Any]) -> list[Any]:
     errors = _replace_surrogates(errors)
     return _replace_surrogates(to_jsonable_python(errors, fallback=str))
 

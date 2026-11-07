@@ -385,3 +385,28 @@ def test_validation_errors_replace_surrogates() -> None:
             "ctx": {"error": "b\ufffd"},
         }
     ]
+
+
+@pytest.mark.parametrize("depth", [300, 900])
+def test_deeply_nested_rejected_input_returns_422(depth: int) -> None:
+    app = FastAPI()
+    app.add_exception_handler(
+        RequestValidationError, api_app.validation_exception_handler
+    )
+
+    async def validate(params: FormValidateRequest) -> None:
+        return None
+
+    app.add_api_route("/validate", validate, methods=["POST"])
+    body = '{"n": ' * depth + "1" + "}" * depth
+    with TestClient(app) as client:
+        response = client.post(
+            "/validate",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["type"] == "missing"
+    assert "input" not in error
