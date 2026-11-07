@@ -328,6 +328,7 @@ _TIMED_OUT = RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
 _LLM_READ_TIMEOUT = RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
 _LLM_PROVIDER_AUTH_FAILED = RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
 _LLM_RATE_LIMITED = RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+_LLM_GATEWAY_UNAVAILABLE = RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
 _RETRYABLE = RetryDisposition.RETRYABLE
 _NON_RETRYABLE = RetryDisposition.NON_RETRYABLE
 
@@ -488,7 +489,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.CONNECT,
         _PLATFORM,
-        _UNCLASSIFIED,
+        _LLM_GATEWAY_UNAVAILABLE,
         _RETRYABLE,
     ),
     _GatewayExpectation(
