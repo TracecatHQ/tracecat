@@ -68,12 +68,11 @@ def _build_test_auth(
         lambda: "https://issuer.example.com/.well-known/openid-configuration",
     )
     # Use in-memory store instead of Redis for tests
-    monkeypatch.setattr(mcp_auth, "REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setattr(
         "tracecat.config.TRACECAT__DB_ENCRYPTION_KEY",
         Fernet.generate_key().decode() if enable_refresh_tokens else "",
     )
-    monkeypatch.setattr(mcp_auth.AsyncRedis, "from_url", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr(mcp_auth, "create_redis_client", lambda *a, **kw: MagicMock())
 
     def _patched_create_oidc_auth(
         _orig=mcp_auth._create_oidc_auth,

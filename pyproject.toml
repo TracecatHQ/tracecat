@@ -30,6 +30,7 @@ dependencies = [
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
     "authlib==1.9.1",
+    "azure-identity==1.25.3",
     "cachetools==7.0.6",
     "claude-agent-sdk==0.2.160",
     "cloudpickle==3.1.1",

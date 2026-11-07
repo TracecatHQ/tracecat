@@ -6,6 +6,7 @@ import uuid
 from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
+from urllib.parse import urlsplit
 
 from tracecat import __version__
 from tracecat.agent.constants import (
@@ -15,6 +16,13 @@ from tracecat.agent.constants import (
 from tracecat.auth.enums import AuthType
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
+from tracecat.redis.types import (
+    RedisAuth,
+    RedisAuthMode,
+    RedisAwsIamAuth,
+    RedisAzureEntraAuth,
+    RedisPasswordAuth,
+)
 
 # === Logger === #
 logger = logging.getLogger(__name__)
@@ -1400,6 +1408,77 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 REDIS_URL__ARN = os.environ.get("REDIS_URL__ARN")
 """(AWS only) ARN of the secret containing the Redis URL."""
 
+
+def _parse_redis_auth() -> RedisAuth:
+    raw_mode = (os.environ.get("REDIS_AUTH_MODE") or "password").strip().lower()
+    try:
+        mode = RedisAuthMode(raw_mode)
+    except ValueError as e:
+        raise ValueError(
+            f"REDIS_AUTH_MODE must be one of {', '.join(RedisAuthMode)} (got {raw_mode!r})"
+        ) from e
+    match mode:
+        case RedisAuthMode.PASSWORD:
+            return RedisPasswordAuth()
+        case RedisAuthMode.AZURE_ENTRA:
+            client_id = os.environ.get("REDIS_AZURE_CLIENT_ID", "").strip() or None
+            return RedisAzureEntraAuth(client_id=client_id)
+        case RedisAuthMode.AWS_IAM:
+            user_id = os.environ.get("REDIS_AWS_IAM_USER_ID", "").strip()
+            group_id = (
+                os.environ.get("REDIS_AWS_IAM_REPLICATION_GROUP_ID", "").strip().lower()
+            )
+            region = (
+                os.environ.get("REDIS_AWS_REGION")
+                or os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or ""
+            ).strip()
+            missing = [
+                name
+                for name, value in (
+                    ("REDIS_AWS_IAM_USER_ID", user_id),
+                    ("REDIS_AWS_IAM_REPLICATION_GROUP_ID", group_id),
+                    ("REDIS_AWS_REGION", region),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"REDIS_AUTH_MODE=aws_iam requires {', '.join(missing)}"
+                )
+            return RedisAwsIamAuth(
+                user_id=user_id, replication_group_id=group_id, region=region
+            )
+
+
+REDIS_AUTH: RedisAuth = _parse_redis_auth()
+"""How the Redis client logs in, from ``REDIS_AUTH_MODE`` (default ``password``).
+
+- ``password``: ``RedisPasswordAuth``; credentials, if any, come from the URL.
+- ``aws_iam``: ``RedisAwsIamAuth`` from ``REDIS_AWS_IAM_USER_ID``,
+  ``REDIS_AWS_IAM_REPLICATION_GROUP_ID`` and ``REDIS_AWS_REGION`` (defaults to
+  ``AWS_REGION``, then ``AWS_DEFAULT_REGION``).
+- ``azure_entra``: ``RedisAzureEntraAuth`` from ``REDIS_AZURE_CLIENT_ID``
+  (optional; DefaultAzureCredential reads ``AZURE_CLIENT_ID`` otherwise).
+
+The IAM modes require a ``rediss://`` URL with no username or password in it.
+"""
+
+# Fail at startup when the URL is known up front. A URL read from
+# REDIS_URL__ARN is checked again when the client is built.
+if not isinstance(REDIS_AUTH, RedisPasswordAuth) and not REDIS_URL__ARN:
+    if not REDIS_URL.startswith("rediss://"):
+        raise ValueError(
+            f"REDIS_AUTH_MODE={REDIS_AUTH.mode} requires TLS: REDIS_URL must use rediss://"
+        )
+    _redis_url_parts = urlsplit(REDIS_URL)
+    if _redis_url_parts.username or _redis_url_parts.password:
+        raise ValueError(
+            f"REDIS_AUTH_MODE={REDIS_AUTH.mode} logs in with a token: remove the "
+            "username and password from REDIS_URL"
+        )
+
 TRACECAT__CASE_TRIGGERS_ENABLED = env_bool(
     "TRACECAT__CASE_TRIGGERS_ENABLED", default=True
 )
@@ -1407,6 +1486,15 @@ TRACECAT__CASE_TRIGGERS_ENABLED = env_bool(
 
 Set it on the API and the background worker: the API stops writing outbox
 rows, and the background worker's dispatcher leaves queued rows in place.
+"""
+
+TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY = max(
+    1, int(os.environ.get("TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY") or 8)
+)
+"""Outbox rows the case trigger dispatcher handles at once. Defaults to 8.
+
+Each row in flight holds up to two database connections on the background
+worker, so the dispatcher uses at most twice this many.
 """
 
 TRACECAT__CASE_TRIGGERS_STREAM_KEY = os.environ.get(
