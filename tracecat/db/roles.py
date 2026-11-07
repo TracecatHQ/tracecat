@@ -272,6 +272,23 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         f"             WHERE rolname IN ({keyrings}) AND rolcanlogin) THEN\n"
         "    RAISE EXCEPTION 'A Tracecat keyring role can log in';\n"
         "  END IF;\n"
+        # Only app may be a member of a login role (of agent_runtime). Anything
+        # else would inherit that login's keyring, e.g. a pre-created migrator.
+        # PG 16's ADMIN-only creator grant gives no privileges and is allowed.
+        "  IF EXISTS (\n"
+        "    SELECT FROM pg_catalog.pg_auth_members m\n"
+        "    JOIN pg_catalog.pg_roles g ON g.oid = m.roleid\n"
+        "    JOIN pg_catalog.pg_roles u ON u.oid = m.member\n"
+        f"    WHERE g.rolname IN ({logins})\n"
+        f"      AND NOT (g.rolname = {quote_literal(roles.agent_runtime)}"
+        f" AND u.rolname = {quote_literal(roles.app)})\n"
+        "      AND NOT (m.admin_option AND pg_catalog.current_setting('server_version_num')::int >= 160000\n"
+        "               AND NOT pg_catalog.pg_has_role(u.oid, g.oid, 'USAGE')\n"
+        "               AND NOT pg_catalog.pg_has_role(u.oid, g.oid, 'SET'))\n"
+        "  ) THEN\n"
+        "    RAISE EXCEPTION 'A Tracecat login role has unexpected members'\n"
+        "      USING HINT = 'Revoke them (they would inherit its access), then rerun bootstrap.';\n"
+        "  END IF;\n"
         "  IF EXISTS (\n"
         # pg_shdepend records every owner and ACL dependency on a role, in every
         # database; dbid 0 holds shared objects such as databases themselves.
@@ -633,7 +650,8 @@ class UpgradeResult:
 
     notes: list[str] = field(default_factory=list)
     moved: list[str] = field(default_factory=list)
-    kept_access: list[str] = field(default_factory=list)
+    kept_access: list[tuple[str, str]] = field(default_factory=list)
+    """(keyring, role) grants an old owner keeps until cutover."""
     failed: list[tuple[str, str]] = field(default_factory=list)
     remaining_public: list[str] = field(default_factory=list)
     remaining_dynamic: list[str] = field(default_factory=list)
@@ -852,14 +870,12 @@ def run_upgrade(
     conn.execute("SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)")
     try:
         objects = _public_objects(conn, old)
-        dynamic_owners = _dynamic_owners(conn, old, roles)
+        public_owners = {o.owner for o in objects}
+        # Dynamic-only owners need the dynamic keyring, not public ownership.
+        keep = dict.fromkeys(_dynamic_owners(conn, roles), roles.dynamic_owner)
+        keep |= dict.fromkeys(public_owners, roles.owner)
         _keep_old_owners_working(
-            conn,
-            {o.owner for o in objects} | set(dynamic_owners),
-            roles,
-            result,
-            lock_timeout=lock_timeout,
-            retries=retries,
+            conn, keep, roles, result, lock_timeout=lock_timeout, retries=retries
         )
         # A view or SECURITY DEFINER routine moved ahead of something it reads
         # would lose access to it, so each stage waits until everything in the
@@ -872,7 +888,11 @@ def run_upgrade(
                 break
             for obj in (o for o in objects if o.stage == stage):
                 _move(conn, obj, owner, login, roles, lock_timeout, retries, result)
-        for schema in _dynamic_schemas(conn, roles):
+        # A dynamic owner whose access couldn't be kept must not lose it.
+        keep_failed = any(
+            label.startswith("KEEP ACCESS ") for label, _ in result.failed
+        )
+        for schema in [] if keep_failed else _dynamic_schemas(conn, roles):
             _apply(
                 conn,
                 f"SCHEMA {quote_ident(schema)}",
@@ -903,12 +923,13 @@ def run_upgrade(
             f"{roles.migrator} and the app uses {roles.app}, rotate its password or "
             "drop it. It still owns the database and can act as the owner keyring."
         )
-        result.kept_access = _owner_keyring_logins(conn, roles)
-        if kept := result.kept_access:
-            revoke = "; ".join(
-                f"REVOKE {quote_ident(roles.owner)} FROM {quote_ident(n)}" for n in kept
-            )
-            result.notes.append(f"At cutover, remove the kept access: {revoke};")
+    result.kept_access = _keyring_grantees(conn, roles)
+    if result.kept_access:
+        revoke = "; ".join(
+            f"REVOKE {quote_ident(keyring)} FROM {quote_ident(name)}"
+            for keyring, name in result.kept_access
+        )
+        result.notes.append(f"At cutover, remove the kept access: {revoke};")
     return result
 
 
@@ -925,7 +946,7 @@ def _superuser_owned_public(
 
 def _keep_old_owners_working(
     conn: psycopg.Connection,
-    owners: set[str],
+    keep: dict[str, str],
     roles: RoleNames,
     result: UpgradeResult,
     *,
@@ -934,21 +955,21 @@ def _keep_old_owners_working(
 ) -> None:
     """Let an app still running as an old owner keep its access until cutover.
 
-    Only owners of something about to move get the owner keyring, the same way
-    the admin has it. Topology logins never do: app and migrator must not
+    ``keep`` maps each owner of something about to move to the keyring that
+    will own it. Topology logins never get one: app and migrator must not
     reach the owner role.
     """
     admin = conn.execute("SELECT session_user").fetchone()
-    for name in sorted(owners):
+    for name, keyring in sorted(keep.items()):
         # The admin's membership is the bootstrap's, by design (break-glass).
         if admin and name == admin[0]:
             continue
-        if name in roles.logins or _is_superuser(conn, name):
+        if name in (*roles.keyrings, *roles.logins) or _is_superuser(conn, name):
             continue
         kept = _apply(
             conn,
             f"KEEP ACCESS {quote_ident(name)}",
-            [_grant_membership(roles.owner, name)],
+            [_grant_membership(keyring, name)],
             lock_timeout=lock_timeout,
             retries=retries,
             result=result,
@@ -956,7 +977,7 @@ def _keep_old_owners_working(
         )
         if not kept:
             continue  # reported in result.failed
-        result.notes.append(f"{name}: kept access through {roles.owner} until cutover")
+        result.notes.append(f"{name}: kept access through {keyring} until cutover")
         row = conn.execute(
             "SELECT rolinherit FROM pg_catalog.pg_roles WHERE rolname = %(r)s",
             {"r": name},
@@ -964,14 +985,16 @@ def _keep_old_owners_working(
         if row and not row[0]:
             result.notes.append(
                 f"{name} has NOINHERIT: before PostgreSQL 16 it needs "
-                f"SET ROLE {quote_ident(roles.owner)} (or INHERIT) to keep working"
+                f"SET ROLE {quote_ident(keyring)} (or INHERIT) to keep working"
             )
 
 
-def _dynamic_owners(
-    conn: psycopg.Connection, old: Sequence[str], roles: RoleNames
-) -> list[str]:
-    """Old owners of dynamic schemas or tables that are about to move."""
+def _dynamic_owners(conn: psycopg.Connection, roles: RoleNames) -> list[str]:
+    """Owners of dynamic schemas or tables that are about to move.
+
+    Every one of them, named in ``--from`` or not: the dynamic pass moves all
+    dynamic objects to the dynamic owner keyring.
+    """
     rows = conn.execute(
         """
         SELECT DISTINCT pg_catalog.pg_get_userbyid(owner) FROM (
@@ -983,33 +1006,39 @@ def _dynamic_owners(
           WHERE (n.nspname LIKE 'tables\\_%%' OR n.nspname LIKE 'custom\\_fields\\_%%')
             AND c.relkind IN ('r', 'p')
         ) AS o
-        WHERE pg_catalog.pg_get_userbyid(owner) = ANY(%(old)s)
-          AND pg_catalog.pg_get_userbyid(owner) <> %(dyn)s
+        WHERE pg_catalog.pg_get_userbyid(owner) <> %(dyn)s
         """,
-        {"old": list(old), "dyn": roles.dynamic_owner},
+        {"dyn": roles.dynamic_owner},
     ).fetchall()
     return [name for (name,) in rows]
 
 
-def _owner_keyring_logins(conn: psycopg.Connection, roles: RoleNames) -> list[str]:
-    """Logins other than the admin and topology roles that can act as the owner.
+def _keyring_grantees(
+    conn: psycopg.Connection, roles: RoleNames
+) -> list[tuple[str, str]]:
+    """(keyring, role) for roles other than the admin and topology roles granted
+    the owner or dynamic owner keyring.
 
-    Read from the catalog, so access kept by an earlier run is reported too.
+    Direct grantees, so the printed REVOKE removes the access (a group role
+    that holds it covers its member logins too). Read from the catalog, so
+    access kept by an earlier run is reported as well.
     """
     rows = conn.execute(
         """
-        SELECT r.rolname FROM pg_catalog.pg_roles r
-        WHERE r.rolcanlogin AND NOT r.rolsuper AND r.rolname <> session_user
+        SELECT DISTINCT k.rolname, r.rolname FROM pg_catalog.pg_auth_members m
+        JOIN pg_catalog.pg_roles k ON k.oid = m.roleid
+        JOIN pg_catalog.pg_roles r ON r.oid = m.member
+        WHERE k.rolname = ANY(%(keyrings)s)
+          AND NOT r.rolsuper AND r.rolname <> session_user
           AND NOT (r.rolname = ANY(%(topology)s))
-          AND pg_catalog.pg_has_role(r.oid, %(owner)s::pg_catalog.regrole, 'MEMBER')
-        ORDER BY 1
+        ORDER BY 1, 2
         """,
         {
             "topology": [*roles.keyrings, *roles.logins],
-            "owner": quote_ident(roles.owner),
+            "keyrings": [roles.owner, roles.dynamic_owner],
         },
     ).fetchall()
-    return [name for (name,) in rows]
+    return [(keyring, name) for keyring, name in rows]
 
 
 def _is_superuser(conn: psycopg.Connection, role: str) -> bool:

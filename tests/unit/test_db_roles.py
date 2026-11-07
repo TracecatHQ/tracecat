@@ -587,6 +587,28 @@ def test_bootstrap_normalizes_noinherit_roles(scratch: Scratch) -> None:
     assert rows == (True,)
 
 
+def test_refuses_a_login_role_with_unexpected_members(scratch: Scratch) -> None:
+    """A pre-created migrator with a member would hand that member the owner keyring."""
+    roles = scratch.roles
+    squatter = f"squatter_{_suffix()}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.migrator)} LOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(squatter)} LOGIN")
+        _run(conn, f"GRANT {quote_ident(roles.migrator)} TO {quote_ident(squatter)}")
+    try:
+        with (
+            psycopg.connect(
+                _url("postgres", "postgres", scratch.database), autocommit=True
+            ) as conn,
+            pytest.raises(psycopg.errors.RaiseException, match="unexpected members"),
+        ):
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert not _role_exists(roles.owner)
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(squatter)}")
+
+
 def test_refuses_a_login_role_with_createrole(scratch: Scratch) -> None:
     """CREATEROLE lets a login grant itself the owner keyring."""
     roles = scratch.roles
@@ -1238,6 +1260,69 @@ def test_upgrade_reports_objects_the_admin_cannot_act_as() -> None:
             _run(conn, f"DROP ROLE IF EXISTS {quote_ident(stranger)}")
 
 
+def test_dynamic_owners_keep_access_even_when_not_named_in_from() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with install.legacy_conn() as conn:
+            _run(conn, f"CREATE SCHEMA {schema}")
+            _run(conn, f"CREATE TABLE {schema}.t (id int)")
+        result = _superuser_upgrade(install, ["postgres"])
+        assert result.complete
+        # Dynamic-only owners get the dynamic keyring, not public ownership.
+        assert result.kept_access == [(install.roles.dynamic_owner, install.legacy)]
+        with install.legacy_conn() as conn:
+            _run(conn, f"INSERT INTO {schema}.t VALUES (1)")
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_moves_dynamic_schemas_the_owner_keyring_created() -> None:
+    """Migrations create some dynamic schemas as the owner keyring: no self-grant."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with install.legacy_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            _run(conn, f"SET ROLE {quote_ident(roles.owner)}")
+            _run(conn, f"CREATE SCHEMA {schema}")
+            _run(conn, f"CREATE TABLE {schema}.t (id int)")
+        result = _superuser_upgrade(install, [install.legacy])
+        assert result.failed == []
+        assert result.complete
+        assert f"SCHEMA {schema}" in result.moved
+    finally:
+        _drop_install(install)
+
+
+def test_cutover_revoke_names_the_role_that_holds_the_grant() -> None:
+    """A group role kept access for its member logins; revoking from the group removes it."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    group = f"legacy_group_{_suffix()}"
+    try:
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(group)} NOLOGIN")
+            _run(conn, f"GRANT {quote_ident(group)} TO {quote_ident(install.legacy)}")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.shared (id int)")
+            _run(conn, f"ALTER TABLE public.shared OWNER TO {quote_ident(group)}")
+        result = _superuser_upgrade(install, [group])
+        assert result.complete
+        assert result.kept_access == [(roles.owner, group)]
+        assert any(
+            f"REVOKE {quote_ident(roles.owner)} FROM {quote_ident(group)}" in note
+            for note in result.notes
+        )
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
+
+
 # --- upgrade on the shapes it must handle before it runs by default ------------
 
 
@@ -1388,6 +1473,7 @@ def test_a_failed_upgrade_leaves_the_old_login_working() -> None:
                 )
             holder.rollback()
         assert not result.complete
+        assert result.kept_access == [(roles.owner, install.legacy)]
         assert "TABLE public.idle" in result.moved
         with install.legacy_conn() as conn:
             for table in ("busy", "idle"):
@@ -1397,6 +1483,6 @@ def test_a_failed_upgrade_leaves_the_old_login_working() -> None:
                 ).fetchone() == (1,)
         rerun = _superuser_upgrade(install, [install.legacy])
         assert rerun.complete
-        assert rerun.kept_access == [install.legacy]
+        assert rerun.kept_access == [(roles.owner, install.legacy)]
     finally:
         _drop_install(install)
