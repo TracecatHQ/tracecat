@@ -396,6 +396,16 @@ def agent_llm_provider_unavailable(*, status_code: int) -> RuntimeErrorClassific
     )
 
 
+def agent_llm_gateway_unreachable(error: BaseException) -> RuntimeErrorClassification:
+    """Classify a managed gateway the proxy could not open a connection to."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+        message="Could not connect to the LLM gateway; retry later",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
 def agent_llm_gateway_unavailable(*, status_code: int) -> RuntimeErrorClassification:
     """Classify a managed gateway with no routable deployment or no healthy backend."""
     return RuntimeErrorClassification.platform(
