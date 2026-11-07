@@ -546,11 +546,15 @@ ORDER BY 1, 2, 3
 """
 
 
-def _public_objects_sql(column: str) -> str:
+def _public_objects_sql(relations: str, others: str | None = None) -> str:
+    """Fill the owner filters: one for relations, one for routines and types."""
+    others = relations if others is None else others
     return (
-        PUBLIC_OBJECTS_TEMPLATE.replace("OWNER_FILTER_C", column.format("c.relowner"))
-        .replace("OWNER_FILTER_P", column.format("p.proowner"))
-        .replace("OWNER_FILTER_T", column.format("t.typowner"))
+        PUBLIC_OBJECTS_TEMPLATE.replace(
+            "OWNER_FILTER_C", relations.format("c.relowner")
+        )
+        .replace("OWNER_FILTER_P", others.format("p.proowner"))
+        .replace("OWNER_FILTER_T", others.format("t.typowner"))
     )
 
 
@@ -559,12 +563,24 @@ PUBLIC_OBJECTS_SQL = _public_objects_sql(
     "pg_catalog.pg_get_userbyid({}) = ANY(%(old)s)"
 )
 
-# Objects not on the owner keyring: what makes an upgrade incomplete. A
-# superuser's objects count only when it was named as an old owner, so RDS's
-# rdsadmin objects don't keep every run failing.
+# Objects not on the owner keyring: what makes an upgrade incomplete. Every
+# relation counts. A superuser's routines and types count only when it was
+# named as an old owner, so RDS's rdsadmin functions don't fail every run.
+_NOT_OWNER = "{0} <> %(owner)s::pg_catalog.regrole"
+_SUPERUSER_UNNAMED = (
+    "NOT pg_catalog.pg_get_userbyid({0}) = ANY(%(old)s) "
+    "AND (SELECT rolsuper FROM pg_catalog.pg_roles WHERE oid = {0})"
+)
 UNMOVED_PUBLIC_SQL = _public_objects_sql(
-    "{0} <> %(owner)s::pg_catalog.regrole AND (pg_catalog.pg_get_userbyid({0}) = ANY(%(old)s) "
-    "OR NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE oid = {0}))"
+    _NOT_OWNER, f"{_NOT_OWNER} AND NOT ({_SUPERUSER_UNNAMED})"
+)
+
+SUPERUSER_OWNED_PUBLIC_SQL = (
+    "SELECT owner, count(*) FROM ("
+    + _public_objects_sql("false", f"{_NOT_OWNER} AND {_SUPERUSER_UNNAMED}").replace(
+        "ORDER BY 1, 2, 3", ""
+    )
+    + ") AS o(stage, kind, name, owner) GROUP BY owner ORDER BY owner"
 )
 
 # Dynamic schemas that still need a new owner or FORCE RLS on a table.
@@ -576,14 +592,20 @@ WHERE (n.nspname LIKE 'tables\\_%%' OR n.nspname LIKE 'custom\\_fields\\_%%')
         SELECT FROM pg_catalog.pg_class c
         WHERE c.relnamespace = n.oid AND c.relkind IN ('r', 'p')
           AND (pg_catalog.pg_get_userbyid(c.relowner) <> %(dyn)s
-               OR (c.relrowsecurity AND NOT c.relforcerowsecurity))))
+               OR (c.relrowsecurity AND NOT c.relforcerowsecurity)
+               OR (NOT c.relrowsecurity AND EXISTS (
+                     SELECT FROM pg_catalog.pg_policy pol WHERE pol.polrelid = c.oid)))))
 ORDER BY 1
 """
 
 DYNAMIC_TABLES_SQL = """
 SELECT c.oid::pg_catalog.regclass::text,
        pg_catalog.pg_get_userbyid(c.relowner) <> %(dyn)s,
-       c.relrowsecurity AND NOT c.relforcerowsecurity
+       NOT c.relforcerowsecurity
+         AND (c.relrowsecurity
+              OR EXISTS (SELECT FROM pg_catalog.pg_policy pol WHERE pol.polrelid = c.oid)),
+       NOT c.relrowsecurity
+         AND EXISTS (SELECT FROM pg_catalog.pg_policy pol WHERE pol.polrelid = c.oid)
 FROM pg_catalog.pg_class c
 WHERE c.relnamespace = %(schema)s::pg_catalog.regnamespace AND c.relkind IN ('r', 'p')
 ORDER BY 1
@@ -638,12 +660,12 @@ def _public_objects(conn: psycopg.Connection, old: Sequence[str]) -> list[Public
 
 def _unmoved_public(
     conn: psycopg.Connection, old: Sequence[str], roles: RoleNames
-) -> list[str]:
+) -> list[PublicObject]:
     rows = conn.execute(
         UNMOVED_PUBLIC_SQL.encode(),
         {"old": list(old), "owner": quote_ident(roles.owner)},
     ).fetchall()
-    return [PublicObject(*row).label + f" (owner {row[3]})" for row in rows]
+    return [PublicObject(*row) for row in rows]
 
 
 def _dynamic_schemas(conn: psycopg.Connection, roles: RoleNames) -> list[str]:
@@ -668,10 +690,14 @@ def _dynamic_statements(
         DYNAMIC_TABLES_SQL,
         {"dyn": roles.dynamic_owner, "schema": quote_ident(schema)},
     ).fetchall()
-    for table, needs_owner, needs_force in tables:
+    for table, needs_owner, needs_force, needs_enable in tables:
         if needs_owner:
             # Moves the table's indexes and owned sequences too.
             statements.append(f"ALTER TABLE {table} OWNER TO {dyn}")
+        if needs_enable:
+            # A policy with RLS switched off protects nothing (same repair as
+            # the dynamic-RLS guard migration's backfill).
+            statements.append(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         if needs_force:
             statements.append(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
     return statements
@@ -776,7 +802,8 @@ def run_upgrade(
         What moved, what failed and what still needs moving.
 
     Raises:
-        ValueError: ``conn`` is not in autocommit mode.
+        ValueError: ``conn`` is not in autocommit mode, or ``old_owners`` names
+            a role that doesn't exist (checked before anything changes).
         UpgradeAbortedError: The admin or a keyring became a member of the IAM
             role; nothing after that point runs.
         psycopg.errors.LockNotAvailable: The bootstrap kept timing out on a
@@ -786,6 +813,18 @@ def run_upgrade(
         # Otherwise the catalog reads open an outer transaction and every
         # transfer becomes a savepoint that holds its locks until the end.
         raise ValueError("run_upgrade needs an autocommit connection")
+    # Validate input before the bootstrap commits anything.
+    if old_owners is not None:
+        unknown = [
+            r
+            for r in old_owners
+            if conn.execute(
+                "SELECT pg_catalog.to_regrole(%(r)s) IS NULL", {"r": quote_ident(r)}
+            ).fetchone()
+            == (True,)
+        ]
+        if unknown:
+            raise ValueError(f"--from names roles that don't exist: {unknown}")
     result = UpgradeResult(
         notes=_bootstrap_with_retries(
             conn, login, passwords, roles, lock_timeout=lock_timeout, retries=retries
@@ -795,18 +834,18 @@ def run_upgrade(
     if old_owners is None:
         row = conn.execute("SELECT session_user").fetchone()
         old_owners = [row[0]] if row else []
-    unknown = [
-        r
-        for r in old_owners
-        if conn.execute(
-            "SELECT pg_catalog.to_regrole(%(r)s) IS NULL", {"r": quote_ident(r)}
-        ).fetchone()
-        == (True,)
-    ]
-    if unknown:
-        raise ValueError(f"--from names roles that don't exist: {unknown}")
     old = [r for r in old_owners if r not in roles.keyrings]
     owner = quote_ident(roles.owner)
+    # An app still running as an old owner keeps its access through the owner
+    # keyring (as the admin does) until it is switched to the new roles.
+    # Topology logins are skipped: app or migrator must never reach the owner.
+    keep_access = [
+        r for r in old if r not in roles.logins and not _is_superuser(conn, r)
+    ]
+    for name in keep_access:
+        with conn.transaction():
+            conn.execute(_grant_membership(roles.owner, name).encode())
+        result.notes.append(f"{name}: kept access through {roles.owner} until cutover")
     # Names must stay schema-qualified between listing and ALTER: with "$user"
     # on the path, a role with CREATE on the database could plant a same-named
     # object in a schema named after the admin and have it re-owned instead.
@@ -817,8 +856,10 @@ def run_upgrade(
         for obj in (o for o in objects if o.stage == 1):
             _move(conn, obj, owner, login, roles, lock_timeout, retries, result)
         # A SECURITY DEFINER routine moved ahead of a table it uses would lose
-        # access to it, so routines and types wait until every relation moved.
-        if not result.failed:
+        # access to it, so routines and types wait until every public relation,
+        # whoever owns it, is on the owner keyring.
+        relations_left = [o for o in _unmoved_public(conn, old, roles) if o.stage == 1]
+        if not result.failed and not relations_left:
             for obj in (o for o in objects if o.stage == 2):
                 _move(conn, obj, owner, login, roles, lock_timeout, retries, result)
         for schema in _dynamic_schemas(conn, roles):
@@ -831,7 +872,14 @@ def run_upgrade(
                 result=result,
             )
             _assert_no_iam_lockout(conn, login, roles)
-        result.remaining_public = _unmoved_public(conn, old, roles)
+        result.remaining_public = [
+            f"{o.label} (owner {o.owner})" for o in _unmoved_public(conn, old, roles)
+        ]
+        if skipped := _superuser_owned_public(conn, old, roles):
+            result.notes.append(
+                "Not moved (owned by a superuser not named in --from; pass --from "
+                f"to move them): {', '.join(skipped)}"
+            )
         result.remaining_dynamic = _dynamic_schemas(conn, roles)
     finally:
         if saved:
@@ -839,6 +887,18 @@ def run_upgrade(
                 "SELECT pg_catalog.set_config('search_path', %(p)s, false)",
                 {"p": saved[0]},
             )
+    # ALTER ... OWNER rewrites the old owner's ACL entries to the new owner, so
+    # an old owner that is also a topology login (--from app) lost its grants.
+    # Rerunning the bootstrap restores every grant on the moved objects.
+    if result.moved:
+        _bootstrap_with_retries(
+            conn,
+            login,
+            LoginPasswords(),
+            roles,
+            lock_timeout=lock_timeout,
+            retries=retries,
+        )
     if result.complete:
         result.notes.append(
             f"Retire the old login ({', '.join(old)}): once migrations use "
@@ -846,6 +906,24 @@ def run_upgrade(
             "drop it. It still owns the database and can act as the owner keyring."
         )
     return result
+
+
+def _superuser_owned_public(
+    conn: psycopg.Connection, old: Sequence[str], roles: RoleNames
+) -> list[str]:
+    """Count superuser-owned public objects that the completion check skips."""
+    rows = conn.execute(
+        SUPERUSER_OWNED_PUBLIC_SQL.encode(),
+        {"old": list(old), "owner": quote_ident(roles.owner)},
+    ).fetchall()
+    return [f"{owner}: {count}" for owner, count in rows]
+
+
+def _is_superuser(conn: psycopg.Connection, role: str) -> bool:
+    row = conn.execute(
+        "SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = %(r)s", {"r": role}
+    ).fetchone()
+    return bool(row and row[0])
 
 
 def _move(
@@ -877,6 +955,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         psycopg.errors.RaiseException,
         psycopg.errors.LockNotAvailable,
         UpgradeAbortedError,
+        ValueError,
     ) as exc:
         # A safety check refused; its message says why and what to do.
         diag = exc.diag if isinstance(exc, psycopg.Error) else None

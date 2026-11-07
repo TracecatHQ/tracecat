@@ -39,11 +39,13 @@ from tracecat.db.roles import (
     LoginPasswords,
     RoleNames,
     UnsafeDatabaseLoginError,
+    UpgradeResult,
     _admin_conninfo,
     _printable,
     assert_login_can_enforce_rls,
     bootstrap_statements,
     quote_ident,
+    quote_literal,
     render_sql,
     run_bootstrap,
     run_upgrade,
@@ -987,6 +989,169 @@ def test_upgrade_is_incomplete_when_from_names_the_wrong_owner() -> None:
 
 def test_cli_output_escapes_control_characters() -> None:
     assert _printable("TABLE public.\x1b[31mevil") == "TABLE public.\\x1b[31mevil"
+
+
+def test_upgrade_keeps_the_old_login_working_until_cutover() -> None:
+    """A separate admin moves --from's objects; the app still on that login keeps access."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.orders (id int)")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            result = run_upgrade(
+                conn,
+                LoginMethod.PASSWORD,
+                LoginPasswords(),
+                roles,
+                old_owners=[install.legacy],
+            )
+        assert result.complete
+        assert (
+            f"{install.legacy}: kept access through {roles.owner} until cutover"
+            in result.notes
+        )
+        with install.legacy_conn() as conn:
+            conn.execute("INSERT INTO public.orders VALUES (1)")
+            assert conn.execute("SELECT count(*) FROM public.orders").fetchone() == (1,)
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_reenables_rls_on_dynamic_tables_with_policies() -> None:
+    """A policy with RLS switched off protects nothing; the upgrade turns it back on."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with install.legacy_conn() as conn:
+            _run(conn, f"CREATE SCHEMA {schema}")
+            _run(conn, f"CREATE TABLE {schema}.t (id int)")
+            _run(conn, f"CREATE POLICY p ON {schema}.t USING (false)")
+            _run(conn, f"ALTER TABLE {schema}.t DISABLE ROW LEVEL SECURITY")
+            result = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            flags = _run(
+                conn,
+                f"SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                f"WHERE oid = '{schema}.t'::regclass",
+            ).fetchone()
+        assert result.complete
+        assert flags == (True, True)
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_reports_superuser_owned_objects_it_skips() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            # RDS keeps rdsadmin-owned functions in public; the admin can't move them.
+            conn.execute(
+                "CREATE FUNCTION public.system_owned() RETURNS int LANGUAGE sql AS 'SELECT 1'"
+            )
+        with install.legacy_conn() as conn:
+            result = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert result.complete
+        assert any(
+            note.startswith("Not moved (owned by a superuser") and "postgres: 1" in note
+            for note in result.notes
+        )
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_validates_from_before_changing_anything() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with (
+            install.legacy_conn() as conn,
+            pytest.raises(ValueError, match="don't exist"),
+        ):
+            run_upgrade(
+                conn,
+                LoginMethod.PASSWORD,
+                LoginPasswords(),
+                roles,
+                old_owners=["no_such_role_anywhere"],
+            )
+        assert not _role_exists(roles.owner)
+    finally:
+        _drop_install(install)
+
+
+def _superuser_upgrade(install: LegacyInstall, old_owners: list[str]) -> UpgradeResult:
+    """Upgrade as a separate superuser admin, moving ``old_owners``' objects."""
+    with psycopg.connect(install.url("postgres", "postgres"), autocommit=True) as conn:
+        return run_upgrade(
+            conn, LoginMethod.PASSWORD, LoginPasswords(), install.roles, old_owners
+        )
+
+
+def test_upgrade_from_an_existing_app_owner_keeps_app_working() -> None:
+    """ALTER OWNER rewrites the old owner's ACL; the post-pass bootstrap restores app's grants."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with _superuser() as conn:
+            _run(
+                conn,
+                f"CREATE ROLE {quote_ident(roles.app)} LOGIN PASSWORD {quote_literal(PASSWORD)}",
+            )
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.items (id int)")
+            _run(conn, f"ALTER TABLE public.items OWNER TO {quote_ident(roles.app)}")
+        result = _superuser_upgrade(install, old_owners=[roles.app])
+        assert result.complete
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            conn.execute("INSERT INTO public.items VALUES (1)")
+            assert conn.execute("SELECT count(*) FROM public.items").fetchone() == (1,)
+    finally:
+        _drop_install(install)
+
+
+def test_routines_wait_for_tables_owned_by_roles_not_in_from() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.tokens (id int)")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute(
+                "CREATE FUNCTION public.revoke_tokens() RETURNS void LANGUAGE sql "
+                "SECURITY DEFINER AS 'DELETE FROM public.tokens'"
+            )
+        result = _superuser_upgrade(install, old_owners=["postgres"])
+        assert "ROUTINE public.revoke_tokens()" not in result.moved
+        assert (
+            f"TABLE public.tokens (owner {install.legacy})" in result.remaining_public
+        )
+        assert not result.complete
+    finally:
+        _drop_install(install)
+
+
+def test_superuser_owned_tables_always_count_as_unmoved() -> None:
+    """Only routines and types get the superuser carve-out (RDS's rdsadmin functions)."""
+    install = _legacy_install(_suffix(), migrate=False)
+    try:
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.app_data (id int)")
+        result = _superuser_upgrade(install, old_owners=[install.legacy])
+        assert result.remaining_public == ["TABLE public.app_data (owner postgres)"]
+        assert not result.complete
+    finally:
+        _drop_install(install)
 
 
 def test_upgrade_reports_objects_the_admin_cannot_act_as() -> None:
