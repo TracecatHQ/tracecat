@@ -87,6 +87,10 @@ from tracecat.api.common import (
     tracecat_exception_handler,
     without_inputs,
 )
+from tracecat.api.extensions import (
+    include_api_extension_routers,
+    spawn_api_extension_tasks,
+)
 from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import (
     authenticated_user_only,
@@ -331,6 +335,8 @@ async def lifespan(app: FastAPI):
             start_invitation_email_consumer,
             name="invitation_email_consumer",
         )
+
+    spawn_api_extension_tasks(supervisor)
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -859,6 +865,8 @@ def create_app(**kwargs) -> FastAPI:
             prefix="/auth",
             tags=["auth"],
         )
+
+    include_api_extension_routers(app)
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
