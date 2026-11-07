@@ -1,7 +1,7 @@
 """guard rls on dynamic workspace tables
 
 Revision ID: b4074a0896b5
-Revises: ef408b9720a6
+Revises: d986afa25989
 Create Date: 2026-11-06 23:00:00.000000
 
 The app role inherits owner rights on dynamic workspace tables (`tables_*`,
@@ -82,7 +82,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b4074a0896b5"
-down_revision: str | None = "ef408b9720a6"
+down_revision: str | None = "d986afa25989"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

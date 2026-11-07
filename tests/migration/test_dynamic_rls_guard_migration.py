@@ -44,7 +44,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 
 MIGRATION_REVISION = "b4074a0896b5"
 GUARD_FUNCTION = "public.tracecat_guard_dynamic_rls()"
-PREVIOUS_REVISION = "ef408b9720a6"
+PREVIOUS_REVISION = "d986afa25989"
 ALEMBIC_DIR = Path(__file__).resolve().parents[2] / "alembic"
 TABLE_NAME = "probe"
 STRAGGLER_TABLE = "straggler"
