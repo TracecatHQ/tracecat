@@ -43,6 +43,7 @@ from tracecat.agent.executor.activity import (
     AgentExecutorResult,
 )
 from tracecat.agent.executor.schemas import ToolExecutionResult
+from tracecat.agent.preset.activities import resolve_model_replacement_activity
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -201,7 +202,7 @@ def agent_worker_factory(
         return Worker(
             client=client,
             task_queue=task_queue,
-            activities=activities,
+            activities=[*activities, resolve_model_replacement_activity],
             workflows=[DurableAgentWorkflow],
             workflow_runner=new_sandbox_runner(),
             activity_executor=threadpool,
