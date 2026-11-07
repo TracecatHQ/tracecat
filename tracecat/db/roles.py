@@ -523,7 +523,7 @@ WHERE c.relnamespace = 'public'::pg_catalog.regnamespace
           AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
           AND d.deptype IN ('a', 'i')))
 UNION ALL
-SELECT 2, 'ROUTINE', p.oid::pg_catalog.regprocedure::text,
+SELECT 3, 'ROUTINE', p.oid::pg_catalog.regprocedure::text,
        pg_catalog.pg_get_userbyid(p.proowner)
 FROM pg_catalog.pg_proc p
 WHERE p.pronamespace = 'public'::pg_catalog.regnamespace
@@ -532,7 +532,7 @@ WHERE p.pronamespace = 'public'::pg_catalog.regnamespace
                   WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
                     AND d.objid = p.oid AND d.deptype = 'e')
 UNION ALL
-SELECT 2, CASE t.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END,
+SELECT 3, CASE t.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END,
        t.oid::pg_catalog.regtype::text, pg_catalog.pg_get_userbyid(t.typowner)
 FROM pg_catalog.pg_type t
 WHERE t.typnamespace = 'public'::pg_catalog.regnamespace
@@ -645,7 +645,7 @@ class UpgradeResult:
 
 @dataclass(frozen=True, slots=True)
 class PublicObject:
-    stage: int  # 1: tables and sequences; 2: views, routines, types (after stage 1)
+    stage: int  # 1: tables, sequences; 2: views; 3: routines, types. Each waits for the last.
     kind: str
     name: str  # schema-qualified: the upgrade runs with search_path = pg_catalog
     owner: str
@@ -729,8 +729,13 @@ def _apply(
     lock_timeout: str,
     retries: int,
     result: UpgradeResult,
-) -> None:
-    """Run one object's statements in their own short transaction."""
+    record: bool = True,
+) -> bool:
+    """Run one object's statements in their own short transaction.
+
+    Returns whether they committed; failures are added to ``result.failed``,
+    successes to ``result.moved`` when ``record`` is set.
+    """
     for attempt in range(retries + 1):
         try:
             with conn.transaction():
@@ -744,12 +749,14 @@ def _apply(
                 time.sleep(1)
                 continue
             result.failed.append((label, "lock timeout; rerun upgrade later"))
-            return
+            return False
         except psycopg.Error as exc:
             result.failed.append((label, str(exc).strip()))
-            return
-        result.moved.append(label)
-        return
+            return False
+        if record:
+            result.moved.append(label)
+        return True
+    return False
 
 
 def _bootstrap_with_retries(
@@ -845,15 +852,25 @@ def run_upgrade(
     conn.execute("SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)")
     try:
         objects = _public_objects(conn, old)
-        _keep_old_owners_working(conn, objects, roles, result)
-        for obj in (o for o in objects if o.stage == 1):
-            _move(conn, obj, owner, login, roles, lock_timeout, retries, result)
-        # A view or SECURITY DEFINER routine moved ahead of a table it uses
-        # would lose access to it, so stage 2 waits until every public table
-        # and sequence, whoever owns it, is on the owner keyring.
-        relations_left = [o for o in _unmoved_public(conn, old, roles) if o.stage == 1]
-        if not result.failed and not relations_left:
-            for obj in (o for o in objects if o.stage == 2):
+        dynamic_owners = _dynamic_owners(conn, old, roles)
+        _keep_old_owners_working(
+            conn,
+            {o.owner for o in objects} | set(dynamic_owners),
+            roles,
+            result,
+            lock_timeout=lock_timeout,
+            retries=retries,
+        )
+        # A view or SECURITY DEFINER routine moved ahead of something it reads
+        # would lose access to it, so each stage waits until everything in the
+        # earlier stages, whoever owns it, is on the owner keyring.
+        for stage in (1, 2, 3):
+            earlier_left = [
+                o for o in _unmoved_public(conn, old, roles) if o.stage < stage
+            ]
+            if result.failed or earlier_left:
+                break
+            for obj in (o for o in objects if o.stage == stage):
                 _move(conn, obj, owner, login, roles, lock_timeout, retries, result)
         for schema in _dynamic_schemas(conn, roles):
             _apply(
@@ -886,6 +903,7 @@ def run_upgrade(
             f"{roles.migrator} and the app uses {roles.app}, rotate its password or "
             "drop it. It still owns the database and can act as the owner keyring."
         )
+        result.kept_access = _owner_keyring_logins(conn, roles)
         if kept := result.kept_access:
             revoke = "; ".join(
                 f"REVOKE {quote_ident(roles.owner)} FROM {quote_ident(n)}" for n in kept
@@ -907,9 +925,12 @@ def _superuser_owned_public(
 
 def _keep_old_owners_working(
     conn: psycopg.Connection,
-    objects: Sequence[PublicObject],
+    owners: set[str],
     roles: RoleNames,
     result: UpgradeResult,
+    *,
+    lock_timeout: str,
+    retries: int,
 ) -> None:
     """Let an app still running as an old owner keep its access until cutover.
 
@@ -918,16 +939,23 @@ def _keep_old_owners_working(
     reach the owner role.
     """
     admin = conn.execute("SELECT session_user").fetchone()
-    owners = sorted({o.owner for o in objects})
-    for name in owners:
+    for name in sorted(owners):
         # The admin's membership is the bootstrap's, by design (break-glass).
         if admin and name == admin[0]:
             continue
         if name in roles.logins or _is_superuser(conn, name):
             continue
-        with conn.transaction():
-            conn.execute(_grant_membership(roles.owner, name).encode())
-        result.kept_access.append(name)
+        kept = _apply(
+            conn,
+            f"KEEP ACCESS {quote_ident(name)}",
+            [_grant_membership(roles.owner, name)],
+            lock_timeout=lock_timeout,
+            retries=retries,
+            result=result,
+            record=False,
+        )
+        if not kept:
+            continue  # reported in result.failed
         result.notes.append(f"{name}: kept access through {roles.owner} until cutover")
         row = conn.execute(
             "SELECT rolinherit FROM pg_catalog.pg_roles WHERE rolname = %(r)s",
@@ -938,6 +966,50 @@ def _keep_old_owners_working(
                 f"{name} has NOINHERIT: before PostgreSQL 16 it needs "
                 f"SET ROLE {quote_ident(roles.owner)} (or INHERIT) to keep working"
             )
+
+
+def _dynamic_owners(
+    conn: psycopg.Connection, old: Sequence[str], roles: RoleNames
+) -> list[str]:
+    """Old owners of dynamic schemas or tables that are about to move."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT pg_catalog.pg_get_userbyid(owner) FROM (
+          SELECT n.nspowner AS owner FROM pg_catalog.pg_namespace n
+          WHERE n.nspname LIKE 'tables\\_%%' OR n.nspname LIKE 'custom\\_fields\\_%%'
+          UNION ALL
+          SELECT c.relowner FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE (n.nspname LIKE 'tables\\_%%' OR n.nspname LIKE 'custom\\_fields\\_%%')
+            AND c.relkind IN ('r', 'p')
+        ) AS o
+        WHERE pg_catalog.pg_get_userbyid(owner) = ANY(%(old)s)
+          AND pg_catalog.pg_get_userbyid(owner) <> %(dyn)s
+        """,
+        {"old": list(old), "dyn": roles.dynamic_owner},
+    ).fetchall()
+    return [name for (name,) in rows]
+
+
+def _owner_keyring_logins(conn: psycopg.Connection, roles: RoleNames) -> list[str]:
+    """Logins other than the admin and topology roles that can act as the owner.
+
+    Read from the catalog, so access kept by an earlier run is reported too.
+    """
+    rows = conn.execute(
+        """
+        SELECT r.rolname FROM pg_catalog.pg_roles r
+        WHERE r.rolcanlogin AND NOT r.rolsuper AND r.rolname <> session_user
+          AND NOT (r.rolname = ANY(%(topology)s))
+          AND pg_catalog.pg_has_role(r.oid, %(owner)s::pg_catalog.regrole, 'MEMBER')
+        ORDER BY 1
+        """,
+        {
+            "topology": [*roles.keyrings, *roles.logins],
+            "owner": quote_ident(roles.owner),
+        },
+    ).fetchall()
+    return [name for (name,) in rows]
 
 
 def _is_superuser(conn: psycopg.Connection, role: str) -> bool:
