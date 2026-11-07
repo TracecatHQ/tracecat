@@ -50,10 +50,12 @@ guard rather than failing: the guard only matters with
 migrations as that admin, or as a member of it, so they keep full DDL rights
 on dynamic tables.
 
-The upgrade keeps a guard that is already installed (both triggers enabled
-and owned by the function's owner). Otherwise it drops any partial guard and
-installs a fresh one; a stray guard function owned by a role it can't drop
-fails the upgrade with instructions. After installing, it runs `AUDIT_SQL`
+The upgrade keeps a guard that is already installed (both triggers firing in
+normal sessions, owned by the function's owner, with this revision's body).
+Otherwise it drops any old or partial guard and installs a fresh one, in one
+savepoint: when the role can't create event triggers, the old guard stays. A
+stray guard function owned by a role it can't drop fails the upgrade with
+instructions. After installing, it runs `AUDIT_SQL`
 and logs a warning for each workspace table whose RLS differs from what the
 app creates.
 
@@ -373,7 +375,8 @@ def _guard_installed() -> bool:
             FROM pg_event_trigger t
             JOIN pg_proc f ON f.oid = t.evtfoid
             WHERE t.evtname IN (:ddl_trigger, :drop_trigger)
-              AND t.evtenabled <> 'D'
+              -- O and A fire in normal sessions; R only under replication.
+              AND t.evtenabled IN ('O', 'A')
               AND f.oid = to_regprocedure(:function)
               AND f.proowner = t.evtowner
               AND f.prosrc = :body
@@ -416,26 +419,52 @@ def _assert_guard_function_droppable() -> None:
         )
 
 
+def _guard_present() -> bool:
+    """Either guard trigger exists, current or not."""
+    present = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT EXISTS (SELECT 1 FROM pg_event_trigger "
+                "WHERE evtname IN (:ddl_trigger, :drop_trigger))"
+            ),
+            {"ddl_trigger": DDL_TRIGGER, "drop_trigger": DROP_TRIGGER},
+        )
+        .scalar_one()
+    )
+    return bool(present)
+
+
 def _install_guard() -> None:
     bind = op.get_bind()
     if _guard_installed():
         logger.info("Dynamic-table RLS guard is already installed; keeping it.")
         return
     _assert_guard_function_droppable()
-    # Start clean: CREATE OR REPLACE would keep a stray function's owner. Only
-    # CREATE EVENT TRIGGER may fail softly.
-    for statement in UNINSTALL_STATEMENTS:
-        bind.execute(sa.text(statement))
-    bind.execute(sa.text(_GUARD_FUNCTION_SQL))
+    had_guard = _guard_present()
+    # Drop and reinstall in one savepoint: CREATE OR REPLACE would keep a stray
+    # function's owner, and if this role can't create event triggers the
+    # rollback restores whatever guard was there.
     try:
         with bind.begin_nested():
-            for statement in GUARD_STATEMENTS[1:]:
+            for statement in (*UNINSTALL_STATEMENTS, *GUARD_STATEMENTS):
                 bind.execute(sa.text(statement))
     except DBAPIError as exc:
         if not isinstance(exc.orig, psycopg.errors.InsufficientPrivilege):
             raise
-        bind.execute(sa.text(f"DROP FUNCTION {GUARD_FUNCTION}"))
         role = bind.execute(sa.text("SELECT session_user")).scalar_one()
+        if had_guard:
+            logger.warning(
+                "Kept the existing dynamic-table RLS guard (revision %s): it "
+                "differs from this revision's, and role %r can't recreate "
+                "event triggers, which needs a superuser (rds_superuser on "
+                "RDS). Run MANUAL_INSTALL_SQL from this migration as a "
+                "superuser to update it. Error: %s",
+                revision,
+                role,
+                exc.orig,
+            )
+            return
         logger.warning(
             "Skipped the dynamic-table RLS guard (revision %s): role %r can't "
             "create event triggers, which needs a superuser (rds_superuser on "

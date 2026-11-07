@@ -14,7 +14,9 @@ Invariants:
 - A migration role that can't create event triggers skips the guard with a
   warning and leaves nothing behind, and keeps a guard an admin already
   installed. A guard function another role created first is replaced, or the
-  upgrade fails with instructions when the migration role can't drop it.
+  upgrade fails with instructions when the migration role can't drop it. An
+  outdated or replica-only guard is replaced, or kept when the migration role
+  can't recreate event triggers.
 - The upgrade logs a warning for each workspace table whose RLS differs from
   what the app creates, and a policy renamed before the upgrade doesn't let
   its table leave the workspace schema afterwards.
@@ -691,3 +693,52 @@ class TestDynamicRlsGuardMigration:
 
         _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "set_schema"))
         _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "rename_schema"))
+
+    def test_upgrade_replaces_a_replica_only_guard(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # ENABLE REPLICA triggers never fire in normal sessions.
+        _run_committed(
+            guard_db.db_url,
+            [
+                *_install_statements(),
+                "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_ddl ENABLE REPLICA",
+                "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_drop ENABLE REPLICA",
+            ],
+        )
+        _run(guard_db.app_url, _blocked(guard_db, "disable"))
+
+        _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
+
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
+
+    def test_role_that_cannot_recreate_triggers_keeps_an_outdated_guard(
+        self,
+        guard_db: GuardDb,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # A working guard from an older revision: same logic, different body.
+        statements = _install_statements()
+        guard_index = len(statements) - 3
+        statements[guard_index] = statements[guard_index].replace(
+            "BEGIN\n", "BEGIN\n    -- older revision\n", 1
+        )
+        _run_committed(guard_db.db_url, statements)
+        _run_committed(
+            guard_db.db_url,
+            [
+                f'ALTER TABLE "{schema}"."{table}" '
+                "ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY"
+                for schema, table in _stragglers(guard_db)
+            ],
+        )
+
+        # admin can drop the superuser's triggers through membership, but
+        # can't create event triggers.
+        with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
+            _alembic(monkeypatch, guard_db.admin_url, "upgrade", MIGRATION_REVISION)
+
+        assert "Kept the existing dynamic-table RLS guard" in caplog.text
+        assert len(_guard_objects(guard_db.db_url)) == 3
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
