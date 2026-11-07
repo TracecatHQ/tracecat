@@ -365,10 +365,13 @@ def _protect_dynamic_tables() -> None:
             if not isinstance(exc.orig, psycopg.errors.InsufficientPrivilege):
                 raise
             raise RuntimeError(
-                f"Can't enable and force RLS on {qualified_table}: this "
-                "migration role doesn't own it. As its owner or a superuser, "
-                "give it to the dynamic owner role (ALTER TABLE ... OWNER TO "
-                "<TRACECAT__DB_DYNAMIC_OWNER_ROLE>), then rerun the upgrade."
+                f"Can't enable and force RLS on {qualified_table}: "
+                f"{exc.orig}. Either this migration role doesn't own the "
+                "table (as its owner or a superuser, give it to the dynamic "
+                "owner role with ALTER TABLE ... OWNER TO "
+                "<TRACECAT__DB_DYNAMIC_OWNER_ROLE>), or an installed dynamic "
+                "RLS guard rejected it (run migrations as the guard's owner "
+                "or a member of it). Then rerun the upgrade."
             ) from exc
 
 
