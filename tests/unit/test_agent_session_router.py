@@ -57,6 +57,7 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.session.views import build_session_read
+from tracecat.agent.stream.feed import SessionFeedSnapshot
 from tracecat.api.app import (
     entitlement_exception_handler,
     scope_denied_exception_handler,
@@ -2005,6 +2006,44 @@ def test_stream_session_events_releases_request_session_before_streaming() -> No
         TestClient(app) as client,
     ):
         response = client.get(f"/agent/sessions/{session_id}/stream")
+
+    assert response.status_code == 200
+    assert response.text == "data: {}\n\n"
+    assert released_at_first_chunk == [True]
+
+
+def test_stream_session_feed_releases_request_session_before_streaming() -> None:
+    """The feed stays open as long as the tab, so it must not pin a DB connection."""
+    session_id = uuid.uuid4()
+    tracked = _TrackedSession()
+    app, released_at_first_chunk = _session_release_app(
+        tracked, _make_stream_role(uuid.uuid4())
+    )
+    fake_svc = SimpleNamespace(
+        get_feed_snapshot=AsyncMock(
+            return_value=SessionFeedSnapshot(run_id=None, stream_id=None, paused=False)
+        )
+    )
+    fake_feed = SimpleNamespace(
+        latest_id=AsyncMock(return_value="0-0"),
+        sse=Mock(
+            side_effect=lambda *_a, **_kw: _released_event_stream(
+                tracked, released_at_first_chunk
+            )
+        ),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.SessionFeed.new",
+            AsyncMock(return_value=fake_feed),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.get(f"/agent/sessions/{session_id}/feed")
 
     assert response.status_code == 200
     assert response.text == "data: {}\n\n"

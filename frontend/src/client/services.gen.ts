@@ -251,6 +251,8 @@ import type {
   AgentSessionsSendMessageResponse,
   AgentSessionsStreamSessionEventsData,
   AgentSessionsStreamSessionEventsResponse,
+  AgentSessionsStreamSessionFeedData,
+  AgentSessionsStreamSessionFeedResponse,
   AgentSessionsUpdateSessionData,
   AgentSessionsUpdateSessionResponse,
   AgentSetDefaultModelData,
@@ -8736,6 +8738,36 @@ export const agentSessionsStreamSessionEvents = (
     },
     query: {
       format: data.format,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Stream Session Feed
+ * Stream the session's run state changes via Server-Sent Events (SSE).
+ *
+ * Sends a snapshot of the current run first, then ``run.started``,
+ * ``run.paused``, ``run.resumed`` and ``run.finished``. Clients attach to a
+ * run's output through ``/stream``. A reconnect gets a fresh snapshot, so
+ * there is no resume cursor.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsStreamSessionFeed = (
+  data: AgentSessionsStreamSessionFeedData
+): CancelablePromise<AgentSessionsStreamSessionFeedResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/feed",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

@@ -112,6 +112,11 @@ from tracecat.agent.session.types import (
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.feed import (
+    SessionFeedEventType,
+    SessionFeedSnapshot,
+    publish_session_event,
+)
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
@@ -1233,9 +1238,17 @@ class AgentSessionService(BaseWorkspaceService):
                 reserved_run_id=None,
                 reserved_at=None,
             )
+            .returning(AgentSession.id)
         )
-        await self.session.execute(stmt)
+        cleared = await self.session.scalar(stmt)
         await self.session.commit()
+        if cleared is not None:
+            await publish_session_event(
+                workspace_id=self.workspace_id,
+                session_id=session_id,
+                type=SessionFeedEventType.RUN_FINISHED,
+                run_id=run_id,
+            )
 
     async def finalize_turn(
         self,
@@ -1333,12 +1346,26 @@ class AgentSessionService(BaseWorkspaceService):
         not serialized, so a concurrent turn can pin its own pointers in that
         window. Only clear while the session still points at our stream id.
         """
+        run_id = await self.session.scalar(
+            select(AgentSession.curr_run_id).where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.active_stream_id == expected_stream_id,
+            )
+        )
+        # Pin the run read above, so the published run is the one this clears.
+        run_matches = (
+            AgentSession.curr_run_id.is_(None)
+            if run_id is None
+            else AgentSession.curr_run_id == run_id
+        )
         stmt = (
             update(AgentSession)
             .where(
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.active_stream_id == expected_stream_id,
+                run_matches,
             )
             .values(
                 curr_run_id=None,
@@ -1346,9 +1373,17 @@ class AgentSessionService(BaseWorkspaceService):
                 reserved_run_id=None,
                 reserved_at=None,
             )
+            .returning(AgentSession.id)
         )
-        await self.session.execute(stmt)
+        cleared = await self.session.scalar(stmt)
         await self.session.commit()
+        if cleared is not None and run_id is not None:
+            await publish_session_event(
+                workspace_id=self.workspace_id,
+                session_id=session_id,
+                type=SessionFeedEventType.RUN_FINISHED,
+                run_id=run_id,
+            )
 
     # =========================================================================
     # Session History Management (for Claude SDK session persistence)
@@ -1544,6 +1579,27 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
+
+    async def get_feed_snapshot(
+        self, session_id: uuid.UUID
+    ) -> SessionFeedSnapshot | None:
+        """Read the run state a feed reader starts from, or None if no session."""
+        row = (
+            await self.session.execute(
+                select(AgentSession.curr_run_id, AgentSession.active_stream_id).where(
+                    AgentSession.id == session_id,
+                    AgentSession.workspace_id == self.workspace_id,
+                )
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        paused = row.curr_run_id is not None and await self.has_pending_approvals(
+            session_id
+        )
+        return SessionFeedSnapshot(
+            run_id=row.curr_run_id, stream_id=row.active_stream_id, paused=paused
+        )
 
     async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
         """Return whether the session has pending approval decisions."""
@@ -2746,6 +2802,20 @@ class AgentSessionService(BaseWorkspaceService):
                 stream_id=attempt.stream_id,
                 tool_call_ids=list(validated.approval_map),
             )
+
+        # A partial batch stays paused but moves to the new segment too.
+        event_type = (
+            SessionFeedEventType.RUN_RESUMED
+            if did_resume
+            else SessionFeedEventType.RUN_PAUSED
+        )
+        await publish_session_event(
+            workspace_id=self.workspace_id,
+            session_id=session_id,
+            type=event_type,
+            run_id=curr_run_id,
+            stream_id=attempt.stream_id,
+        )
 
         logger.info(
             "Approval decisions submitted successfully",

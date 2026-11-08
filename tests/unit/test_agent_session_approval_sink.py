@@ -26,6 +26,7 @@ from tracecat.agent.backends.types import AgentControlRejected, AgentControlUnce
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.agent.types import AgentConfig, ToolApproved
 from tracecat.auth.types import Role
 from tracecat.chat import tokens
@@ -108,7 +109,8 @@ class _ApprovalContinuationRedis:
 def _mock_approval_continuation_dependencies(
     redis_client: object,
     execute_update: AsyncMock,
-) -> Iterator[None]:
+) -> Iterator[AsyncMock]:
+    publish = AsyncMock()
     temporal_client = SimpleNamespace(
         get_workflow_handle_for=Mock(
             return_value=SimpleNamespace(execute_update=execute_update)
@@ -127,8 +129,9 @@ def _mock_approval_continuation_dependencies(
             "tracecat.agent.session.service.get_redis_client",
             AsyncMock(return_value=redis_client),
         ),
+        patch("tracecat.agent.session.service.publish_session_event", publish),
     ):
-        yield
+        yield publish
 
 
 @pytest.fixture
@@ -848,13 +851,22 @@ async def test_run_turn_continue_with_inbox_source_for_non_external_session(
 
     execute_update = AsyncMock(return_value=None)
     fake_redis = _ApprovalContinuationRedis()
-    with _mock_approval_continuation_dependencies(fake_redis, execute_update):
+    with _mock_approval_continuation_dependencies(
+        fake_redis, execute_update
+    ) as publish:
         result = await service.run_turn(agent_session.id, continuation)
 
     # A real approval submission rotates the stream and returns the fresh id.
     assert result is not None
     assert result.active_stream_id is not None
     execute_update.assert_awaited_once()
+    publish.assert_awaited_once_with(
+        workspace_id=svc_role.workspace_id,
+        session_id=agent_session.id,
+        type=SessionFeedEventType.RUN_RESUMED,
+        run_id=curr_run_id,
+        stream_id=result.active_stream_id,
+    )
     assert len(fake_redis.streams) == 1
 
 
@@ -900,13 +912,23 @@ async def test_run_turn_continue_partial_approval_reports_not_resumed(
 
     execute_update = AsyncMock(return_value=False)
     fake_redis = _ApprovalContinuationRedis()
-    with _mock_approval_continuation_dependencies(fake_redis, execute_update):
+    with _mock_approval_continuation_dependencies(
+        fake_redis, execute_update
+    ) as publish:
         result = await service.run_turn(agent_session.id, continuation)
 
     assert result is not None
     assert result.curr_run_id == curr_run_id
     assert result.active_stream_id is not None
     execute_update.assert_awaited_once()
+    # Still waiting on tool_call_456, but tabs must follow the new segment.
+    publish.assert_awaited_once_with(
+        workspace_id=svc_role.workspace_id,
+        session_id=agent_session.id,
+        type=SessionFeedEventType.RUN_PAUSED,
+        run_id=curr_run_id,
+        stream_id=result.active_stream_id,
+    )
 
     approved = await session.scalar(
         select(Approval).where(
@@ -1422,9 +1444,13 @@ async def test_approval_continuation_rejection_restores_and_retries_fresh_stream
         ]
     )
 
-    with _mock_approval_continuation_dependencies(fake_redis, execute_update):
+    with _mock_approval_continuation_dependencies(
+        fake_redis, execute_update
+    ) as publish:
         with pytest.raises(AgentControlRejected):
             await service.run_turn(agent_session.id, continuation)
+        # A rejected continuation rolls back its segment and tells no one.
+        publish.assert_not_awaited()
 
         rejected_stream_id = execute_update.await_args_list[0].args[1].new_stream_id
         await session.refresh(agent_session)
@@ -1436,6 +1462,9 @@ async def test_approval_continuation_rejection_restores_and_retries_fresh_stream
     assert result.active_stream_id not in {previous_stream_id, rejected_stream_id}
     retry_stream_id = result.active_stream_id
     assert execute_update.await_count == 2
+    publish.assert_awaited_once()
+    assert publish.await_args is not None
+    assert publish.await_args.kwargs["stream_id"] == retry_stream_id
     assert execute_update.await_args_list[0].kwargs["id"] == (
         f"set-approvals:{rejected_stream_id}"
     )

@@ -16729,6 +16729,13 @@ export type AgentSessionsStreamSessionEventsData = {
 
 export type AgentSessionsStreamSessionEventsResponse = unknown
 
+export type AgentSessionsStreamSessionFeedData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsStreamSessionFeedResponse = unknown
+
 export type AgentSessionsListPendingMessagesData = {
   sessionId: string
   workspaceId: string
@@ -23891,6 +23898,21 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/agent/sessions/{session_id}/stream": {
     get: {
       req: AgentSessionsStreamSessionEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/feed": {
+    get: {
+      req: AgentSessionsStreamSessionFeedData
       res: {
         /**
          * Successful Response
