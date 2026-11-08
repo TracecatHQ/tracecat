@@ -84,6 +84,8 @@ dotenv_replace "TRACECAT__SIGNING_SECRET" "$signing_secret" "$env_file"
 dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
 dotenv_replace "USER_AUTH_SECRET" "$user_auth_secret" "$env_file"
 # The migrations container creates the roles; the app then logs in as `app`.
+# Escaped: .env keeps the references, which Compose expands.
+dotenv_replace "TRACECAT__DB_ADMIN_URI" 'postgresql+psycopg://\${TRACECAT__POSTGRES_USER}:\${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres' "$env_file"
 dotenv_replace "TRACECAT__DB_MIGRATOR_PASSWORD" "$db_migrator_password" "$env_file"
 dotenv_replace "TRACECAT__DB_APP_PASSWORD" "$db_app_password" "$env_file"
 dotenv_replace "TRACECAT__DB_URI" "postgresql+psycopg://app:${db_app_password}@postgres_db:5432/postgres" "$env_file"

@@ -6,7 +6,7 @@ from urllib.parse import quote_plus
 
 import alembic_postgresql_enum
 import boto3
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, make_url, pool
 
 from alembic import context
 from tracecat.db import models  # noqa: F401
@@ -96,15 +96,24 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+    # Unqualified names must not resolve to a schema another role could create
+    # ("$user" is tracecat_owner for migrator), from the first statement on,
+    # including SQLAlchemy's cached default schema. An explicit options value
+    # replaces libpq's (the URI's, else PGOPTIONS), so append to it.
+    uri_options = (
+        make_url(TRACECAT__DB_URI).query.get("options") if TRACECAT__DB_URI else None
+    )
+    operator_options = (
+        uri_options if isinstance(uri_options, str) else os.getenv("PGOPTIONS", "")
+    )
     connectable = engine_from_config(
         configuration=config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
         url=TRACECAT__DB_URI,
-        # Unqualified names must not resolve to a schema another role could
-        # create ("$user" is tracecat_owner for migrator), from the first
-        # statement on, including SQLAlchemy's cached default schema.
-        connect_args={"options": f"-c search_path={MIGRATION_SEARCH_PATH}"},
+        connect_args={
+            "options": f"{operator_options} -c search_path={MIGRATION_SEARCH_PATH}".strip()
+        },
     )
 
     with connectable.connect() as connection:

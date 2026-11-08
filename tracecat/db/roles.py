@@ -657,8 +657,8 @@ def migrate(
        abort stops with exit 1. Finished transfers stay committed and the
        next run continues, so a held lock can delay a deploy but never moves
        migrations off ``migrator``.
-       Without a ``migrator`` credential, alembic runs as the admin, as
-       before role setup; the output says so.
+       With an admin URI, the ``migrator`` credential (and, with passwords,
+       ``app``'s) is required: without it, exit 1 before changing anything.
 
     With ``TRACECAT__DB_ROLE_LOGIN=aws_iam`` (or ``azure_entra``),
     ``TRACECAT__DB_MIGRATOR_PASSWORD`` must carry the token minted for
@@ -675,37 +675,36 @@ def migrate(
         )
         return _alembic_upgrade(None)
 
-    # An env-migration.sh upgrade copies the bundled-postgres admin URI next to
-    # an external TRACECAT__DB_URI: never migrate a different database.
-    app_uri = os.environ.get("TRACECAT__DB_URI")
-    if app_uri and _target(app_uri) != _target(config.TRACECAT__DB_ADMIN_URI):
-        print(
-            "TRACECAT__DB_ADMIN_URI points at a different database than "
-            "TRACECAT__DB_URI: skipping role setup; running migrations as the "
-            "configured database user.",
-            file=sys.stderr,
-        )
-        return _alembic_upgrade(None)
-
     login = LoginMethod(config.TRACECAT__DB_ROLE_LOGIN)
     passwords = (
         LoginPasswords.from_config()
         if login is LoginMethod.PASSWORD
         else LoginPasswords()
     )
+    # Role setup without these would leave a passwordless login, or run the
+    # migrations as the admin.
     migrator_password = config.TRACECAT__DB_MIGRATOR_PASSWORD
-    if (code := _setup_roles(login, passwords, roles, lock_timeout, retries)) != 0:
-        return code
-    if migrator_password:
-        db_uri = _login_uri(roles.migrator, migrator_password)
-    else:
+    missing: list[str] = []
+    if not migrator_password:
+        missing.append("TRACECAT__DB_MIGRATOR_PASSWORD")
+    if login is LoginMethod.PASSWORD and not passwords.app:
+        missing.append("TRACECAT__DB_APP_PASSWORD")
+    if not migrator_password or missing:
         print(
-            f"No credential for {roles.migrator} in TRACECAT__DB_MIGRATOR_PASSWORD "
-            "(its password, or the IAM token minted at job start). "
-            "Running migrations as the admin.",
+            "error: TRACECAT__DB_ADMIN_URI is set, but these are empty: "
+            f"{', '.join(missing)} (with IAM, the migrator variable carries the "
+            "token minted at job start).",
             file=sys.stderr,
         )
-        db_uri = _login_uri_for_admin()
+        print(
+            "hint: set it, or unset TRACECAT__DB_ADMIN_URI to keep a single "
+            "database user.",
+            file=sys.stderr,
+        )
+        return 1
+    if (code := _setup_roles(login, passwords, roles, lock_timeout, retries)) != 0:
+        return code
+    db_uri = _login_uri(roles.migrator, migrator_password)
     if (code := _alembic_upgrade(db_uri)) != 0:
         return code
     # Again after the migrations: grants that need the migrated objects (app's
@@ -713,12 +712,6 @@ def migrate(
     # columns, alembic_version read-only) and dynamic schemas that revisions
     # create. Until these commit the app may be denied, so they gate success.
     return _setup_roles(login, LoginPasswords(), roles, lock_timeout, retries)
-
-
-def _target(uri: str) -> tuple[str | None, int, str | None]:
-    """Host, port and database a connection URI points at."""
-    url = make_url(uri)
-    return (url.host.lower() if url.host else None, url.port or 5432, url.database)
 
 
 def _setup_roles(
@@ -793,11 +786,6 @@ def _upgrade_or_report(
         # Transient: another transaction holds a catalog row. Nothing committed.
         print("role setup timed out on a lock; nothing changed.", file=sys.stderr)
         return None
-
-
-def _login_uri_for_admin() -> str:
-    url = make_url(_admin_conninfo()).set(drivername="postgresql+psycopg")
-    return url.render_as_string(hide_password=False)
 
 
 MIGRATION_SEARCH_PATH = "public"

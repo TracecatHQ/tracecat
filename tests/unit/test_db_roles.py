@@ -1949,32 +1949,28 @@ def test_migrate_sets_up_roles_on_a_fresh_compose_install(
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
-def test_migrate_skips_role_setup_for_a_different_database(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    "variable", ["TRACECAT__DB_MIGRATOR_PASSWORD", "TRACECAT__DB_APP_PASSWORD"]
+)
+def test_migrate_refuses_role_setup_without_login_credentials(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], variable: str
 ) -> None:
-    """An admin URI copied next to an external TRACECAT__DB_URI must not migrate elsewhere."""
+    """No passwordless logins, and no fallback to migrating as the admin."""
     suffix = _suffix()
     roles = _test_roles(suffix)
     database = _fresh_database(suffix)
-    elsewhere = _fresh_database(f"{suffix}_other")
     try:
         _configure_migrate(monkeypatch, database, admin=True)
-        monkeypatch.setattr(
-            config,
-            "TRACECAT__DB_ADMIN_URI",
-            _url("postgres", "postgres", elsewhere, "+psycopg"),
-        )
-        assert migrate(roles) == 0
-        assert "points at a different database" in capsys.readouterr().err
-        assert _alembic_head(database) is not None  # the configured database
+        monkeypatch.setattr(config, variable, None)
+        assert migrate(roles) == 1
+        assert variable in capsys.readouterr().err
         assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
-        with psycopg.connect(_url("postgres", "postgres", elsewhere)) as conn:
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
             versions = conn.execute(
                 "SELECT to_regclass('public.alembic_version')"
             ).fetchone()
-        assert versions == (None,)
+        assert versions == (None,)  # alembic never ran
     finally:
-        _drop_all(elsewhere, [])
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
