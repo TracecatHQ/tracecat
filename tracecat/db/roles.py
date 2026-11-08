@@ -103,8 +103,6 @@ class RoleNames:
         return (self.migrator, self.app, self.agent_runtime)
 
 
-# Honour an existing TRACECAT__DB_DYNAMIC_OWNER_ROLE so the app and the
-# bootstrap agree on the role that owns dynamic tables.
 READONLY_HIDDEN_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("access_token", ("token",)),
     ("oauth_account", ("access_token", "refresh_token")),
@@ -121,9 +119,9 @@ and crackable password or recovery-code hashes. Encrypted columns stay
 readable because their key is not in the database. Add new credential columns
 here."""
 
-DEFAULT_ROLES = RoleNames(
-    dynamic_owner=config.TRACECAT__DB_DYNAMIC_OWNER_ROLE or "app_owner"
-)
+# Honour an existing TRACECAT__DB_DYNAMIC_OWNER_ROLE so the app and the
+# bootstrap agree on the role that owns dynamic tables.
+DEFAULT_ROLES = RoleNames(dynamic_owner=config.TRACECAT__DB_DYNAMIC_OWNER_ROLE)
 
 
 class UnsafeDatabaseLoginError(RuntimeError):
@@ -479,6 +477,14 @@ def bootstrap_statements(
     # these are no-ops and the default privileges below cover new objects.
     statements += [
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {app};",
+        # Only migrations write the version table: app setting it could skip
+        # every later revision or wedge them all.
+        _do(
+            "  IF pg_catalog.to_regclass('public.alembic_version') IS NOT NULL THEN\n"
+            "    EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE "
+            f"public.alembic_version FROM %I', {quote_literal(roles.app)});\n"
+            "  END IF;"
+        ),
         f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {app};",
         f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {ro};",
         _hide_readonly_columns(roles.readonly),
@@ -640,20 +646,20 @@ def migrate(
     2. Otherwise run ``upgrade`` as the admin (bootstrap included; a quick
        no-op once done), then alembic as ``migrator``, then ``upgrade`` again
        for what the migrations created.
-    3. If a safety check refuses, the bootstrap times out on a lock, or the
-       run aborts on an IAM lockout, stop with exit 1: nothing (or only safe
-       transfers) committed, and that state needs a person or a retry.
-       If transfers don't complete yet (a held lock), or ``migrator`` has no
-       credential, run alembic as the admin so the deploy proceeds; the roles
-       exist by then, and the output says why. The post-migration ``upgrade``
-       runs on every path that ran alembic.
+    3. Exit 0 only when role setup finished: a refused safety check, a lock
+       that outlasts the retries (before or after alembic), or an IAM-lockout
+       abort stops with exit 1. Finished transfers stay committed and the
+       next run continues, so a held lock can delay a deploy but never moves
+       migrations off ``migrator``.
+       Without a ``migrator`` credential, alembic runs as the admin, as
+       before role setup; the output says so.
 
     With ``TRACECAT__DB_ROLE_LOGIN=aws_iam`` (or ``azure_entra``),
     ``TRACECAT__DB_MIGRATOR_PASSWORD`` must carry the token minted for
     ``migrator`` at job start; a stale static password fails alembic loudly.
 
     Returns:
-        Alembic's exit code, or 1 if role setup refused or timed out.
+        Alembic's exit code, or 1 if role setup refused or didn't finish.
     """
     if not config.TRACECAT__DB_ADMIN_URI:
         print(
@@ -669,8 +675,36 @@ def migrate(
         if login is LoginMethod.PASSWORD
         else LoginPasswords()
     )
-    admin_uri = _login_uri_for_admin()
     migrator_password = config.TRACECAT__DB_MIGRATOR_PASSWORD
+    if (code := _setup_roles(login, passwords, roles, lock_timeout, retries)) != 0:
+        return code
+    if migrator_password:
+        db_uri = _login_uri(roles.migrator, migrator_password)
+    else:
+        print(
+            f"No credential for {roles.migrator} in TRACECAT__DB_MIGRATOR_PASSWORD "
+            "(its password, or the IAM token minted at job start). "
+            "Running migrations as the admin.",
+            file=sys.stderr,
+        )
+        db_uri = _login_uri_for_admin()
+    if (code := _alembic_upgrade(db_uri)) != 0:
+        return code
+    # Again after the migrations: grants that need the migrated objects (app's
+    # DML on tables the admin created, REFERENCES on "case", readonly's hidden
+    # columns, alembic_version read-only) and dynamic schemas that revisions
+    # create. Until these commit the app may be denied, so they gate success.
+    return _setup_roles(login, LoginPasswords(), roles, lock_timeout, retries)
+
+
+def _setup_roles(
+    login: LoginMethod,
+    passwords: LoginPasswords,
+    roles: RoleNames,
+    lock_timeout: str,
+    retries: int,
+) -> int:
+    """``upgrade`` as the admin: 0 once complete, 1 (reported) otherwise."""
     try:
         result = _upgrade_or_report(
             login, passwords, roles, lock_timeout=lock_timeout, retries=retries
@@ -679,44 +713,17 @@ def migrate(
         return _refused(exc)
     if result is None:
         # Nothing committed: on a first run app may not exist yet, so the
-        # services pointed at it couldn't log in. Fail and let the deploy retry.
+        # services pointed at it couldn't log in.
         print("error: rerun the deploy once the lock is released.", file=sys.stderr)
         return 1
+    _print_upgrade(result)
     if not result.complete:
-        _print_upgrade(result)
         print(
-            "Role setup isn't complete yet (see above; the next run continues). "
-            "Running migrations as the admin.",
+            "error: role setup isn't complete yet (see above). Rerun the deploy "
+            "once the lock is released; finished transfers are kept.",
             file=sys.stderr,
         )
-        code = _alembic_upgrade(admin_uri)
-    elif not migrator_password:
-        _print_upgrade(result)
-        print(
-            f"No credential for {roles.migrator} in TRACECAT__DB_MIGRATOR_PASSWORD "
-            "(its password, or the IAM token minted at job start). "
-            "Running migrations as the admin.",
-            file=sys.stderr,
-        )
-        code = _alembic_upgrade(admin_uri)
-    else:
-        _print_upgrade(result)
-        code = _alembic_upgrade(_login_uri(roles.migrator, migrator_password))
-    if code != 0:
-        return code
-    # Again after the migrations, on every path: grants that need the migrated
-    # objects (app's DML on tables the admin created, REFERENCES on "case",
-    # readonly's hidden columns) and dynamic schemas that revisions create. A
-    # lock or refusal is reported; the next deploy continues.
-    try:
-        after = _upgrade_or_report(
-            login, LoginPasswords(), roles, lock_timeout=lock_timeout, retries=retries
-        )
-    except psycopg.errors.RaiseException as exc:
-        return _refused(exc)
-    # None here (a lock) is already printed; migrations are done either way.
-    if after is not None and not after.complete:
-        _print_upgrade(after)
+        return 1
     return 0
 
 
