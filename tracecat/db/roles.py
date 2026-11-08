@@ -46,11 +46,18 @@ then hands ``public`` objects owned by the old login (``--from``, default the
 admin) to ``tracecat_owner`` and dynamic schemas to ``app_owner``, one object
 or schema per transaction with a short lock timeout, so a busy install keeps
 running. It never grants the admin membership in a login role.
+
+``migrate`` is the migrations container's entrypoint: with an admin
+credential it runs ``upgrade`` and then ``alembic upgrade head`` as
+``migrator``; without one it runs ``alembic`` as the configured user, as
+before.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
 import time
 from collections.abc import Sequence
@@ -58,7 +65,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 import psycopg
-from sqlalchemy import make_url, text
+from sqlalchemy import Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from tracecat import config
@@ -589,6 +596,134 @@ def render_sql(login: LoginMethod, roles: RoleNames = DEFAULT_ROLES) -> str:
         f"-- Then set {DYNAMIC_OWNER_ENV_VAR}={roles.dynamic_owner} on the app."
     )
     return "\n".join(lines) + "\n"
+
+
+def _print_upgrade(result: UpgradeResult) -> None:
+    for note in result.notes:
+        print(_printable(note), file=sys.stderr)
+    print(f"moved: {len(result.moved)}", file=sys.stderr)
+    for label, reason in result.failed:
+        print(f"failed: {_printable(label)}: {_printable(reason)}", file=sys.stderr)
+    for label in (*result.remaining_public, *result.remaining_dynamic):
+        print(f"still to move: {_printable(label)}", file=sys.stderr)
+
+
+def _alembic_upgrade(db_uri: str | None) -> int:
+    """Run ``alembic upgrade head``, as ``db_uri`` when given."""
+    env = os.environ.copy()
+    if db_uri is not None:
+        # alembic/env.py prefers TRACECAT__DB_URI over the user/password settings.
+        env["TRACECAT__DB_URI"] = db_uri
+    cmd = [sys.executable, "-m", "alembic", "upgrade", "head"]
+    return subprocess.run(cmd, env=env, check=False).returncode
+
+
+def _login_uri(user: str, password: str) -> str:
+    """The admin URI with another login, for SQLAlchemy (alembic)."""
+    url = make_url(_admin_conninfo()).set(
+        drivername="postgresql+psycopg", username=user, password=password
+    )
+    return url.render_as_string(hide_password=False)
+
+
+def migrate(
+    roles: RoleNames = DEFAULT_ROLES, *, lock_timeout: str = "5s", retries: int = 3
+) -> int:
+    """Entrypoint of the migrations container.
+
+    1. Without ``TRACECAT__DB_ADMIN_URI``: run alembic as the configured
+       database user, exactly as before.
+    2. Otherwise run ``upgrade`` as the admin (bootstrap included; a quick
+       no-op once done), then alembic as ``migrator``.
+    3. If the role setup refuses or doesn't complete, or ``migrator`` has no
+       credential, run alembic as the admin so the deploy still proceeds; the
+       output says why.
+
+    Returns:
+        Alembic's exit code, or 1 if the upgrade had to stop.
+    """
+    if not config.TRACECAT__DB_ADMIN_URI:
+        print(
+            "No TRACECAT__DB_ADMIN_URI: skipping role setup; running migrations "
+            "as the configured database user.",
+            file=sys.stderr,
+        )
+        return _alembic_upgrade(None)
+
+    login = LoginMethod(config.TRACECAT__DB_ROLE_LOGIN)
+    passwords = (
+        LoginPasswords.from_config()
+        if login is LoginMethod.PASSWORD
+        else LoginPasswords()
+    )
+    admin_uri = _login_uri_for_admin()
+    try:
+        with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
+            result = run_upgrade(
+                conn,
+                login,
+                passwords,
+                roles,
+                lock_timeout=lock_timeout,
+                retries=retries,
+            )
+    except (psycopg.errors.RaiseException, psycopg.errors.LockNotAvailable) as exc:
+        # Refused before anything committed: keep today's behaviour.
+        print(f"role setup refused: {_printable(str(exc))}", file=sys.stderr)
+        print("Running migrations as the admin.", file=sys.stderr)
+        return _alembic_upgrade(admin_uri)
+    _print_upgrade(result)
+
+    migrator_password = config.TRACECAT__DB_MIGRATOR_PASSWORD
+    if not result.complete:
+        print(
+            "Role setup isn't complete yet (see above; the next run continues). "
+            "Running migrations as the admin.",
+            file=sys.stderr,
+        )
+        code = _alembic_upgrade(admin_uri)
+    elif not migrator_password:
+        print(
+            f"No TRACECAT__DB_MIGRATOR_PASSWORD for {roles.migrator}. "
+            "Running migrations as the admin.",
+            file=sys.stderr,
+        )
+        code = _alembic_upgrade(admin_uri)
+    else:
+        code = _alembic_upgrade(_login_uri(roles.migrator, migrator_password))
+    if code != 0:
+        return code
+    # Grants that need the migrated objects: REFERENCES on "case" for
+    # custom-field tables and readonly's hidden columns on new tables. On a
+    # fresh database those tables didn't exist when the bootstrap first ran.
+    with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
+        run_bootstrap(conn, login, LoginPasswords(), roles)
+    return 0
+
+
+def _login_uri_for_admin() -> str:
+    url = make_url(_admin_conninfo()).set(drivername="postgresql+psycopg")
+    return url.render_as_string(hide_password=False)
+
+
+def pin_migration_search_path(connection: Connection) -> None:
+    """Drop ``"$user"`` from a migration connection's search path.
+
+    ``migrator`` runs as ``tracecat_owner``, and any role with CREATE on the
+    database (``app`` creates workspace schemas) could create a schema named
+    ``tracecat_owner`` holding its own ``alembic_version`` or same-named
+    tables. Unqualified names in migrations would then resolve there. The rest
+    of the path is kept (IBM puts extensions in ``ibm_extension``).
+    """
+    connection.execute(
+        text(
+            "SELECT pg_catalog.set_config('search_path', COALESCE(NULLIF("
+            "pg_catalog.array_to_string(pg_catalog.array_remove("
+            "pg_catalog.regexp_split_to_array("
+            "pg_catalog.current_setting('search_path'), '\\s*,\\s*'), "
+            "'\"$user\"'), ', '), ''), 'public'), false)"
+        )
+    )
 
 
 def _printable(text: str) -> str:
@@ -1299,7 +1434,14 @@ def _main(argv: Sequence[str] | None) -> int:
         help="Role whose public objects move to tracecat_owner (repeatable; "
         "default: the admin).",
     )
+    commands.add_parser(
+        "migrate",
+        help="Migrations entrypoint: role setup as the admin (when configured), "
+        "then alembic upgrade head as migrator.",
+    )
     args = parser.parse_args(argv)
+    if args.command == "migrate":
+        return migrate()
 
     login: LoginMethod = args.login
     if args.command == "upgrade":
@@ -1307,13 +1449,7 @@ def _main(argv: Sequence[str] | None) -> int:
             result = run_upgrade(
                 conn, login, LoginPasswords.from_config(), old_owners=args.old_owners
             )
-        for note in result.notes:
-            print(_printable(note), file=sys.stderr)
-        print(f"moved: {len(result.moved)}", file=sys.stderr)
-        for label, reason in result.failed:
-            print(f"failed: {_printable(label)}: {_printable(reason)}", file=sys.stderr)
-        for label in (*result.remaining_public, *result.remaining_dynamic):
-            print(f"still to move: {_printable(label)}", file=sys.stderr)
+        _print_upgrade(result)
         print(f"{DYNAMIC_OWNER_ENV_VAR}={DEFAULT_ROLES.dynamic_owner}")
         return 0 if result.complete else 1
     if args.sql:

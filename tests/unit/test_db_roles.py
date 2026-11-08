@@ -44,6 +44,7 @@ from tracecat.db.roles import (
     _printable,
     assert_login_can_enforce_rls,
     bootstrap_statements,
+    migrate,
     quote_ident,
     quote_literal,
     render_sql,
@@ -1816,3 +1817,142 @@ def test_a_failed_upgrade_leaves_the_old_login_working() -> None:
         assert rerun.kept_access == [(roles.owner, install.legacy)]
     finally:
         _drop_install(install)
+
+
+# --- migrate (the migrations container's entrypoint) ---------------------------
+
+
+def _fresh_database(suffix: str) -> str:
+    database = f"migrate_{suffix}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE DATABASE {quote_ident(database)}")
+    return database
+
+
+def _configure_migrate(
+    monkeypatch: pytest.MonkeyPatch, database: str, *, admin: bool
+) -> None:
+    superuser = _url("postgres", "postgres", database, "+psycopg")
+    monkeypatch.setenv("TRACECAT__DB_URI", superuser)
+    monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", superuser if admin else None)
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    monkeypatch.setattr(config, "TRACECAT__DB_ROLE_LOGIN", "password")
+    monkeypatch.setattr(config, "TRACECAT__DB_MIGRATOR_PASSWORD", PASSWORD)
+    monkeypatch.setattr(config, "TRACECAT__DB_APP_PASSWORD", PASSWORD)
+    monkeypatch.setattr(config, "TRACECAT__DB_AGENT_RUNTIME_PASSWORD", None)
+
+
+def _alembic_head(database: str) -> tuple[str, ...] | None:
+    with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+        return conn.execute("SELECT version_num FROM public.alembic_version").fetchone()
+
+
+def test_migrate_without_an_admin_runs_alembic_as_the_configured_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No admin credential: exactly today's behaviour, nothing else changes."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=False)
+        assert migrate(roles) == 0
+        assert _alembic_head(database) is not None
+        assert not _role_exists(roles.owner)
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_sets_up_roles_on_a_fresh_compose_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admin = the Compose postgres superuser: roles, migrations as migrator, app logs in."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            owners = conn.execute(
+                """
+                SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c
+                WHERE c.relnamespace = 'public'::regnamespace
+                  AND c.relkind IN ('r','p','v','m','S')
+                  AND NOT EXISTS (SELECT FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
+                """
+            ).fetchall()
+            references = conn.execute(
+                """SELECT has_table_privilege(%s, 'public."case"', 'REFERENCES')""",
+                (roles.dynamic_owner,),
+            ).fetchone()
+        assert owners == [(roles.owner,)]  # migrator created everything as the keyring
+        assert references == (True,)  # granted after migrations created "case"
+        with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
+            assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
+        assert migrate(roles) == 0  # every deploy reruns it
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_runs_alembic_as_the_admin_when_role_setup_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transfer that can't finish yet must not block the deploy."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        with psycopg.connect(
+            _url("postgres", "postgres", database), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.busy (id int)")
+        with psycopg.connect(_url("postgres", "postgres", database)) as holder:
+            holder.execute("LOCK TABLE public.busy IN ACCESS SHARE MODE")
+            assert migrate(roles, lock_timeout="200ms", retries=0) == 0
+            holder.rollback()
+        assert _alembic_head(database) is not None
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrations_ignore_a_shadow_alembic_version_in_a_user_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """migrator runs as tracecat_owner; a "$user" schema of that name must not be read."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        head = _alembic_head(database)
+        with psycopg.connect(
+            _url(roles.app, PASSWORD, database), autocommit=True
+        ) as conn:
+            # app has CREATE on the database (it creates workspace schemas).
+            _run(conn, f"CREATE SCHEMA {quote_ident(roles.owner)}")
+            _run(
+                conn,
+                f"CREATE TABLE {quote_ident(roles.owner)}.alembic_version (version_num varchar(32))",
+            )
+            _run(
+                conn,
+                f"INSERT INTO {quote_ident(roles.owner)}.alembic_version VALUES ('ffffffffffff')",
+            )
+            _run(
+                conn,
+                f"GRANT USAGE ON SCHEMA {quote_ident(roles.owner)} TO {quote_ident(roles.owner)}",
+            )
+            _run(
+                conn,
+                f"GRANT ALL ON {quote_ident(roles.owner)}.alembic_version TO {quote_ident(roles.owner)}",
+            )
+        # Alembic as migrator would fail on the unknown revision if it read the shadow.
+        assert migrate(roles) == 0
+        assert _alembic_head(database) == head
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")
+        _drop_all(database, [*roles.logins, *roles.keyrings])

@@ -338,6 +338,9 @@ TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
 A superuser or a ``CREATEROLE`` role such as the RDS master. Never give it to
 app components.
 """
+TRACECAT__DB_ROLE_LOGIN = os.environ.get("TRACECAT__DB_ROLE_LOGIN") or "password"
+"""How the topology's login roles authenticate: ``password``, ``aws_iam`` or
+``azure_entra``. Read by the migrations entrypoint (``tracecat.db.roles migrate``)."""
 TRACECAT__DB_MIGRATOR_PASSWORD = (
     os.environ.get("TRACECAT__DB_MIGRATOR_PASSWORD") or None
 )

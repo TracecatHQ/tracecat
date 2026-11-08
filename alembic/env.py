@@ -15,6 +15,7 @@ from tracecat.db.migration_lock import (
     release_migration_advisory_lock,
 )
 from tracecat.db.rls import enable_migration_rls_bypass
+from tracecat.db.roles import pin_migration_search_path
 
 alembic_postgresql_enum.set_configuration(
     alembic_postgresql_enum.Config(
@@ -107,6 +108,9 @@ def run_migrations_online() -> None:
         # Forced RLS on dynamic tables also filters their owner; migrations
         # must see every row.
         enable_migration_rls_bypass(connection)
+        # Unqualified names must not resolve to a "$user" schema another role
+        # could create (migrator runs as tracecat_owner).
+        pin_migration_search_path(connection)
 
         has_advisory_lock = acquire_migration_advisory_lock(connection)
         try:
