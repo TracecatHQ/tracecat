@@ -680,6 +680,7 @@ def migrate(
     if result is None:
         # Nothing committed: on a first run app may not exist yet, so the
         # services pointed at it couldn't log in. Fail and let the deploy retry.
+        print("error: rerun the deploy once the lock is released.", file=sys.stderr)
         return 1
     if not result.complete:
         _print_upgrade(result)
@@ -692,7 +693,8 @@ def migrate(
     elif not migrator_password:
         _print_upgrade(result)
         print(
-            f"No TRACECAT__DB_MIGRATOR_PASSWORD for {roles.migrator}. "
+            f"No credential for {roles.migrator} in TRACECAT__DB_MIGRATOR_PASSWORD "
+            "(its password, or the IAM token minted at job start). "
             "Running migrations as the admin.",
             file=sys.stderr,
         )
@@ -712,6 +714,7 @@ def migrate(
         )
     except psycopg.errors.RaiseException as exc:
         return _refused(exc)
+    # None here (a lock) is already printed; migrations are done either way.
     if after is not None and not after.complete:
         _print_upgrade(after)
     return 0
@@ -757,10 +760,7 @@ def _upgrade_or_report(
             )
     except psycopg.errors.LockNotAvailable:
         # Transient: another transaction holds a catalog row. Nothing committed.
-        print(
-            "error: role setup timed out on a lock; nothing changed. Rerun the deploy.",
-            file=sys.stderr,
-        )
+        print("role setup timed out on a lock; nothing changed.", file=sys.stderr)
         return None
 
 
