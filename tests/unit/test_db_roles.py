@@ -23,14 +23,18 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 import psycopg
 import pytest
+from alembic.config import Config as AlembicConfig
+from alembic.script import ScriptDirectory
 from sqlalchemy import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.db import roles as roles_module
 from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.db.models import Base
 from tracecat.db.roles import (
@@ -41,9 +45,12 @@ from tracecat.db.roles import (
     UnsafeDatabaseLoginError,
     UpgradeResult,
     _admin_conninfo,
+    _check_targets,
+    _login_uri,
     _printable,
     assert_login_can_enforce_rls,
     bootstrap_statements,
+    migrate,
     quote_ident,
     quote_literal,
     render_sql,
@@ -1656,6 +1663,10 @@ def test_upgrade_moves_routines_named_like_the_dollar_quote_tag() -> None:
 # --- upgrade on the shapes it must handle before it runs by default ------------
 
 
+RLS_GUARD_PREREQUISITE_PARENT = "d986afa25989"
+"""The revision before b4074a0896b5, the first dynamic RLS guard revision."""
+
+
 def test_upgrade_on_a_compose_shaped_install() -> None:
     """Compose today: the postgres superuser migrated and owns everything; it upgrades itself."""
     suffix = _suffix()
@@ -1690,9 +1701,13 @@ def test_upgrade_on_a_compose_shaped_install() -> None:
         assert owners == [(roles.owner,)]
         assert first.kept_access == []  # a superuser admin needs no kept access
         assert guard == [("postgres", "postgres")] * 2  # triggers and function
-        # Rolling back the RLS guard's revision drops event triggers, which
-        # needs their owner; migrator then runs the revision before it both ways.
-        _alembic(_url("postgres", "postgres", database, "+psycopg"), "downgrade", "-1")
+        # Rolling back the RLS guard's two revisions drops event triggers, which
+        # needs their owner; migrator then runs the revision before them both ways.
+        _alembic(
+            _url("postgres", "postgres", database, "+psycopg"),
+            "downgrade",
+            RLS_GUARD_PREREQUISITE_PARENT,
+        )
         _alembic(
             _url(roles.migrator, PASSWORD, database, "+psycopg"), "downgrade", "-1"
         )
@@ -1708,6 +1723,251 @@ def test_upgrade_on_a_compose_shaped_install() -> None:
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
+GUARD_TRIGGERS_SQL = """
+SELECT t.evtname, t.evtenabled, pg_get_userbyid(t.evtowner), pg_get_userbyid(f.proowner)
+FROM pg_event_trigger t JOIN pg_proc f ON f.oid = t.evtfoid
+WHERE f.oid = to_regprocedure('public.tracecat_guard_dynamic_rls()')
+ORDER BY 1
+"""
+
+
+def test_upgrade_keeps_the_rls_guard_the_migration_installed() -> None:
+    """Staging's shape: the admin's migration installed the guard before the upgrade.
+
+    The upgrade leaves it installed and enabled, with the function still owned
+    by the trigger owner. It binds app (which owns dynamic tables through
+    app_owner) and not the admin; migrator's migrations still run.
+    """
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = f"guard_{suffix}"
+    schema = quote_ident(f"custom_fields_ws_{uuid.uuid4().hex[:12]}")
+    with _superuser() as conn:
+        _run(conn, f"CREATE DATABASE {quote_ident(database)}")
+    try:
+        admin = _url("postgres", "postgres", database)
+        _alembic(_url("postgres", "postgres", database, "+psycopg"), "upgrade", "head")
+        with psycopg.connect(admin, autocommit=True) as conn:
+            before = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+            _create_dynamic_schema(conn, schema.strip('"'))
+            _run(conn, f"ALTER TABLE {schema}.case_fields FORCE ROW LEVEL SECURITY")
+            _run(
+                conn,
+                f"CREATE POLICY rls_policy_dynamic_workspace ON {schema}.case_fields "
+                "USING (true)",
+            )
+            result = run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(PASSWORD, PASSWORD), roles
+            )
+            after = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+        assert result.complete, (result.failed, result.remaining_public)
+        assert [row[:2] for row in before] == [
+            ("tracecat_guard_dynamic_rls_ddl", "O"),
+            ("tracecat_guard_dynamic_rls_drop", "O"),
+        ]
+        assert after == before  # still enabled, owner and function owner unchanged
+        assert {row[2] for row in after} == {"postgres"}
+
+        with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
+            for statement in (
+                f"ALTER TABLE {schema}.case_fields NO FORCE ROW LEVEL SECURITY",
+                f"ALTER TABLE {schema}.case_fields DISABLE ROW LEVEL SECURITY",
+                f"DROP POLICY rls_policy_dynamic_workspace ON {schema}.case_fields",
+            ):
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    _run(conn, statement)
+                conn.rollback()
+
+        migrator = _url(roles.migrator, PASSWORD, database, "+psycopg")
+        _alembic(migrator, "upgrade", "head")
+        with psycopg.connect(_url(roles.migrator, PASSWORD, database)) as conn:
+            # What a later revision does: change public and dynamic tables.
+            _run(conn, 'ALTER TABLE public."case" ADD COLUMN guard_probe int')
+            _run(conn, 'ALTER TABLE public."case" DROP COLUMN guard_probe')
+            _run(conn, f"ALTER TABLE {schema}.case_fields ADD COLUMN guard_probe int")
+            _run(conn, f"ALTER TABLE {schema}.case_fields DROP COLUMN guard_probe")
+            conn.commit()
+
+        with psycopg.connect(admin, autocommit=True) as conn:  # exempt
+            _run(conn, f"ALTER TABLE {schema}.case_fields NO FORCE ROW LEVEL SECURITY")
+            _run(conn, f"ALTER TABLE {schema}.case_fields FORCE ROW LEVEL SECURITY")
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_ddl DISABLE",
+        "CREATE OR REPLACE FUNCTION public.tracecat_guard_dynamic_rls() "
+        "RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN END $$",
+    ],
+    ids=["disabled", "rewritten"],
+)
+def test_bootstrap_repairs_a_tampered_rls_guard(tamper: str) -> None:
+    """migrator can't repair the guard, so the admin's bootstrap must."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = f"guard_{suffix}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE DATABASE {quote_ident(database)}")
+    try:
+        _alembic(_url("postgres", "postgres", database, "+psycopg"), "upgrade", "head")
+        with psycopg.connect(
+            _url("postgres", "postgres", database), autocommit=True
+        ) as conn:
+            intact = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+            body = conn.execute(
+                "SELECT prosrc FROM pg_proc"
+                " WHERE oid = 'public.tracecat_guard_dynamic_rls()'::regprocedure"
+            ).fetchone()
+            _run(conn, tamper)
+            notes = run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            repaired = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+            body_after = conn.execute(
+                "SELECT prosrc FROM pg_proc"
+                " WHERE oid = 'public.tracecat_guard_dynamic_rls()'::regprocedure"
+            ).fetchone()
+        assert {
+            "dynamic-table RLS guard: installed",
+            "dynamic-table RLS guard: updated",
+        } & set(notes)
+        assert repaired == intact
+        assert body_after == body
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def _guard_revision_module(revision: str) -> ModuleType:
+    script = ScriptDirectory.from_config(AlembicConfig(str(REPO_ROOT / "alembic.ini")))
+    found = script.get_revision(revision)
+    assert found is not None
+    return found.module
+
+
+def test_upgrade_under_an_rds_shaped_rls_guard() -> None:
+    """RDS: rdsadmin owns the guard's event triggers, the master owns its function.
+
+    Neither the master nor migrator is a member of rdsadmin, and the guard has
+    b4074a0896b5's trigger-owner exemption, as staging does before migrating.
+    Role setup gives it 4ea30f9ea491's function-owner body in place (the master
+    can't recreate rdsadmin's triggers), so the upgrade (as the master) still
+    moves and forces a dynamic table with a workspace policy, and app still
+    can't weaken it.
+    """
+    suffix = _suffix()
+    install = _legacy_install(
+        suffix, migrate=True
+    )  # the master: CREATEROLE, not superuser
+    roles = install.roles
+    rdsadmin = f"rdsadmin_{suffix}"
+    schema = quote_ident(f"custom_fields_ws_{uuid.uuid4().hex[:12]}")
+    guard = _guard_revision_module("b4074a0896b5")
+    try:
+        with install.legacy_conn() as conn:
+            # An older app's table: RLS on with the workspace policy, not forced.
+            _create_dynamic_schema(conn, schema.strip('"'))
+            _run(
+                conn,
+                f"CREATE POLICY rls_policy_dynamic_workspace ON {schema}.case_fields "
+                "USING (true)",
+            )
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(rdsadmin)} SUPERUSER NOLOGIN")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            for statement in (*guard.UNINSTALL_STATEMENTS, *guard.GUARD_STATEMENTS):
+                _run(conn, statement)
+            _run(
+                conn,
+                f"ALTER FUNCTION {guard.GUARD_FUNCTION} OWNER TO {quote_ident(install.legacy)}",
+            )
+            for trigger in (guard.DDL_TRIGGER, guard.DROP_TRIGGER):
+                _run(
+                    conn,
+                    f"ALTER EVENT TRIGGER {trigger} OWNER TO {quote_ident(rdsadmin)}",
+                )
+        with install.legacy_conn() as conn:
+            result = run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(PASSWORD, PASSWORD), roles
+            )
+            flags = _run(
+                conn,
+                "SELECT relrowsecurity, relforcerowsecurity, pg_get_userbyid(relowner)"
+                f" FROM pg_class WHERE oid = '{schema}.case_fields'::regclass",
+            ).fetchone()
+        assert result.complete, (result.failed, result.remaining_dynamic)
+        assert "dynamic-table RLS guard: updated" in result.notes
+        assert flags == (True, True, roles.dynamic_owner)
+        fixed = _guard_revision_module("4ea30f9ea491")
+        with psycopg.connect(install.url("postgres", "postgres")) as conn:
+            owners = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+            body = conn.execute(
+                "SELECT prosrc FROM pg_proc"
+                " WHERE oid = 'public.tracecat_guard_dynamic_rls()'::regprocedure"
+            ).fetchone()
+        assert {row[2:] for row in owners} == {(rdsadmin, install.legacy)}
+        assert body == (fixed._GUARD_FUNCTION_SQL.split("$guard$")[1],)
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                _run(
+                    conn,
+                    f"ALTER TABLE {schema}.case_fields NO FORCE ROW LEVEL SECURITY",
+                )
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(rdsadmin)}")
+
+
+def _apply_b0(conn: psycopg.Connection, install: LegacyInstall, moved: str) -> None:
+    """Staging's B0, as the master: app and app_owner, one dynamic schema moved."""
+    roles = install.roles
+    q = quote_ident
+    _run(
+        conn,
+        f"CREATE ROLE {q(roles.app)} LOGIN PASSWORD {quote_literal(PASSWORD)}",
+    )
+    _run(
+        conn,
+        f"GRANT CONNECT, CREATE ON DATABASE {q(install.database)} TO {q(roles.app)}",
+    )
+    _run(conn, f"GRANT USAGE ON SCHEMA public TO {q(roles.app)}")
+    _run(
+        conn,
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {q(roles.app)}",
+    )
+    _run(
+        conn,
+        f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {q(roles.app)}",
+    )
+    _run(conn, f"CREATE ROLE {q(roles.dynamic_owner)} NOLOGIN")
+    _run(
+        conn,
+        f"GRANT {q(roles.dynamic_owner)} TO {q(install.legacy)} WITH INHERIT TRUE, SET TRUE",
+    )
+    _run(
+        conn,
+        f"GRANT {q(roles.dynamic_owner)} TO {q(roles.app)} WITH INHERIT TRUE, SET TRUE",
+    )
+    _run(
+        conn,
+        f"GRANT CREATE ON DATABASE {q(install.database)} TO {q(roles.dynamic_owner)}",
+    )
+    _run(
+        conn,
+        f'GRANT REFERENCES ON TABLE public."case" TO {q(roles.dynamic_owner)}',
+    )
+    _create_dynamic_schema(conn, moved)
+    _run(conn, f"ALTER SCHEMA {q(moved)} OWNER TO {q(roles.dynamic_owner)}")
+    _run(
+        conn,
+        f"ALTER TABLE {q(moved)}.case_fields OWNER TO {q(roles.dynamic_owner)}",
+    )
+    _run(conn, f"ALTER TABLE {q(moved)}.case_fields FORCE ROW LEVEL SECURITY")
+
+
 def test_upgrade_on_a_staging_b0_shaped_install() -> None:
     """Staging after B0: app and app_owner exist, one dynamic schema already moved, one not."""
     install = _legacy_install(_suffix(), migrate=True)
@@ -1717,48 +1977,7 @@ def test_upgrade_on_a_staging_b0_shaped_install() -> None:
     later = f"custom_fields_ws_{uuid.uuid4().hex[:12]}"
     try:
         with install.legacy_conn() as conn:
-            # B0 steps 1-4, as the master (here the CREATEROLE legacy login).
-            _run(
-                conn,
-                f"CREATE ROLE {q(roles.app)} LOGIN PASSWORD {quote_literal(PASSWORD)}",
-            )
-            _run(
-                conn,
-                f"GRANT CONNECT, CREATE ON DATABASE {q(install.database)} TO {q(roles.app)}",
-            )
-            _run(conn, f"GRANT USAGE ON SCHEMA public TO {q(roles.app)}")
-            _run(
-                conn,
-                f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {q(roles.app)}",
-            )
-            _run(
-                conn,
-                f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {q(roles.app)}",
-            )
-            _run(conn, f"CREATE ROLE {q(roles.dynamic_owner)} NOLOGIN")
-            _run(
-                conn,
-                f"GRANT {q(roles.dynamic_owner)} TO {q(install.legacy)} WITH INHERIT TRUE, SET TRUE",
-            )
-            _run(
-                conn,
-                f"GRANT {q(roles.dynamic_owner)} TO {q(roles.app)} WITH INHERIT TRUE, SET TRUE",
-            )
-            _run(
-                conn,
-                f"GRANT CREATE ON DATABASE {q(install.database)} TO {q(roles.dynamic_owner)}",
-            )
-            _run(
-                conn,
-                f'GRANT REFERENCES ON TABLE public."case" TO {q(roles.dynamic_owner)}',
-            )
-            _create_dynamic_schema(conn, moved)
-            _run(conn, f"ALTER SCHEMA {q(moved)} OWNER TO {q(roles.dynamic_owner)}")
-            _run(
-                conn,
-                f"ALTER TABLE {q(moved)}.case_fields OWNER TO {q(roles.dynamic_owner)}",
-            )
-            _run(conn, f"ALTER TABLE {q(moved)}.case_fields FORCE ROW LEVEL SECURITY")
+            _apply_b0(conn, install, moved)
             # Created after B0 by the app still running as the master.
             _create_dynamic_schema(conn, later)
             result = run_upgrade(
@@ -1784,6 +2003,40 @@ def test_upgrade_on_a_staging_b0_shaped_install() -> None:
                 conn, f"SELECT count(*) FROM {q(later)}.case_fields"
             ).fetchone() == (0,)
         with install.legacy_conn() as conn:  # the master keeps password login
+            assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
+    finally:
+        _drop_install(install)
+
+
+def test_alembic_as_the_master_still_works_after_upgrade() -> None:
+    """Rollback: the old single-user path (alembic as the master) keeps working.
+
+    The master is a tracecat_owner member after the upgrade, so it can still
+    alter and drop the objects it no longer owns.
+    """
+    install = _legacy_install(_suffix(), migrate=True)
+    roles = install.roles
+    master = install.url(install.legacy, "legacy", "+psycopg")
+    try:
+        with install.legacy_conn() as conn:
+            _apply_b0(conn, install, f"tables_ws_{uuid.uuid4().hex[:12]}")
+            result = run_upgrade(
+                conn,
+                LoginMethod.PASSWORD,
+                LoginPasswords(PASSWORD, None, PASSWORD),
+                roles,
+            )
+        assert result.complete, (result.failed, result.remaining_public)
+        # A downgrade and upgrade run DDL on objects tracecat_owner now owns.
+        _alembic(master, "downgrade", "-1")
+        _alembic(master, "upgrade", "head")
+        with install.legacy_conn() as conn:
+            owner = conn.execute(
+                "SELECT pg_get_userbyid(relowner) FROM pg_class"
+                " WHERE oid = 'public.workflow'::regclass"
+            ).fetchone()
+        assert owner == (roles.owner,)
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
             assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
     finally:
         _drop_install(install)
@@ -1826,3 +2079,478 @@ def test_a_failed_upgrade_leaves_the_old_login_working() -> None:
         assert rerun.kept_access == [(roles.owner, install.legacy)]
     finally:
         _drop_install(install)
+
+
+# --- migrate (the migrations container's entrypoint) ---------------------------
+
+
+def _fresh_database(suffix: str) -> str:
+    database = f"migrate_{suffix}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE DATABASE {quote_ident(database)}")
+    return database
+
+
+def _configure_migrate(
+    monkeypatch: pytest.MonkeyPatch, database: str, *, admin: bool
+) -> None:
+    superuser = _url("postgres", "postgres", database, "+psycopg")
+    monkeypatch.setenv("TRACECAT__DB_URI", superuser)
+    monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", superuser if admin else None)
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    monkeypatch.setattr(config, "TRACECAT__DB_ROLE_LOGIN", "password")
+    monkeypatch.setattr(config, "TRACECAT__DB_MIGRATOR_PASSWORD", PASSWORD)
+    monkeypatch.setattr(config, "TRACECAT__DB_APP_PASSWORD", PASSWORD)
+    monkeypatch.setattr(config, "TRACECAT__DB_AGENT_RUNTIME_PASSWORD", None)
+
+
+def _alembic_head(database: str) -> tuple[str, ...] | None:
+    with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+        return conn.execute("SELECT version_num FROM public.alembic_version").fetchone()
+
+
+def _login_attributes(name: str) -> tuple[object, ...] | None:
+    with _superuser() as conn:
+        return conn.execute(
+            "SELECT rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,"
+            " rolbypassrls, rolpassword"
+            " FROM pg_authid WHERE rolname = %s",
+            (name,),
+        ).fetchone()
+
+
+def test_migrate_without_an_admin_runs_alembic_as_the_configured_user(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No admin credential: exactly today's behaviour, nothing else changes."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=False)
+        before = _login_attributes("postgres")
+        assert migrate(roles) == 0
+        assert _alembic_head(database) is not None
+        assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
+        assert _login_attributes("postgres") == before  # the configured user
+        assert "skipping role setup" in capsys.readouterr().err
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_sets_up_roles_on_a_fresh_compose_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admin = the Compose postgres superuser: roles, migrations as migrator, app logs in."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            owners = conn.execute(
+                """
+                SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c
+                WHERE c.relnamespace = 'public'::regnamespace
+                  AND c.relkind IN ('r','p','v','m','S')
+                  AND NOT EXISTS (SELECT FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
+                """
+            ).fetchall()
+            references = conn.execute(
+                """SELECT has_table_privilege(%s, 'public."case"', 'REFERENCES')""",
+                (roles.dynamic_owner,),
+            ).fetchone()
+        assert owners == [(roles.owner,)]  # migrator created everything as the keyring
+        assert references == (True,)  # granted after migrations created "case"
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            guard = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+        # migrator can't create event triggers; the admin's post-migration pass did.
+        assert [row[1:] for row in guard] == [("O", "postgres", "postgres")] * 2
+        with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
+            assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
+        assert migrate(roles) == 0  # every deploy reruns it
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+@pytest.mark.parametrize(
+    "variable", ["TRACECAT__DB_MIGRATOR_PASSWORD", "TRACECAT__DB_APP_PASSWORD"]
+)
+def test_migrate_refuses_role_setup_without_login_credentials(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], variable: str
+) -> None:
+    """No passwordless logins, and no fallback to migrating as the admin."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        monkeypatch.setattr(config, variable, None)
+        assert migrate(roles) == 1
+        assert variable in capsys.readouterr().err
+        assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            versions = conn.execute(
+                "SELECT to_regclass('public.alembic_version')"
+            ).fetchone()
+        assert versions == (None,)  # alembic never ran
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_login_uri_drops_query_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """libpq lets ?user= / ?password= override the authority; they must not survive."""
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ADMIN_URI",
+        "postgresql://db.invalid/synthetic?user=admin&password=admin-secret&sslmode=require",
+    )
+    url = make_url(_login_uri("migrator", "migrator-secret"))
+    assert (url.username, url.password) == ("migrator", "migrator-secret")
+    assert "user" not in url.query and "password" not in url.query
+    assert url.query["sslmode"] == "require"
+
+
+@pytest.mark.parametrize(
+    ("admin_uri", "database"),
+    [
+        ("postgresql://synthetic_admin:pw@db.invalid", "synthetic_admin"),
+        (
+            "postgresql://synthetic_admin:pw@db.invalid?dbname=synthetic_app",
+            "synthetic_app",
+        ),
+        ("postgresql://synthetic_admin:pw@db.invalid/synthetic_app", "synthetic_app"),
+    ],
+)
+def test_login_uri_keeps_the_admin_database(
+    monkeypatch: pytest.MonkeyPatch, admin_uri: str, database: str
+) -> None:
+    """libpq defaults the database to the user; a new user must not change it."""
+    monkeypatch.delenv("PGDATABASE", raising=False)
+    monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", admin_uri)
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    url = make_url(_login_uri("migrator", "migrator-secret"))
+    assert url.database == database
+    assert "dbname" not in url.query
+
+
+@pytest.mark.parametrize(
+    ("admin_uri", "app_uri", "code"),
+    [
+        (
+            "postgresql://synthetic_admin:pw@db.invalid?dbname=synthetic_app",
+            "postgresql://app:pw@db.invalid/synthetic_app",
+            0,
+        ),
+        (
+            "postgresql://synthetic_admin:pw@db.invalid/synthetic_app",
+            "postgresql://app:pw@db.invalid/synthetic_app?dbname=synthetic_other",
+            1,
+        ),
+    ],
+)
+def test_target_check_reads_query_database_names(
+    monkeypatch: pytest.MonkeyPatch, admin_uri: str, app_uri: str, code: int
+) -> None:
+    monkeypatch.delenv("PGDATABASE", raising=False)
+    monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", admin_uri)
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    monkeypatch.setenv("TRACECAT__DB_URI", app_uri)
+    assert _check_targets() == code
+
+
+def test_migrate_runs_where_public_lacks_temporary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A revision creates a temp table as the owner keyring, not as migrator."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        with _superuser() as conn:
+            _run(
+                conn,
+                f"REVOKE TEMPORARY ON DATABASE {quote_ident(database)} FROM PUBLIC",
+            )
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        assert _alembic_head(database) is not None
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_warns_but_proceeds_when_the_app_uri_names_the_server_differently(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One server, two names (localhost vs 127.0.0.1): warn, don't skip or stop."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        alias = make_url(_url(roles.app, PASSWORD, database, "+psycopg")).set(
+            host="127.0.0.1"
+        )
+        monkeypatch.setenv("TRACECAT__DB_URI", alias.render_as_string(False))
+        assert migrate(roles) == 0
+        err = capsys.readouterr().err
+        assert "warning: migrations run on" in err
+        assert PASSWORD not in err
+        assert _role_exists(roles.owner)
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_stops_when_the_admin_uri_names_another_database(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Same server, other database: role setup and migrations would land there."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    elsewhere = _fresh_database(f"{suffix}_other")
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__DB_ADMIN_URI",
+            _url("postgres", "postgres", elsewhere, "+psycopg"),
+        )
+        assert migrate(roles) == 1
+        assert "names database" in capsys.readouterr().err
+        assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
+        for db in (database, elsewhere):
+            with psycopg.connect(_url("postgres", "postgres", db)) as conn:
+                versions = conn.execute(
+                    "SELECT to_regclass('public.alembic_version')"
+                ).fetchone()
+            assert versions == (None,)
+    finally:
+        _drop_all(elsewhere, [])
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_refuses_when_app_inherits_writes_on_alembic_version(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Revoking app's own grant isn't enough if another role hands it the same rights."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    writer = f"writer_{suffix}"
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        with psycopg.connect(
+            _url("postgres", "postgres", database), autocommit=True
+        ) as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(writer)} NOLOGIN")
+            _run(
+                conn,
+                f"GRANT UPDATE ON public.alembic_version TO {quote_ident(writer)}",
+            )
+            _run(conn, f"GRANT {quote_ident(writer)} TO {quote_ident(roles.app)}")
+        assert migrate(roles) == 1
+        assert "can write public.alembic_version" in capsys.readouterr().err
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings, writer])
+
+
+def test_migrate_fails_while_a_transfer_is_held_by_a_lock(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A held lock delays the deploy; migrations never fall back to the admin."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        with psycopg.connect(
+            _url("postgres", "postgres", database), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.busy (id int)")
+        with psycopg.connect(_url("postgres", "postgres", database)) as holder:
+            holder.execute("LOCK TABLE public.busy IN ACCESS SHARE MODE")
+            assert migrate(roles, lock_timeout="200ms", retries=0) == 1
+            holder.rollback()
+        assert "role setup isn't complete yet" in capsys.readouterr().err
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            versions = conn.execute(
+                "SELECT to_regclass('public.alembic_version')"
+            ).fetchone()
+        assert versions == (None,)  # alembic never ran
+        assert migrate(roles) == 0  # the next deploy continues
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_fails_when_post_migration_grants_time_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Grants on the migrated objects gate success: the app may be denied without them."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    real = roles_module._upgrade_or_report
+    calls: list[int] = []
+
+    def second_call_times_out(
+        login: LoginMethod,
+        passwords: LoginPasswords,
+        names: RoleNames,
+        *,
+        lock_timeout: str,
+        retries: int,
+    ) -> UpgradeResult | None:
+        calls.append(1)
+        if len(calls) > 1:
+            return None
+        return real(login, passwords, names, lock_timeout=lock_timeout, retries=retries)
+
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        monkeypatch.setattr(roles_module, "_upgrade_or_report", second_call_times_out)
+        assert migrate(roles) == 1
+        assert len(calls) == 2
+        assert _alembic_head(database) is not None
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_app_cannot_write_the_alembic_version_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setting the version would skip (or wedge) every later revision."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
+            assert _run(
+                conn, "SELECT version_num FROM public.alembic_version"
+            ).fetchone()
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                _run(conn, "UPDATE public.alembic_version SET version_num = 'x'")
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_fails_when_role_setup_refuses(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A refusal needs a person: no migrations run, the deploy stops."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    squatter = f"squatter_{suffix}"
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(roles.migrator)} LOGIN")
+            _run(conn, f"CREATE ROLE {quote_ident(squatter)} LOGIN")
+            _run(
+                conn, f"GRANT {quote_ident(roles.migrator)} TO {quote_ident(squatter)}"
+            )
+        assert migrate(roles) == 1
+        assert "role setup refused" in capsys.readouterr().err
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            versions = conn.execute(
+                "SELECT to_regclass('public.alembic_version')"
+            ).fetchone()
+        assert versions == (None,)  # alembic never ran
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings, squatter])
+
+
+def test_bootstrap_leaves_a_contained_login_disabled(scratch: Scratch) -> None:
+    """An operator's ALTER ROLE app NOLOGIN survives the next deploy's bootstrap."""
+    roles = scratch.roles
+    with scratch.admin_conn() as conn:
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        _run(conn, f"ALTER ROLE {quote_ident(roles.app)} NOLOGIN")
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        row = conn.execute(
+            "SELECT rolcanlogin FROM pg_roles WHERE rolname = %s", (roles.app,)
+        ).fetchone()
+    assert row == (False,)
+
+
+def test_migrations_ignore_a_shadow_alembic_version_in_a_user_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """migrator runs as tracecat_owner; a "$user" schema of that name must not be read."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        head = _alembic_head(database)
+        with psycopg.connect(
+            _url(roles.app, PASSWORD, database), autocommit=True
+        ) as conn:
+            # app has CREATE on the database (it creates workspace schemas).
+            _run(conn, f"CREATE SCHEMA {quote_ident(roles.owner)}")
+            _run(
+                conn,
+                f"CREATE TABLE {quote_ident(roles.owner)}.alembic_version (version_num varchar(32))",
+            )
+            _run(
+                conn,
+                f"INSERT INTO {quote_ident(roles.owner)}.alembic_version VALUES ('ffffffffffff')",
+            )
+            _run(
+                conn,
+                f"GRANT USAGE ON SCHEMA {quote_ident(roles.owner)} TO {quote_ident(roles.owner)}",
+            )
+            _run(
+                conn,
+                f"GRANT ALL ON {quote_ident(roles.owner)}.alembic_version TO {quote_ident(roles.owner)}",
+            )
+        # Alembic as migrator would fail on the unknown revision if it read the shadow.
+        assert migrate(roles) == 0
+        assert _alembic_head(database) == head
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_moves_dynamic_schemas_that_migrations_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revisions that create tables_*/custom_fields_* run as migrator: re-own them after."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    schema = f"tables_ws_{uuid.uuid4().hex[:12]}"
+    real_alembic = roles_module._alembic_upgrade
+
+    def alembic_that_creates_a_dynamic_schema(db_uri: str | None) -> int:
+        code = real_alembic(db_uri)
+        # What 7694c8910510 / b4d8b2f2c9dd do, as the migration's role.
+        with psycopg.connect(
+            _url("postgres", "postgres", database), autocommit=True
+        ) as conn:
+            _run(conn, f"SET ROLE {quote_ident(roles.owner)}")
+            _run(conn, f"CREATE SCHEMA IF NOT EXISTS {quote_ident(schema)}")
+            _run(conn, f"CREATE TABLE IF NOT EXISTS {quote_ident(schema)}.t (id int)")
+        return code
+
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        monkeypatch.setattr(
+            roles_module, "_alembic_upgrade", alembic_that_creates_a_dynamic_schema
+        )
+        assert migrate(roles) == 0
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            owner = conn.execute(
+                "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = %s",
+                (schema,),
+            ).fetchone()
+        assert owner == (roles.dynamic_owner,)
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])

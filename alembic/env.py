@@ -6,7 +6,7 @@ from urllib.parse import quote_plus
 
 import alembic_postgresql_enum
 import boto3
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, make_url, pool
 
 from alembic import context
 from tracecat.db import models  # noqa: F401
@@ -15,6 +15,7 @@ from tracecat.db.migration_lock import (
     release_migration_advisory_lock,
 )
 from tracecat.db.rls import enable_migration_rls_bypass
+from tracecat.db.roles import MIGRATION_SEARCH_PATH, pin_migration_search_path
 
 alembic_postgresql_enum.set_configuration(
     alembic_postgresql_enum.Config(
@@ -95,15 +96,34 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+    # Unqualified names must not resolve to a schema another role could create
+    # ("$user" is tracecat_owner for migrator), from the first statement on,
+    # including SQLAlchemy's cached default schema. An explicit options value
+    # replaces libpq's (the URI's, else PGOPTIONS), so append to it.
+    uri_options = (
+        make_url(TRACECAT__DB_URI).query.get("options") if TRACECAT__DB_URI else None
+    )
+    operator_options = (
+        uri_options if isinstance(uri_options, str) else os.getenv("PGOPTIONS", "")
+    )
     connectable = engine_from_config(
         configuration=config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
         url=TRACECAT__DB_URI,
+        connect_args={
+            "options": f"{operator_options} -c search_path={MIGRATION_SEARCH_PATH}".strip()
+        },
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema="public",
+        )
+        # After configure(): alembic must see the connection's first transaction.
+        pin_migration_search_path(connection)
         # Forced RLS on dynamic tables also filters their owner; migrations
         # must see every row.
         enable_migration_rls_bypass(connection)

@@ -338,6 +338,9 @@ TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
 A superuser or a ``CREATEROLE`` role such as the RDS master. Never give it to
 app components.
 """
+TRACECAT__DB_ROLE_LOGIN = os.environ.get("TRACECAT__DB_ROLE_LOGIN") or "password"
+"""How the topology's login roles authenticate: ``password``, ``aws_iam`` or
+``azure_entra``. Read by the migrations entrypoint (``tracecat.db.roles migrate``)."""
 TRACECAT__DB_MIGRATOR_PASSWORD = (
     os.environ.get("TRACECAT__DB_MIGRATOR_PASSWORD") or None
 )
@@ -354,13 +357,13 @@ TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 
 TRACECAT__DB_DYNAMIC_OWNER_ROLE = (
     os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or ""
-).strip() or None
+).strip() or "app_owner"
 """Role that owns new dynamic schemas and tables (``tables_*``, ``custom_fields_*``).
 
-Unset keeps them owned by the connecting role. When set, the connecting role
-must be a member of this role with INHERIT and SET (for example
-``GRANT app_owner TO app WITH INHERIT TRUE, SET TRUE``), so it keeps owner
-rights on the objects it hands over.
+Defaults to ``app_owner``, the topology's dynamic keyring. Objects are handed
+over only when the role exists and the connecting role can act as it
+(``tracecat.db.roles bootstrap`` grants ``app_owner`` to ``app`` with INHERIT
+and SET); otherwise the connecting role keeps ownership, as before role setup.
 """
 
 TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW") or 60)

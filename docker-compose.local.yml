@@ -778,9 +778,14 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      # Role setup (python -m tracecat.db.roles migrate); skipped without an admin URI.
+      TRACECAT__DB_ADMIN_URI: ${TRACECAT__DB_ADMIN_URI:-} # Sensitive
+      TRACECAT__DB_MIGRATOR_PASSWORD: ${TRACECAT__DB_MIGRATOR_PASSWORD:-} # Sensitive
+      TRACECAT__DB_APP_PASSWORD: ${TRACECAT__DB_APP_PASSWORD:-} # Sensitive
+      TRACECAT__DB_ROLE_LOGIN: ${TRACECAT__DB_ROLE_LOGIN:-}
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
-    command: ["python3", "-m", "alembic", "upgrade", "head"]
+    command: ["python3", "-m", "tracecat.db.roles", "migrate"]
     depends_on:
       postgres_db:
         condition: service_healthy
