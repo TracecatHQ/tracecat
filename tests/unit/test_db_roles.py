@@ -42,6 +42,7 @@ from tracecat.db.roles import (
     UnsafeDatabaseLoginError,
     UpgradeResult,
     _admin_conninfo,
+    _check_targets,
     _login_uri,
     _printable,
     assert_login_can_enforce_rls,
@@ -2112,6 +2113,74 @@ def test_login_uri_drops_query_credentials(monkeypatch: pytest.MonkeyPatch) -> N
     assert (url.username, url.password) == ("migrator", "migrator-secret")
     assert "user" not in url.query and "password" not in url.query
     assert url.query["sslmode"] == "require"
+
+
+@pytest.mark.parametrize(
+    ("admin_uri", "database"),
+    [
+        ("postgresql://synthetic_admin:pw@db.invalid", "synthetic_admin"),
+        (
+            "postgresql://synthetic_admin:pw@db.invalid?dbname=synthetic_app",
+            "synthetic_app",
+        ),
+        ("postgresql://synthetic_admin:pw@db.invalid/synthetic_app", "synthetic_app"),
+    ],
+)
+def test_login_uri_keeps_the_admin_database(
+    monkeypatch: pytest.MonkeyPatch, admin_uri: str, database: str
+) -> None:
+    """libpq defaults the database to the user; a new user must not change it."""
+    monkeypatch.delenv("PGDATABASE", raising=False)
+    monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", admin_uri)
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    url = make_url(_login_uri("migrator", "migrator-secret"))
+    assert url.database == database
+    assert "dbname" not in url.query
+
+
+@pytest.mark.parametrize(
+    ("admin_uri", "app_uri", "code"),
+    [
+        (
+            "postgresql://synthetic_admin:pw@db.invalid?dbname=synthetic_app",
+            "postgresql://app:pw@db.invalid/synthetic_app",
+            0,
+        ),
+        (
+            "postgresql://synthetic_admin:pw@db.invalid/synthetic_app",
+            "postgresql://app:pw@db.invalid/synthetic_app?dbname=synthetic_other",
+            1,
+        ),
+    ],
+)
+def test_target_check_reads_query_database_names(
+    monkeypatch: pytest.MonkeyPatch, admin_uri: str, app_uri: str, code: int
+) -> None:
+    monkeypatch.delenv("PGDATABASE", raising=False)
+    monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", admin_uri)
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    monkeypatch.setenv("TRACECAT__DB_URI", app_uri)
+    assert _check_targets() == code
+
+
+def test_migrate_runs_where_public_lacks_temporary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A revision creates a temp table as the owner keyring, not as migrator."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        with _superuser() as conn:
+            _run(
+                conn,
+                f"REVOKE TEMPORARY ON DATABASE {quote_ident(database)} FROM PUBLIC",
+            )
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        assert _alembic_head(database) is not None
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
 def test_migrate_warns_but_proceeds_when_the_app_uri_names_the_server_differently(

@@ -68,7 +68,7 @@ import psycopg
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from alembic.script.revision import RevisionError
-from sqlalchemy import Connection, make_url, text
+from sqlalchemy import URL, Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from tracecat import config
@@ -467,7 +467,11 @@ def bootstrap_statements(
             # The app creates workspace schemas, then hands them to app_owner.
             "  EXECUTE format('GRANT CREATE ON DATABASE %I TO %I, %I, %I',\n"
             f"    current_database(), {quote_literal(roles.owner)},\n"
-            f"    {quote_literal(roles.dynamic_owner)}, {quote_literal(roles.app)});"
+            f"    {quote_literal(roles.dynamic_owner)}, {quote_literal(roles.app)});\n"
+            # Migrations run as the owner keyring (migrator's SET role), which
+            # drops migrator's own TEMPORARY where PUBLIC lacks it.
+            "  EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO %I',\n"
+            f"    current_database(), {quote_literal(roles.owner)});"
         ),
         f"GRANT USAGE, CREATE ON SCHEMA public TO {owner};",
         f"GRANT USAGE ON SCHEMA public TO {dyn}, {app}, {runtime}, {ro};",
@@ -720,13 +724,24 @@ def _alembic_upgrade(db_uri: str | None) -> int:
     return subprocess.run(cmd, env=env, check=False).returncode
 
 
+def _effective_database(url: URL) -> str | None:
+    """The database libpq connects to: ?dbname=, the path, PGDATABASE, the user."""
+    dbname = url.query.get("dbname")
+    if isinstance(dbname, str) and dbname:
+        return dbname
+    return url.database or os.environ.get("PGDATABASE") or url.username
+
+
 def _login_uri(user: str, password: str) -> str:
-    """The admin URI with another login, for SQLAlchemy (alembic)."""
-    # libpq reads user/password from the query too, and those win.
-    url = (
-        make_url(_admin_conninfo())
-        .difference_update_query(["user", "password"])
-        .set(drivername="postgresql+psycopg", username=user, password=password)
+    """The admin URI's database with another login, for SQLAlchemy (alembic)."""
+    admin = make_url(_admin_conninfo())
+    # libpq reads user/password/dbname from the query too, and those win. The
+    # database is pinned: with none named, libpq would default to the new user.
+    url = admin.difference_update_query(["user", "password", "dbname"]).set(
+        drivername="postgresql+psycopg",
+        username=user,
+        password=password,
+        database=_effective_database(admin),
     )
     return url.render_as_string(hide_password=False)
 
@@ -816,9 +831,7 @@ def _check_targets() -> int:
     if not (app_uri := os.environ.get("TRACECAT__DB_URI")):
         return 0
     admin, app = make_url(_admin_conninfo()), make_url(app_uri)
-    # libpq defaults the database name to the user name.
-    admin_db = admin.database or admin.username
-    app_db = app.database or app.username
+    admin_db, app_db = _effective_database(admin), _effective_database(app)
     if admin_db != app_db:
         print(
             f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
