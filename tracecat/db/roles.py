@@ -240,6 +240,39 @@ def _hide_readonly_columns(readonly: str) -> str:
     )
 
 
+def _owner_reach_body(roles: RoleNames) -> str:
+    """PL/pgSQL check: only migrator and admins may act as the owner keyring.
+
+    A pre-created ``tracecat_owner`` holding ``app``, or an old-owner group
+    that contains a topology role and is given the keyring to keep working,
+    would put that role above RLS on ``public``.
+    """
+    names = (roles.app, roles.agent_runtime, roles.readonly, roles.dynamic_owner)
+    protected = ", ".join(quote_literal(r) for r in names)
+    # Only app (and the owner keyring) may hold the dynamic keyring directly.
+    not_dynamic = ", ".join(
+        quote_literal(r) for r in (roles.migrator, roles.agent_runtime, roles.readonly)
+    )
+    owner = quote_literal(roles.owner)
+    return (
+        "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
+        f"             WHERE rolname IN ({protected})\n"
+        f"               AND pg_catalog.pg_has_role(oid, {owner}, 'MEMBER')) THEN\n"
+        f"    RAISE EXCEPTION '% can act as the owner keyring %', "
+        f"{quote_literal(', '.join(names))}, {owner}\n"
+        "      USING HINT = 'Revoke that membership; only migrator and admins may hold it.';\n"
+        "  END IF;\n"
+        "  IF EXISTS (SELECT FROM pg_catalog.pg_auth_members m\n"
+        "             JOIN pg_catalog.pg_roles u ON u.oid = m.member\n"
+        f"             WHERE m.roleid = {quote_literal(roles.dynamic_owner)}::pg_catalog.regrole\n"
+        f"               AND u.rolname IN ({not_dynamic})) THEN\n"
+        f"    RAISE EXCEPTION 'A topology role other than % holds the dynamic keyring %', "
+        f"{quote_literal(roles.app)}, {quote_literal(roles.dynamic_owner)}\n"
+        "      USING HINT = 'Revoke that membership; it would own every dynamic table.';\n"
+        "  END IF;\n"
+    )
+
+
 def _verify(login: LoginMethod, roles: RoleNames) -> str:
     """Fail the bootstrap if the topology's safety rules don't hold.
 
@@ -256,10 +289,7 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
     # MEMBER of rds_iam (staging, 2026-11-06), so this does not block RDS; the
     # IAM role exists nowhere else.
     in_iam = f"pg_catalog.pg_has_role(oid, {iam}, 'MEMBER')"
-    not_owner_members = ", ".join(
-        quote_literal(r)
-        for r in (roles.app, roles.agent_runtime, roles.readonly, roles.dynamic_owner)
-    )
+
     # A superuser is a member of every role; RDS has no superuser login.
     must_not_be_in_iam = (
         f"rolname IN ({keyrings}) OR (rolname = session_user AND NOT rolsuper)"
@@ -276,21 +306,12 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
         f"             WHERE rolname IN ({keyrings}) AND rolcanlogin) THEN\n"
         "    RAISE EXCEPTION 'A Tracecat keyring role can log in';\n"
-        "  END IF;\n"
+        "  END IF;\n" + _owner_reach_body(roles) + "  IF EXISTS (\n"
         # Only app may be a member of a login role (of agent_runtime). Anything
         # else would inherit that login's keyring, e.g. a pre-created migrator.
         # PG 16's ADMIN-only creator grant is allowed only for roles that can
         # already act as the owner keyring (the admin, an earlier admin): an
         # ADMIN holder can grant itself SET, which then adds nothing for them.
-        # Only migrator (and admins) may act as the owner keyring; a pre-created
-        # tracecat_owner with app in it would put app above RLS.
-        "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
-        f"             WHERE rolname IN ({not_owner_members})\n"
-        f"               AND pg_catalog.pg_has_role(oid, {quote_literal(roles.owner)}, 'MEMBER')) THEN\n"
-        "    RAISE EXCEPTION 'app, agent_runtime, tracecat_readonly or app_owner can act as the owner keyring'\n"
-        "      USING HINT = 'Revoke that membership; only migrator and admins may hold the owner keyring.';\n"
-        "  END IF;\n"
-        "  IF EXISTS (\n"
         "    SELECT FROM pg_catalog.pg_auth_members m\n"
         "    JOIN pg_catalog.pg_roles g ON g.oid = m.roleid\n"
         "    JOIN pg_catalog.pg_roles u ON u.oid = m.member\n"
@@ -946,6 +967,11 @@ def run_upgrade(
             f"{roles.migrator} and the app uses {roles.app}, rotate its password or "
             "drop it. It still owns the database and can act as the owner keyring."
         )
+    if readers := _direct_members(conn, roles.readonly):
+        result.notes.append(
+            f"{roles.readonly} members (cross-tenant read; check this list): "
+            f"{', '.join(readers)}"
+        )
     result.kept_access = _keyring_grantees(conn, roles)
     if result.kept_access:
         revoke = "; ".join(
@@ -992,7 +1018,12 @@ def _keep_old_owners_working(
         kept = _apply(
             conn,
             f"KEEP ACCESS {quote_ident(name)}",
-            [_grant_membership(keyring, name)],
+            # The check runs in the grant's transaction, so a group that would
+            # pass the keyring to a topology role rolls back and is reported.
+            [
+                _grant_membership(keyring, name),
+                _do(_owner_reach_body(roles).rstrip("\n")),
+            ],
             lock_timeout=lock_timeout,
             retries=retries,
             result=result,
@@ -1062,6 +1093,16 @@ def _keyring_grantees(
         },
     ).fetchall()
     return [(keyring, name) for keyring, name in rows]
+
+
+def _direct_members(conn: psycopg.Connection, role: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT u.rolname FROM pg_catalog.pg_auth_members m "
+        "JOIN pg_catalog.pg_roles u ON u.oid = m.member "
+        "WHERE m.roleid = %(r)s::pg_catalog.regrole ORDER BY 1",
+        {"r": quote_ident(role)},
+    ).fetchall()
+    return [name for (name,) in rows]
 
 
 def _is_superuser(conn: psycopg.Connection, role: str) -> bool:

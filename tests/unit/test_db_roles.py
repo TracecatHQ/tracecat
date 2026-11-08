@@ -611,6 +611,10 @@ def test_refuses_a_login_role_with_unexpected_members(scratch: Scratch) -> None:
 
 def test_refuses_admin_only_members_other_than_the_admin(scratch: Scratch) -> None:
     """ADMIN OPTION lets its holder grant itself SET, so only the running admin may hold it."""
+    with _superuser() as conn:
+        version = conn.execute("SHOW server_version_num").fetchone()
+    if version and int(version[0]) < 160000:
+        pytest.skip("per-grant INHERIT/SET options are PostgreSQL 16+")
     roles = scratch.roles
     holder = f"holder_{_suffix()}"
     with _superuser() as conn:
@@ -648,6 +652,26 @@ def test_refuses_a_pre_created_owner_keyring_holding_app(scratch: Scratch) -> No
         pytest.raises(
             psycopg.errors.RaiseException, match="can act as the owner keyring"
         ),
+    ):
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+
+
+def test_refuses_a_pre_created_dynamic_keyring_holding_readonly(
+    scratch: Scratch,
+) -> None:
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.dynamic_owner)} NOLOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(roles.readonly)} NOLOGIN")
+        _run(
+            conn,
+            f"GRANT {quote_ident(roles.dynamic_owner)} TO {quote_ident(roles.readonly)}",
+        )
+    with (
+        psycopg.connect(
+            _url("postgres", "postgres", scratch.database), autocommit=True
+        ) as conn,
+        pytest.raises(psycopg.errors.RaiseException, match="holds the dynamic keyring"),
     ):
         run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
 
@@ -1337,6 +1361,38 @@ def test_upgrade_moves_dynamic_schemas_the_owner_keyring_created() -> None:
         assert f"SCHEMA {schema}" in result.moved
     finally:
         _drop_install(install)
+
+
+def test_keep_access_refuses_a_group_that_contains_a_topology_role() -> None:
+    """Granting the owner keyring to a group holding readonly would lift readonly above RLS."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    group = f"legacy_group_{_suffix()}"
+    try:
+        with install.legacy_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(group)} NOLOGIN")
+            _run(conn, f"GRANT {quote_ident(group)} TO {quote_ident(roles.readonly)}")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.shared (id int)")
+            _run(conn, f"ALTER TABLE public.shared OWNER TO {quote_ident(group)}")
+        result = _superuser_upgrade(install, [group])
+        with _superuser() as conn:
+            reach = conn.execute(
+                "SELECT pg_has_role(%s, %s, 'MEMBER')", (roles.readonly, roles.owner)
+            ).fetchone()
+        assert reach == (False,)
+        assert [label for label, _ in result.failed] == [
+            f"KEEP ACCESS {quote_ident(group)}"
+        ]
+        assert not result.complete
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
 
 
 def test_cutover_revoke_names_the_role_that_holds_the_grant() -> None:
