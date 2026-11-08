@@ -204,7 +204,10 @@ def _create_extension(name: str) -> str:
         f"  IF EXISTS (SELECT FROM pg_catalog.pg_extension WHERE extname = {quote_literal(name)}) THEN\n"
         "    NULL;\n"
         "  ELSIF pg_catalog.to_regnamespace('ibm_extension') IS NOT NULL THEN\n"
+        # IBM places the extension through the path; restore the pin after.
+        "    PERFORM pg_catalog.set_config('search_path', 'ibm_extension, pg_catalog, pg_temp', true);\n"
         f"    CREATE EXTENSION IF NOT EXISTS {ext};\n"
+        "    PERFORM pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true);\n"
         "  ELSE\n"
         f"    CREATE EXTENSION IF NOT EXISTS {ext} WITH SCHEMA public;\n"
         "  END IF;\n"
@@ -258,14 +261,18 @@ def _owner_reach_body(roles: RoleNames) -> str:
     dyn = quote_literal(roles.dynamic_owner)
     owner = quote_literal(roles.owner)
     return (
-        "  IF EXISTS (SELECT FROM pg_catalog.pg_database d\n"
-        "             JOIN pg_catalog.pg_roles r ON r.oid = d.datdba\n"
-        "             WHERE d.datname = current_database()\n"
-        f"               AND r.rolname IN ({protected})) THEN\n"
-        "    RAISE EXCEPTION 'The database is owned by %; its owner owns public and can drop it', "
-        "(SELECT pg_catalog.pg_get_userbyid(datdba) FROM pg_catalog.pg_database "
-        "WHERE datname = current_database())\n"
-        "      USING HINT = 'Run ALTER DATABASE <db> OWNER TO <admin>, then rerun bootstrap.';\n"
+        # The database owner owns public (PG 15+), as does an explicit owner of
+        # the public schema; either can drop it with everything in it.
+        "  IF EXISTS (SELECT FROM pg_catalog.pg_roles r, pg_catalog.pg_database d,\n"
+        "                         pg_catalog.pg_namespace n\n"
+        "             WHERE d.datname = pg_catalog.current_database() AND n.nspname = 'public'\n"
+        f"               AND r.rolname IN ({protected})\n"
+        "               AND (pg_catalog.pg_has_role(r.oid, d.datdba, 'MEMBER')\n"
+        "                    OR pg_catalog.pg_has_role(r.oid, n.nspowner, 'MEMBER'))) THEN\n"
+        "    RAISE EXCEPTION 'A Tracecat role can act as the owner of the database or of public, "
+        "and could drop it'\n"
+        "      USING HINT = 'Give the database and public to the admin (ALTER DATABASE / ALTER SCHEMA "
+        "public OWNER TO), then rerun bootstrap.';\n"
         "  END IF;\n"
         "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
         f"             WHERE rolname IN ({protected})\n"
@@ -400,7 +407,12 @@ def bootstrap_statements(
     # Resolve every function and operator from pg_catalog: a database owner
     # can set a database-wide search_path and plant public.format() or an
     # operator that would run as the admin. Everything in public is qualified.
-    statements: list[str] = ["SET LOCAL search_path = pg_catalog, pg_temp;"]
+    # standard_conforming_strings too: quote_literal only doubles quotes, so a
+    # database-level "off" would let a crafted role name escape a literal.
+    statements: list[str] = [
+        "SET LOCAL search_path = pg_catalog, pg_temp;",
+        "SET LOCAL standard_conforming_strings = on;",
+    ]
     for keyring in roles.keyrings:
         statements += _create_role(keyring, login=False)
     for name in roles.logins:
@@ -819,6 +831,8 @@ def _apply(
     for attempt in range(retries + 1):
         try:
             with conn.transaction():
+                # Before any quoted literal is parsed (see bootstrap_statements).
+                conn.execute(b"SET LOCAL standard_conforming_strings = on")
                 timeout = f"SET LOCAL lock_timeout = {quote_literal(lock_timeout)}"
                 conn.execute(timeout.encode())
                 for statement in statements:
@@ -1157,6 +1171,8 @@ def _move(
             statements.append(
                 f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {app}"
             )
+        elif obj.kind == "ROUTINE":
+            statements.append(f"GRANT EXECUTE ON ROUTINE {obj.name} TO {app}")
     _apply(
         conn,
         obj.label,
@@ -1264,7 +1280,10 @@ LOGIN_CHECK_SQL = text(
            -- The database owner owns public (PG 15+) and can drop it.
            EXISTS (
              SELECT FROM pg_catalog.pg_database d
-             WHERE d.datname = current_database() AND d.datdba = r.oid
+             WHERE d.datname = pg_catalog.current_database() AND d.datdba = r.oid
+           ) OR EXISTS (
+             SELECT FROM pg_catalog.pg_namespace n
+             WHERE n.nspname = 'public' AND n.nspowner = r.oid
            ) AS owns_database
     FROM pg_catalog.pg_roles r
     -- The login, the role it is set to, and every role it can SET ROLE to
@@ -1310,7 +1329,7 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
                 f"{name} owns tables in public (or is a member of their owner)"
             )
         if owns_db:
-            problems.append(f"{name} owns the database (and so the public schema)")
+            problems.append(f"{name} owns the database or the public schema")
     if problems:
         raise UnsafeDatabaseLoginError(
             "TRACECAT__RLS_MODE=enforce needs a login without SUPERUSER, BYPASSRLS, "

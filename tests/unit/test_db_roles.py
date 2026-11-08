@@ -689,7 +689,9 @@ def test_refuses_a_database_owned_by_app(scratch: Scratch) -> None:
         psycopg.connect(
             _url("postgres", "postgres", scratch.database), autocommit=True
         ) as conn,
-        pytest.raises(psycopg.errors.RaiseException, match="owns public"),
+        pytest.raises(
+            psycopg.errors.RaiseException, match="owner of the database or of public"
+        ),
     ):
         run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
     with _superuser() as conn:
@@ -1503,6 +1505,76 @@ def test_cutover_revoke_names_the_role_that_holds_the_grant() -> None:
         _drop_install(install)
         with _superuser() as conn:
             _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
+
+
+def test_upgrade_role_names_cannot_escape_literals() -> None:
+    """A database-level standard_conforming_strings=off can't turn a role name into SQL."""
+    install = _legacy_install(_suffix(), migrate=False)
+    canary = f"canary_{uuid.uuid4().hex[:8]}"
+    crafted = f"\\'); CREATE ROLE {canary}; --"
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with _superuser() as conn:
+            _run(conn, 'CREATE ROLE "\'" NOLOGIN')  # makes the injected prefix valid
+            _run(conn, f"CREATE ROLE {quote_ident(crafted)} NOLOGIN")
+            _run(
+                conn,
+                f"ALTER DATABASE {quote_ident(install.database)} SET standard_conforming_strings = off",
+            )
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            _run(conn, f"CREATE SCHEMA {schema} AUTHORIZATION {quote_ident(crafted)}")
+        _superuser_upgrade(install, [install.legacy])
+        assert not _role_exists(canary)
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            for role in (crafted, "'", canary):
+                _run(conn, f"DROP ROLE IF EXISTS {quote_ident(role)}")
+
+
+def test_refuses_a_public_schema_owned_by_app(scratch: Scratch) -> None:
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+    with psycopg.connect(
+        _url("postgres", "postgres", scratch.database), autocommit=True
+    ) as conn:
+        _run(conn, f"ALTER SCHEMA public OWNER TO {quote_ident(roles.app)}")
+        with pytest.raises(
+            psycopg.errors.RaiseException, match="owner of the database or of public"
+        ):
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        _run(conn, "ALTER SCHEMA public OWNER TO pg_database_owner")
+
+
+def test_upgrade_keeps_app_execute_on_routines_it_owned() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with _superuser() as conn:
+            _run(
+                conn,
+                f"CREATE ROLE {quote_ident(roles.app)} LOGIN PASSWORD {quote_literal(PASSWORD)}",
+            )
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute(
+                "CREATE FUNCTION public.helper() RETURNS int LANGUAGE sql AS 'SELECT 1'"
+            )
+            conn.execute("REVOKE EXECUTE ON FUNCTION public.helper() FROM PUBLIC")
+            _run(
+                conn,
+                f"ALTER FUNCTION public.helper() OWNER TO {quote_ident(roles.app)}",
+            )
+        result = _superuser_upgrade(install, [roles.app])
+        assert "ROUTINE public.helper()" in result.moved
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            assert conn.execute("SELECT public.helper()").fetchone() == (1,)
+    finally:
+        _drop_install(install)
 
 
 # --- upgrade on the shapes it must handle before it runs by default ------------
