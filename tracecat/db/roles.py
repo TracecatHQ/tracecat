@@ -203,7 +203,11 @@ def _create_extension(name: str) -> str:
     return _do(
         f"  IF EXISTS (SELECT FROM pg_catalog.pg_extension WHERE extname = {quote_literal(name)}) THEN\n"
         "    NULL;\n"
-        "  ELSIF pg_catalog.to_regnamespace('ibm_extension') IS NOT NULL THEN\n"
+        # IBM's provider-owned schema only: any role with CREATE on the database
+        # could create an ibm_extension schema elsewhere and plant objects in it.
+        "  ELSIF EXISTS (SELECT FROM pg_catalog.pg_namespace n\n"
+        "              JOIN pg_catalog.pg_roles r ON r.oid = n.nspowner\n"
+        "              WHERE n.nspname = 'ibm_extension' AND r.rolsuper) THEN\n"
         # IBM places the extension through the path; restore the pin after.
         "    PERFORM pg_catalog.set_config('search_path', 'ibm_extension, pg_catalog, pg_temp', true);\n"
         f"    CREATE EXTENSION IF NOT EXISTS {ext};\n"
@@ -471,6 +475,7 @@ def bootstrap_statements(
     statements += [
         f"{default} SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app};",
         f"{default} USAGE, SELECT, UPDATE ON SEQUENCES TO {app};",
+        f"{default} EXECUTE ON FUNCTIONS TO {app};",
         _verify(login, roles),
     ]
     return statements
@@ -916,6 +921,49 @@ def run_upgrade(
         # Otherwise the catalog reads open an outer transaction and every
         # transfer becomes a savepoint that holds its locks until the end.
         raise ValueError("run_upgrade needs an autocommit connection")
+    # Pin the parser and name resolution for the whole run, catalog reads and
+    # reports included: with "$user" or a planted public operator/function on
+    # a database-wide search_path, or standard_conforming_strings off, a role
+    # with CREATE on the database could capture a transfer, run SQL as the
+    # admin, or break the LIKE escapes in the dynamic-schema discovery.
+    saved = conn.execute(
+        "SELECT pg_catalog.current_setting('search_path'), "
+        "pg_catalog.current_setting('standard_conforming_strings')"
+    ).fetchone()
+    conn.execute(
+        "SELECT pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', false), "
+        "pg_catalog.set_config('standard_conforming_strings', 'on', false)"
+    )
+    try:
+        return _upgrade(
+            conn,
+            login,
+            passwords,
+            roles,
+            old_owners,
+            lock_timeout=lock_timeout,
+            retries=retries,
+        )
+    finally:
+        if saved:
+            conn.execute(
+                "SELECT pg_catalog.set_config('search_path', %(p)s, false), "
+                "pg_catalog.set_config('standard_conforming_strings', %(s)s, false)",
+                {"p": saved[0], "s": saved[1]},
+            )
+
+
+def _upgrade(
+    conn: psycopg.Connection,
+    login: LoginMethod,
+    passwords: LoginPasswords,
+    roles: RoleNames,
+    old_owners: Sequence[str] | None,
+    *,
+    lock_timeout: str,
+    retries: int,
+) -> UpgradeResult:
+    """The body of :func:`run_upgrade`, with search_path and escapes pinned."""
     # Validate input before the bootstrap commits anything.
     if old_owners is not None:
         unknown = [
@@ -939,60 +987,44 @@ def run_upgrade(
         old_owners = [row[0]] if row else []
     old = [r for r in old_owners if r not in roles.keyrings]
     owner = quote_ident(roles.owner)
-    # Names must stay schema-qualified between listing and ALTER: with "$user"
-    # on the path, a role with CREATE on the database could plant a same-named
-    # object in a schema named after the admin and have it re-owned instead.
-    saved = conn.execute("SELECT pg_catalog.current_setting('search_path')").fetchone()
-    conn.execute("SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)")
-    try:
-        objects = _public_objects(conn, old)
-        public_owners = {o.owner for o in objects}
-        # Dynamic-only owners need the dynamic keyring, not public ownership.
-        keep = dict.fromkeys(_dynamic_owners(conn, roles), roles.dynamic_owner)
-        keep |= dict.fromkeys(public_owners, roles.owner)
-        _keep_old_owners_working(
-            conn, keep, roles, result, lock_timeout=lock_timeout, retries=retries
+    objects = _public_objects(conn, old)
+    public_owners = {o.owner for o in objects}
+    # Dynamic-only owners need the dynamic keyring, not public ownership.
+    keep = dict.fromkeys(_dynamic_owners(conn, roles), roles.dynamic_owner)
+    keep |= dict.fromkeys(public_owners, roles.owner)
+    _keep_old_owners_working(
+        conn, keep, roles, result, lock_timeout=lock_timeout, retries=retries
+    )
+    # A view or SECURITY DEFINER routine moved ahead of something it reads
+    # would lose access to it, so each stage waits until everything in the
+    # earlier stages, whoever owns it, is on the owner keyring.
+    for stage in (1, 2, 3):
+        earlier_left = [o for o in _unmoved_public(conn, old, roles) if o.stage < stage]
+        if result.failed or earlier_left:
+            break
+        for obj in (o for o in objects if o.stage == stage):
+            _move(conn, obj, owner, login, roles, lock_timeout, retries, result)
+    # A dynamic owner whose access couldn't be kept must not lose it.
+    keep_failed = any(label.startswith("KEEP ACCESS ") for label, _ in result.failed)
+    for schema in [] if keep_failed else _dynamic_schemas(conn, roles):
+        _apply(
+            conn,
+            f"SCHEMA {quote_ident(schema)}",
+            _dynamic_statements(conn, schema, roles),
+            lock_timeout=lock_timeout,
+            retries=retries,
+            result=result,
         )
-        # A view or SECURITY DEFINER routine moved ahead of something it reads
-        # would lose access to it, so each stage waits until everything in the
-        # earlier stages, whoever owns it, is on the owner keyring.
-        for stage in (1, 2, 3):
-            earlier_left = [
-                o for o in _unmoved_public(conn, old, roles) if o.stage < stage
-            ]
-            if result.failed or earlier_left:
-                break
-            for obj in (o for o in objects if o.stage == stage):
-                _move(conn, obj, owner, login, roles, lock_timeout, retries, result)
-        # A dynamic owner whose access couldn't be kept must not lose it.
-        keep_failed = any(
-            label.startswith("KEEP ACCESS ") for label, _ in result.failed
+        _assert_no_iam_lockout(conn, login, roles)
+    result.remaining_public = [
+        f"{o.label} (owner {o.owner})" for o in _unmoved_public(conn, old, roles)
+    ]
+    if skipped := _superuser_owned_public(conn, old, roles):
+        result.notes.append(
+            "Not moved (owned by a superuser not named in --from; pass --from "
+            f"to move them): {', '.join(skipped)}"
         )
-        for schema in [] if keep_failed else _dynamic_schemas(conn, roles):
-            _apply(
-                conn,
-                f"SCHEMA {quote_ident(schema)}",
-                _dynamic_statements(conn, schema, roles),
-                lock_timeout=lock_timeout,
-                retries=retries,
-                result=result,
-            )
-            _assert_no_iam_lockout(conn, login, roles)
-        result.remaining_public = [
-            f"{o.label} (owner {o.owner})" for o in _unmoved_public(conn, old, roles)
-        ]
-        if skipped := _superuser_owned_public(conn, old, roles):
-            result.notes.append(
-                "Not moved (owned by a superuser not named in --from; pass --from "
-                f"to move them): {', '.join(skipped)}"
-            )
-        result.remaining_dynamic = _dynamic_schemas(conn, roles)
-    finally:
-        if saved:
-            conn.execute(
-                "SELECT pg_catalog.set_config('search_path', %(p)s, false)",
-                {"p": saved[0]},
-            )
+    result.remaining_dynamic = _dynamic_schemas(conn, roles)
     if result.complete:
         result.notes.append(
             f"Retire the old login ({', '.join(old)}): once migrations use "
@@ -1155,10 +1187,14 @@ def _move(
     result: UpgradeResult,
 ) -> None:
     statements = [f"ALTER {obj.kind} {obj.name} OWNER TO {owner}"]
+    app = quote_ident(roles.app)
+    if obj.kind == "ROUTINE":
+        # Hardened installs revoke EXECUTE from PUBLIC; the old owner ran the
+        # app before, so app needs it explicitly once it is the login.
+        statements.append(f"GRANT EXECUTE ON ROUTINE {obj.name} TO {app}")
     if obj.owner == roles.app:
         # ALTER ... OWNER hands app's own ACL entries to the new owner; give
         # them back in the same transaction so a running app never loses access.
-        app = quote_ident(roles.app)
         if obj.kind == "SEQUENCE":
             statements.append(
                 f"GRANT USAGE, SELECT, UPDATE ON SEQUENCE {obj.name} TO {app}"
@@ -1171,8 +1207,7 @@ def _move(
             statements.append(
                 f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {app}"
             )
-        elif obj.kind == "ROUTINE":
-            statements.append(f"GRANT EXECUTE ON ROUTINE {obj.name} TO {app}")
+
     _apply(
         conn,
         obj.label,
@@ -1196,9 +1231,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     ) as exc:
         # A safety check refused; its message says why and what to do.
         diag = exc.diag if isinstance(exc, psycopg.Error) else None
-        print(f"error: {diag.message_primary if diag else exc}", file=sys.stderr)
+        message = diag.message_primary if diag and diag.message_primary else str(exc)
+        print(f"error: {_printable(message)}", file=sys.stderr)
         if diag and diag.message_hint:
-            print(f"hint: {diag.message_hint}", file=sys.stderr)
+            print(f"hint: {_printable(diag.message_hint)}", file=sys.stderr)
         return 1
 
 

@@ -1577,6 +1577,56 @@ def test_upgrade_keeps_app_execute_on_routines_it_owned() -> None:
         _drop_install(install)
 
 
+def test_upgrade_ignores_operators_planted_on_the_search_path() -> None:
+    """The whole run resolves from pg_catalog, reports included: no admin SQL via public.=."""
+    install = _legacy_install(_suffix(), migrate=False)
+    canary = f"canary_{uuid.uuid4().hex[:8]}"
+    try:
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            _run(
+                conn,
+                "CREATE FUNCTION public.leak(oid, oid) RETURNS boolean LANGUAGE plpgsql AS "
+                f"$f$ BEGIN EXECUTE 'CREATE ROLE {canary}'; RETURN $1 OPERATOR(pg_catalog.=) $2; "
+                "EXCEPTION WHEN duplicate_object THEN RETURN $1 OPERATOR(pg_catalog.=) $2; END $f$",
+            )
+            conn.execute(
+                "CREATE OPERATOR public.= (LEFTARG = oid, RIGHTARG = oid, FUNCTION = public.leak)"
+            )
+            _run(
+                conn,
+                f"ALTER DATABASE {quote_ident(install.database)} SET search_path = public, pg_catalog",
+            )
+            conn.execute("CREATE TABLE public.t (id int)")
+        _superuser_upgrade(install, ["postgres"])
+        assert not _role_exists(canary)
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(canary)}")
+
+
+def test_upgrade_grants_app_execute_on_legacy_helpers() -> None:
+    """A hardened install revoked PUBLIC EXECUTE; app needs it once it is the login."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute(
+                "CREATE FUNCTION public.helper() RETURNS int LANGUAGE sql AS 'SELECT 1'"
+            )
+            conn.execute("REVOKE EXECUTE ON FUNCTION public.helper() FROM PUBLIC")
+            result = run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(app=PASSWORD), roles
+            )
+        assert result.complete
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            assert conn.execute("SELECT public.helper()").fetchone() == (1,)
+    finally:
+        _drop_install(install)
+
+
 # --- upgrade on the shapes it must handle before it runs by default ------------
 
 
