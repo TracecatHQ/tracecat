@@ -604,48 +604,51 @@ def run_bootstrap(
     return notes
 
 
-RLS_GUARD_REVISION: str | None = None
-"""The revision whose dynamic-table RLS guard role setup installs; None installs none.
+RLS_GUARD_REVISION = "4ea30f9ea491"
+"""The revision whose dynamic-table RLS guard role setup installs.
 
-b4074a0896b5's guard exempts only the event triggers' owner, which on RDS is
-``rdsadmin``: it would bind the admin too. Set this to the revision that
-exempts the guard function's owner once it lands, and update
-``RLS_GUARD_INSTALLED_SQL`` to that revision's installed check.
+It exempts the guard function's owner, the admin that installs it here. Its
+predecessor exempted the event triggers' owner, which on RDS is ``rdsadmin``.
 """
+
+RLS_GUARD_PREREQUISITE = "b4074a0896b5"
+"""Enables and forces RLS on dynamic tables; the guard isn't installed before it."""
 
 ALEMBIC_INI = "alembic.ini"
 """Relative to the working directory, as for ``alembic upgrade`` itself."""
 
-
-# The migration's check (b4074a0896b5's _guard_installed): both triggers fire in
-# normal sessions for every command of their own event, call this revision's
-# function body, and share the function's owner.
-RLS_GUARD_INSTALLED_SQL = """
-SELECT count(*) = 2
-FROM pg_catalog.pg_event_trigger t
-JOIN pg_catalog.pg_proc f ON f.oid = t.evtfoid
-WHERE t.evtname IN (%(ddl_trigger)s, %(drop_trigger)s)
-  AND t.evtenabled IN ('O', 'A')
-  AND t.evttags IS NULL
-  AND t.evtevent = CASE t.evtname WHEN %(ddl_trigger)s
-                       THEN 'ddl_command_end' ELSE 'sql_drop' END
-  AND f.oid = pg_catalog.to_regprocedure(%(function)s)
-  AND f.proowner = t.evtowner
-  AND f.prosrc = %(body)s
+# Both triggers fire in normal sessions, for every command of their own event,
+# and call the guard function. Returns its body, and whether this login owns it.
+RLS_GUARD_STATE_SQL = """
+SELECT f.prosrc, f.proowner = (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user),
+       (SELECT count(*) = 2
+        FROM pg_catalog.pg_event_trigger t
+        WHERE t.evtfoid = f.oid
+          AND t.evtname IN (%(ddl_trigger)s, %(drop_trigger)s)
+          AND t.evtenabled IN ('O', 'A')
+          AND t.evttags IS NULL
+          AND t.evtevent = CASE t.evtname WHEN %(ddl_trigger)s
+                               THEN 'ddl_command_end' ELSE 'sql_drop' END)
+FROM pg_catalog.pg_proc f
+WHERE f.oid = pg_catalog.to_regprocedure(%(function)s)
 """
 
 
 def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | None:
-    """Install or repair the dynamic-table RLS guard once migrations reached it.
+    """Install, update or repair the dynamic-table RLS guard.
 
-    Migrations run as ``migrator``, which can't create event triggers, so that
-    revision can neither install nor repair the guard; the admin does it here
-    with the revision's own statements and the same installed check. Not
-    before the revision has run: it first enables and forces RLS on dynamic
-    tables, without which the guard rejects later column changes on them.
+    Migrations run as ``migrator``, which can't create event triggers or
+    replace a guard the admin owns, so the admin does it here with the guard
+    revision's own statements:
+
+    - Firing with another body (the predecessor's, or rewritten): replace the
+      function body in place, keeping the triggers. This needs only the
+      function's owner, so it works on RDS, and runs before the upgrade's
+      transfers, which the predecessor's body would reject there.
+    - Missing or not firing: install it, once migrations have run
+      ``RLS_GUARD_PREREQUISITE``; before that, the guard would reject column
+      changes on dynamic tables that RLS isn't forced on yet.
     """
-    if RLS_GUARD_REVISION is None:
-        return None
     exists = cur.execute(
         "SELECT pg_catalog.to_regclass('public.alembic_version') IS NOT NULL"
     ).fetchone()
@@ -654,6 +657,34 @@ def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | N
     if not os.path.exists(ALEMBIC_INI):
         return f"dynamic-table RLS guard: skipped, no {ALEMBIC_INI} in the working directory"
     script = ScriptDirectory.from_config(AlembicConfig(ALEMBIC_INI))
+    if (revision := script.get_revision(RLS_GUARD_REVISION)) is None:
+        return None
+    guard = revision.module
+    params = {
+        "ddl_trigger": guard._previous.DDL_TRIGGER,
+        "drop_trigger": guard._previous.DROP_TRIGGER,
+        "function": guard.GUARD_FUNCTION,
+    }
+    body = guard._GUARD_FUNCTION_SQL.split("$guard$")[1]
+    state = cur.execute(RLS_GUARD_STATE_SQL, params).fetchone()
+    firing = state is not None and state[2]
+    if firing and state is not None:
+        current_body, owned = state[0], state[1]
+        if current_body == body:
+            return None
+        if owned:
+            # The owner is the exemption: replace the body, keep owner and triggers.
+            with conn.transaction():
+                cur.execute(guard.GUARD_STATEMENTS[0].encode())
+            return "dynamic-table RLS guard: updated"
+        if not _is_superuser(conn, conn.info.user):
+            return (
+                "dynamic-table RLS guard: kept an outdated body, the admin doesn't "
+                f"own {guard.GUARD_FUNCTION}. Run MANUAL_INSTALL_SQL from revision "
+                f"{RLS_GUARD_REVISION} as a superuser."
+            )
+        # Owned by another role, which the new body would exempt: reinstall so
+        # the admin owns it.
     versions = [
         v for (v,) in cur.execute("SELECT version_num FROM public.alembic_version")
     ]
@@ -665,19 +696,7 @@ def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | N
         return (
             "dynamic-table RLS guard: skipped, the database is at an unknown revision"
         )
-    if RLS_GUARD_REVISION not in applied:
-        return None
-    if (revision := script.get_revision(RLS_GUARD_REVISION)) is None:
-        return None
-    guard = revision.module
-    params = {
-        "ddl_trigger": guard.DDL_TRIGGER,
-        "drop_trigger": guard.DROP_TRIGGER,
-        "function": guard.GUARD_FUNCTION,
-        "body": guard._GUARD_FUNCTION_SQL.split("$guard$")[1],
-    }
-    installed = cur.execute(RLS_GUARD_INSTALLED_SQL, params).fetchone()
-    if installed and installed[0]:
+    if RLS_GUARD_PREREQUISITE not in applied:
         return None
     try:
         # A savepoint: a failure leaves the rest of the bootstrap in place.

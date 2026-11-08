@@ -1663,6 +1663,10 @@ def test_upgrade_moves_routines_named_like_the_dollar_quote_tag() -> None:
 # --- upgrade on the shapes it must handle before it runs by default ------------
 
 
+RLS_GUARD_PREREQUISITE_PARENT = "d986afa25989"
+"""The revision before b4074a0896b5, the first dynamic RLS guard revision."""
+
+
 def test_upgrade_on_a_compose_shaped_install() -> None:
     """Compose today: the postgres superuser migrated and owns everything; it upgrades itself."""
     suffix = _suffix()
@@ -1697,9 +1701,13 @@ def test_upgrade_on_a_compose_shaped_install() -> None:
         assert owners == [(roles.owner,)]
         assert first.kept_access == []  # a superuser admin needs no kept access
         assert guard == [("postgres", "postgres")] * 2  # triggers and function
-        # Rolling back the RLS guard's revision drops event triggers, which
-        # needs their owner; migrator then runs the revision before it both ways.
-        _alembic(_url("postgres", "postgres", database, "+psycopg"), "downgrade", "-1")
+        # Rolling back the RLS guard's two revisions drops event triggers, which
+        # needs their owner; migrator then runs the revision before them both ways.
+        _alembic(
+            _url("postgres", "postgres", database, "+psycopg"),
+            "downgrade",
+            RLS_GUARD_PREREQUISITE_PARENT,
+        )
         _alembic(
             _url(roles.migrator, PASSWORD, database, "+psycopg"), "downgrade", "-1"
         )
@@ -1796,10 +1804,6 @@ def test_upgrade_keeps_the_rls_guard_the_migration_installed() -> None:
     ],
     ids=["disabled", "rewritten"],
 )
-@pytest.mark.skipif(
-    roles_module.RLS_GUARD_REVISION is None,
-    reason="role setup installs no guard until the function-owner exemption lands",
-)
 def test_bootstrap_repairs_a_tampered_rls_guard(tamper: str) -> None:
     """migrator can't repair the guard, so the admin's bootstrap must."""
     suffix = _suffix()
@@ -1824,7 +1828,10 @@ def test_bootstrap_repairs_a_tampered_rls_guard(tamper: str) -> None:
                 "SELECT prosrc FROM pg_proc"
                 " WHERE oid = 'public.tracecat_guard_dynamic_rls()'::regprocedure"
             ).fetchone()
-        assert "dynamic-table RLS guard: installed" in notes
+        assert {
+            "dynamic-table RLS guard: installed",
+            "dynamic-table RLS guard: updated",
+        } & set(notes)
         assert repaired == intact
         assert body_after == body
     finally:
@@ -1838,21 +1845,15 @@ def _guard_revision_module(revision: str) -> ModuleType:
     return found.module
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "b4074a0896b5 exempts only the triggers' owner (rdsadmin on RDS), so the "
-        "master's re-own and FORCE are rejected; passes once the guard exempts "
-        "its function's owner"
-    ),
-)
 def test_upgrade_under_an_rds_shaped_rls_guard() -> None:
     """RDS: rdsadmin owns the guard's event triggers, the master owns its function.
 
-    Neither the master nor migrator is a member of rdsadmin. The upgrade (as the
-    master) must still move and force a dynamic table that has a workspace
-    policy, and app must still be unable to weaken it.
+    Neither the master nor migrator is a member of rdsadmin, and the guard has
+    b4074a0896b5's trigger-owner exemption, as staging does before migrating.
+    Role setup gives it 4ea30f9ea491's function-owner body in place (the master
+    can't recreate rdsadmin's triggers), so the upgrade (as the master) still
+    moves and forces a dynamic table with a workspace policy, and app still
+    can't weaken it.
     """
     suffix = _suffix()
     install = _legacy_install(
@@ -1897,7 +1898,17 @@ def test_upgrade_under_an_rds_shaped_rls_guard() -> None:
                 f" FROM pg_class WHERE oid = '{schema}.case_fields'::regclass",
             ).fetchone()
         assert result.complete, (result.failed, result.remaining_dynamic)
+        assert "dynamic-table RLS guard: updated" in result.notes
         assert flags == (True, True, roles.dynamic_owner)
+        fixed = _guard_revision_module("4ea30f9ea491")
+        with psycopg.connect(install.url("postgres", "postgres")) as conn:
+            owners = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+            body = conn.execute(
+                "SELECT prosrc FROM pg_proc"
+                " WHERE oid = 'public.tracecat_guard_dynamic_rls()'::regprocedure"
+            ).fetchone()
+        assert {row[2:] for row in owners} == {(rdsadmin, install.legacy)}
+        assert body == (fixed._GUARD_FUNCTION_SQL.split("$guard$")[1],)
         with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 _run(
@@ -2154,12 +2165,8 @@ def test_migrate_sets_up_roles_on_a_fresh_compose_install(
         assert references == (True,)  # granted after migrations created "case"
         with psycopg.connect(_url("postgres", "postgres", database)) as conn:
             guard = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
-        # migrator can't create event triggers, so the guard comes from the admin's
-        # post-migration pass, and only once a guard revision is selected.
-        if roles_module.RLS_GUARD_REVISION is None:
-            assert guard == []
-        else:
-            assert [row[1:] for row in guard] == [("O", "postgres", "postgres")] * 2
+        # migrator can't create event triggers; the admin's post-migration pass did.
+        assert [row[1:] for row in guard] == [("O", "postgres", "postgres")] * 2
         with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
             assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
         assert migrate(roles) == 0  # every deploy reruns it
