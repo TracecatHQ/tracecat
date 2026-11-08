@@ -161,7 +161,11 @@ def _create_role(name: str, *, login: bool) -> list[str]:
         "  END IF;"
     )
     # INHERIT: before PG 16 a member inherits only if the member role has it.
-    return [create, f"ALTER ROLE {quote_ident(name)} {kind} INHERIT;"]
+    # Keyrings are forced back to NOLOGIN; an existing login role's LOGIN is
+    # left alone, so an operator's ALTER ROLE ... NOLOGIN (containment)
+    # survives the next deploy's bootstrap.
+    attributes = "INHERIT" if login else "NOLOGIN INHERIT"
+    return [create, f"ALTER ROLE {quote_ident(name)} {attributes};"]
 
 
 def _require_role(name: str) -> str:
@@ -438,7 +442,7 @@ def bootstrap_statements(
     for name in roles.logins:
         if login is LoginMethod.AZURE_ENTRA:
             statements.append(_require_role(name))
-            statements.append(f"ALTER ROLE {q(name)} LOGIN INHERIT;")
+            statements.append(f"ALTER ROLE {q(name)} INHERIT;")
         else:
             statements += _create_role(name, login=True)
     if login is LoginMethod.AWS_IAM:
@@ -634,13 +638,22 @@ def migrate(
     1. Without ``TRACECAT__DB_ADMIN_URI``: run alembic as the configured
        database user, exactly as before.
     2. Otherwise run ``upgrade`` as the admin (bootstrap included; a quick
-       no-op once done), then alembic as ``migrator``.
-    3. If the role setup refuses or doesn't complete, or ``migrator`` has no
-       credential, run alembic as the admin so the deploy still proceeds; the
-       output says why.
+       no-op once done), then alembic as ``migrator``, then ``upgrade`` again
+       for what the migrations created.
+    3. If a safety check refuses, the bootstrap times out on a lock, or the
+       run aborts on an IAM lockout, stop with exit 1: nothing (or only safe
+       transfers) committed, and that state needs a person or a retry.
+       If transfers don't complete yet (a held lock), or ``migrator`` has no
+       credential, run alembic as the admin so the deploy proceeds; the roles
+       exist by then, and the output says why. The post-migration ``upgrade``
+       runs on every path that ran alembic.
+
+    With ``TRACECAT__DB_ROLE_LOGIN=aws_iam`` (or ``azure_entra``),
+    ``TRACECAT__DB_MIGRATOR_PASSWORD`` must carry the token minted for
+    ``migrator`` at job start; a stale static password fails alembic loudly.
 
     Returns:
-        Alembic's exit code, or 1 if the upgrade had to stop.
+        Alembic's exit code, or 1 if role setup refused or timed out.
     """
     if not config.TRACECAT__DB_ADMIN_URI:
         print(
@@ -657,25 +670,19 @@ def migrate(
         else LoginPasswords()
     )
     admin_uri = _login_uri_for_admin()
-    try:
-        with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
-            result = run_upgrade(
-                conn,
-                login,
-                passwords,
-                roles,
-                lock_timeout=lock_timeout,
-                retries=retries,
-            )
-    except (psycopg.errors.RaiseException, psycopg.errors.LockNotAvailable) as exc:
-        # Refused before anything committed: keep today's behaviour.
-        print(f"role setup refused: {_printable(str(exc))}", file=sys.stderr)
-        print("Running migrations as the admin.", file=sys.stderr)
-        return _alembic_upgrade(admin_uri)
-    _print_upgrade(result)
-
     migrator_password = config.TRACECAT__DB_MIGRATOR_PASSWORD
+    try:
+        result = _upgrade_or_report(
+            login, passwords, roles, lock_timeout=lock_timeout, retries=retries
+        )
+    except psycopg.errors.RaiseException as exc:
+        return _refused(exc)
+    if result is None:
+        # Nothing committed: on a first run app may not exist yet, so the
+        # services pointed at it couldn't log in. Fail and let the deploy retry.
+        return 1
     if not result.complete:
+        _print_upgrade(result)
         print(
             "Role setup isn't complete yet (see above; the next run continues). "
             "Running migrations as the admin.",
@@ -683,6 +690,7 @@ def migrate(
         )
         code = _alembic_upgrade(admin_uri)
     elif not migrator_password:
+        _print_upgrade(result)
         print(
             f"No TRACECAT__DB_MIGRATOR_PASSWORD for {roles.migrator}. "
             "Running migrations as the admin.",
@@ -690,25 +698,70 @@ def migrate(
         )
         code = _alembic_upgrade(admin_uri)
     else:
+        _print_upgrade(result)
         code = _alembic_upgrade(_login_uri(roles.migrator, migrator_password))
     if code != 0:
         return code
-    # Again after the migrations: grants that need the migrated objects
-    # (REFERENCES on "case", readonly's hidden columns) and dynamic schemas
-    # that revisions create as migrator (owned by tracecat_owner) or as the
-    # admin. A lock left for later is reported; the next deploy continues.
-    with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
-        after = run_upgrade(
-            conn,
-            login,
-            LoginPasswords(),
-            roles,
-            lock_timeout=lock_timeout,
-            retries=retries,
+    # Again after the migrations, on every path: grants that need the migrated
+    # objects (app's DML on tables the admin created, REFERENCES on "case",
+    # readonly's hidden columns) and dynamic schemas that revisions create. A
+    # lock or refusal is reported; the next deploy continues.
+    try:
+        after = _upgrade_or_report(
+            login, LoginPasswords(), roles, lock_timeout=lock_timeout, retries=retries
         )
-    if not after.complete:
+    except psycopg.errors.RaiseException as exc:
+        return _refused(exc)
+    if after is not None and not after.complete:
         _print_upgrade(after)
     return 0
+
+
+def _refused(exc: psycopg.errors.RaiseException) -> int:
+    """A safety check refused: fail the deploy rather than run migrations anyway."""
+    diag = exc.diag
+    message = diag.message_primary or str(exc)
+    print(f"error: role setup refused: {_printable(message)}", file=sys.stderr)
+    if diag.message_hint:
+        print(f"hint: {_printable(diag.message_hint)}", file=sys.stderr)
+    print(
+        "hint: fix the state above, or unset TRACECAT__DB_ADMIN_URI to run "
+        "migrations without role setup.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _upgrade_or_report(
+    login: LoginMethod,
+    passwords: LoginPasswords,
+    roles: RoleNames,
+    *,
+    lock_timeout: str,
+    retries: int,
+) -> UpgradeResult | None:
+    """``run_upgrade`` as the admin; ``None`` if the bootstrap kept timing out.
+
+    Raises:
+        psycopg.errors.RaiseException: A safety check refused (nothing committed).
+    """
+    try:
+        with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
+            return run_upgrade(
+                conn,
+                login,
+                passwords,
+                roles,
+                lock_timeout=lock_timeout,
+                retries=retries,
+            )
+    except psycopg.errors.LockNotAvailable:
+        # Transient: another transaction holds a catalog row. Nothing committed.
+        print(
+            "error: role setup timed out on a lock; nothing changed. Rerun the deploy.",
+            file=sys.stderr,
+        )
+        return None
 
 
 def _login_uri_for_admin() -> str:
@@ -716,22 +769,28 @@ def _login_uri_for_admin() -> str:
     return url.render_as_string(hide_password=False)
 
 
+MIGRATION_SEARCH_PATH = "public"
+"""Connection-time search_path for migrations (``pg_catalog`` stays implicitly first)."""
+
+
 def pin_migration_search_path(connection: Connection) -> None:
-    """Drop ``"$user"`` from a migration connection's search path.
+    """Pin a migration connection's search path to ``public``.
 
     ``migrator`` runs as ``tracecat_owner``, and any role with CREATE on the
     database (``app`` creates workspace schemas) could create a schema named
-    ``tracecat_owner`` holding its own ``alembic_version`` or same-named
-    tables. Unqualified names in migrations would then resolve there. The rest
-    of the path is kept (IBM puts extensions in ``ibm_extension``).
+    after it, or after any other path entry, holding its own
+    ``alembic_version`` or same-named tables. The connection is opened with
+    ``search_path=public`` (:data:`MIGRATION_SEARCH_PATH`), so SQLAlchemy's
+    cached default schema is ``public`` too; this adds IBM's provider-owned
+    ``ibm_extension`` (where pgvector lives) only when a superuser owns it.
     """
     connection.execute(
         text(
-            "SELECT pg_catalog.set_config('search_path', COALESCE(NULLIF("
-            "pg_catalog.array_to_string(pg_catalog.array_remove("
-            "pg_catalog.regexp_split_to_array("
-            "pg_catalog.current_setting('search_path'), '\\s*,\\s*'), "
-            "'\"$user\"'), ', '), ''), 'public'), false)"
+            "SELECT pg_catalog.set_config('search_path', CASE WHEN EXISTS ("
+            "SELECT FROM pg_catalog.pg_namespace n "
+            "JOIN pg_catalog.pg_roles r ON r.oid = n.nspowner "
+            "WHERE n.nspname = 'ibm_extension' AND r.rolsuper) "
+            "THEN 'public, ibm_extension' ELSE 'public' END, false)"
         )
     )
 

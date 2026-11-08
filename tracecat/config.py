@@ -356,14 +356,14 @@ TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
 TRACECAT__DB_DYNAMIC_OWNER_ROLE = (
-    os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or ""
+    os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or "app_owner"
 ).strip() or None
 """Role that owns new dynamic schemas and tables (``tables_*``, ``custom_fields_*``).
 
-Unset keeps them owned by the connecting role. When set, the connecting role
-must be a member of this role with INHERIT and SET (for example
-``GRANT app_owner TO app WITH INHERIT TRUE, SET TRUE``), so it keeps owner
-rights on the objects it hands over.
+Defaults to ``app_owner``, the topology's dynamic keyring. Objects are handed
+over only when the role exists and the connecting role can act as it
+(``tracecat.db.roles bootstrap`` grants ``app_owner`` to ``app`` with INHERIT
+and SET); otherwise the connecting role keeps ownership, as before role setup.
 """
 
 TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW") or 60)

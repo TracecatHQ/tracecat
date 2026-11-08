@@ -1897,7 +1897,7 @@ def test_migrate_sets_up_roles_on_a_fresh_compose_install(
 
 
 def test_migrate_runs_alembic_as_the_admin_when_role_setup_is_incomplete(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A transfer that can't finish yet must not block the deploy."""
     suffix = _suffix()
@@ -1914,8 +1914,51 @@ def test_migrate_runs_alembic_as_the_admin_when_role_setup_is_incomplete(
             assert migrate(roles, lock_timeout="200ms", retries=0) == 0
             holder.rollback()
         assert _alembic_head(database) is not None
+        err = capsys.readouterr().err
+        assert "Role setup isn't complete yet" in err
+        assert "Running migrations as the admin." in err
     finally:
         _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_fails_when_role_setup_refuses(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A refusal needs a person: no migrations run, the deploy stops."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    squatter = f"squatter_{suffix}"
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(roles.migrator)} LOGIN")
+            _run(conn, f"CREATE ROLE {quote_ident(squatter)} LOGIN")
+            _run(
+                conn, f"GRANT {quote_ident(roles.migrator)} TO {quote_ident(squatter)}"
+            )
+        assert migrate(roles) == 1
+        assert "role setup refused" in capsys.readouterr().err
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            versions = conn.execute(
+                "SELECT to_regclass('public.alembic_version')"
+            ).fetchone()
+        assert versions == (None,)  # alembic never ran
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings, squatter])
+
+
+def test_bootstrap_leaves_a_contained_login_disabled(scratch: Scratch) -> None:
+    """An operator's ALTER ROLE app NOLOGIN survives the next deploy's bootstrap."""
+    roles = scratch.roles
+    with scratch.admin_conn() as conn:
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        _run(conn, f"ALTER ROLE {quote_ident(roles.app)} NOLOGIN")
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        row = conn.execute(
+            "SELECT rolcanlogin FROM pg_roles WHERE rolname = %s", (roles.app,)
+        ).fetchone()
+    assert row == (False,)
 
 
 def test_migrations_ignore_a_shadow_alembic_version_in_a_user_schema(

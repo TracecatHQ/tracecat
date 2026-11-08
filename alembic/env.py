@@ -15,7 +15,7 @@ from tracecat.db.migration_lock import (
     release_migration_advisory_lock,
 )
 from tracecat.db.rls import enable_migration_rls_bypass
-from tracecat.db.roles import pin_migration_search_path
+from tracecat.db.roles import MIGRATION_SEARCH_PATH, pin_migration_search_path
 
 alembic_postgresql_enum.set_configuration(
     alembic_postgresql_enum.Config(
@@ -101,16 +101,23 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
         url=TRACECAT__DB_URI,
+        # Unqualified names must not resolve to a schema another role could
+        # create ("$user" is tracecat_owner for migrator), from the first
+        # statement on, including SQLAlchemy's cached default schema.
+        connect_args={"options": f"-c search_path={MIGRATION_SEARCH_PATH}"},
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema="public",
+        )
+        # After configure(): alembic must see the connection's first transaction.
+        pin_migration_search_path(connection)
         # Forced RLS on dynamic tables also filters their owner; migrations
         # must see every row.
         enable_migration_rls_bypass(connection)
-        # Unqualified names must not resolve to a "$user" schema another role
-        # could create (migrator runs as tracecat_owner).
-        pin_migration_search_path(connection)
 
         has_advisory_lock = acquire_migration_advisory_lock(connection)
         try:

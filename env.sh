@@ -86,7 +86,6 @@ dotenv_replace "USER_AUTH_SECRET" "$user_auth_secret" "$env_file"
 # The migrations container creates the roles; the app then logs in as `app`.
 dotenv_replace "TRACECAT__DB_MIGRATOR_PASSWORD" "$db_migrator_password" "$env_file"
 dotenv_replace "TRACECAT__DB_APP_PASSWORD" "$db_app_password" "$env_file"
-dotenv_replace "TRACECAT__DB_DYNAMIC_OWNER_ROLE" "app_owner" "$env_file"
 dotenv_replace "TRACECAT__DB_URI" "postgresql+psycopg://app:${db_app_password}@postgres_db:5432/postgres" "$env_file"
 
 # Prompt user for environment mode
