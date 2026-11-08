@@ -935,6 +935,37 @@ class TestGuardFunctionOwnerMigration:
         for case in MIGRATION_PRIVILEGED_CASES:
             _run(rds_guard.admin_url, _migration_privileged(rds_guard, case))
 
+    def test_membership_without_owner_rights_is_not_exempt(
+        self, rds_guard: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Since PG 16 such a member passes pg_has_role(..., 'MEMBER') but can't
+        # use the owner's privileges or SET ROLE to it, so it can't rewrite
+        # the guard and mustn't be exempt.
+        admin = make_url(rds_guard.admin_url).username
+        migrator = make_url(rds_guard.migrator_url).username
+        _run_committed(
+            rds_guard.db_url,
+            [f'GRANT "{migrator}" TO "{admin}" WITH INHERIT FALSE, SET FALSE'],
+        )
+        _alembic(
+            monkeypatch, rds_guard.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+        )
+        assert _query(
+            rds_guard.admin_url,
+            f"SELECT pg_has_role(session_user, '{migrator}', 'MEMBER')",
+        ) == [(True,)]
+
+        _assert_guard_rejects(rds_guard.admin_url, _blocked(rds_guard, "disable"))
+        with pytest.raises(DBAPIError) as exc_info:
+            _run(
+                rds_guard.admin_url,
+                [
+                    f"CREATE OR REPLACE FUNCTION {GUARD_FUNCTION} "
+                    "RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN END $$"
+                ],
+            )
+        assert isinstance(exc_info.value.orig, psycopg.errors.InsufficientPrivilege)
+
     @pytest.mark.parametrize("case", BLOCKED_CASES)
     def test_app_is_still_rejected(
         self, rds_guard: GuardDb, monkeypatch: pytest.MonkeyPatch, case: str

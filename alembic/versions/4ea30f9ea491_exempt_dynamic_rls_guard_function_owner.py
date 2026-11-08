@@ -11,13 +11,16 @@ owner of an event trigger that an `rds_superuser` member creates is
 the guard also binds migrations: b4074a0896b5's claim that migrations keep
 full DDL rights on dynamic tables doesn't hold there.
 
-This revision exempts members of the guard function's owner instead. That
+This revision exempts the guard function's owner instead, and logins that
+hold its privileges (`pg_has_role(session_user, owner, 'USAGE')`). The owner
 is the role that installed the guard: the migration role that ran
 b4074a0896b5, or the admin who ran its `MANUAL_INSTALL_SQL`. Elsewhere the
-function's owner and the triggers' owner are the same role, so nothing
-changes. Members of the function's owner could already rewrite the guard, so
-exempting them grants nothing new. The check is still on `session_user`, so
-`SET ROLE` still doesn't lift the guard, and superusers stay exempt.
+function's owner and the triggers' owner are the same role. Those logins
+could already rewrite the guard, so exempting them grants nothing new. A
+membership that can't use the owner's privileges (PostgreSQL 16's
+`INHERIT FALSE, SET FALSE`, or a `NOINHERIT` member) doesn't lift the guard.
+The check is still on `session_user`, so `SET ROLE` still doesn't lift the
+guard, and superusers stay exempt.
 
 The upgrade only replaces the function's body (`CREATE OR REPLACE
 FUNCTION`). That needs the function's owner, not a superuser, so it works on
@@ -85,6 +88,9 @@ _OLD_EXEMPTION = """\
     WHERE evtfoid = 'public.tracecat_guard_dynamic_rls()'::regprocedure
       AND evtevent = TG_EVENT
     LIMIT 1;
+    -- session_user, not current_user: SET ROLE to the owner role must not
+    -- lift the guard. Superusers are members of every role.
+    IF pg_has_role(session_user, guard_owner, 'MEMBER') THEN
 """
 _NEW_EXEMPTION = """\
     -- The function's owner, not the triggers': on RDS, rdsadmin owns the
@@ -92,6 +98,12 @@ _NEW_EXEMPTION = """\
     SELECT proowner INTO guard_owner
     FROM pg_proc
     WHERE oid = 'public.tracecat_guard_dynamic_rls()'::regprocedure;
+    -- session_user, not current_user: SET ROLE to the owner role must not
+    -- lift the guard. USAGE, not MEMBER: since PostgreSQL 16 a membership
+    -- granted WITH INHERIT FALSE, SET FALSE (what CREATEROLE gets on the roles
+    -- it creates) can't act as the owner, so it doesn't lift the guard
+    -- either. Superusers have USAGE on every role.
+    IF pg_has_role(session_user, guard_owner, 'USAGE') THEN
 """
 _OLD_HINT = """\
             USING ERRCODE = 'insufficient_privilege',
@@ -101,8 +113,9 @@ _OLD_HINT = """\
 _NEW_HINT = """\
             USING ERRCODE = 'insufficient_privilege',
                   HINT = 'Only the owner of '
-                         'public.tracecat_guard_dynamic_rls(), or a member '
-                         'of it, can weaken RLS on workspace tables.';
+                         'public.tracecat_guard_dynamic_rls(), or a login '
+                         'with its privileges, can weaken RLS on workspace '
+                         'tables.';
 """
 
 
