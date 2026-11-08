@@ -23,9 +23,12 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 import psycopg
 import pytest
+from alembic.config import Config as AlembicConfig
+from alembic.script import ScriptDirectory
 from sqlalchemy import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -1793,6 +1796,10 @@ def test_upgrade_keeps_the_rls_guard_the_migration_installed() -> None:
     ],
     ids=["disabled", "rewritten"],
 )
+@pytest.mark.skipif(
+    roles_module.RLS_GUARD_REVISION is None,
+    reason="role setup installs no guard until the function-owner exemption lands",
+)
 def test_bootstrap_repairs_a_tampered_rls_guard(tamper: str) -> None:
     """migrator can't repair the guard, so the admin's bootstrap must."""
     suffix = _suffix()
@@ -1822,6 +1829,85 @@ def test_bootstrap_repairs_a_tampered_rls_guard(tamper: str) -> None:
         assert body_after == body
     finally:
         _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def _guard_revision_module(revision: str) -> ModuleType:
+    script = ScriptDirectory.from_config(AlembicConfig(str(REPO_ROOT / "alembic.ini")))
+    found = script.get_revision(revision)
+    assert found is not None
+    return found.module
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason=(
+        "b4074a0896b5 exempts only the triggers' owner (rdsadmin on RDS), so the "
+        "master's re-own and FORCE are rejected; passes once the guard exempts "
+        "its function's owner"
+    ),
+)
+def test_upgrade_under_an_rds_shaped_rls_guard() -> None:
+    """RDS: rdsadmin owns the guard's event triggers, the master owns its function.
+
+    Neither the master nor migrator is a member of rdsadmin. The upgrade (as the
+    master) must still move and force a dynamic table that has a workspace
+    policy, and app must still be unable to weaken it.
+    """
+    suffix = _suffix()
+    install = _legacy_install(
+        suffix, migrate=True
+    )  # the master: CREATEROLE, not superuser
+    roles = install.roles
+    rdsadmin = f"rdsadmin_{suffix}"
+    schema = quote_ident(f"custom_fields_ws_{uuid.uuid4().hex[:12]}")
+    guard = _guard_revision_module("b4074a0896b5")
+    try:
+        with install.legacy_conn() as conn:
+            # An older app's table: RLS on with the workspace policy, not forced.
+            _create_dynamic_schema(conn, schema.strip('"'))
+            _run(
+                conn,
+                f"CREATE POLICY rls_policy_dynamic_workspace ON {schema}.case_fields "
+                "USING (true)",
+            )
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(rdsadmin)} SUPERUSER NOLOGIN")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            for statement in (*guard.UNINSTALL_STATEMENTS, *guard.GUARD_STATEMENTS):
+                _run(conn, statement)
+            _run(
+                conn,
+                f"ALTER FUNCTION {guard.GUARD_FUNCTION} OWNER TO {quote_ident(install.legacy)}",
+            )
+            for trigger in (guard.DDL_TRIGGER, guard.DROP_TRIGGER):
+                _run(
+                    conn,
+                    f"ALTER EVENT TRIGGER {trigger} OWNER TO {quote_ident(rdsadmin)}",
+                )
+        with install.legacy_conn() as conn:
+            result = run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(PASSWORD, PASSWORD), roles
+            )
+            flags = _run(
+                conn,
+                "SELECT relrowsecurity, relforcerowsecurity, pg_get_userbyid(relowner)"
+                f" FROM pg_class WHERE oid = '{schema}.case_fields'::regclass",
+            ).fetchone()
+        assert result.complete, (result.failed, result.remaining_dynamic)
+        assert flags == (True, True, roles.dynamic_owner)
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                _run(
+                    conn,
+                    f"ALTER TABLE {schema}.case_fields NO FORCE ROW LEVEL SECURITY",
+                )
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(rdsadmin)}")
 
 
 def _apply_b0(conn: psycopg.Connection, install: LegacyInstall, moved: str) -> None:
@@ -2068,8 +2154,12 @@ def test_migrate_sets_up_roles_on_a_fresh_compose_install(
         assert references == (True,)  # granted after migrations created "case"
         with psycopg.connect(_url("postgres", "postgres", database)) as conn:
             guard = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
-        # migrator can't create event triggers; the admin's post-migration pass did.
-        assert [row[1:] for row in guard] == [("O", "postgres", "postgres")] * 2
+        # migrator can't create event triggers, so the guard comes from the admin's
+        # post-migration pass, and only once a guard revision is selected.
+        if roles_module.RLS_GUARD_REVISION is None:
+            assert guard == []
+        else:
+            assert [row[1:] for row in guard] == [("O", "postgres", "postgres")] * 2
         with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
             assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
         assert migrate(roles) == 0  # every deploy reruns it

@@ -604,8 +604,14 @@ def run_bootstrap(
     return notes
 
 
-RLS_GUARD_REVISION = "b4074a0896b5"
-"""The revision that defines the dynamic-table RLS guard (two event triggers)."""
+RLS_GUARD_REVISION: str | None = None
+"""The revision whose dynamic-table RLS guard role setup installs; None installs none.
+
+b4074a0896b5's guard exempts only the event triggers' owner, which on RDS is
+``rdsadmin``: it would bind the admin too. Set this to the revision that
+exempts the guard function's owner once it lands, and update
+``RLS_GUARD_INSTALLED_SQL`` to that revision's installed check.
+"""
 
 ALEMBIC_INI = "alembic.ini"
 """Relative to the working directory, as for ``alembic upgrade`` itself."""
@@ -638,6 +644,8 @@ def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | N
     before the revision has run: it first enables and forces RLS on dynamic
     tables, without which the guard rejects later column changes on them.
     """
+    if RLS_GUARD_REVISION is None:
+        return None
     exists = cur.execute(
         "SELECT pg_catalog.to_regclass('public.alembic_version') IS NOT NULL"
     ).fetchone()
