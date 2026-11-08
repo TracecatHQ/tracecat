@@ -1974,6 +1974,28 @@ def test_migrate_refuses_role_setup_without_login_credentials(
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
+def test_migrate_warns_but_proceeds_when_the_app_uri_names_the_server_differently(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One server, two names (localhost vs 127.0.0.1): warn, don't skip or stop."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        alias = make_url(_url(roles.app, PASSWORD, database, "+psycopg")).set(
+            host="127.0.0.1"
+        )
+        monkeypatch.setenv("TRACECAT__DB_URI", alias.render_as_string(False))
+        assert migrate(roles) == 0
+        err = capsys.readouterr().err
+        assert "warning: migrations run on" in err
+        assert PASSWORD not in err
+        assert _role_exists(roles.owner)
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
 def test_migrate_refuses_when_app_inherits_writes_on_alembic_version(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

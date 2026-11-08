@@ -702,6 +702,7 @@ def migrate(
             file=sys.stderr,
         )
         return 1
+    _warn_if_targets_differ()
     if (code := _setup_roles(login, passwords, roles, lock_timeout, retries)) != 0:
         return code
     db_uri = _login_uri(roles.migrator, migrator_password)
@@ -712,6 +713,31 @@ def migrate(
     # columns, alembic_version read-only) and dynamic schemas that revisions
     # create. Until these commit the app may be denied, so they gate success.
     return _setup_roles(login, LoginPasswords(), roles, lock_timeout, retries)
+
+
+def _warn_if_targets_differ() -> None:
+    """Flag an admin URI left on another database (e.g. the bundled one).
+
+    A warning, not a stop: one server can have several names (localhost and
+    postgres_db, or the app through PgDog).
+    """
+    if not (app_uri := os.environ.get("TRACECAT__DB_URI")):
+        return
+    admin, app = make_url(_admin_conninfo()), make_url(app_uri)
+    if (admin.host, admin.port or 5432, admin.database) == (
+        app.host,
+        app.port or 5432,
+        app.database,
+    ):
+        return
+    print(
+        f"warning: migrations run on {_printable(str(admin.host))}/"
+        f"{_printable(str(admin.database))} (TRACECAT__DB_ADMIN_URI), but "
+        f"TRACECAT__DB_URI names {_printable(str(app.host))}/"
+        f"{_printable(str(app.database))}. If those are different databases, "
+        "point TRACECAT__DB_ADMIN_URI at the app's database or clear it.",
+        file=sys.stderr,
+    )
 
 
 def _setup_roles(

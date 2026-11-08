@@ -178,14 +178,22 @@ def test_search_migration_enables_vector_and_preserves_source_data(
         admin.dispose()
 
 
-def test_search_migration_installs_vector_in_ibm_extension_schema() -> None:
-    """IBM Cloud only allows extensions in its read-only ibm_extension schema.
-
-    IBM redirects a plain CREATE EXTENSION into ibm_extension; stock PostgreSQL
-    can't, and migrations pin their own search_path (public, plus a
-    superuser-owned ibm_extension), so the extension is installed where IBM
-    puts it. It must stay visible to the migration's version check.
-    """
+@pytest.mark.parametrize(
+    ("preinstalled", "schema", "column_type"),
+    [
+        # The migration's IBM branch runs its plain CREATE EXTENSION. IBM
+        # redirects that into ibm_extension; stock PostgreSQL uses the first
+        # schema on the migration's pinned path, public.
+        (False, "public", "vector"),
+        # Already in ibm_extension, as IBM's provider installs it: the pinned
+        # path keeps it visible to the migration's version check.
+        (True, "ibm_extension", "ibm_extension.vector"),
+    ],
+)
+def test_search_migration_installs_vector_in_ibm_extension_schema(
+    preinstalled: bool, schema: str, column_type: str
+) -> None:
+    """IBM Cloud only allows extensions in its read-only ibm_extension schema."""
     name = f"test_search_migration_{uuid.uuid4().hex}"
     admin = create_engine(
         TEST_DB_CONFIG.sys_url_sync, isolation_level="AUTOCOMMIT", poolclass=NullPool
@@ -199,7 +207,8 @@ def test_search_migration_installs_vector_in_ibm_extension_schema() -> None:
         assert previous.returncode == 0, previous.stderr
         with engine.begin() as conn:  # as a superuser, like IBM's provider
             conn.execute(text("CREATE SCHEMA ibm_extension"))
-            conn.execute(text("CREATE EXTENSION vector WITH SCHEMA ibm_extension"))
+            if preinstalled:
+                conn.execute(text("CREATE EXTENSION vector WITH SCHEMA ibm_extension"))
         upgraded = run_alembic(url, "upgrade", "9680c861644a")
         assert upgraded.returncode == 0, upgraded.stderr
         with engine.begin() as conn:
@@ -210,7 +219,7 @@ def test_search_migration_installs_vector_in_ibm_extension_schema() -> None:
                         "WHERE extname = 'vector'"
                     )
                 )
-                == "ibm_extension"
+                == schema
             )
             assert (
                 conn.scalar(
@@ -219,7 +228,7 @@ def test_search_migration_installs_vector_in_ibm_extension_schema() -> None:
                         "WHERE attrelid = 'search_chunk'::regclass AND attname = 'embedding'"
                     )
                 )
-                == "ibm_extension.vector"  # not on this connection's path
+                == column_type  # ibm_extension isn't on this connection's path
             )
     finally:
         engine.dispose()
