@@ -39,12 +39,16 @@ from tracecat.db.roles import (
     LoginPasswords,
     RoleNames,
     UnsafeDatabaseLoginError,
+    UpgradeResult,
     _admin_conninfo,
+    _printable,
     assert_login_can_enforce_rls,
     bootstrap_statements,
     quote_ident,
+    quote_literal,
     render_sql,
     run_bootstrap,
+    run_upgrade,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -583,6 +587,147 @@ def test_bootstrap_normalizes_noinherit_roles(scratch: Scratch) -> None:
     assert rows == (True,)
 
 
+def test_refuses_a_login_role_with_unexpected_members(scratch: Scratch) -> None:
+    """A pre-created migrator with a member would hand that member the owner keyring."""
+    roles = scratch.roles
+    squatter = f"squatter_{_suffix()}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.migrator)} LOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(squatter)} LOGIN")
+        _run(conn, f"GRANT {quote_ident(roles.migrator)} TO {quote_ident(squatter)}")
+    try:
+        with (
+            psycopg.connect(
+                _url("postgres", "postgres", scratch.database), autocommit=True
+            ) as conn,
+            pytest.raises(psycopg.errors.RaiseException, match="unexpected members"),
+        ):
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert not _role_exists(roles.owner)
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(squatter)}")
+
+
+def test_refuses_admin_only_members_other_than_the_admin(scratch: Scratch) -> None:
+    """ADMIN OPTION lets its holder grant itself SET, so only the running admin may hold it."""
+    with _superuser() as conn:
+        version = conn.execute("SHOW server_version_num").fetchone()
+    if version and int(version[0]) < 160000:
+        pytest.skip("per-grant INHERIT/SET options are PostgreSQL 16+")
+    roles = scratch.roles
+    holder = f"holder_{_suffix()}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.migrator)} LOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(holder)} LOGIN")
+        _run(
+            conn,
+            f"GRANT {quote_ident(roles.migrator)} TO {quote_ident(holder)} "
+            "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE",
+        )
+    try:
+        with (
+            psycopg.connect(
+                _url("postgres", "postgres", scratch.database), autocommit=True
+            ) as conn,
+            pytest.raises(psycopg.errors.RaiseException, match="unexpected members"),
+        ):
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(holder)}")
+
+
+def test_refuses_a_pre_created_owner_keyring_holding_app(scratch: Scratch) -> None:
+    """app in tracecat_owner would own public, where RLS isn't forced."""
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.owner)} NOLOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+        _run(conn, f"GRANT {quote_ident(roles.owner)} TO {quote_ident(roles.app)}")
+    with (
+        psycopg.connect(
+            _url("postgres", "postgres", scratch.database), autocommit=True
+        ) as conn,
+        pytest.raises(
+            psycopg.errors.RaiseException, match="can act as the owner keyring"
+        ),
+    ):
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+
+
+def test_refuses_a_pre_created_dynamic_keyring_holding_readonly(
+    scratch: Scratch,
+) -> None:
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.dynamic_owner)} NOLOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(roles.readonly)} NOLOGIN")
+        _run(
+            conn,
+            f"GRANT {quote_ident(roles.dynamic_owner)} TO {quote_ident(roles.readonly)}",
+        )
+    with (
+        psycopg.connect(
+            _url("postgres", "postgres", scratch.database), autocommit=True
+        ) as conn,
+        pytest.raises(psycopg.errors.RaiseException, match="holds the dynamic keyring"),
+    ):
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+
+
+def test_refuses_a_database_owned_by_app(scratch: Scratch) -> None:
+    """The database owner owns public (PG 15+) and could drop every moved table."""
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+        _run(
+            conn,
+            f"ALTER DATABASE {quote_ident(scratch.database)} OWNER TO {quote_ident(roles.app)}",
+        )
+    with (
+        psycopg.connect(
+            _url("postgres", "postgres", scratch.database), autocommit=True
+        ) as conn,
+        pytest.raises(
+            psycopg.errors.RaiseException, match="owner of the database or of public"
+        ),
+    ):
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+    with _superuser() as conn:
+        _run(
+            conn,
+            f"ALTER DATABASE {quote_ident(scratch.database)} OWNER TO {quote_ident(scratch.admin)}",
+        )
+
+
+def test_bootstrap_ignores_functions_planted_on_the_search_path(
+    scratch: Scratch,
+) -> None:
+    """A database-wide search_path can't swap pg_catalog.format() for a planted one."""
+    roles = scratch.roles
+    canary = f"canary_{_suffix()}"
+    with psycopg.connect(
+        _url("postgres", "postgres", scratch.database), autocommit=True
+    ) as conn:
+        _run(
+            conn,
+            "CREATE FUNCTION public.format(text, text, text) RETURNS text LANGUAGE sql "
+            f"AS $f$ SELECT 'CREATE ROLE {canary}' $f$",
+        )
+        _run(
+            conn,
+            f"ALTER DATABASE {quote_ident(scratch.database)} SET search_path = public, pg_catalog",
+        )
+    try:
+        with scratch.admin_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert not _role_exists(canary)
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(canary)}")
+
+
 def test_refuses_a_login_role_with_createrole(scratch: Scratch) -> None:
     """CREATEROLE lets a login grant itself the owner keyring."""
     roles = scratch.roles
@@ -688,3 +833,996 @@ def test_every_credential_named_column_is_classified() -> None:
         and (table.name, column.name) not in hidden | SAFE_CREDENTIAL_NAMED_COLUMNS
     )
     assert unclassified == []
+
+
+# --- upgrade -----------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyInstall:
+    """A single-user install: one CREATEROLE login owns everything (RDS shape)."""
+
+    database: str
+    legacy: str
+    roles: RoleNames
+
+    def url(self, user: str, password: str, driver: str = "") -> str:
+        return _url(user, password, self.database, driver)
+
+    def legacy_conn(self) -> psycopg.Connection:
+        return psycopg.connect(self.url(self.legacy, "legacy"), autocommit=True)
+
+
+def _alembic(url: str, *args: str) -> None:
+    env = os.environ.copy()
+    env["TRACECAT__DB_URI"] = url
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", *args],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr[-4000:]
+
+
+def _legacy_install(suffix: str, *, migrate: bool) -> LegacyInstall:
+    install = LegacyInstall(f"legacy_{suffix}", f"legacy_{suffix}", _test_roles(suffix))
+    try:
+        _seed_legacy_install(install, migrate=migrate)
+    except BaseException:
+        _drop_install(install)
+        raise
+    return install
+
+
+def _seed_legacy_install(install: LegacyInstall, *, migrate: bool) -> None:
+    with _superuser() as conn:
+        _run(
+            conn,
+            f"CREATE ROLE {quote_ident(install.legacy)} LOGIN CREATEROLE PASSWORD 'legacy'",
+        )
+        _run(
+            conn,
+            f"CREATE DATABASE {quote_ident(install.database)} OWNER {quote_ident(install.legacy)}",
+        )
+    if migrate:
+        with psycopg.connect(
+            _url("postgres", "postgres", install.database), autocommit=True
+        ) as conn:
+            conn.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+            conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
+        _alembic(install.url(install.legacy, "legacy", "+psycopg"), "upgrade", "head")
+
+
+def _drop_install(install: LegacyInstall) -> None:
+    roles = install.roles
+    _drop_all(install.database, [*roles.logins, *roles.keyrings, install.legacy])
+
+
+def _create_dynamic_schema(conn: psycopg.Connection, schema: str) -> None:
+    """What the app did before TRACECAT__DB_DYNAMIC_OWNER_ROLE: RLS on, not forced."""
+    s = quote_ident(schema)
+    _run(conn, f"CREATE SCHEMA {s}")
+    _run(
+        conn,
+        f"CREATE TABLE {s}.case_fields (id uuid PRIMARY KEY, "
+        'case_id uuid NOT NULL REFERENCES public."case"(id) ON DELETE CASCADE)',
+    )
+    _run(conn, f"ALTER TABLE {s}.case_fields ENABLE ROW LEVEL SECURITY")
+
+
+def test_upgrade_moves_a_single_user_install_and_reruns_cleanly() -> None:
+    """The ENG-2444 upgrade path: everything owned by one login moves to the keyrings."""
+    install = _legacy_install(_suffix(), migrate=True)
+    roles = install.roles
+    first = f"custom_fields_ws_{uuid.uuid4().hex[:12]}"
+    later = f"custom_fields_ws_{uuid.uuid4().hex[:12]}"
+    passwords = LoginPasswords(PASSWORD, PASSWORD, PASSWORD)
+    try:
+        with install.legacy_conn() as conn:
+            _create_dynamic_schema(conn, first)
+            result = run_upgrade(conn, LoginMethod.PASSWORD, passwords, roles)
+        assert result.complete, (
+            result.failed,
+            result.remaining_public,
+            result.remaining_dynamic,
+        )
+        assert len(result.moved) > 100
+
+        with install.legacy_conn() as conn:
+            leftover = conn.execute(
+                """
+                SELECT c.relname FROM pg_class c
+                WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p','v','m','S')
+                  AND pg_get_userbyid(c.relowner) <> %s
+                  AND NOT EXISTS (SELECT FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
+                """,
+                (roles.owner,),
+            ).fetchall()
+            dynamic = conn.execute(
+                "SELECT pg_get_userbyid(n.nspowner), pg_get_userbyid(c.relowner), c.relforcerowsecurity "
+                "FROM pg_namespace n JOIN pg_class c ON c.relnamespace = n.oid "
+                "WHERE n.nspname = %s AND c.relkind = 'r'",
+                (first,),
+            ).fetchall()
+        assert leftover == []
+        assert dynamic == [(roles.dynamic_owner, roles.dynamic_owner, True)]
+
+        # Migrations keep working as migrator, both ways.
+        migrator_url = install.url(roles.migrator, PASSWORD, "+psycopg")
+        _alembic(migrator_url, "downgrade", "-1")
+        _alembic(migrator_url, "upgrade", "head")
+
+        # The app reads public and sees no dynamic rows without the bypass (forced RLS).
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
+            assert _run(
+                conn, f"SELECT count(*) FROM {quote_ident(first)}.case_fields"
+            ).fetchone() == (0,)
+
+        # Rerun: nothing to do. Then a schema the old login created since (staging B0's gap).
+        with install.legacy_conn() as conn:
+            again = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            assert again.complete and again.moved == []
+            _create_dynamic_schema(conn, later)
+            catch_up = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert catch_up.complete
+        assert catch_up.moved == [f"SCHEMA {quote_ident(later)}"]
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_reports_a_locked_object_and_moves_the_rest() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.busy (id int)")
+            conn.execute("CREATE TABLE public.idle (id int)")
+            # Uses busy with its owner's rights, like the MCP token trigger.
+            conn.execute(
+                "CREATE FUNCTION public.touch_busy() RETURNS void LANGUAGE sql "
+                "SECURITY DEFINER AS 'DELETE FROM public.busy'"
+            )
+        with psycopg.connect(install.url("postgres", "postgres")) as holder:
+            holder.execute("LOCK TABLE public.busy IN ACCESS SHARE MODE")
+            with install.legacy_conn() as conn:
+                result = run_upgrade(
+                    conn,
+                    LoginMethod.PASSWORD,
+                    LoginPasswords(),
+                    roles,
+                    lock_timeout="200ms",
+                    retries=0,
+                )
+            holder.rollback()
+        assert result.moved == ["TABLE public.idle"]
+        assert [label for label, _ in result.failed] == ["TABLE public.busy"]
+        # The routine waits for its table, so it never runs without access to it.
+        assert result.remaining_public == [
+            f"TABLE public.busy (owner {install.legacy})",
+            f"ROUTINE public.touch_busy() (owner {install.legacy})",
+        ]
+        assert not result.complete
+        with install.legacy_conn() as conn:
+            assert run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(), roles
+            ).complete
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_bounds_lock_waits_during_bootstrap() -> None:
+    """A concurrent catalog change can't stall the bootstrap phase forever.
+
+    GRANT takes no table lock, but it waits on the row lock of a catalog tuple
+    another transaction is changing (here the ``public`` schema's ACL).
+    """
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with psycopg.connect(install.url("postgres", "postgres")) as holder:
+            _run(
+                holder,
+                f"GRANT CREATE ON SCHEMA public TO {quote_ident(install.legacy)}",
+            )
+            with (
+                install.legacy_conn() as conn,
+                pytest.raises(psycopg.errors.LockNotAvailable),
+            ):
+                run_upgrade(
+                    conn,
+                    LoginMethod.PASSWORD,
+                    LoginPasswords(),
+                    roles,
+                    lock_timeout="200ms",
+                    retries=0,
+                )
+            holder.rollback()
+        assert not _role_exists(roles.owner)  # the bootstrap rolled back
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_requires_an_autocommit_connection() -> None:
+    with (
+        psycopg.connect(_url("postgres", "postgres", "postgres")) as conn,
+        pytest.raises(ValueError, match="autocommit"),
+    ):
+        run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords())
+
+
+def test_upgrade_ignores_decoys_in_a_schema_named_after_the_admin() -> None:
+    """Names stay schema-qualified, so a "$user" schema can't capture a transfer."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    decoy_owner = f"decoy_{_suffix()}"
+    try:
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(decoy_owner)} NOLOGIN")
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.genuine (id int)")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            legacy = quote_ident(install.legacy)
+            _run(
+                conn, f"CREATE SCHEMA {legacy} AUTHORIZATION {quote_ident(decoy_owner)}"
+            )
+            _run(conn, f"CREATE VIEW {legacy}.genuine AS SELECT 1 AS id")
+            _run(
+                conn, f"ALTER VIEW {legacy}.genuine OWNER TO {quote_ident(decoy_owner)}"
+            )
+        with install.legacy_conn() as conn:
+            result = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            decoy = conn.execute(
+                "SELECT pg_get_userbyid(c.relowner) FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = %s AND c.relname = 'genuine'",
+                (install.legacy,),
+            ).fetchone()
+        assert result.complete
+        assert result.moved == ["TABLE public.genuine"]
+        assert decoy == (decoy_owner,)
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(decoy_owner)}")
+
+
+def test_upgrade_is_incomplete_when_from_names_the_wrong_owner() -> None:
+    """Completion means nothing in public is off the owner keyring, whatever --from says."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    bystander = f"bystander_{_suffix()}"
+    try:
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(bystander)} NOLOGIN")
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.kept (id int)")
+            result = run_upgrade(
+                conn,
+                LoginMethod.PASSWORD,
+                LoginPasswords(),
+                roles,
+                old_owners=[bystander],
+            )
+            with pytest.raises(ValueError, match="don't exist"):
+                run_upgrade(
+                    conn,
+                    LoginMethod.PASSWORD,
+                    LoginPasswords(),
+                    roles,
+                    old_owners=["no_such_role_anywhere"],
+                )
+        assert result.moved == []
+        assert result.remaining_public == [
+            f"TABLE public.kept (owner {install.legacy})"
+        ]
+        assert not result.complete
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(bystander)}")
+
+
+def test_cli_output_escapes_control_characters() -> None:
+    assert _printable("TABLE public.\x1b[31mevil") == "TABLE public.\\x1b[31mevil"
+
+
+def test_upgrade_keeps_the_old_login_working_until_cutover() -> None:
+    """A separate admin moves --from's objects; the app still on that login keeps access."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.orders (id int)")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            result = run_upgrade(
+                conn,
+                LoginMethod.PASSWORD,
+                LoginPasswords(),
+                roles,
+                old_owners=[install.legacy],
+            )
+        assert result.complete
+        assert (
+            f"{install.legacy}: kept access through {roles.owner} until cutover"
+            in result.notes
+        )
+        with install.legacy_conn() as conn:
+            conn.execute("INSERT INTO public.orders VALUES (1)")
+            assert conn.execute("SELECT count(*) FROM public.orders").fetchone() == (1,)
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_reenables_rls_on_dynamic_tables_with_policies() -> None:
+    """A policy with RLS switched off protects nothing; the upgrade turns it back on."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with install.legacy_conn() as conn:
+            _run(conn, f"CREATE SCHEMA {schema}")
+            _run(conn, f"CREATE TABLE {schema}.t (id int)")
+            _run(conn, f"CREATE POLICY p ON {schema}.t USING (false)")
+            _run(conn, f"ALTER TABLE {schema}.t DISABLE ROW LEVEL SECURITY")
+            result = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            flags = _run(
+                conn,
+                f"SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                f"WHERE oid = '{schema}.t'::regclass",
+            ).fetchone()
+        assert result.complete
+        assert flags == (True, True)
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_reports_superuser_owned_objects_it_skips() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            # RDS keeps rdsadmin-owned functions in public; the admin can't move them.
+            conn.execute(
+                "CREATE FUNCTION public.system_owned() RETURNS int LANGUAGE sql AS 'SELECT 1'"
+            )
+        with install.legacy_conn() as conn:
+            result = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert result.complete
+        assert any(
+            note.startswith("Not moved (owned by a superuser") and "postgres: 1" in note
+            for note in result.notes
+        )
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_validates_from_before_changing_anything() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with (
+            install.legacy_conn() as conn,
+            pytest.raises(ValueError, match="don't exist"),
+        ):
+            run_upgrade(
+                conn,
+                LoginMethod.PASSWORD,
+                LoginPasswords(),
+                roles,
+                old_owners=["no_such_role_anywhere"],
+            )
+        assert not _role_exists(roles.owner)
+    finally:
+        _drop_install(install)
+
+
+def _superuser_upgrade(install: LegacyInstall, old_owners: list[str]) -> UpgradeResult:
+    """Upgrade as a separate superuser admin, moving ``old_owners``' objects."""
+    with psycopg.connect(install.url("postgres", "postgres"), autocommit=True) as conn:
+        return run_upgrade(
+            conn, LoginMethod.PASSWORD, LoginPasswords(), install.roles, old_owners
+        )
+
+
+def test_upgrade_from_an_existing_app_owner_keeps_app_working() -> None:
+    """ALTER OWNER rewrites app's own ACL; each transfer gives the grants back at once.
+
+    Nothing re-grants after the pass, so app working afterwards means it never
+    lost access between transfers.
+    """
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with _superuser() as conn:
+            _run(
+                conn,
+                f"CREATE ROLE {quote_ident(roles.app)} LOGIN PASSWORD {quote_literal(PASSWORD)}",
+            )
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.items (id serial)")
+            _run(conn, f"ALTER TABLE public.items OWNER TO {quote_ident(roles.app)}")
+        result = _superuser_upgrade(install, old_owners=[roles.app])
+        assert result.complete
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            conn.execute("INSERT INTO public.items DEFAULT VALUES")  # uses the sequence
+            assert conn.execute("SELECT count(*) FROM public.items").fetchone() == (1,)
+    finally:
+        _drop_install(install)
+
+
+def test_routines_wait_for_tables_owned_by_roles_not_in_from() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.tokens (id int)")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute(
+                "CREATE FUNCTION public.revoke_tokens() RETURNS void LANGUAGE sql "
+                "SECURITY DEFINER AS 'DELETE FROM public.tokens'"
+            )
+        result = _superuser_upgrade(install, old_owners=["postgres"])
+        assert "ROUTINE public.revoke_tokens()" not in result.moved
+        assert (
+            f"TABLE public.tokens (owner {install.legacy})" in result.remaining_public
+        )
+        assert not result.complete
+    finally:
+        _drop_install(install)
+
+
+def test_superuser_owned_tables_always_count_as_unmoved() -> None:
+    """Only routines and types get the superuser carve-out (RDS's rdsadmin functions)."""
+    install = _legacy_install(_suffix(), migrate=False)
+    try:
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.app_data (id int)")
+        result = _superuser_upgrade(install, old_owners=[install.legacy])
+        assert result.remaining_public == ["TABLE public.app_data (owner postgres)"]
+        assert not result.complete
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_only_keeps_access_for_owners_of_moved_objects() -> None:
+    """A --from role that owns nothing must not be handed the owner keyring."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    analyst = f"analyst_{_suffix()}"
+    try:
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(analyst)} LOGIN")
+        result = _superuser_upgrade(install, [analyst])
+        with _superuser() as conn:
+            member = conn.execute(
+                "SELECT pg_has_role(%s, %s, 'MEMBER')", (analyst, roles.owner)
+            ).fetchone()
+        assert member == (False,)
+        assert result.kept_access == []
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(analyst)}")
+
+
+def test_views_wait_for_the_tables_they_read() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.busy (id int)")
+            conn.execute("CREATE VIEW public.busy_view AS SELECT id FROM public.busy")
+        with psycopg.connect(install.url("postgres", "postgres")) as holder:
+            holder.execute("LOCK TABLE public.busy IN ACCESS SHARE MODE")
+            with install.legacy_conn() as conn:
+                result = run_upgrade(
+                    conn,
+                    LoginMethod.PASSWORD,
+                    LoginPasswords(),
+                    roles,
+                    lock_timeout="200ms",
+                    retries=0,
+                )
+            holder.rollback()
+        assert "VIEW public.busy_view" not in result.moved
+        assert (
+            f"VIEW public.busy_view (owner {install.legacy})" in result.remaining_public
+        )
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_reports_objects_the_admin_cannot_act_as() -> None:
+    """The admin is never granted the owner's role (that's the rds_iam lockout path)."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    stranger = f"stranger_{_suffix()}"
+    schema = f"tables_ws_{uuid.uuid4().hex[:12]}"
+    try:
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(stranger)} NOLOGIN")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            _run(
+                conn,
+                f"CREATE SCHEMA {quote_ident(schema)} AUTHORIZATION {quote_ident(stranger)}",
+            )
+        with install.legacy_conn() as conn:
+            result = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            member = conn.execute(
+                "SELECT pg_has_role(%s, %s, 'MEMBER')", (install.legacy, stranger)
+            ).fetchone()
+        assert [label for label, _ in result.failed] == [
+            f"SCHEMA {quote_ident(schema)}"
+        ]
+        assert result.remaining_dynamic == [schema]
+        assert member == (False,)
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(stranger)}")
+
+
+def test_dynamic_owners_keep_access_even_when_not_named_in_from() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with install.legacy_conn() as conn:
+            _run(conn, f"CREATE SCHEMA {schema}")
+            _run(conn, f"CREATE TABLE {schema}.t (id int)")
+        result = _superuser_upgrade(install, ["postgres"])
+        assert result.complete
+        # Dynamic-only owners get the dynamic keyring, not public ownership.
+        assert result.kept_access == [(install.roles.dynamic_owner, install.legacy)]
+        with install.legacy_conn() as conn:
+            _run(conn, f"INSERT INTO {schema}.t VALUES (1)")
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_moves_dynamic_schemas_the_owner_keyring_created() -> None:
+    """Migrations create some dynamic schemas as the owner keyring: no self-grant."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with install.legacy_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            _run(conn, f"SET ROLE {quote_ident(roles.owner)}")
+            _run(conn, f"CREATE SCHEMA {schema}")
+            _run(conn, f"CREATE TABLE {schema}.t (id int)")
+        result = _superuser_upgrade(install, [install.legacy])
+        assert result.failed == []
+        assert result.complete
+        assert f"SCHEMA {schema}" in result.moved
+    finally:
+        _drop_install(install)
+
+
+def test_keep_access_refuses_a_group_that_contains_a_topology_role() -> None:
+    """Granting the owner keyring to a group holding readonly would lift readonly above RLS."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    group = f"legacy_group_{_suffix()}"
+    try:
+        with install.legacy_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(group)} NOLOGIN")
+            _run(conn, f"GRANT {quote_ident(group)} TO {quote_ident(roles.readonly)}")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.shared (id int)")
+            _run(conn, f"ALTER TABLE public.shared OWNER TO {quote_ident(group)}")
+        result = _superuser_upgrade(install, [group])
+        with _superuser() as conn:
+            reach = conn.execute(
+                "SELECT pg_has_role(%s, %s, 'MEMBER')", (roles.readonly, roles.owner)
+            ).fetchone()
+        assert reach == (False,)
+        assert [label for label, _ in result.failed] == [
+            f"KEEP ACCESS {quote_ident(group)}"
+        ]
+        assert not result.complete
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
+
+
+def test_keep_access_refuses_a_dynamic_group_that_contains_readonly() -> None:
+    """Indirect reach counts: readonly in a dynamic owner's group must not get app_owner."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    group = f"dyn_group_{_suffix()}"
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with install.legacy_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(group)} NOLOGIN")
+            _run(conn, f"GRANT {quote_ident(group)} TO {quote_ident(roles.readonly)}")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            _run(conn, f"CREATE SCHEMA {schema} AUTHORIZATION {quote_ident(group)}")
+        result = _superuser_upgrade(install, [install.legacy])
+        with _superuser() as conn:
+            reach = conn.execute(
+                "SELECT pg_has_role(%s, %s, 'MEMBER')",
+                (roles.readonly, roles.dynamic_owner),
+            ).fetchone()
+        assert reach == (False,)
+        assert f"KEEP ACCESS {quote_ident(group)}" in [
+            label for label, _ in result.failed
+        ]
+        assert not result.complete
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
+
+
+def test_cutover_revoke_names_the_role_that_holds_the_grant() -> None:
+    """A group role kept access for its member logins; revoking from the group removes it."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    group = f"legacy_group_{_suffix()}"
+    try:
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(group)} NOLOGIN")
+            _run(conn, f"GRANT {quote_ident(group)} TO {quote_ident(install.legacy)}")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute("CREATE TABLE public.shared (id int)")
+            _run(conn, f"ALTER TABLE public.shared OWNER TO {quote_ident(group)}")
+        result = _superuser_upgrade(install, [group])
+        assert result.complete
+        assert result.kept_access == [(roles.owner, group)]
+        assert any(
+            f"REVOKE {quote_ident(roles.owner)} FROM {quote_ident(group)}" in note
+            for note in result.notes
+        )
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
+
+
+def test_upgrade_role_names_cannot_escape_literals() -> None:
+    """A database-level standard_conforming_strings=off can't turn a role name into SQL."""
+    install = _legacy_install(_suffix(), migrate=False)
+    canary = f"canary_{uuid.uuid4().hex[:8]}"
+    crafted = f"\\'); CREATE ROLE {canary}; --"
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with _superuser() as conn:
+            _run(conn, 'CREATE ROLE "\'" NOLOGIN')  # makes the injected prefix valid
+            _run(conn, f"CREATE ROLE {quote_ident(crafted)} NOLOGIN")
+            _run(
+                conn,
+                f"ALTER DATABASE {quote_ident(install.database)} SET standard_conforming_strings = off",
+            )
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            _run(conn, f"CREATE SCHEMA {schema} AUTHORIZATION {quote_ident(crafted)}")
+        _superuser_upgrade(install, [install.legacy])
+        assert not _role_exists(canary)
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            for role in (crafted, "'", canary):
+                _run(conn, f"DROP ROLE IF EXISTS {quote_ident(role)}")
+
+
+def test_refuses_a_public_schema_owned_by_app(scratch: Scratch) -> None:
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+    with psycopg.connect(
+        _url("postgres", "postgres", scratch.database), autocommit=True
+    ) as conn:
+        _run(conn, f"ALTER SCHEMA public OWNER TO {quote_ident(roles.app)}")
+        with pytest.raises(
+            psycopg.errors.RaiseException, match="owner of the database or of public"
+        ):
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        _run(conn, "ALTER SCHEMA public OWNER TO pg_database_owner")
+
+
+def test_upgrade_keeps_app_execute_on_routines_it_owned() -> None:
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with _superuser() as conn:
+            _run(
+                conn,
+                f"CREATE ROLE {quote_ident(roles.app)} LOGIN PASSWORD {quote_literal(PASSWORD)}",
+            )
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            conn.execute(
+                "CREATE FUNCTION public.helper() RETURNS int LANGUAGE sql AS 'SELECT 1'"
+            )
+            conn.execute("REVOKE EXECUTE ON FUNCTION public.helper() FROM PUBLIC")
+            _run(
+                conn,
+                f"ALTER FUNCTION public.helper() OWNER TO {quote_ident(roles.app)}",
+            )
+        result = _superuser_upgrade(install, [roles.app])
+        assert "ROUTINE public.helper()" in result.moved
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            assert conn.execute("SELECT public.helper()").fetchone() == (1,)
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_ignores_operators_planted_on_the_search_path() -> None:
+    """The whole run resolves from pg_catalog, reports included: no admin SQL via public.=."""
+    install = _legacy_install(_suffix(), migrate=False)
+    canary = f"canary_{uuid.uuid4().hex[:8]}"
+    try:
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            _run(
+                conn,
+                "CREATE FUNCTION public.leak(oid, oid) RETURNS boolean LANGUAGE plpgsql AS "
+                f"$f$ BEGIN EXECUTE 'CREATE ROLE {canary}'; RETURN $1 OPERATOR(pg_catalog.=) $2; "
+                "EXCEPTION WHEN duplicate_object THEN RETURN $1 OPERATOR(pg_catalog.=) $2; END $f$",
+            )
+            conn.execute(
+                "CREATE OPERATOR public.= (LEFTARG = oid, RIGHTARG = oid, FUNCTION = public.leak)"
+            )
+            _run(
+                conn,
+                f"ALTER DATABASE {quote_ident(install.database)} SET search_path = public, pg_catalog",
+            )
+            conn.execute("CREATE TABLE public.t (id int)")
+        _superuser_upgrade(install, ["postgres"])
+        assert not _role_exists(canary)
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(canary)}")
+
+
+def test_upgrade_grants_app_execute_on_legacy_helpers() -> None:
+    """A hardened install revoked PUBLIC EXECUTE; app needs it once it is the login."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute(
+                "CREATE FUNCTION public.helper() RETURNS int LANGUAGE sql AS 'SELECT 1'"
+            )
+            conn.execute("REVOKE EXECUTE ON FUNCTION public.helper() FROM PUBLIC")
+            # SECURITY DEFINER would run as the owner keyring: app must not get it.
+            conn.execute(
+                "CREATE FUNCTION public.privileged() RETURNS int LANGUAGE sql "
+                "SECURITY DEFINER AS 'SELECT 2'"
+            )
+            conn.execute("REVOKE EXECUTE ON FUNCTION public.privileged() FROM PUBLIC")
+            result = run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(app=PASSWORD), roles
+            )
+        assert result.complete
+        with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
+            assert conn.execute("SELECT public.helper()").fetchone() == (1,)
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("SELECT public.privileged()")
+    finally:
+        _drop_install(install)
+
+
+def test_upgrade_moves_routines_named_like_the_dollar_quote_tag() -> None:
+    """A catalog name carrying the DO block's tag must not end the block early."""
+    install = _legacy_install(_suffix(), migrate=False)
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute(
+                'CREATE FUNCTION public."helper$bootstrap$x"() RETURNS int '
+                "LANGUAGE sql AS 'SELECT 1'"
+            )
+            result = run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(), install.roles
+            )
+        assert result.failed == []
+        assert result.complete
+    finally:
+        _drop_install(install)
+
+
+# --- upgrade on the shapes it must handle before it runs by default ------------
+
+
+def test_upgrade_on_a_compose_shaped_install() -> None:
+    """Compose today: the postgres superuser migrated and owns everything; it upgrades itself."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = f"compose_{suffix}"
+    schema = f"custom_fields_ws_{uuid.uuid4().hex[:12]}"
+    passwords = LoginPasswords(PASSWORD, PASSWORD, PASSWORD)
+    with _superuser() as conn:
+        _run(conn, f"CREATE DATABASE {quote_ident(database)}")
+    try:
+        superuser = _url("postgres", "postgres", database)
+        _alembic(_url("postgres", "postgres", database, "+psycopg"), "upgrade", "head")
+        with psycopg.connect(superuser, autocommit=True) as conn:
+            _create_dynamic_schema(conn, schema)
+            first = run_upgrade(conn, LoginMethod.PASSWORD, passwords, roles)
+            again = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            # The migration installed the dynamic RLS guard as postgres.
+            guard = conn.execute(
+                "SELECT pg_get_userbyid(t.evtowner), pg_get_userbyid(f.proowner)"
+                " FROM pg_event_trigger t JOIN pg_proc f ON f.oid = t.evtfoid"
+                " WHERE f.oid = to_regprocedure('public.tracecat_guard_dynamic_rls()')"
+            ).fetchall()
+            owners = conn.execute(
+                """
+                SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c
+                WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p','v','m','S')
+                  AND NOT EXISTS (SELECT FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
+                """
+            ).fetchall()
+        assert first.complete and len(first.moved) > 100
+        assert again.complete and again.moved == [] and again.failed == []
+        assert owners == [(roles.owner,)]
+        assert first.kept_access == []  # a superuser admin needs no kept access
+        assert guard == [("postgres", "postgres")] * 2  # triggers and function
+        # Rolling back the RLS guard's revision drops event triggers, which
+        # needs their owner; migrator then runs the revision before it both ways.
+        _alembic(_url("postgres", "postgres", database, "+psycopg"), "downgrade", "-1")
+        _alembic(
+            _url(roles.migrator, PASSWORD, database, "+psycopg"), "downgrade", "-1"
+        )
+        _alembic(
+            _url(roles.migrator, PASSWORD, database, "+psycopg"), "upgrade", "head"
+        )
+        with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
+            assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
+            assert _run(
+                conn, f"SELECT count(*) FROM {quote_ident(schema)}.case_fields"
+            ).fetchone() == (0,)
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_upgrade_on_a_staging_b0_shaped_install() -> None:
+    """Staging after B0: app and app_owner exist, one dynamic schema already moved, one not."""
+    install = _legacy_install(_suffix(), migrate=True)
+    roles = install.roles
+    q = quote_ident
+    moved = f"tables_ws_{uuid.uuid4().hex[:12]}"
+    later = f"custom_fields_ws_{uuid.uuid4().hex[:12]}"
+    try:
+        with install.legacy_conn() as conn:
+            # B0 steps 1-4, as the master (here the CREATEROLE legacy login).
+            _run(
+                conn,
+                f"CREATE ROLE {q(roles.app)} LOGIN PASSWORD {quote_literal(PASSWORD)}",
+            )
+            _run(
+                conn,
+                f"GRANT CONNECT, CREATE ON DATABASE {q(install.database)} TO {q(roles.app)}",
+            )
+            _run(conn, f"GRANT USAGE ON SCHEMA public TO {q(roles.app)}")
+            _run(
+                conn,
+                f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {q(roles.app)}",
+            )
+            _run(
+                conn,
+                f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {q(roles.app)}",
+            )
+            _run(conn, f"CREATE ROLE {q(roles.dynamic_owner)} NOLOGIN")
+            _run(
+                conn,
+                f"GRANT {q(roles.dynamic_owner)} TO {q(install.legacy)} WITH INHERIT TRUE, SET TRUE",
+            )
+            _run(
+                conn,
+                f"GRANT {q(roles.dynamic_owner)} TO {q(roles.app)} WITH INHERIT TRUE, SET TRUE",
+            )
+            _run(
+                conn,
+                f"GRANT CREATE ON DATABASE {q(install.database)} TO {q(roles.dynamic_owner)}",
+            )
+            _run(
+                conn,
+                f'GRANT REFERENCES ON TABLE public."case" TO {q(roles.dynamic_owner)}',
+            )
+            _create_dynamic_schema(conn, moved)
+            _run(conn, f"ALTER SCHEMA {q(moved)} OWNER TO {q(roles.dynamic_owner)}")
+            _run(
+                conn,
+                f"ALTER TABLE {q(moved)}.case_fields OWNER TO {q(roles.dynamic_owner)}",
+            )
+            _run(conn, f"ALTER TABLE {q(moved)}.case_fields FORCE ROW LEVEL SECURITY")
+            # Created after B0 by the app still running as the master.
+            _create_dynamic_schema(conn, later)
+            result = run_upgrade(
+                conn,
+                LoginMethod.PASSWORD,
+                LoginPasswords(PASSWORD, None, PASSWORD),
+                roles,
+            )
+            again = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert result.complete, (
+            result.failed,
+            result.remaining_public,
+            result.remaining_dynamic,
+        )
+        assert f"SCHEMA {q(later)}" in result.moved
+        assert f"SCHEMA {q(moved)}" not in result.moved
+        assert again.complete and again.moved == []
+        with psycopg.connect(
+            install.url(roles.app, PASSWORD)
+        ) as conn:  # B0's app, password untouched
+            assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
+            assert _run(
+                conn, f"SELECT count(*) FROM {q(later)}.case_fields"
+            ).fetchone() == (0,)
+        with install.legacy_conn() as conn:  # the master keeps password login
+            assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
+    finally:
+        _drop_install(install)
+
+
+def test_a_failed_upgrade_leaves_the_old_login_working() -> None:
+    """Mid-way failure (a held lock): the old login still reads and writes everything."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute("CREATE TABLE public.busy (id serial)")
+            conn.execute("CREATE TABLE public.idle (id serial)")
+        with psycopg.connect(install.url("postgres", "postgres")) as holder:
+            holder.execute("LOCK TABLE public.busy IN ACCESS SHARE MODE")
+            with psycopg.connect(
+                install.url("postgres", "postgres"), autocommit=True
+            ) as conn:
+                result = run_upgrade(
+                    conn,
+                    LoginMethod.PASSWORD,
+                    LoginPasswords(),
+                    roles,
+                    old_owners=[install.legacy],
+                    lock_timeout="200ms",
+                    retries=0,
+                )
+            holder.rollback()
+        assert not result.complete
+        assert result.kept_access == [(roles.owner, install.legacy)]
+        assert "TABLE public.idle" in result.moved
+        with install.legacy_conn() as conn:
+            for table in ("busy", "idle"):
+                _run(conn, f"INSERT INTO public.{table} DEFAULT VALUES")
+                assert _run(
+                    conn, f"SELECT count(*) FROM public.{table}"
+                ).fetchone() == (1,)
+        rerun = _superuser_upgrade(install, [install.legacy])
+        assert rerun.complete
+        assert rerun.kept_access == [(roles.owner, install.legacy)]
+    finally:
+        _drop_install(install)
