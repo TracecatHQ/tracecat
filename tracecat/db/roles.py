@@ -607,26 +607,37 @@ ALEMBIC_INI = "alembic.ini"
 """Relative to the working directory, as for ``alembic upgrade`` itself."""
 
 
+# The migration's check (b4074a0896b5's _guard_installed): both triggers fire in
+# normal sessions for every command of their own event, call this revision's
+# function body, and share the function's owner.
+RLS_GUARD_INSTALLED_SQL = """
+SELECT count(*) = 2
+FROM pg_catalog.pg_event_trigger t
+JOIN pg_catalog.pg_proc f ON f.oid = t.evtfoid
+WHERE t.evtname IN (%(ddl_trigger)s, %(drop_trigger)s)
+  AND t.evtenabled IN ('O', 'A')
+  AND t.evttags IS NULL
+  AND t.evtevent = CASE t.evtname WHEN %(ddl_trigger)s
+                       THEN 'ddl_command_end' ELSE 'sql_drop' END
+  AND f.oid = pg_catalog.to_regprocedure(%(function)s)
+  AND f.proowner = t.evtowner
+  AND f.prosrc = %(body)s
+"""
+
+
 def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | None:
-    """Install the dynamic-table RLS guard once migrations have reached it.
+    """Install or repair the dynamic-table RLS guard once migrations reached it.
 
     Migrations run as ``migrator``, which can't create event triggers, so that
-    revision skips the guard; the admin installs it here with the revision's
-    own statements. Not before the revision has run: it first enables and
-    forces RLS on dynamic tables, without which the guard rejects later column
-    changes on them. Installed triggers are left to the revision, which owns
-    their repair.
+    revision can neither install nor repair the guard; the admin does it here
+    with the revision's own statements and the same installed check. Not
+    before the revision has run: it first enables and forces RLS on dynamic
+    tables, without which the guard rejects later column changes on them.
     """
     exists = cur.execute(
         "SELECT pg_catalog.to_regclass('public.alembic_version') IS NOT NULL"
     ).fetchone()
     if not exists or not exists[0]:
-        return None
-    triggers = cur.execute(
-        "SELECT count(*) FROM pg_catalog.pg_event_trigger"
-        " WHERE evtfoid = pg_catalog.to_regprocedure('public.tracecat_guard_dynamic_rls()')"
-    ).fetchone()
-    if triggers and triggers[0] == 2:
         return None
     if not os.path.exists(ALEMBIC_INI):
         return f"dynamic-table RLS guard: skipped, no {ALEMBIC_INI} in the working directory"
@@ -647,6 +658,15 @@ def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | N
     if (revision := script.get_revision(RLS_GUARD_REVISION)) is None:
         return None
     guard = revision.module
+    params = {
+        "ddl_trigger": guard.DDL_TRIGGER,
+        "drop_trigger": guard.DROP_TRIGGER,
+        "function": guard.GUARD_FUNCTION,
+        "body": guard._GUARD_FUNCTION_SQL.split("$guard$")[1],
+    }
+    installed = cur.execute(RLS_GUARD_INSTALLED_SQL, params).fetchone()
+    if installed and installed[0]:
+        return None
     try:
         # A savepoint: a failure leaves the rest of the bootstrap in place.
         with conn.transaction():

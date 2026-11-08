@@ -1783,6 +1783,46 @@ def test_upgrade_keeps_the_rls_guard_the_migration_installed() -> None:
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_ddl DISABLE",
+        "CREATE OR REPLACE FUNCTION public.tracecat_guard_dynamic_rls() "
+        "RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN END $$",
+    ],
+    ids=["disabled", "rewritten"],
+)
+def test_bootstrap_repairs_a_tampered_rls_guard(tamper: str) -> None:
+    """migrator can't repair the guard, so the admin's bootstrap must."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = f"guard_{suffix}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE DATABASE {quote_ident(database)}")
+    try:
+        _alembic(_url("postgres", "postgres", database, "+psycopg"), "upgrade", "head")
+        with psycopg.connect(
+            _url("postgres", "postgres", database), autocommit=True
+        ) as conn:
+            intact = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+            body = conn.execute(
+                "SELECT prosrc FROM pg_proc"
+                " WHERE oid = 'public.tracecat_guard_dynamic_rls()'::regprocedure"
+            ).fetchone()
+            _run(conn, tamper)
+            notes = run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            repaired = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+            body_after = conn.execute(
+                "SELECT prosrc FROM pg_proc"
+                " WHERE oid = 'public.tracecat_guard_dynamic_rls()'::regprocedure"
+            ).fetchone()
+        assert "dynamic-table RLS guard: installed" in notes
+        assert repaired == intact
+        assert body_after == body
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
 def _apply_b0(conn: psycopg.Connection, install: LegacyInstall, moved: str) -> None:
     """Staging's B0, as the master: app and app_owner, one dynamic schema moved."""
     roles = install.roles
