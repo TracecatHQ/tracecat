@@ -134,7 +134,16 @@ def quote_literal(value: str) -> str:
 
 
 def _do(body: str) -> str:
-    return f"DO $bootstrap$\nBEGIN\n{body}\nEND\n$bootstrap$;"
+    """Wrap a PL/pgSQL body in a DO block.
+
+    The dollar-quote tag is picked so it can't occur in the body: some bodies
+    carry catalog-derived names, and a name containing the tag would end the
+    block early.
+    """
+    tag = "bootstrap"
+    while f"${tag}$" in body:
+        tag += "_"
+    return f"DO ${tag}$\nBEGIN\n{body}\nEND\n${tag}$;"
 
 
 def _create_role(name: str, *, login: bool) -> list[str]:
@@ -541,6 +550,8 @@ def run_bootstrap(
         )
     notes: list[str] = []
     with conn.transaction(), conn.cursor() as cur:
+        # Before any client-built literal is parsed (see bootstrap_statements).
+        cur.execute(b"SET LOCAL standard_conforming_strings = on")
         if lock_timeout is not None:
             timeout = f"SET LOCAL lock_timeout = {quote_literal(lock_timeout)}"
             cur.execute(timeout.encode())

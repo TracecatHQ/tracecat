@@ -1635,6 +1635,24 @@ def test_upgrade_grants_app_execute_on_legacy_helpers() -> None:
         _drop_install(install)
 
 
+def test_upgrade_moves_routines_named_like_the_dollar_quote_tag() -> None:
+    """A catalog name carrying the DO block's tag must not end the block early."""
+    install = _legacy_install(_suffix(), migrate=False)
+    try:
+        with install.legacy_conn() as conn:
+            conn.execute(
+                'CREATE FUNCTION public."helper$bootstrap$x"() RETURNS int '
+                "LANGUAGE sql AS 'SELECT 1'"
+            )
+            result = run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(), install.roles
+            )
+        assert result.failed == []
+        assert result.complete
+    finally:
+        _drop_install(install)
+
+
 # --- upgrade on the shapes it must handle before it runs by default ------------
 
 
