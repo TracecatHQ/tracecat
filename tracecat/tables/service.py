@@ -139,14 +139,26 @@ async def assign_dynamic_owner(
 ) -> None:
     """Give a dynamic schema or table to ``TRACECAT__DB_DYNAMIC_OWNER_ROLE``.
 
-    No-op when the setting is unset. Uses ``ALTER ... OWNER`` rather than
-    ``SET ROLE``: the owner role has no DML grants on ``public``, so later
-    writes in the same transaction would fail under ``SET ROLE``. The caller
-    keeps owner rights through its membership in the owner role.
+    No-op when the setting is unset, or when the role doesn't exist yet (the
+    migrations container's role setup creates it; until then the creator keeps
+    ownership and the next ``tracecat.db.roles upgrade`` moves the object).
+    Uses ``ALTER ... OWNER`` rather than ``SET ROLE``: the owner role has no
+    DML grants on ``public``, so later writes in the same transaction would
+    fail under ``SET ROLE``. The caller keeps owner rights through its
+    membership in the owner role.
     """
     if not (role_name := config.TRACECAT__DB_DYNAMIC_OWNER_ROLE):
         return
     owner = conn.dialect.identifier_preparer.quote(role_name)
+    exists = await conn.scalar(
+        sa.text("SELECT pg_catalog.to_regrole(:role) IS NOT NULL"), {"role": owner}
+    )
+    if not exists:
+        logger.warning(
+            "Dynamic owner role does not exist yet; keeping the creating role as owner",
+            role=role_name,
+        )
+        return
     # Both names go through the context: DDL %-formats the statement.
     await conn.execute(
         sa.DDL(

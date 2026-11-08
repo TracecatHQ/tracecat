@@ -223,3 +223,19 @@ class TestDynamicOwnerRole:
         assert await _table_owner(session, tables_schema, lookup_table) == creator
         assert await _schema_owner(session, fields_schema) == creator
         assert await _table_owner(session, fields_schema, fields_table) == creator
+
+    async def test_missing_owner_role_keeps_creator_as_owner(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Configured before the role exists (role setup hasn't run): creation still works."""
+        missing = f"not_created_yet_{uuid.uuid4().hex[:8]}"
+        monkeypatch.setattr(config, "TRACECAT__DB_DYNAMIC_OWNER_ROLE", missing)
+        creator = (await session.execute(text("SELECT current_user"))).scalar_one()
+
+        tables_schema, lookup_table = await _create_lookup_table(session, svc_role)
+
+        assert await _schema_owner(session, tables_schema) == creator
+        assert await _table_owner(session, tables_schema, lookup_table) == creator

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.db import roles as roles_module
 from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.db.models import Base
 from tracecat.db.roles import (
@@ -1955,4 +1956,41 @@ def test_migrations_ignore_a_shadow_alembic_version_in_a_user_schema(
     finally:
         with _superuser() as conn:
             _run(conn, f"DROP DATABASE IF EXISTS {quote_ident(database)} WITH (FORCE)")
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_moves_dynamic_schemas_that_migrations_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revisions that create tables_*/custom_fields_* run as migrator: re-own them after."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    schema = f"tables_ws_{uuid.uuid4().hex[:12]}"
+    real_alembic = roles_module._alembic_upgrade
+
+    def alembic_that_creates_a_dynamic_schema(db_uri: str | None) -> int:
+        code = real_alembic(db_uri)
+        # What 7694c8910510 / b4d8b2f2c9dd do, as the migration's role.
+        with psycopg.connect(
+            _url("postgres", "postgres", database), autocommit=True
+        ) as conn:
+            _run(conn, f"SET ROLE {quote_ident(roles.owner)}")
+            _run(conn, f"CREATE SCHEMA IF NOT EXISTS {quote_ident(schema)}")
+            _run(conn, f"CREATE TABLE IF NOT EXISTS {quote_ident(schema)}.t (id int)")
+        return code
+
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        monkeypatch.setattr(
+            roles_module, "_alembic_upgrade", alembic_that_creates_a_dynamic_schema
+        )
+        assert migrate(roles) == 0
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            owner = conn.execute(
+                "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = %s",
+                (schema,),
+            ).fetchone()
+        assert owner == (roles.dynamic_owner,)
+    finally:
         _drop_all(database, [*roles.logins, *roles.keyrings])

@@ -693,11 +693,21 @@ def migrate(
         code = _alembic_upgrade(_login_uri(roles.migrator, migrator_password))
     if code != 0:
         return code
-    # Grants that need the migrated objects: REFERENCES on "case" for
-    # custom-field tables and readonly's hidden columns on new tables. On a
-    # fresh database those tables didn't exist when the bootstrap first ran.
+    # Again after the migrations: grants that need the migrated objects
+    # (REFERENCES on "case", readonly's hidden columns) and dynamic schemas
+    # that revisions create as migrator (owned by tracecat_owner) or as the
+    # admin. A lock left for later is reported; the next deploy continues.
     with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
-        run_bootstrap(conn, login, LoginPasswords(), roles)
+        after = run_upgrade(
+            conn,
+            login,
+            LoginPasswords(),
+            roles,
+            lock_timeout=lock_timeout,
+            retries=retries,
+        )
+    if not after.complete:
+        _print_upgrade(after)
     return 0
 
 
