@@ -8,10 +8,11 @@ Invariants:
 - Forced RLS still applies to a role that inherits ownership: a member of
   the owner role without BYPASSRLS sees only its own workspace's rows.
 - Unset: the creating role keeps ownership.
-- With the dynamic RLS guard (b4074a0896b5) installed and the login role as
-  ``session_user``, the app's own DDL on dynamic tables still works: creating,
-  altering and dropping tables, columns and case fields, and re-initializing
-  an existing case fields table. Disabling RLS as that role fails.
+- With the dynamic RLS guard (b4074a0896b5, as amended by 4ea30f9ea491)
+  installed and the login role as ``session_user``, the app's own DDL on
+  dynamic tables still works: creating, altering and dropping tables, columns
+  and case fields, and re-initializing an existing case fields table.
+  Disabling RLS as that role fails.
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ GUARD_MIGRATION = (
     Path(__file__).resolve().parents[2]
     / "alembic"
     / "versions"
-    / "b4074a0896b5_guard_rls_on_dynamic_workspace_tables.py"
+    / "4ea30f9ea491_exempt_dynamic_rls_guard_function_owner.py"
 )
 
 

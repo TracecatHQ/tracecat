@@ -20,6 +20,19 @@ Invariants:
 - The upgrade logs a warning for each workspace table whose RLS differs from
   what the app creates, and a policy renamed before the upgrade doesn't let
   its table leave the workspace schema afterwards.
+
+4ea30f9ea491 (exempt the guard function's owner), in the shape RDS leaves
+b4074a0896b5's guard: a superuser owns the triggers (`rdsadmin` on RDS) and a
+non-superuser migration login that isn't a member of it owns the function:
+- Before the upgrade the guard binds the migration login; after it, the
+  migration login and members of the function's owner can disable, un-force,
+  drop policies and re-own drifted dynamic tables.
+- The app is still rejected for every blocked case, can't `SET ROLE` to the
+  function's owner, and can't replace, re-own or unhook the guard.
+- The upgrade only replaces the body (same function and triggers), a rerun
+  changes nothing, and downgrade restores b4074a0896b5's body.
+- It keeps a body it can't replace, warns when no guard fires, and keeps the
+  exemption for members of the owner where one role owns everything.
 """
 
 from __future__ import annotations
@@ -30,6 +43,7 @@ import uuid
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 import psycopg.errors
 import pytest
@@ -43,6 +57,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.identifiers.workflow import WorkspaceUUID
 
 MIGRATION_REVISION = "b4074a0896b5"
+OWNER_EXEMPTION_REVISION = "4ea30f9ea491"
 GUARD_FUNCTION = "public.tracecat_guard_dynamic_rls()"
 PREVIOUS_REVISION = "d986afa25989"
 ALEMBIC_DIR = Path(__file__).resolve().parents[2] / "alembic"
@@ -102,6 +117,8 @@ def _alembic(
             command.upgrade(alembic_config, revision)
         case "downgrade":
             command.downgrade(alembic_config, revision)
+        case "stamp":
+            command.stamp(alembic_config, revision)
         case _:
             raise ValueError(action)
 
@@ -286,19 +303,33 @@ def _app_runtime_ddl(db: GuardDb) -> list[str]:
     ]
 
 
-def _install_statements() -> list[str]:
-    """MANUAL_INSTALL_SQL from the migration, as separate statements."""
-    spec = importlib.util.spec_from_file_location(
-        "dynamic_rls_guard",
-        ALEMBIC_DIR
-        / "versions"
-        / f"{MIGRATION_REVISION}_guard_rls_on_dynamic_workspace_tables.py",
-    )
+GUARD_REVISION_FILES = {
+    MIGRATION_REVISION: f"{MIGRATION_REVISION}_guard_rls_on_dynamic_workspace_tables.py",
+    OWNER_EXEMPTION_REVISION: (
+        f"{OWNER_EXEMPTION_REVISION}_exempt_dynamic_rls_guard_function_owner.py"
+    ),
+}
+
+
+def _load_revision(revision: str) -> ModuleType:
+    path = ALEMBIC_DIR / "versions" / GUARD_REVISION_FILES[revision]
+    spec = importlib.util.spec_from_file_location(f"guard_{revision}", path)
     if spec is None or spec.loader is None:
-        raise RuntimeError("Unable to load the guard migration")
+        raise RuntimeError(f"Unable to load {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
+
+
+def _install_statements(revision: str = MIGRATION_REVISION) -> list[str]:
+    """MANUAL_INSTALL_SQL from a guard migration, as separate statements."""
+    module = _load_revision(revision)
     return [*module.UNINSTALL_STATEMENTS, *module.GUARD_STATEMENTS]
+
+
+def _revision_body(revision: str) -> str:
+    """The guard function body a revision installs."""
+    return _load_revision(revision)._GUARD_FUNCTION_SQL.split("$guard$")[1]
 
 
 def _guard_objects(url: str) -> list[tuple[object, ...]]:
@@ -786,3 +817,271 @@ class TestDynamicRlsGuardMigration:
         # admin is a member of the owner role, not of the app login.
         with pytest.raises(RuntimeError, match="Can't enable and force RLS on"):
             _alembic(monkeypatch, guard_db.admin_url, "upgrade", MIGRATION_REVISION)
+
+
+def _guard_body(url: str) -> object:
+    return _query(
+        url,
+        f"SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('{GUARD_FUNCTION}')",
+    )[0][0]
+
+
+def _guard_identity(url: str) -> list[tuple[object, ...]]:
+    """(object, oid, owner) for the guard function and both triggers."""
+    return _query(
+        url,
+        f"""
+        SELECT 'function', oid::text, pg_get_userbyid(proowner)::text
+        FROM pg_proc WHERE oid = to_regprocedure('{GUARD_FUNCTION}')
+        UNION ALL
+        SELECT evtname::text, oid::text, pg_get_userbyid(evtowner)::text
+        FROM pg_event_trigger WHERE evtname LIKE 'tracecat_guard_dynamic_rls%'
+        ORDER BY 1
+        """,
+    )
+
+
+def _guard_row_versions(url: str) -> list[tuple[object, ...]]:
+    """xmin of the guard's catalog rows; it changes when a row is rewritten."""
+    return _query(
+        url,
+        f"""
+        SELECT 'function', xmin::text
+        FROM pg_proc WHERE oid = to_regprocedure('{GUARD_FUNCTION}')
+        UNION ALL
+        SELECT evtname::text, xmin::text
+        FROM pg_event_trigger WHERE evtname LIKE 'tracecat_guard_dynamic_rls%'
+        ORDER BY 1
+        """,
+    )
+
+
+def _migration_privileged(db: GuardDb, case: str) -> list[str]:
+    """DDL a migration or the role bootstrap's upgrade runs on dynamic tables."""
+    match case:
+        case "reown_drifted_table":
+            # The straggler is enabled but not forced, so the guard checks it.
+            return [
+                f'ALTER TABLE "{db.tables_schema}"."{STRAGGLER_TABLE}" '
+                f'OWNER TO "{make_url(db.migrator_url).username}"'
+            ]
+        case _:
+            return _blocked(db, case)
+
+
+MIGRATION_PRIVILEGED_CASES = (
+    "disable",
+    "no_force",
+    "drop_policy",
+    "alter_policy_using",
+    "reown_drifted_table",
+)
+
+
+@pytest.fixture
+def rds_guard(guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch) -> GuardDb:
+    """b4074a0896b5's guard in the shape RDS leaves it.
+
+    The superuser owns both event triggers, as `rdsadmin` does on RDS. The
+    function belongs to `migrator`, as it does to the RDS master that ran
+    b4074a0896b5: no superuser and no member of the triggers' owner. Like
+    `tracecat_owner`, `migrator` is a member of the dynamic owner role. One
+    straggler is left enabled but not forced.
+    """
+    migrator = make_url(guard_db.migrator_url).username
+    _run_committed(
+        guard_db.db_url,
+        [f'GRANT "{guard_db.owner}" TO "{migrator}" WITH INHERIT TRUE, SET TRUE'],
+    )
+    _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
+    _run_committed(
+        guard_db.db_url,
+        [
+            f'ALTER FUNCTION {GUARD_FUNCTION} OWNER TO "{migrator}"',
+            f'ALTER TABLE "{guard_db.tables_schema}"."{STRAGGLER_TABLE}" '
+            "NO FORCE ROW LEVEL SECURITY",
+        ],
+    )
+    return guard_db
+
+
+class TestGuardFunctionOwnerMigration:
+    @pytest.mark.parametrize("case", MIGRATION_PRIVILEGED_CASES)
+    def test_migration_login_is_bound_before_and_exempt_after(
+        self, rds_guard: GuardDb, monkeypatch: pytest.MonkeyPatch, case: str
+    ) -> None:
+        # Fails on base: b4074a0896b5 exempts only the triggers' owner.
+        _assert_guard_rejects(
+            rds_guard.migrator_url, _migration_privileged(rds_guard, case)
+        )
+
+        _alembic(
+            monkeypatch, rds_guard.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+        )
+
+        _run(rds_guard.migrator_url, _migration_privileged(rds_guard, case))
+
+    def test_member_of_function_owner_is_exempt(
+        self, rds_guard: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Like the admin joining tracecat_owner under the role bootstrap.
+        admin = make_url(rds_guard.admin_url).username
+        migrator = make_url(rds_guard.migrator_url).username
+        _run_committed(rds_guard.db_url, [f'GRANT "{migrator}" TO "{admin}"'])
+        _alembic(
+            monkeypatch, rds_guard.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+        )
+
+        for case in MIGRATION_PRIVILEGED_CASES:
+            _run(rds_guard.admin_url, _migration_privileged(rds_guard, case))
+
+    @pytest.mark.parametrize("case", BLOCKED_CASES)
+    def test_app_is_still_rejected(
+        self, rds_guard: GuardDb, monkeypatch: pytest.MonkeyPatch, case: str
+    ) -> None:
+        _alembic(
+            monkeypatch, rds_guard.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+        )
+
+        _assert_guard_rejects(rds_guard.app_url, _blocked(rds_guard, case))
+
+    @pytest.mark.parametrize(
+        "attempt",
+        [
+            "set_role_function_owner",
+            "replace_function",
+            "alter_function_owner",
+            "drop_trigger",
+            "disable_trigger",
+        ],
+    )
+    def test_app_cannot_take_over_the_guard(
+        self, rds_guard: GuardDb, monkeypatch: pytest.MonkeyPatch, attempt: str
+    ) -> None:
+        _alembic(
+            monkeypatch, rds_guard.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+        )
+        app = make_url(rds_guard.app_url).username
+        migrator = make_url(rds_guard.migrator_url).username
+        # Worst case: the app may create objects in public.
+        _run_committed(rds_guard.db_url, [f'GRANT CREATE ON SCHEMA public TO "{app}"'])
+        match attempt:
+            case "set_role_function_owner":
+                statements = [
+                    f'SET LOCAL ROLE "{migrator}"',
+                    f"ALTER TABLE {rds_guard.table} DISABLE ROW LEVEL SECURITY",
+                ]
+            case "replace_function":
+                statements = [
+                    f"CREATE OR REPLACE FUNCTION {GUARD_FUNCTION} "
+                    "RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN END $$"
+                ]
+            case "alter_function_owner":
+                statements = [f'ALTER FUNCTION {GUARD_FUNCTION} OWNER TO "{app}"']
+            case "drop_trigger":
+                statements = ["DROP EVENT TRIGGER tracecat_guard_dynamic_rls_ddl"]
+            case _:
+                statements = [
+                    "ALTER EVENT TRIGGER tracecat_guard_dynamic_rls_ddl DISABLE"
+                ]
+
+        with pytest.raises(DBAPIError) as exc_info:
+            _run(rds_guard.app_url, statements)
+        assert isinstance(exc_info.value.orig, psycopg.errors.InsufficientPrivilege)
+        _assert_guard_rejects(rds_guard.app_url, _blocked(rds_guard, "disable"))
+
+    def test_upgrade_replaces_only_the_body_and_rerun_is_a_no_op(
+        self,
+        rds_guard: GuardDb,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        identity = _guard_identity(rds_guard.db_url)
+        trigger_versions = _guard_row_versions(rds_guard.db_url)[1:]
+
+        _alembic(
+            monkeypatch, rds_guard.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+        )
+
+        assert _guard_body(rds_guard.db_url) == _revision_body(OWNER_EXEMPTION_REVISION)
+        assert _guard_identity(rds_guard.db_url) == identity
+        assert _guard_row_versions(rds_guard.db_url)[1:] == trigger_versions
+
+        versions = _guard_row_versions(rds_guard.db_url)
+        _alembic(monkeypatch, rds_guard.db_url, "stamp", MIGRATION_REVISION)
+        with caplog.at_level(logging.INFO, logger="alembic.runtime.migration"):
+            _alembic(
+                monkeypatch,
+                rds_guard.migrator_url,
+                "upgrade",
+                OWNER_EXEMPTION_REVISION,
+            )
+
+        assert "already has this body" in caplog.text
+        assert _guard_row_versions(rds_guard.db_url) == versions
+
+    def test_downgrade_restores_the_previous_body(
+        self, rds_guard: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        identity = _guard_identity(rds_guard.db_url)
+        _alembic(
+            monkeypatch, rds_guard.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+        )
+
+        _alembic(monkeypatch, rds_guard.migrator_url, "downgrade", MIGRATION_REVISION)
+
+        assert _guard_body(rds_guard.db_url) == _revision_body(MIGRATION_REVISION)
+        assert _guard_identity(rds_guard.db_url) == identity
+        _assert_guard_rejects(rds_guard.migrator_url, _blocked(rds_guard, "disable"))
+
+    def test_upgrade_keeps_a_body_it_cannot_replace(
+        self,
+        guard_db: GuardDb,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # The superuser installed the guard and owns the function.
+        _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
+
+        with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
+            _alembic(
+                monkeypatch, guard_db.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+            )
+
+        assert "Kept the dynamic-table RLS guard's body" in caplog.text
+        assert _guard_body(guard_db.db_url) == _revision_body(MIGRATION_REVISION)
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
+
+    def test_upgrade_warns_when_no_guard_fires(
+        self,
+        guard_db: GuardDb,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # b4074a0896b5 skipped the guard: the role couldn't create triggers.
+        _alembic(monkeypatch, guard_db.db_url, "stamp", MIGRATION_REVISION)
+
+        with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
+            _alembic(monkeypatch, guard_db.db_url, "upgrade", OWNER_EXEMPTION_REVISION)
+
+        assert "isn't installed or doesn't fire" in caplog.text
+        assert _guard_objects(guard_db.db_url) == []
+
+    def test_single_owner_install_keeps_member_exemption(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Off RDS one role owns the function and the triggers.
+        _alembic(monkeypatch, guard_db.db_url, "upgrade", OWNER_EXEMPTION_REVISION)
+
+        assert _guard_body(guard_db.db_url) == _revision_body(OWNER_EXEMPTION_REVISION)
+        for case in BLOCKED_CASES:
+            _run(guard_db.admin_url, _blocked(guard_db, case))
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
+
+    def test_manual_install_exempts_the_installing_role(
+        self, guard_db: GuardDb
+    ) -> None:
+        _run_committed(guard_db.db_url, _install_statements(OWNER_EXEMPTION_REVISION))
+
+        _run(guard_db.admin_url, _blocked(guard_db, "disable"))
+        _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
