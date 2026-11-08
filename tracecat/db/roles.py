@@ -475,7 +475,6 @@ def bootstrap_statements(
     statements += [
         f"{default} SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app};",
         f"{default} USAGE, SELECT, UPDATE ON SEQUENCES TO {app};",
-        f"{default} EXECUTE ON FUNCTIONS TO {app};",
         _verify(login, roles),
     ]
     return statements
@@ -1169,6 +1168,15 @@ def _direct_members(conn: psycopg.Connection, role: str) -> list[str]:
     return [name for (name,) in rows]
 
 
+def _is_security_definer(conn: psycopg.Connection, routine: str) -> bool:
+    row = conn.execute(
+        "SELECT prosecdef FROM pg_catalog.pg_proc "
+        "WHERE oid = %(r)s::pg_catalog.regprocedure",
+        {"r": routine},
+    ).fetchone()
+    return bool(row and row[0])
+
+
 def _is_superuser(conn: psycopg.Connection, role: str) -> bool:
     row = conn.execute(
         "SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = %(r)s", {"r": role}
@@ -1188,9 +1196,11 @@ def _move(
 ) -> None:
     statements = [f"ALTER {obj.kind} {obj.name} OWNER TO {owner}"]
     app = quote_ident(roles.app)
-    if obj.kind == "ROUTINE":
+    if obj.kind == "ROUTINE" and not _is_security_definer(conn, obj.name):
         # Hardened installs revoke EXECUTE from PUBLIC; the old owner ran the
-        # app before, so app needs it explicitly once it is the login.
+        # app before, so app needs it explicitly once it is the login. Never a
+        # SECURITY DEFINER routine: it would now run as the owner keyring
+        # (above RLS), e.g. the MCP token-revocation trigger function.
         statements.append(f"GRANT EXECUTE ON ROUTINE {obj.name} TO {app}")
     if obj.owner == roles.app:
         # ALTER ... OWNER hands app's own ACL entries to the new owner; give

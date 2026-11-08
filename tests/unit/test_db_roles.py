@@ -1617,12 +1617,20 @@ def test_upgrade_grants_app_execute_on_legacy_helpers() -> None:
                 "CREATE FUNCTION public.helper() RETURNS int LANGUAGE sql AS 'SELECT 1'"
             )
             conn.execute("REVOKE EXECUTE ON FUNCTION public.helper() FROM PUBLIC")
+            # SECURITY DEFINER would run as the owner keyring: app must not get it.
+            conn.execute(
+                "CREATE FUNCTION public.privileged() RETURNS int LANGUAGE sql "
+                "SECURITY DEFINER AS 'SELECT 2'"
+            )
+            conn.execute("REVOKE EXECUTE ON FUNCTION public.privileged() FROM PUBLIC")
             result = run_upgrade(
                 conn, LoginMethod.PASSWORD, LoginPasswords(app=PASSWORD), roles
             )
         assert result.complete
         with psycopg.connect(install.url(roles.app, PASSWORD)) as conn:
             assert conn.execute("SELECT public.helper()").fetchone() == (1,)
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("SELECT public.privileged()")
     finally:
         _drop_install(install)
 
