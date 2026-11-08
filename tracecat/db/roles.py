@@ -637,6 +637,10 @@ WHERE p.pronamespace = 'public'::pg_catalog.regnamespace
   AND NOT EXISTS (SELECT FROM pg_catalog.pg_depend d
                   WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
                     AND d.objid = p.oid AND d.deptype = 'e')
+  -- An event trigger's function stays with the trigger's owner: the dynamic
+  -- RLS guard requires the two to match, and the function's owner could
+  -- rewrite the guard.
+  AND NOT EXISTS (SELECT FROM pg_catalog.pg_event_trigger t WHERE t.evtfoid = p.oid)
 UNION ALL
 SELECT 3, CASE t.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END,
        t.oid::pg_catalog.regtype::text, pg_catalog.pg_get_userbyid(t.typowner)

@@ -1672,6 +1672,12 @@ def test_upgrade_on_a_compose_shaped_install() -> None:
             _create_dynamic_schema(conn, schema)
             first = run_upgrade(conn, LoginMethod.PASSWORD, passwords, roles)
             again = run_upgrade(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            # The migration installed the dynamic RLS guard as postgres.
+            guard = conn.execute(
+                "SELECT pg_get_userbyid(t.evtowner), pg_get_userbyid(f.proowner)"
+                " FROM pg_event_trigger t JOIN pg_proc f ON f.oid = t.evtfoid"
+                " WHERE f.oid = to_regprocedure('public.tracecat_guard_dynamic_rls()')"
+            ).fetchall()
             owners = conn.execute(
                 """
                 SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c
@@ -1683,6 +1689,10 @@ def test_upgrade_on_a_compose_shaped_install() -> None:
         assert again.complete and again.moved == [] and again.failed == []
         assert owners == [(roles.owner,)]
         assert first.kept_access == []  # a superuser admin needs no kept access
+        assert guard == [("postgres", "postgres")] * 2  # triggers and function
+        # Rolling back the RLS guard's revision drops event triggers, which
+        # needs their owner; migrator then runs the revision before it both ways.
+        _alembic(_url("postgres", "postgres", database, "+psycopg"), "downgrade", "-1")
         _alembic(
             _url(roles.migrator, PASSWORD, database, "+psycopg"), "downgrade", "-1"
         )
