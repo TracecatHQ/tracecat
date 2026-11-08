@@ -151,15 +151,18 @@ async def assign_dynamic_owner(
         return
     owner = conn.dialect.identifier_preparer.quote(role_name)
     # The caller keeps working in the handed-over schema through inherited
-    # privileges (USAGE), and ALTER ... OWNER TO needs SET on the role from PG 16
-    # (membership before, which USAGE implies). CASE, not AND: the 'SET'
-    # privilege type only exists from PG 16.
+    # privileges (USAGE). ALTER SCHEMA ... OWNER TO needs CREATE on the database
+    # for the new owner, and SET on the role from PG 16 (membership before,
+    # which USAGE implies). CASE, not AND: the 'SET' privilege type only exists
+    # from PG 16.
     exists, usable = (
         (
             await conn.execute(
                 sa.text(
                     "SELECT r.oid IS NOT NULL, r.oid IS NOT NULL"
-                    " AND pg_catalog.pg_has_role(current_user, r.oid, 'USAGE') AND CASE"
+                    " AND pg_catalog.pg_has_role(current_user, r.oid, 'USAGE')"
+                    " AND pg_catalog.has_database_privilege("
+                    "r.oid, pg_catalog.current_database(), 'CREATE') AND CASE"
                     " WHEN pg_catalog.current_setting('server_version_num')::int < 160000"
                     " THEN true"
                     " ELSE pg_catalog.pg_has_role(current_user, r.oid, 'SET') END"

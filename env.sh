@@ -88,7 +88,8 @@ dotenv_replace "USER_AUTH_SECRET" "$user_auth_secret" "$env_file"
 dotenv_replace "TRACECAT__DB_ADMIN_URI" 'postgresql+psycopg://\${TRACECAT__POSTGRES_USER}:\${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres' "$env_file"
 dotenv_replace "TRACECAT__DB_MIGRATOR_PASSWORD" "$db_migrator_password" "$env_file"
 dotenv_replace "TRACECAT__DB_APP_PASSWORD" "$db_app_password" "$env_file"
-dotenv_replace "TRACECAT__DB_URI" "postgresql+psycopg://app:${db_app_password}@postgres_db:5432/postgres" "$env_file"
+# A reference, so rotating TRACECAT__DB_APP_PASSWORD rotates the app's login too.
+dotenv_replace "TRACECAT__DB_URI" 'postgresql+psycopg://app:\${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres' "$env_file"
 
 # Prompt user for environment mode
 while true; do

@@ -42,6 +42,7 @@ from tracecat.db.roles import (
     UnsafeDatabaseLoginError,
     UpgradeResult,
     _admin_conninfo,
+    _login_uri,
     _printable,
     assert_login_can_enforce_rls,
     bootstrap_statements,
@@ -1974,6 +1975,19 @@ def test_migrate_refuses_role_setup_without_login_credentials(
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
+def test_login_uri_drops_query_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """libpq lets ?user= / ?password= override the authority; they must not survive."""
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ADMIN_URI",
+        "postgresql://db.invalid/synthetic?user=admin&password=admin-secret&sslmode=require",
+    )
+    url = make_url(_login_uri("migrator", "migrator-secret"))
+    assert (url.username, url.password) == ("migrator", "migrator-secret")
+    assert "user" not in url.query and "password" not in url.query
+    assert url.query["sslmode"] == "require"
+
+
 def test_migrate_warns_but_proceeds_when_the_app_uri_names_the_server_differently(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1993,6 +2007,35 @@ def test_migrate_warns_but_proceeds_when_the_app_uri_names_the_server_differentl
         assert PASSWORD not in err
         assert _role_exists(roles.owner)
     finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_stops_when_the_admin_uri_names_another_database(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Same server, other database: role setup and migrations would land there."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    elsewhere = _fresh_database(f"{suffix}_other")
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__DB_ADMIN_URI",
+            _url("postgres", "postgres", elsewhere, "+psycopg"),
+        )
+        assert migrate(roles) == 1
+        assert "names database" in capsys.readouterr().err
+        assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
+        for db in (database, elsewhere):
+            with psycopg.connect(_url("postgres", "postgres", db)) as conn:
+                versions = conn.execute(
+                    "SELECT to_regclass('public.alembic_version')"
+                ).fetchone()
+            assert versions == (None,)
+    finally:
+        _drop_all(elsewhere, [])
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 

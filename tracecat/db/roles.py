@@ -636,8 +636,11 @@ def _alembic_upgrade(db_uri: str | None) -> int:
 
 def _login_uri(user: str, password: str) -> str:
     """The admin URI with another login, for SQLAlchemy (alembic)."""
-    url = make_url(_admin_conninfo()).set(
-        drivername="postgresql+psycopg", username=user, password=password
+    # libpq reads user/password from the query too, and those win.
+    url = (
+        make_url(_admin_conninfo())
+        .difference_update_query(["user", "password"])
+        .set(drivername="postgresql+psycopg", username=user, password=password)
     )
     return url.render_as_string(hide_password=False)
 
@@ -702,7 +705,8 @@ def migrate(
             file=sys.stderr,
         )
         return 1
-    _warn_if_targets_differ()
+    if (code := _check_targets()) != 0:
+        return code
     if (code := _setup_roles(login, passwords, roles, lock_timeout, retries)) != 0:
         return code
     db_uri = _login_uri(roles.migrator, migrator_password)
@@ -715,29 +719,41 @@ def migrate(
     return _setup_roles(login, LoginPasswords(), roles, lock_timeout, retries)
 
 
-def _warn_if_targets_differ() -> None:
-    """Flag an admin URI left on another database (e.g. the bundled one).
+def _check_targets() -> int:
+    """Stop if the admin URI names another database than the app's.
 
-    A warning, not a stop: one server can have several names (localhost and
-    postgres_db, or the app through PgDog).
+    Migrations and role setup run on the admin URI's database. Database names
+    don't alias within one server, so a different name stops the run. Hosts
+    do (localhost and postgres_db, or the app through PgDog), so a different
+    host only warns.
     """
     if not (app_uri := os.environ.get("TRACECAT__DB_URI")):
-        return
+        return 0
     admin, app = make_url(_admin_conninfo()), make_url(app_uri)
-    if (admin.host, admin.port or 5432, admin.database) == (
-        app.host,
-        app.port or 5432,
-        app.database,
-    ):
-        return
-    print(
-        f"warning: migrations run on {_printable(str(admin.host))}/"
-        f"{_printable(str(admin.database))} (TRACECAT__DB_ADMIN_URI), but "
-        f"TRACECAT__DB_URI names {_printable(str(app.host))}/"
-        f"{_printable(str(app.database))}. If those are different databases, "
-        "point TRACECAT__DB_ADMIN_URI at the app's database or clear it.",
-        file=sys.stderr,
-    )
+    # libpq defaults the database name to the user name.
+    admin_db = admin.database or admin.username
+    app_db = app.database or app.username
+    if admin_db != app_db:
+        print(
+            f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
+            f"but TRACECAT__DB_URI names {_printable(str(app_db))}.",
+            file=sys.stderr,
+        )
+        print(
+            "hint: point TRACECAT__DB_ADMIN_URI at the app's database, or unset it "
+            "to keep a single database user.",
+            file=sys.stderr,
+        )
+        return 1
+    if (admin.host, admin.port or 5432) != (app.host, app.port or 5432):
+        print(
+            f"warning: migrations run on {_printable(str(admin.host))} "
+            f"(TRACECAT__DB_ADMIN_URI), but TRACECAT__DB_URI names "
+            f"{_printable(str(app.host))}. If those are different servers, point "
+            "TRACECAT__DB_ADMIN_URI at the app's server or clear it.",
+            file=sys.stderr,
+        )
+    return 0
 
 
 def _setup_roles(

@@ -226,16 +226,21 @@ class TestDynamicOwnerRole:
         assert await _table_owner(session, schema_name, table_name) == owner_roles.login
 
     @pytest.mark.usefixtures("as_login_role")
-    @pytest.mark.parametrize("option", ["SET FALSE", "INHERIT FALSE"])
-    async def test_membership_without_set_or_inherit_keeps_creator(
+    @pytest.mark.parametrize(
+        ("option", "database_create"),
+        [("SET FALSE", True), ("INHERIT FALSE", True), ("SET TRUE", False)],
+    )
+    async def test_unusable_owner_role_keeps_creator(
         self,
         session: AsyncSession,
         svc_role: Role,
         owner_roles: OwnerRoles,
         monkeypatch: pytest.MonkeyPatch,
         option: str,
+        database_create: bool,
     ) -> None:
-        """PG 16+: the handover needs SET (ALTER ... OWNER TO) and INHERIT (later DDL)."""
+        """PG 16+: the handover needs SET and the owner's database CREATE (ALTER
+        SCHEMA ... OWNER TO), and INHERIT (later DDL in the schema)."""
         version = (await session.execute(text("SHOW server_version_num"))).scalar_one()
         if int(version) < 160000:
             pytest.skip("the SET grant option needs PostgreSQL 16")
@@ -246,6 +251,11 @@ class TestDynamicOwnerRole:
         await session.execute(
             text(f'GRANT "{no_set}" TO "{owner_roles.login}" WITH {option}')
         )
+        if database_create:
+            db_name = TEST_DB_CONFIG.test_db_name
+            await session.execute(
+                text(f'GRANT CREATE ON DATABASE "{db_name}" TO "{no_set}"')
+            )
         await session.execute(text(f'SET ROLE "{owner_roles.login}"'))
         monkeypatch.setattr(config, "TRACECAT__DB_DYNAMIC_OWNER_ROLE", no_set)
 
