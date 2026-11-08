@@ -676,6 +676,56 @@ def test_refuses_a_pre_created_dynamic_keyring_holding_readonly(
         run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
 
 
+def test_refuses_a_database_owned_by_app(scratch: Scratch) -> None:
+    """The database owner owns public (PG 15+) and could drop every moved table."""
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+        _run(
+            conn,
+            f"ALTER DATABASE {quote_ident(scratch.database)} OWNER TO {quote_ident(roles.app)}",
+        )
+    with (
+        psycopg.connect(
+            _url("postgres", "postgres", scratch.database), autocommit=True
+        ) as conn,
+        pytest.raises(psycopg.errors.RaiseException, match="owns public"),
+    ):
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+    with _superuser() as conn:
+        _run(
+            conn,
+            f"ALTER DATABASE {quote_ident(scratch.database)} OWNER TO {quote_ident(scratch.admin)}",
+        )
+
+
+def test_bootstrap_ignores_functions_planted_on_the_search_path(
+    scratch: Scratch,
+) -> None:
+    """A database-wide search_path can't swap pg_catalog.format() for a planted one."""
+    roles = scratch.roles
+    canary = f"canary_{_suffix()}"
+    with psycopg.connect(
+        _url("postgres", "postgres", scratch.database), autocommit=True
+    ) as conn:
+        _run(
+            conn,
+            "CREATE FUNCTION public.format(text, text, text) RETURNS text LANGUAGE sql "
+            f"AS $f$ SELECT 'CREATE ROLE {canary}' $f$",
+        )
+        _run(
+            conn,
+            f"ALTER DATABASE {quote_ident(scratch.database)} SET search_path = public, pg_catalog",
+        )
+    try:
+        with scratch.admin_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert not _role_exists(canary)
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(canary)}")
+
+
 def test_refuses_a_login_role_with_createrole(scratch: Scratch) -> None:
     """CREATEROLE lets a login grant itself the owner keyring."""
     roles = scratch.roles
@@ -1387,6 +1437,39 @@ def test_keep_access_refuses_a_group_that_contains_a_topology_role() -> None:
         assert reach == (False,)
         assert [label for label, _ in result.failed] == [
             f"KEEP ACCESS {quote_ident(group)}"
+        ]
+        assert not result.complete
+    finally:
+        _drop_install(install)
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(group)}")
+
+
+def test_keep_access_refuses_a_dynamic_group_that_contains_readonly() -> None:
+    """Indirect reach counts: readonly in a dynamic owner's group must not get app_owner."""
+    install = _legacy_install(_suffix(), migrate=False)
+    roles = install.roles
+    group = f"dyn_group_{_suffix()}"
+    schema = quote_ident(f"tables_ws_{uuid.uuid4().hex[:12]}")
+    try:
+        with install.legacy_conn() as conn:
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        with _superuser() as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(group)} NOLOGIN")
+            _run(conn, f"GRANT {quote_ident(group)} TO {quote_ident(roles.readonly)}")
+        with psycopg.connect(
+            install.url("postgres", "postgres"), autocommit=True
+        ) as conn:
+            _run(conn, f"CREATE SCHEMA {schema} AUTHORIZATION {quote_ident(group)}")
+        result = _superuser_upgrade(install, [install.legacy])
+        with _superuser() as conn:
+            reach = conn.execute(
+                "SELECT pg_has_role(%s, %s, 'MEMBER')",
+                (roles.readonly, roles.dynamic_owner),
+            ).fetchone()
+        assert reach == (False,)
+        assert f"KEEP ACCESS {quote_ident(group)}" in [
+            label for label, _ in result.failed
         ]
         assert not result.complete
     finally:

@@ -249,12 +249,24 @@ def _owner_reach_body(roles: RoleNames) -> str:
     """
     names = (roles.app, roles.agent_runtime, roles.readonly, roles.dynamic_owner)
     protected = ", ".join(quote_literal(r) for r in names)
-    # Only app (and the owner keyring) may hold the dynamic keyring directly.
-    not_dynamic = ", ".join(
-        quote_literal(r) for r in (roles.migrator, roles.agent_runtime, roles.readonly)
+    # Only app and the owner keyring may hold the dynamic keyring. migrator
+    # reaches it through the owner keyring by design, so it's checked for a
+    # direct grant only; readonly and agent_runtime must not reach it at all.
+    never_dynamic = ", ".join(
+        quote_literal(r) for r in (roles.agent_runtime, roles.readonly)
     )
+    dyn = quote_literal(roles.dynamic_owner)
     owner = quote_literal(roles.owner)
     return (
+        "  IF EXISTS (SELECT FROM pg_catalog.pg_database d\n"
+        "             JOIN pg_catalog.pg_roles r ON r.oid = d.datdba\n"
+        "             WHERE d.datname = current_database()\n"
+        f"               AND r.rolname IN ({protected})) THEN\n"
+        "    RAISE EXCEPTION 'The database is owned by %; its owner owns public and can drop it', "
+        "(SELECT pg_catalog.pg_get_userbyid(datdba) FROM pg_catalog.pg_database "
+        "WHERE datname = current_database())\n"
+        "      USING HINT = 'Run ALTER DATABASE <db> OWNER TO <admin>, then rerun bootstrap.';\n"
+        "  END IF;\n"
         "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
         f"             WHERE rolname IN ({protected})\n"
         f"               AND pg_catalog.pg_has_role(oid, {owner}, 'MEMBER')) THEN\n"
@@ -262,10 +274,13 @@ def _owner_reach_body(roles: RoleNames) -> str:
         f"{quote_literal(', '.join(names))}, {owner}\n"
         "      USING HINT = 'Revoke that membership; only migrator and admins may hold it.';\n"
         "  END IF;\n"
-        "  IF EXISTS (SELECT FROM pg_catalog.pg_auth_members m\n"
+        "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
+        f"             WHERE rolname IN ({never_dynamic})\n"
+        f"               AND pg_catalog.pg_has_role(oid, {dyn}, 'MEMBER'))\n"
+        "     OR EXISTS (SELECT FROM pg_catalog.pg_auth_members m\n"
         "             JOIN pg_catalog.pg_roles u ON u.oid = m.member\n"
-        f"             WHERE m.roleid = {quote_literal(roles.dynamic_owner)}::pg_catalog.regrole\n"
-        f"               AND u.rolname IN ({not_dynamic})) THEN\n"
+        f"             WHERE m.roleid = {dyn}::pg_catalog.regrole\n"
+        f"               AND u.rolname = {quote_literal(roles.migrator)}) THEN\n"
         f"    RAISE EXCEPTION 'A topology role other than % holds the dynamic keyring %', "
         f"{quote_literal(roles.app)}, {quote_literal(roles.dynamic_owner)}\n"
         "      USING HINT = 'Revoke that membership; it would own every dynamic table.';\n"
@@ -382,7 +397,10 @@ def bootstrap_statements(
     owner, dyn, ro = q(roles.owner), q(roles.dynamic_owner), q(roles.readonly)
     migrator, app, runtime = q(roles.migrator), q(roles.app), q(roles.agent_runtime)
 
-    statements: list[str] = []
+    # Resolve every function and operator from pg_catalog: a database owner
+    # can set a database-wide search_path and plant public.format() or an
+    # operator that would run as the admin. Everything in public is qualified.
+    statements: list[str] = ["SET LOCAL search_path = pg_catalog, pg_temp;"]
     for keyring in roles.keyrings:
         statements += _create_role(keyring, login=False)
     for name in roles.logins:
@@ -1242,7 +1260,12 @@ LOGIN_CHECK_SQL = text(
              JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
              WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
                AND pg_catalog.pg_has_role(r.oid, c.relowner, 'MEMBER')
-           ) AS owns_public_table
+           ) AS owns_public_table,
+           -- The database owner owns public (PG 15+) and can drop it.
+           EXISTS (
+             SELECT FROM pg_catalog.pg_database d
+             WHERE d.datname = current_database() AND d.datdba = r.oid
+           ) AS owns_database
     FROM pg_catalog.pg_roles r
     -- The login, the role it is set to, and every role it can SET ROLE to
     -- or inherits from.
@@ -1272,7 +1295,7 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
     """
     problems: list[str] = []
     rows = (await conn.execute(LOGIN_CHECK_SQL)).tuples()
-    for name, is_super, bypass, createrole, replication, owns in rows:
+    for name, is_super, bypass, createrole, replication, owns, owns_db in rows:
         if is_super:
             problems.append(f"{name} is a superuser")
         if bypass:
@@ -1286,6 +1309,8 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
             problems.append(
                 f"{name} owns tables in public (or is a member of their owner)"
             )
+        if owns_db:
+            problems.append(f"{name} owns the database (and so the public schema)")
     if problems:
         raise UnsafeDatabaseLoginError(
             "TRACECAT__RLS_MODE=enforce needs a login without SUPERUSER, BYPASSRLS, "
