@@ -1949,6 +1949,61 @@ def test_migrate_sets_up_roles_on_a_fresh_compose_install(
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
+def test_migrate_skips_role_setup_for_a_different_database(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An admin URI copied next to an external TRACECAT__DB_URI must not migrate elsewhere."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    elsewhere = _fresh_database(f"{suffix}_other")
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__DB_ADMIN_URI",
+            _url("postgres", "postgres", elsewhere, "+psycopg"),
+        )
+        assert migrate(roles) == 0
+        assert "points at a different database" in capsys.readouterr().err
+        assert _alembic_head(database) is not None  # the configured database
+        assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
+        with psycopg.connect(_url("postgres", "postgres", elsewhere)) as conn:
+            versions = conn.execute(
+                "SELECT to_regclass('public.alembic_version')"
+            ).fetchone()
+        assert versions == (None,)
+    finally:
+        _drop_all(elsewhere, [])
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+def test_migrate_refuses_when_app_inherits_writes_on_alembic_version(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Revoking app's own grant isn't enough if another role hands it the same rights."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    writer = f"writer_{suffix}"
+    try:
+        _configure_migrate(monkeypatch, database, admin=True)
+        assert migrate(roles) == 0
+        with psycopg.connect(
+            _url("postgres", "postgres", database), autocommit=True
+        ) as conn:
+            _run(conn, f"CREATE ROLE {quote_ident(writer)} NOLOGIN")
+            _run(
+                conn,
+                f"GRANT UPDATE ON public.alembic_version TO {quote_ident(writer)}",
+            )
+            _run(conn, f"GRANT {quote_ident(writer)} TO {quote_ident(roles.app)}")
+        assert migrate(roles) == 1
+        assert "can write public.alembic_version" in capsys.readouterr().err
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings, writer])
+
+
 def test_migrate_fails_while_a_transfer_is_held_by_a_lock(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

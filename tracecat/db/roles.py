@@ -482,7 +482,13 @@ def bootstrap_statements(
         _do(
             "  IF pg_catalog.to_regclass('public.alembic_version') IS NOT NULL THEN\n"
             "    EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE "
-            f"public.alembic_version FROM %I', {quote_literal(roles.app)});\n"
+            f"public.alembic_version FROM %I, PUBLIC', {quote_literal(roles.app)});\n"
+            # Still writable through another role's grant: refuse, don't hide it.
+            f"    IF pg_catalog.has_table_privilege({quote_literal(roles.app)}, "
+            "'public.alembic_version', 'INSERT, UPDATE, DELETE, TRUNCATE') THEN\n"
+            f"      RAISE EXCEPTION '% can write public.alembic_version', {quote_literal(roles.app)}\n"
+            "        USING HINT = 'Revoke the grant it inherits; only migrations write the version table.';\n"
+            "    END IF;\n"
             "  END IF;"
         ),
         f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {app};",
@@ -669,6 +675,18 @@ def migrate(
         )
         return _alembic_upgrade(None)
 
+    # An env-migration.sh upgrade copies the bundled-postgres admin URI next to
+    # an external TRACECAT__DB_URI: never migrate a different database.
+    app_uri = os.environ.get("TRACECAT__DB_URI")
+    if app_uri and _target(app_uri) != _target(config.TRACECAT__DB_ADMIN_URI):
+        print(
+            "TRACECAT__DB_ADMIN_URI points at a different database than "
+            "TRACECAT__DB_URI: skipping role setup; running migrations as the "
+            "configured database user.",
+            file=sys.stderr,
+        )
+        return _alembic_upgrade(None)
+
     login = LoginMethod(config.TRACECAT__DB_ROLE_LOGIN)
     passwords = (
         LoginPasswords.from_config()
@@ -695,6 +713,12 @@ def migrate(
     # columns, alembic_version read-only) and dynamic schemas that revisions
     # create. Until these commit the app may be denied, so they gate success.
     return _setup_roles(login, LoginPasswords(), roles, lock_timeout, retries)
+
+
+def _target(uri: str) -> tuple[str | None, int, str | None]:
+    """Host, port and database a connection URI points at."""
+    url = make_url(uri)
+    return (url.host.lower() if url.host else None, url.port or 5432, url.database)
 
 
 def _setup_roles(

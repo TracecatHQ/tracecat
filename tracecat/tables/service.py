@@ -150,15 +150,18 @@ async def assign_dynamic_owner(
     if not (role_name := config.TRACECAT__DB_DYNAMIC_OWNER_ROLE):
         return
     owner = conn.dialect.identifier_preparer.quote(role_name)
-    # ALTER ... OWNER TO needs SET on the role from PG 16 (membership before);
-    # CASE, not AND: the 'SET' privilege type only exists from PG 16.
+    # The caller keeps working in the handed-over schema through inherited
+    # privileges (USAGE), and ALTER ... OWNER TO needs SET on the role from PG 16
+    # (membership before, which USAGE implies). CASE, not AND: the 'SET'
+    # privilege type only exists from PG 16.
     exists, usable = (
         (
             await conn.execute(
                 sa.text(
-                    "SELECT r.oid IS NOT NULL, r.oid IS NOT NULL AND CASE"
+                    "SELECT r.oid IS NOT NULL, r.oid IS NOT NULL"
+                    " AND pg_catalog.pg_has_role(current_user, r.oid, 'USAGE') AND CASE"
                     " WHEN pg_catalog.current_setting('server_version_num')::int < 160000"
-                    " THEN pg_catalog.pg_has_role(current_user, r.oid, 'MEMBER')"
+                    " THEN true"
                     " ELSE pg_catalog.pg_has_role(current_user, r.oid, 'SET') END"
                     " FROM (SELECT pg_catalog.to_regrole(:role) AS oid) AS r"
                 ),
