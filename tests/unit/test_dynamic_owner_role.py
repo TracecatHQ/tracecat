@@ -207,6 +207,51 @@ class TestDynamicOwnerRole:
         assert await _schema_owner(session, schema_name) == owner_roles.owner
         assert await _table_owner(session, schema_name, table_name) == owner_roles.owner
 
+    @pytest.mark.usefixtures("as_login_role")
+    async def test_owner_role_the_login_is_not_a_member_of_keeps_creator(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        owner_roles: OwnerRoles,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The role exists but the login can't act as it: creation still works."""
+        monkeypatch.setattr(
+            config, "TRACECAT__DB_DYNAMIC_OWNER_ROLE", owner_roles.reader
+        )
+
+        schema_name, table_name = await _create_lookup_table(session, svc_role)
+
+        assert await _schema_owner(session, schema_name) == owner_roles.login
+        assert await _table_owner(session, schema_name, table_name) == owner_roles.login
+
+    @pytest.mark.usefixtures("as_login_role")
+    async def test_membership_without_set_keeps_creator(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        owner_roles: OwnerRoles,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """PG 16+: ALTER ... OWNER TO needs SET on the role, not just membership."""
+        version = (await session.execute(text("SHOW server_version_num"))).scalar_one()
+        if int(version) < 160000:
+            pytest.skip("the SET grant option needs PostgreSQL 16")
+        no_set = f"dyn_noset_{uuid.uuid4().hex[:8]}"
+        # Created in the test transaction, so it rolls back with it.
+        await session.execute(text("RESET ROLE"))
+        await session.execute(text(f'CREATE ROLE "{no_set}" NOLOGIN'))
+        await session.execute(
+            text(f'GRANT "{no_set}" TO "{owner_roles.login}" WITH SET FALSE')
+        )
+        await session.execute(text(f'SET ROLE "{owner_roles.login}"'))
+        monkeypatch.setattr(config, "TRACECAT__DB_DYNAMIC_OWNER_ROLE", no_set)
+
+        schema_name, table_name = await _create_lookup_table(session, svc_role)
+
+        assert await _schema_owner(session, schema_name) == owner_roles.login
+        assert await _table_owner(session, schema_name, table_name) == owner_roles.login
+
     async def test_unset_keeps_creator_as_owner(
         self,
         session: AsyncSession,

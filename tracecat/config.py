@@ -356,8 +356,8 @@ TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
 TRACECAT__DB_DYNAMIC_OWNER_ROLE = (
-    os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or "app_owner"
-).strip() or None
+    os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or ""
+).strip() or "app_owner"
 """Role that owns new dynamic schemas and tables (``tables_*``, ``custom_fields_*``).
 
 Defaults to ``app_owner``, the topology's dynamic keyring. Objects are handed

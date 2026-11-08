@@ -150,16 +150,33 @@ async def assign_dynamic_owner(
     if not (role_name := config.TRACECAT__DB_DYNAMIC_OWNER_ROLE):
         return
     owner = conn.dialect.identifier_preparer.quote(role_name)
-    usable = await conn.scalar(
-        sa.text(
-            "SELECT pg_catalog.to_regrole(:role) IS NOT NULL "
-            "AND pg_catalog.pg_has_role(current_user, pg_catalog.to_regrole(:role), 'MEMBER')"
-        ),
-        {"role": owner},
+    # ALTER ... OWNER TO needs SET on the role from PG 16 (membership before);
+    # CASE, not AND: the 'SET' privilege type only exists from PG 16.
+    exists, usable = (
+        (
+            await conn.execute(
+                sa.text(
+                    "SELECT r.oid IS NOT NULL, r.oid IS NOT NULL AND CASE"
+                    " WHEN pg_catalog.current_setting('server_version_num')::int < 160000"
+                    " THEN pg_catalog.pg_has_role(current_user, r.oid, 'MEMBER')"
+                    " ELSE pg_catalog.pg_has_role(current_user, r.oid, 'SET') END"
+                    " FROM (SELECT pg_catalog.to_regrole(:role) AS oid) AS r"
+                ),
+                {"role": owner},
+            )
+        )
+        .tuples()
+        .one()
     )
-    if not usable:
+    if not exists:
         logger.debug(
-            "Dynamic owner role is not set up for this login; keeping the creating role",
+            "Dynamic owner role does not exist yet; keeping the creating role",
+            role=role_name,
+        )
+        return
+    if not usable:
+        logger.warning(
+            "This login can't act as the dynamic owner role; keeping the creating role",
             role=role_name,
         )
         return
