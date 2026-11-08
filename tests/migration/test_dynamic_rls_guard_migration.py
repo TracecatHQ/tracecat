@@ -1052,6 +1052,24 @@ class TestGuardFunctionOwnerMigration:
         assert _guard_body(guard_db.db_url) == _revision_body(MIGRATION_REVISION)
         _assert_guard_rejects(guard_db.app_url, _blocked(guard_db, "disable"))
 
+    def test_upgrade_refuses_a_rewritten_body_it_cannot_replace(
+        self, guard_db: GuardDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The superuser's guard, rewritten to let everything through.
+        _alembic(monkeypatch, guard_db.db_url, "upgrade", MIGRATION_REVISION)
+        _run_committed(
+            guard_db.db_url,
+            [
+                f"CREATE OR REPLACE FUNCTION {GUARD_FUNCTION} RETURNS event_trigger "
+                "LANGUAGE plpgsql AS $$ BEGIN END $$"
+            ],
+        )
+
+        with pytest.raises(RuntimeError, match="has a body no Tracecat revision"):
+            _alembic(
+                monkeypatch, guard_db.migrator_url, "upgrade", OWNER_EXEMPTION_REVISION
+            )
+
     def test_upgrade_warns_when_no_guard_fires(
         self,
         guard_db: GuardDb,

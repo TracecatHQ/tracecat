@@ -29,6 +29,8 @@ alone. The upgrade changes nothing and logs a warning when:
 - the migration role doesn't own the function (an admin installed it): run
   this revision's `MANUAL_INSTALL_SQL` as a superuser, or this upgrade as the
   function's owner.
+If the migration role can't replace a body that neither revision installed,
+the upgrade fails instead: someone rewrote the guard.
 
 Downgrade puts b4074a0896b5's body back the same way.
 
@@ -124,10 +126,17 @@ GUARD_STATEMENTS: tuple[str, ...] = (
 
 UNINSTALL_STATEMENTS: tuple[str, ...] = _previous.UNINSTALL_STATEMENTS
 
-MANUAL_INSTALL_SQL = ";\n".join((*UNINSTALL_STATEMENTS, *GUARD_STATEMENTS)) + ";\n"
+MANUAL_INSTALL_SQL = (
+    ";\n".join(("BEGIN", *UNINSTALL_STATEMENTS, *GUARD_STATEMENTS, "COMMIT")) + ";\n"
+)
 """Drop and reinstall the guard, for an admin to run by hand as a superuser.
 
-The installing role owns the function and is exempt from the guard.
+One transaction, so a failed `CREATE EVENT TRIGGER` keeps the old guard
+instead of leaving none. The installing role owns the function and is exempt
+from the guard, so install it as the migration role's owner (or the
+migration role), never as a role the app is a member of. Code that installs
+the guard runs `UNINSTALL_STATEMENTS` and `GUARD_STATEMENTS` in its own
+transaction instead.
 """
 
 
@@ -170,6 +179,16 @@ def _set_guard_body(function_sql: str, manual_revision: str) -> None:
         if not isinstance(exc.orig, psycopg.errors.InsufficientPrivilege):
             raise
         role = bind.execute(sa.text("SELECT session_user")).scalar_one()
+        if body not in (
+            _body(_GUARD_FUNCTION_SQL),
+            _body(_previous._GUARD_FUNCTION_SQL),
+        ):
+            raise RuntimeError(
+                f"{GUARD_FUNCTION} has a body no Tracecat revision installed, "
+                f"and role {role!r} can't replace it because {owner!r} owns "
+                f"it. Run MANUAL_INSTALL_SQL from revision {manual_revision} "
+                "as a superuser, then rerun the migration."
+            ) from exc
         logger.warning(
             "Kept the dynamic-table RLS guard's body: role %r can't replace "
             "%s, which %r owns. Run MANUAL_INSTALL_SQL from revision %s as a "
