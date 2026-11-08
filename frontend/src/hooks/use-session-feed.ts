@@ -34,6 +34,8 @@ export type FeedAction =
 export type FeedState = {
   /** The segment this tab last attached to and received output from. */
   attachedStreamId: string | null
+  /** The segment this tab last tried to attach to; snapshots never retry it. */
+  attemptedStreamId: string | null
   /** The run state from the latest event, or null before the first snapshot. */
   known: {
     runId: string | null
@@ -66,7 +68,14 @@ export function feedActionFor(
 ): FeedAction | null {
   switch (event.type) {
     case "snapshot": {
-      if (event.run_id && !event.paused && event.stream_id) {
+      // A row whose run ended without releasing it still names the run, so a
+      // snapshot tries a segment once; only a run event retries it.
+      if (
+        event.run_id &&
+        !event.paused &&
+        event.stream_id &&
+        event.stream_id !== state.attemptedStreamId
+      ) {
         const attach = attachUnlessHeld(event.stream_id, state)
         if (attach) return attach
       }
@@ -170,7 +179,11 @@ export function useSessionFeed({
   handlersRef.current = { onAttach, onRefresh }
   const busyRef = useRef(busy)
   busyRef.current = busy
-  const stateRef = useRef<FeedState>({ attachedStreamId: null, known: null })
+  const stateRef = useRef<FeedState>({
+    attachedStreamId: null,
+    attemptedStreamId: null,
+    known: null,
+  })
   const deferredRef = useRef<FeedAction | null>(null)
 
   function run(action: FeedAction) {
@@ -186,6 +199,7 @@ export function useSessionFeed({
     const state = stateRef.current
     // The attach that kept the tab busy may have settled this segment already.
     if (action.streamId === state.attachedStreamId) return
+    state.attemptedStreamId = action.streamId
     handlersRef.current.onAttach((held) => {
       if (held) state.attachedStreamId = action.streamId
     })
@@ -198,7 +212,11 @@ export function useSessionFeed({
   }, [busy])
 
   useEffect(() => {
-    stateRef.current = { attachedStreamId: null, known: null }
+    stateRef.current = {
+      attachedStreamId: null,
+      attemptedStreamId: null,
+      known: null,
+    }
     deferredRef.current = null
     if (!chatId || typeof EventSource === "undefined") return
     const url = new URL(`/api/agent/sessions/${chatId}/feed`, getBaseUrl())

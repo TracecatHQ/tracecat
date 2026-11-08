@@ -115,7 +115,11 @@ describe("parseSessionFeedEvent", () => {
 })
 
 describe("feedActionFor", () => {
-  const idle: FeedState = { attachedStreamId: null, known: null }
+  const idle: FeedState = {
+    attachedStreamId: null,
+    attemptedStreamId: null,
+    known: null,
+  }
 
   it("attaches to a live segment once", () => {
     const started = {
@@ -128,12 +132,16 @@ describe("feedActionFor", () => {
       streamId: "s0",
     })
     expect(
-      feedActionFor(started, { attachedStreamId: "s0", known: null })
+      feedActionFor(started, {
+        attachedStreamId: "s0",
+        attemptedStreamId: null,
+        known: null,
+      })
     ).toBeNull()
     expect(
       feedActionFor(
         { type: "run.resumed", run_id: "r1", stream_id: "s1" },
-        { attachedStreamId: "s0", known: null }
+        { attachedStreamId: "s0", attemptedStreamId: null, known: null }
       )
     ).toEqual({ kind: "attach", streamId: "s1" })
   })
@@ -149,6 +157,7 @@ describe("feedActionFor", () => {
       }) as const
     const held: FeedState = {
       attachedStreamId: "s0",
+      attemptedStreamId: null,
       known: { runId: "r1", paused: false, streamId: "s0", feedId: "3-0" },
     }
     expect(feedActionFor(liveAt("3-0"), held)).toBeNull()
@@ -165,12 +174,14 @@ describe("feedActionFor", () => {
     expect(
       feedActionFor(idleSnapshot, {
         attachedStreamId: null,
+        attemptedStreamId: null,
         known: { runId: null, paused: false, streamId: null, feedId: null },
       })
     ).toBeNull()
     expect(
       feedActionFor(idleSnapshot, {
         attachedStreamId: "s0",
+        attemptedStreamId: null,
         known: { runId: "r1", paused: true, streamId: "s0", feedId: null },
       })
     ).toEqual({ kind: "refresh" })
@@ -187,6 +198,7 @@ describe("feedActionFor", () => {
       }) as const
     const seen: FeedState = {
       attachedStreamId: null,
+      attemptedStreamId: null,
       known: knownStateAfter(
         { type: "run.finished", run_id: "r1", stream_id: null },
         "7-0"
@@ -207,6 +219,7 @@ describe("feedActionFor", () => {
       }) as const
     const seen: FeedState = {
       attachedStreamId: "s0",
+      attemptedStreamId: null,
       known: knownStateAfter(
         { type: "run.paused", run_id: "r1", stream_id: "s0" },
         "4-0"
@@ -214,6 +227,26 @@ describe("feedActionFor", () => {
     }
     expect(feedActionFor(pausedOn("s0"), seen)).toBeNull()
     expect(feedActionFor(pausedOn("s1"), seen)).toEqual({ kind: "refresh" })
+  })
+
+  it("retries a tried segment on run events but not snapshots", () => {
+    const tried: FeedState = {
+      attachedStreamId: null,
+      attemptedStreamId: "s0",
+      known: { runId: "r1", paused: false, streamId: "s0", feedId: null },
+    }
+    expect(
+      feedActionFor(
+        { type: "snapshot", run_id: "r1", stream_id: "s0", paused: false },
+        tried
+      )
+    ).toBeNull()
+    expect(
+      feedActionFor(
+        { type: "run.started", run_id: "r1", stream_id: "s0" },
+        tried
+      )
+    ).toEqual({ kind: "attach", streamId: "s0" })
   })
 
   it("never attaches to a run without its own segment", () => {
@@ -661,6 +694,34 @@ describe("useVercelChat with the session feed", () => {
       FakeEventSource.latest().deliver(started)
     })
     await waitFor(() => expect(streamRequests()).toHaveLength(2))
+  })
+
+  it("tries a segment from snapshots only once", async () => {
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(sseResponse(FINISHED_ONLY))
+    )
+    const { result } = renderChat(new QueryClient())
+    // A run that ended without releasing the session keeps naming its segment.
+    const stuck = {
+      type: "snapshot",
+      run_id: "r1",
+      stream_id: "s0",
+      paused: false,
+    }
+
+    act(() => {
+      FakeEventSource.latest().deliver(stuck)
+    })
+    await waitFor(() => expect(streamRequests()).toHaveLength(1))
+    await waitFor(() => expect(result.current.status).toBe("ready"))
+
+    for (let i = 0; i < 3; i++) {
+      act(() => {
+        FakeEventSource.latest().deliver(stuck)
+      })
+    }
+    await act(async () => {})
+    expect(streamRequests()).toHaveLength(1)
   })
 
   it("does not re-attach a segment that streamed", async () => {
