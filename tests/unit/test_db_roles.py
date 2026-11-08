@@ -609,6 +609,49 @@ def test_refuses_a_login_role_with_unexpected_members(scratch: Scratch) -> None:
             _run(conn, f"DROP ROLE IF EXISTS {quote_ident(squatter)}")
 
 
+def test_refuses_admin_only_members_other_than_the_admin(scratch: Scratch) -> None:
+    """ADMIN OPTION lets its holder grant itself SET, so only the running admin may hold it."""
+    roles = scratch.roles
+    holder = f"holder_{_suffix()}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.migrator)} LOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(holder)} LOGIN")
+        _run(
+            conn,
+            f"GRANT {quote_ident(roles.migrator)} TO {quote_ident(holder)} "
+            "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE",
+        )
+    try:
+        with (
+            psycopg.connect(
+                _url("postgres", "postgres", scratch.database), autocommit=True
+            ) as conn,
+            pytest.raises(psycopg.errors.RaiseException, match="unexpected members"),
+        ):
+            run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(holder)}")
+
+
+def test_refuses_a_pre_created_owner_keyring_holding_app(scratch: Scratch) -> None:
+    """app in tracecat_owner would own public, where RLS isn't forced."""
+    roles = scratch.roles
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(roles.owner)} NOLOGIN")
+        _run(conn, f"CREATE ROLE {quote_ident(roles.app)} LOGIN")
+        _run(conn, f"GRANT {quote_ident(roles.owner)} TO {quote_ident(roles.app)}")
+    with (
+        psycopg.connect(
+            _url("postgres", "postgres", scratch.database), autocommit=True
+        ) as conn,
+        pytest.raises(
+            psycopg.errors.RaiseException, match="can act as the owner keyring"
+        ),
+    ):
+        run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+
+
 def test_refuses_a_login_role_with_createrole(scratch: Scratch) -> None:
     """CREATEROLE lets a login grant itself the owner keyring."""
     roles = scratch.roles

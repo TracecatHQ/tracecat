@@ -227,12 +227,13 @@ def _hide_readonly_columns(readonly: str) -> str:
         f"  FOR t, hidden IN SELECT * FROM (VALUES\n{rows}\n    ) AS v(t, hidden) LOOP\n"
         "    rel := pg_catalog.to_regclass(format('public.%I', t));\n"
         "    CONTINUE WHEN rel IS NULL;\n"
-        f"    EXECUTE format('REVOKE SELECT ON TABLE %s FROM %I', rel, {ro});\n"
+        # Always public.<table>: regclass text drops the schema when visible.
+        f"    EXECUTE format('REVOKE SELECT ON TABLE public.%I FROM %I', t, {ro});\n"
         "    SELECT string_agg(quote_ident(attname), ', ' ORDER BY attnum) INTO keep\n"
         "    FROM pg_catalog.pg_attribute\n"
         "    WHERE attrelid = rel AND attnum > 0 AND NOT attisdropped AND NOT (attname = ANY (hidden));\n"
         "    IF keep IS NOT NULL THEN\n"
-        f"      EXECUTE format('GRANT SELECT (%s) ON TABLE %s TO %I', keep, rel, {ro});\n"
+        f"      EXECUTE format('GRANT SELECT (%s) ON TABLE public.%I TO %I', keep, t, {ro});\n"
         "    END IF;\n"
         "  END LOOP;\n"
         "END\n$bootstrap$;"
@@ -255,6 +256,10 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
     # MEMBER of rds_iam (staging, 2026-11-06), so this does not block RDS; the
     # IAM role exists nowhere else.
     in_iam = f"pg_catalog.pg_has_role(oid, {iam}, 'MEMBER')"
+    not_owner_members = ", ".join(
+        quote_literal(r)
+        for r in (roles.app, roles.agent_runtime, roles.readonly, roles.dynamic_owner)
+    )
     # A superuser is a member of every role; RDS has no superuser login.
     must_not_be_in_iam = (
         f"rolname IN ({keyrings}) OR (rolname = session_user AND NOT rolsuper)"
@@ -274,7 +279,17 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         "  END IF;\n"
         # Only app may be a member of a login role (of agent_runtime). Anything
         # else would inherit that login's keyring, e.g. a pre-created migrator.
-        # PG 16's ADMIN-only creator grant gives no privileges and is allowed.
+        # PG 16's ADMIN-only creator grant is allowed only for roles that can
+        # already act as the owner keyring (the admin, an earlier admin): an
+        # ADMIN holder can grant itself SET, which then adds nothing for them.
+        # Only migrator (and admins) may act as the owner keyring; a pre-created
+        # tracecat_owner with app in it would put app above RLS.
+        "  IF EXISTS (SELECT FROM pg_catalog.pg_roles\n"
+        f"             WHERE rolname IN ({not_owner_members})\n"
+        f"               AND pg_catalog.pg_has_role(oid, {quote_literal(roles.owner)}, 'MEMBER')) THEN\n"
+        "    RAISE EXCEPTION 'app, agent_runtime, tracecat_readonly or app_owner can act as the owner keyring'\n"
+        "      USING HINT = 'Revoke that membership; only migrator and admins may hold the owner keyring.';\n"
+        "  END IF;\n"
         "  IF EXISTS (\n"
         "    SELECT FROM pg_catalog.pg_auth_members m\n"
         "    JOIN pg_catalog.pg_roles g ON g.oid = m.roleid\n"
@@ -282,12 +297,20 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         f"    WHERE g.rolname IN ({logins})\n"
         f"      AND NOT (g.rolname = {quote_literal(roles.agent_runtime)}"
         f" AND u.rolname = {quote_literal(roles.app)})\n"
-        "      AND NOT (m.admin_option AND pg_catalog.current_setting('server_version_num')::int >= 160000\n"
-        "               AND NOT pg_catalog.pg_has_role(u.oid, g.oid, 'USAGE')\n"
-        "               AND NOT pg_catalog.pg_has_role(u.oid, g.oid, 'SET'))\n"
+        # CASE, not AND: the 'SET' privilege type only exists from PG 16.
+        "      AND NOT CASE WHEN pg_catalog.current_setting('server_version_num')::int < 160000\n"
+        "                   THEN false\n"
+        "               ELSE m.admin_option\n"
+        "                    AND NOT pg_catalog.pg_has_role(u.oid, g.oid, 'USAGE')\n"
+        "                    AND NOT pg_catalog.pg_has_role(u.oid, g.oid, 'SET')\n"
+        # USAGE, not MEMBER: MEMBER would count this very grant (via migrator).
+        "                    AND (u.rolname = session_user\n"
+        f"                         OR pg_catalog.pg_has_role(u.oid, {quote_literal(roles.owner)}, 'USAGE'))\n"
+        "           END\n"
         "  ) THEN\n"
         "    RAISE EXCEPTION 'A Tracecat login role has unexpected members'\n"
-        "      USING HINT = 'Revoke them (they would inherit its access), then rerun bootstrap.';\n"
+        "      USING HINT = 'Revoke them (they would inherit or could take its access), "
+        "then rerun bootstrap as the admin that created the role.';\n"
         "  END IF;\n"
         "  IF EXISTS (\n"
         # pg_shdepend records every owner and ACL dependency on a role, in every
