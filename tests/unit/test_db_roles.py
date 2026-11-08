@@ -1686,6 +1686,9 @@ def test_upgrade_on_a_compose_shaped_install() -> None:
         assert again.complete and again.moved == [] and again.failed == []
         assert owners == [(roles.owner,)]
         assert first.kept_access == []  # a superuser admin needs no kept access
+        # Rolling back the RLS guard's revision drops event triggers, which
+        # needs their owner; migrator then runs the revision before it both ways.
+        _alembic(_url("postgres", "postgres", database, "+psycopg"), "downgrade", "-1")
         _alembic(
             _url(roles.migrator, PASSWORD, database, "+psycopg"), "downgrade", "-1"
         )
@@ -1697,6 +1700,78 @@ def test_upgrade_on_a_compose_shaped_install() -> None:
             assert _run(
                 conn, f"SELECT count(*) FROM {quote_ident(schema)}.case_fields"
             ).fetchone() == (0,)
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+GUARD_TRIGGERS_SQL = """
+SELECT t.evtname, t.evtenabled, pg_get_userbyid(t.evtowner), pg_get_userbyid(f.proowner)
+FROM pg_event_trigger t JOIN pg_proc f ON f.oid = t.evtfoid
+WHERE f.oid = to_regprocedure('public.tracecat_guard_dynamic_rls()')
+ORDER BY 1
+"""
+
+
+def test_upgrade_keeps_the_rls_guard_the_migration_installed() -> None:
+    """Staging's shape: the admin's migration installed the guard before the upgrade.
+
+    The upgrade leaves it installed and enabled, with the function still owned
+    by the trigger owner. It binds app (which owns dynamic tables through
+    app_owner) and not the admin; migrator's migrations still run.
+    """
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = f"guard_{suffix}"
+    schema = quote_ident(f"custom_fields_ws_{uuid.uuid4().hex[:12]}")
+    with _superuser() as conn:
+        _run(conn, f"CREATE DATABASE {quote_ident(database)}")
+    try:
+        admin = _url("postgres", "postgres", database)
+        _alembic(_url("postgres", "postgres", database, "+psycopg"), "upgrade", "head")
+        with psycopg.connect(admin, autocommit=True) as conn:
+            before = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+            _create_dynamic_schema(conn, schema.strip('"'))
+            _run(conn, f"ALTER TABLE {schema}.case_fields FORCE ROW LEVEL SECURITY")
+            _run(
+                conn,
+                f"CREATE POLICY rls_policy_dynamic_workspace ON {schema}.case_fields "
+                "USING (true)",
+            )
+            result = run_upgrade(
+                conn, LoginMethod.PASSWORD, LoginPasswords(PASSWORD, PASSWORD), roles
+            )
+            after = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+        assert result.complete, (result.failed, result.remaining_public)
+        assert [row[:2] for row in before] == [
+            ("tracecat_guard_dynamic_rls_ddl", "O"),
+            ("tracecat_guard_dynamic_rls_drop", "O"),
+        ]
+        assert after == before  # still enabled, owner and function owner unchanged
+        assert {row[2] for row in after} == {"postgres"}
+
+        with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
+            for statement in (
+                f"ALTER TABLE {schema}.case_fields NO FORCE ROW LEVEL SECURITY",
+                f"ALTER TABLE {schema}.case_fields DISABLE ROW LEVEL SECURITY",
+                f"DROP POLICY rls_policy_dynamic_workspace ON {schema}.case_fields",
+            ):
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    _run(conn, statement)
+                conn.rollback()
+
+        migrator = _url(roles.migrator, PASSWORD, database, "+psycopg")
+        _alembic(migrator, "upgrade", "head")
+        with psycopg.connect(_url(roles.migrator, PASSWORD, database)) as conn:
+            # What a later revision does: change public and dynamic tables.
+            _run(conn, 'ALTER TABLE public."case" ADD COLUMN guard_probe int')
+            _run(conn, 'ALTER TABLE public."case" DROP COLUMN guard_probe')
+            _run(conn, f"ALTER TABLE {schema}.case_fields ADD COLUMN guard_probe int")
+            _run(conn, f"ALTER TABLE {schema}.case_fields DROP COLUMN guard_probe")
+            conn.commit()
+
+        with psycopg.connect(admin, autocommit=True) as conn:  # exempt
+            _run(conn, f"ALTER TABLE {schema}.case_fields NO FORCE ROW LEVEL SECURITY")
+            _run(conn, f"ALTER TABLE {schema}.case_fields FORCE ROW LEVEL SECURITY")
     finally:
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
@@ -1943,6 +2018,10 @@ def test_migrate_sets_up_roles_on_a_fresh_compose_install(
             ).fetchone()
         assert owners == [(roles.owner,)]  # migrator created everything as the keyring
         assert references == (True,)  # granted after migrations created "case"
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            guard = conn.execute(GUARD_TRIGGERS_SQL).fetchall()
+        # migrator can't create event triggers; the admin's post-migration pass did.
+        assert [row[1:] for row in guard] == [("O", "postgres", "postgres")] * 2
         with psycopg.connect(_url(roles.app, PASSWORD, database)) as conn:
             assert conn.execute("SELECT count(*) FROM workflow").fetchone() == (0,)
         assert migrate(roles) == 0  # every deploy reruns it

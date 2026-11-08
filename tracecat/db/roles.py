@@ -65,6 +65,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 import psycopg
+from alembic.config import Config as AlembicConfig
+from alembic.script import ScriptDirectory
+from alembic.script.revision import RevisionError
 from sqlalchemy import Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -592,7 +595,70 @@ def run_bootstrap(
                 alter = f"ALTER ROLE {quote_ident(name)} PASSWORD {quote_literal(hashed.decode())}"
                 cur.execute(alter.encode())
                 notes.append(f"{name}: password set")
+        if note := _install_rls_guard(conn, cur):
+            notes.append(note)
     return notes
+
+
+RLS_GUARD_REVISION = "b4074a0896b5"
+"""The revision that defines the dynamic-table RLS guard (two event triggers)."""
+
+ALEMBIC_INI = "alembic.ini"
+"""Relative to the working directory, as for ``alembic upgrade`` itself."""
+
+
+def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | None:
+    """Install the dynamic-table RLS guard once migrations have reached it.
+
+    Migrations run as ``migrator``, which can't create event triggers, so that
+    revision skips the guard; the admin installs it here with the revision's
+    own statements. Not before the revision has run: it first enables and
+    forces RLS on dynamic tables, without which the guard rejects later column
+    changes on them. Installed triggers are left to the revision, which owns
+    their repair.
+    """
+    exists = cur.execute(
+        "SELECT pg_catalog.to_regclass('public.alembic_version') IS NOT NULL"
+    ).fetchone()
+    if not exists or not exists[0]:
+        return None
+    triggers = cur.execute(
+        "SELECT count(*) FROM pg_catalog.pg_event_trigger"
+        " WHERE evtfoid = pg_catalog.to_regprocedure('public.tracecat_guard_dynamic_rls()')"
+    ).fetchone()
+    if triggers and triggers[0] == 2:
+        return None
+    if not os.path.exists(ALEMBIC_INI):
+        return f"dynamic-table RLS guard: skipped, no {ALEMBIC_INI} in the working directory"
+    script = ScriptDirectory.from_config(AlembicConfig(ALEMBIC_INI))
+    versions = [
+        v for (v,) in cur.execute("SELECT version_num FROM public.alembic_version")
+    ]
+    try:
+        applied = {
+            r.revision for v in versions for r in script.iterate_revisions(v, "base")
+        }
+    except RevisionError:
+        return (
+            "dynamic-table RLS guard: skipped, the database is at an unknown revision"
+        )
+    if RLS_GUARD_REVISION not in applied:
+        return None
+    if (revision := script.get_revision(RLS_GUARD_REVISION)) is None:
+        return None
+    guard = revision.module
+    try:
+        # A savepoint: a failure leaves the rest of the bootstrap in place.
+        with conn.transaction():
+            for statement in (*guard.UNINSTALL_STATEMENTS, *guard.GUARD_STATEMENTS):
+                cur.execute(statement.encode())
+    except psycopg.errors.InsufficientPrivilege:
+        return (
+            "dynamic-table RLS guard: not installed, the admin can't create event "
+            f"triggers. Run MANUAL_INSTALL_SQL from revision {RLS_GUARD_REVISION} "
+            "as a superuser."
+        )
+    return "dynamic-table RLS guard: installed"
 
 
 def render_sql(login: LoginMethod, roles: RoleNames = DEFAULT_ROLES) -> str:
@@ -902,6 +968,10 @@ WHERE p.pronamespace = 'public'::pg_catalog.regnamespace
   AND NOT EXISTS (SELECT FROM pg_catalog.pg_depend d
                   WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
                     AND d.objid = p.oid AND d.deptype = 'e')
+  -- An event trigger's function stays with the trigger's owner: the dynamic
+  -- RLS guard requires the two to match, and the function's owner could
+  -- rewrite the guard.
+  AND NOT EXISTS (SELECT FROM pg_catalog.pg_event_trigger t WHERE t.evtfoid = p.oid)
 UNION ALL
 SELECT 3, CASE t.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END,
        t.oid::pg_catalog.regtype::text, pg_catalog.pg_get_userbyid(t.typowner)
