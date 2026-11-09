@@ -19,13 +19,14 @@ from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.preset.activities import (
+    AgentPresetRef,
+    ResolveAgentConfigActivityInput,
     ResolveAgentPresetConfigActivityInput,
     ResolveAgentsConfigActivityInput,
-    ResolveModelReplacementActivityInput,
+    resolve_agent_config_activity,
     resolve_agent_preset_config_activity,
     resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
-    resolve_model_replacement_activity,
 )
 from tracecat.agent.preset.resolver import (
     AgentPresetResolutionService,
@@ -546,21 +547,7 @@ async def test_resolve_agents_config_follows_current_preset_head(
 
 
 @pytest.mark.anyio
-async def test_model_replacement_round_trips_through_workflow_history() -> None:
-    converter = get_data_converter()
-    replacement = ModelReplacement(
-        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=uuid.uuid4()
-    )
-
-    (restored,) = await converter.decode(
-        await converter.encode([replacement]), [ModelReplacement]
-    )
-
-    assert restored == replacement
-
-
-@pytest.mark.anyio
-async def test_resolve_model_replacement_activity_forwards_the_model(
+async def test_resolve_agent_config_activity_moves_inline_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     role = _role()
@@ -576,23 +563,71 @@ async def test_resolve_model_replacement_activity_forwards_the_model(
         "tracecat.agent.preset.activities.AgentManagementService.with_session",
         lambda **_: _AsyncContext(SimpleNamespace(session=None)),
     )
-
-    result = await resolve_model_replacement_activity(
-        ResolveModelReplacementActivityInput(
-            role=role,
-            model_provider="anthropic",
-            model_name="claude-opus-4-1",
-            catalog_id=retired_catalog_id,
-        )
+    inline = AgentConfigPayload(
+        model_name="claude-opus-4-1",
+        model_provider="anthropic",
+        catalog_id=retired_catalog_id,
+        instructions="keep me",
+        retries=3,
     )
 
-    assert result == replacement
+    result = await resolve_agent_config_activity(
+        ResolveAgentConfigActivityInput(role=role, source=inline)
+    )
+
     resolve.assert_awaited_once_with(
         role=role,
         model_provider="anthropic",
         model_name="claude-opus-4-1",
         catalog_id=retired_catalog_id,
     )
+    assert (result.model_name, result.catalog_id) == (
+        "claude-opus-4-8",
+        replacement.catalog_id,
+    )
+    assert result.instructions == "keep me"
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_config_activity_returns_resolved_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preset_config = AgentConfig(model_name="gpt-5.6-sol", model_provider="openai")
+    with_preset_config = Mock(return_value=_AsyncContext(preset_config))
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(
+            SimpleNamespace(with_preset_config=with_preset_config)
+        ),
+    )
+
+    result = await resolve_agent_config_activity(
+        ResolveAgentConfigActivityInput(
+            role=_role(), source=AgentPresetRef(preset_slug="analyst")
+        )
+    )
+
+    # The workflow prunes tool tunnels after its own action overrides.
+    assert with_preset_config.call_args.kwargs["prune_tool_tunnels"] is False
+    assert result.model_name == "gpt-5.6-sol"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ({"preset_slug": "analyst"}, AgentPresetRef),
+        ({"model_name": "m", "model_provider": "p", "retries": 3}, AgentConfigPayload),
+    ],
+    ids=["preset", "inline"],
+)
+def test_resolve_agent_config_input_decodes_each_source(
+    source: dict[str, Any], expected: type
+) -> None:
+    decoded = ResolveAgentConfigActivityInput.model_validate(
+        {"role": _role(), "source": source}
+    )
+
+    assert type(decoded.source) is expected
 
 
 @pytest.mark.anyio

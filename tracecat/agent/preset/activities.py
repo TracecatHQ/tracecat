@@ -5,10 +5,10 @@ import uuid
 import sqlalchemy as sa
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
     agent_provider_credentials_missing,
@@ -40,15 +40,14 @@ from tracecat.exceptions import (
 from tracecat.temporal.errors import raise_application_error_from_classification
 
 
-class ResolveAgentPresetConfigActivityInput(BaseModel):
-    role: Role
+class AgentPresetRef(BaseModel):
     preset_slug: str | None = None
     preset_id: uuid.UUID | None = None
     preset_version_id: uuid.UUID | None = None
     preset_version: int | None = None
 
     @model_validator(mode="after")
-    def ensure_identifier(self) -> ResolveAgentPresetConfigActivityInput:
+    def ensure_identifier(self) -> AgentPresetRef:
         if (
             self.preset_slug is None
             and self.preset_id is None
@@ -58,6 +57,10 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
                 "Either preset_slug, preset_id, or preset_version_id must be provided"
             )
         return self
+
+
+class ResolveAgentPresetConfigActivityInput(AgentPresetRef):
+    role: Role
 
 
 class ResolveAgentPresetVersionRefActivityInput(BaseModel):
@@ -79,46 +82,49 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     follow_latest_versions: bool | None = None
 
 
-class ResolveModelReplacementActivityInput(BaseModel):
+class ResolveAgentConfigActivityInput(BaseModel):
     role: Role
-    model_provider: str
-    model_name: str
-    catalog_id: uuid.UUID | None = Field(default=None)
+    source: AgentPresetRef | AgentConfigPayload
 
 
-@activity.defn
-async def resolve_model_replacement_activity(
-    args: ResolveModelReplacementActivityInput,
-) -> ModelReplacement | None:
-    """Record in workflow history where a retired root model's run moves."""
-    try:
-        async with AgentManagementService.with_session(role=args.role) as service:
-            return await AgentCatalogService(service.session).resolve_model_replacement(
-                role=args.role,
-                model_provider=args.model_provider,
-                model_name=args.model_name,
-                catalog_id=args.catalog_id,
-            )
-    except TracecatAuthorizationError as exc:
-        raise_application_error_from_classification(invalid_agent_configuration(exc))
-
-
-@activity.defn
-async def resolve_agent_preset_config_activity(
-    args: ResolveAgentPresetConfigActivityInput,
+async def _apply_model_replacement(
+    session: AsyncSession, role: Role, config: AgentConfigPayload
 ) -> AgentConfigPayload:
+    replacement = await AgentCatalogService(session).resolve_model_replacement(
+        role=role,
+        model_provider=config.model_provider,
+        model_name=config.model_name,
+        catalog_id=config.catalog_id,
+    )
+    if replacement is None:
+        return config
+    return config.model_copy(update=replacement.selection_update())
+
+
+@activity.defn
+async def resolve_agent_config_activity(
+    args: ResolveAgentConfigActivityInput,
+) -> AgentConfigPayload:
+    """Resolve the config a durable run executes, including its model."""
     try:
         async with AgentManagementService.with_session(role=args.role) as service:
-            async with service.with_preset_config(
-                preset_id=args.preset_id,
-                slug=args.preset_slug,
-                preset_version_id=args.preset_version_id,
-                preset_version=args.preset_version,
-                # The workflow may override actions, then prunes tool tunnels
-                # against the final actions itself.
-                prune_tool_tunnels=False,
-            ) as config:
-                return agent_config_to_payload(config)
+            match args.source:
+                case AgentPresetRef() as preset:
+                    # Preset resolution moves a retired model before credential checks.
+                    async with service.with_preset_config(
+                        preset_id=preset.preset_id,
+                        slug=preset.preset_slug,
+                        preset_version_id=preset.preset_version_id,
+                        preset_version=preset.preset_version,
+                        # The workflow may override actions, then prunes tool
+                        # tunnels against the final actions itself.
+                        prune_tool_tunnels=False,
+                    ) as preset_config:
+                        return agent_config_to_payload(preset_config)
+                case AgentConfigPayload() as config:
+                    return await _apply_model_replacement(
+                        service.session, args.role, config
+                    )
     except AgentProviderCredentialsNotFoundError as exc:
         raise_application_error_from_classification(
             agent_provider_credentials_missing(exc)
@@ -129,6 +135,16 @@ async def resolve_agent_preset_config_activity(
         TracecatValidationError,
     ) as exc:
         raise_application_error_from_classification(invalid_agent_configuration(exc))
+
+
+@activity.defn
+async def resolve_agent_preset_config_activity(
+    args: ResolveAgentPresetConfigActivityInput,
+) -> AgentConfigPayload:
+    """Pre-patch histories schedule this; it resolves like the new step."""
+    return await resolve_agent_config_activity(
+        ResolveAgentConfigActivityInput(role=args.role, source=args)
+    )
 
 
 @activity.defn

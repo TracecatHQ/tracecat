@@ -24,19 +24,19 @@ from tracecat_ee.agent.workflows.durable import (
 )
 
 from tracecat import config
-from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import (
-    ResolveAgentPresetConfigActivityInput,
-    ResolveModelReplacementActivityInput,
+    AgentPresetRef,
+    ResolveAgentConfigActivityInput,
 )
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.session.activities import FinalizeTurnInput, FinalizeTurnResult
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import _serializer
 from tracecat.dsl.common import RETRY_POLICIES
@@ -669,25 +669,24 @@ async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
         await workflow_instance._emit_approval_pause_done()
 
 
-def _retired_model_case() -> tuple[DurableAgentWorkflow, AgentConfig]:
-    workflow_args = AgentWorkflowArgs(
-        role=_user_role(),
-        agent_args=RunAgentArgs(
-            session_id=uuid.uuid4(), user_prompt="hello", preset_slug="analyst"
-        ),
-        entity_type=AgentSessionEntity.WORKSPACE_CHAT,
-        entity_id=uuid.uuid4(),
-    )
+def _inline_retired_model_case() -> tuple[DurableAgentWorkflow, AgentWorkflowArgs]:
     cfg = AgentConfig(
         model_name="gpt-5.1-codex-max", model_provider="openai", catalog_id=uuid.uuid4()
     )
-    return DurableAgentWorkflow(workflow_args), cfg
+    workflow_args = AgentWorkflowArgs(
+        role=_user_role(),
+        agent_args=RunAgentArgs(
+            session_id=uuid.uuid4(), user_prompt="hello", config=cast(Any, cfg)
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    return DurableAgentWorkflow(workflow_args), workflow_args
 
 
 @pytest.mark.anyio
-async def test_replace_retired_model_skips_lookup_before_patch() -> None:
-    workflow_instance, cfg = _retired_model_case()
-    original = (cfg.model_name, cfg.catalog_id)
+async def test_build_config_runs_inline_config_as_given_before_patch() -> None:
+    workflow_instance, workflow_args = _inline_retired_model_case()
 
     with (
         patch(
@@ -698,18 +697,24 @@ async def test_replace_retired_model_skips_lookup_before_patch() -> None:
             AsyncMock(),
         ) as execute_mock,
     ):
-        result = await workflow_instance._replace_retired_model(cfg)
+        cfg = await workflow_instance._build_config(workflow_args)
 
     execute_mock.assert_not_awaited()
-    assert (result.model_name, result.catalog_id) == original
+    assert workflow_args.agent_args.config is not None
+    assert (cfg.model_name, cfg.catalog_id) == (
+        workflow_args.agent_args.config.model_name,
+        workflow_args.agent_args.config.catalog_id,
+    )
 
 
 @pytest.mark.anyio
-async def test_replace_retired_model_applies_recorded_replacement() -> None:
-    workflow_instance, cfg = _retired_model_case()
-    retired_catalog_id = cfg.catalog_id
-    replacement = ModelReplacement(
-        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=uuid.uuid4()
+async def test_build_config_resolves_inline_config_through_resolve_step() -> None:
+    workflow_instance, workflow_args = _inline_retired_model_case()
+    inline = workflow_args.agent_args.config
+    assert inline is not None
+    replacement_catalog_id = uuid.uuid4()
+    resolved = agent_config_to_payload(inline).model_copy(
+        update={"model_name": "gpt-5.6-sol", "catalog_id": replacement_catalog_id}
     )
 
     with (
@@ -718,27 +723,32 @@ async def test_replace_retired_model_applies_recorded_replacement() -> None:
         ),
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.execute_local_activity",
-            AsyncMock(return_value=replacement),
+            AsyncMock(return_value=resolved),
         ) as execute_mock,
     ):
-        result = await workflow_instance._replace_retired_model(cfg)
+        cfg = await workflow_instance._build_config(workflow_args)
 
     assert execute_mock.await_args is not None
     activity_input = execute_mock.await_args.args[1]
-    assert isinstance(activity_input, ResolveModelReplacementActivityInput)
-    assert (activity_input.model_name, activity_input.catalog_id) == (
+    assert isinstance(activity_input, ResolveAgentConfigActivityInput)
+    source = activity_input.source
+    assert isinstance(source, AgentConfigPayload)
+    assert (source.model_name, source.catalog_id) == (
         "gpt-5.1-codex-max",
-        retired_catalog_id,
+        inline.catalog_id,
     )
-    assert (result.model_provider, result.model_name, result.catalog_id) == (
-        replacement.model_provider,
-        replacement.model_name,
-        replacement.catalog_id,
-    )
+    assert (cfg.model_name, cfg.catalog_id) == ("gpt-5.6-sol", replacement_catalog_id)
 
 
 @pytest.mark.anyio
-async def test_build_config_prefers_pinned_preset_version_id() -> None:
+@pytest.mark.parametrize(
+    ("patched", "execute"),
+    [(True, "execute_local_activity"), (False, "execute_activity")],
+    ids=["resolve-step", "pre-patch"],
+)
+async def test_build_config_prefers_pinned_preset_version_id(
+    patched: bool, execute: str
+) -> None:
     role = _user_role()
     pinned_version_id = uuid.uuid4()
     workflow_args = AgentWorkflowArgs(
@@ -770,19 +780,30 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
         actions=["core.http_request"],
     )
 
-    with patch(
-        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
-        AsyncMock(return_value=agent_config_to_payload(pinned_config)),
-    ) as execute_activity_mock:
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            return_value=patched,
+        ),
+        patch(
+            f"tracecat_ee.agent.workflows.durable.workflow.{execute}",
+            AsyncMock(return_value=agent_config_to_payload(pinned_config)),
+        ) as execute_activity_mock,
+    ):
         cfg = await workflow_instance._build_config(workflow_args)
 
     execute_activity_mock.assert_awaited_once()
     assert execute_activity_mock.await_args is not None
-    call_args = execute_activity_mock.await_args.args
-    assert isinstance(call_args[1], ResolveAgentPresetConfigActivityInput)
-    assert call_args[1].preset_version_id == pinned_version_id
-    assert call_args[1].preset_slug is None
-    assert call_args[1].preset_version is None
+    activity_input = execute_activity_mock.await_args.args[1]
+    preset = (
+        activity_input.source
+        if isinstance(activity_input, ResolveAgentConfigActivityInput)
+        else activity_input
+    )
+    assert isinstance(preset, AgentPresetRef)
+    assert preset.preset_version_id == pinned_version_id
+    assert preset.preset_slug is None
+    assert preset.preset_version is None
     assert cfg.model_name == pinned_config.model_name
     assert cfg.model_provider == pinned_config.model_provider
     assert cfg.actions == ["core.http_request"]
@@ -837,9 +858,14 @@ async def test_build_config_applies_preset_output_type_override(
         output_type=preset_output_type,
     )
 
-    with patch(
-        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
-        AsyncMock(return_value=agent_config_to_payload(preset_config)),
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched", return_value=True
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_local_activity",
+            AsyncMock(return_value=agent_config_to_payload(preset_config)),
+        ),
     ):
         cfg = await workflow_instance._build_config(workflow_args)
 
@@ -892,9 +918,14 @@ async def test_build_config_prunes_tool_tunnels_after_action_override(
         tool_tunnels={"core.http_request": "dmz", "tools.test.dropped": "onprem"},
     )
 
-    with patch(
-        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
-        AsyncMock(return_value=agent_config_to_payload(preset_config)),
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched", return_value=True
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_local_activity",
+            AsyncMock(return_value=agent_config_to_payload(preset_config)),
+        ),
     ):
         cfg = await workflow_instance._build_config(workflow_args)
 

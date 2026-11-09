@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -68,13 +68,14 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.preset.activities import (
+        AgentPresetRef,
+        ResolveAgentConfigActivityInput,
         ResolveAgentPresetConfigActivityInput,
         ResolveAgentsConfigActivityInput,
-        ResolveModelReplacementActivityInput,
+        resolve_agent_config_activity,
         resolve_agent_preset_config_activity,
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
-        resolve_model_replacement_activity,
     )
     from tracecat.agent.preset.resolver import (
         ResolvedAgentsRuntimeConfig,
@@ -116,7 +117,11 @@ with workflow.unsafe.imports_passed_through():
         apply_preset_overrides,
         clamp_agent_timeout_seconds,
     )
-    from tracecat.agent.workflow_config import agent_config_from_payload
+    from tracecat.agent.workflow_config import (
+        agent_config_from_payload,
+        agent_config_to_payload,
+    )
+    from tracecat.agent.workflow_schemas import AgentConfigPayload
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
@@ -642,57 +647,54 @@ class DurableAgentWorkflow:
             has_base_url=bool(cfg.base_url),
         )
 
-    async def _replace_retired_model(self, cfg: AgentConfig) -> AgentConfig:
-        if not workflow.patched(DurableAgentWorkflowPatch.REPLACE_RETIRED_MODEL):
-            return cfg
-        # Local: runs on this worker, so it always has the activity.
-        replacement = await workflow.execute_local_activity(
-            resolve_model_replacement_activity,
-            ResolveModelReplacementActivityInput(
-                role=self.role,
-                model_provider=cfg.model_provider,
-                model_name=cfg.model_name,
-                catalog_id=cfg.catalog_id,
-            ),
+    async def _resolve_config(
+        self, source: ResolveAgentConfigActivityInput
+    ) -> AgentConfig:
+        # Local: runs on this worker, so a rolling deploy never misses it.
+        payload = await workflow.execute_local_activity(
+            resolve_agent_config_activity,
+            source,
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
-        if replacement is None:
-            return cfg
-        return replace(cfg, **replacement.selection_update())
+        return agent_config_from_payload(payload)
+
+    def _config_source(
+        self, args: AgentWorkflowArgs
+    ) -> AgentPresetRef | AgentConfigPayload:
+        if args.agent_args.preset_slug:
+            if args.agent_preset_version_id is not None:
+                return AgentPresetRef(preset_version_id=args.agent_preset_version_id)
+            return AgentPresetRef(
+                preset_slug=args.agent_args.preset_slug,
+                preset_version=args.agent_args.preset_version,
+            )
+        if args.agent_args.config is not None:
+            return agent_config_to_payload(args.agent_args.config)
+        raise_application_error_from_classification(invalid_agent_configuration())
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
-        if args.agent_args.preset_slug:
-            activity_input = (
-                ResolveAgentPresetConfigActivityInput(
-                    role=self.role,
-                    preset_version_id=args.agent_preset_version_id,
-                )
-                if args.agent_preset_version_id is not None
-                else ResolveAgentPresetConfigActivityInput(
-                    role=self.role,
-                    preset_slug=args.agent_args.preset_slug,
-                    preset_version=args.agent_args.preset_version,
-                )
+        source = self._config_source(args)
+        if workflow.patched(DurableAgentWorkflowPatch.RESOLVE_AGENT_CONFIG):
+            cfg = await self._resolve_config(
+                ResolveAgentConfigActivityInput(role=self.role, source=source)
             )
+        elif isinstance(source, AgentPresetRef):
             preset_config_payload = await workflow.execute_activity(
                 resolve_agent_preset_config_activity,
-                activity_input,
+                ResolveAgentPresetConfigActivityInput(
+                    role=self.role, **source.model_dump()
+                ),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-            # When using a preset, the 'config' in args acts as an override layer
-            cfg = apply_preset_overrides(
-                agent_config_from_payload(preset_config_payload),
-                args.agent_args.config,
-            )
+            cfg = agent_config_from_payload(preset_config_payload)
         else:
-            if args.agent_args.config is None:
-                raise_application_error_from_classification(
-                    invalid_agent_configuration()
-                )
-            # Idempotent: chat turns send preset configs inline, already swapped.
-            cfg = await self._replace_retired_model(args.agent_args.config)
+            cfg = agent_config_from_payload(source)
+
+        if isinstance(source, AgentPresetRef):
+            # When using a preset, the 'config' in args acts as an override layer
+            cfg = apply_preset_overrides(cfg, args.agent_args.config)
 
         await self._apply_custom_model_provider_config(cfg)
         return cfg
