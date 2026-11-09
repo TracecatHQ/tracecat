@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Update quarantined files
+  description: >-
+    Release, unrelease or permanently delete quarantined files by ID. Requires the
+    Quarantined Files: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/quarantine/#updatequarantineddetectsbyids
+  namespace: tools.crowdstrike
+  name: update_quarantined_files
+  expects:
+    ids:
+      type: list[str]
+      description: Quarantined file IDs.
+    action:
+      type: str
+      description: "Action: `release`, `unrelease` or `delete`."
+    comment:
+      type: str | None
+      description: Audit log comment.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: update_quarantined_files
+      action: tools.falconpy.call_command
+      args:
+        operation_id: UpdateQuarantinedDetectsByIds
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            ids: ${{ inputs.ids }}
+            action: ${{ inputs.action }}
+            comment: ${{ inputs.comment }}
+  returns: ${{ steps.update_quarantined_files.result }}

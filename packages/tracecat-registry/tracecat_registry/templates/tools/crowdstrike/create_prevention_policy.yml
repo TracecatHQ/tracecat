@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Create prevention policy
+  description: >-
+    Create a prevention policy, optionally cloned from an existing one. Requires the
+    Prevention policies: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/prevention-policy/#createpreventionpolicies
+  namespace: tools.crowdstrike
+  name: create_prevention_policy
+  expects:
+    name:
+      type: str
+      description: Policy name.
+    platform_name:
+      type: str
+      description: "Platform: `Windows`, `Mac`, `Linux`, `iOS` or `Android`."
+    description:
+      type: str | None
+      description: Policy description.
+      default: null
+    clone_id:
+      type: str | None
+      description: Prevention policy ID to copy settings from.
+      default: null
+    settings:
+      type: list[dict[str, Any]] | None
+      description: "Policy settings, as `{\"id\": ..., \"value\": ...}` objects."
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: create_prevention_policy
+      action: tools.falconpy.call_command
+      args:
+        operation_id: createPreventionPolicies
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            resources:
+              - name: ${{ inputs.name }}
+                platform_name: ${{ inputs.platform_name }}
+                description: ${{ inputs.description }}
+                clone_id: ${{ inputs.clone_id }}
+                settings: ${{ inputs.settings }}
+  returns: ${{ steps.create_prevention_policy.result }}

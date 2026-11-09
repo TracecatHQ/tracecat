@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: List custom IOA rule groups
+  description: >-
+    Search custom IOA rule groups and return the full rule groups, including their
+    rules. Requires the Custom IOA rules: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/custom-ioa/#query-rule-groups-full
+  namespace: tools.crowdstrike
+  name: list_ioa_rule_groups
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter.
+      default: null
+    q:
+      type: str | None
+      description: Free-text search across all indexed fields.
+      default: null
+    sort:
+      type: str | None
+      description: "Property and direction to sort by, for example `name.asc`."
+      default: null
+    offset:
+      type: str | None
+      description: Offset to start from.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of results to return.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_ioa_rule_groups
+      action: tools.falconpy.call_command
+      args:
+        operation_id: query_rule_groups_full
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          q: ${{ inputs.q }}
+          sort: ${{ inputs.sort }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_ioa_rule_groups.result }}

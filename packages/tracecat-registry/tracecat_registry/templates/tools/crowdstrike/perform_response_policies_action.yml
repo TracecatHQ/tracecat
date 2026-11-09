@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Perform RTR response policy action
+  description: >-
+    Enable or disable RTR response policies, or attach or detach host groups and rule
+    groups. Requires the Response policies: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/response-policies/#performrtresponsepoliciesaction
+  namespace: tools.crowdstrike
+  name: perform_response_policies_action
+  expects:
+    action_name:
+      type: str
+      description: >-
+        Action to perform: `enable`, `disable`, `add-host-group`, `remove-host-group`,
+        `add-rule-group` or `remove-rule-group`.
+    ids:
+      type: list[str]
+      description: Rtr response policy IDs.
+    action_parameters:
+      type: list[dict[str, str]] | None
+      description: >-
+        Action parameters, as `{"name": ..., "value": ...}` objects. Host group actions
+        take `{"name": "group_id", "value": "<host group ID>"}`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: perform_response_policies_action
+      action: tools.falconpy.call_command
+      args:
+        operation_id: performRTResponsePoliciesAction
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          action_name: ${{ inputs.action_name }}
+          body:
+            ids: ${{ inputs.ids }}
+            action_parameters: ${{ inputs.action_parameters }}
+  returns: ${{ steps.perform_response_policies_action.result }}

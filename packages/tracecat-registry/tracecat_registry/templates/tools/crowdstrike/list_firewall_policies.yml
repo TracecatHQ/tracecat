@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: List firewall policies
+  description: >-
+    Search firewall policies and return the full policy records, including settings and
+    assigned host groups. Requires the Falcon Firewall Management add-on. Requires the
+    Firewall management: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/firewall-policies/#querycombinedfirewallpolicies
+  namespace: tools.crowdstrike
+  name: list_firewall_policies
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of results to return.
+      default: null
+    offset:
+      type: int | None
+      description: Offset to start from.
+      default: null
+    sort:
+      type: str | None
+      description: "Property and direction to sort by, for example `name.asc`."
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_firewall_policies
+      action: tools.falconpy.call_command
+      args:
+        operation_id: queryCombinedFirewallPolicies
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_firewall_policies.result }}

@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Get child CIDs
+  description: >-
+    Get details for Flight Control (MSSP) child tenants, such as name and status, by
+    child CID. Requires Flight Control and the Flight Control: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/mssp/#getchildrenv2
+  namespace: tools.crowdstrike
+  name: get_child_cids
+  expects:
+    ids:
+      type: list[str]
+      description: Child CIDs.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_child_cids
+      action: tools.falconpy.call_command
+      args:
+        operation_id: getChildrenV2
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            ids: ${{ inputs.ids }}
+  returns: ${{ steps.get_child_cids.result }}

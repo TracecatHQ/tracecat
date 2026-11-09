@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Create RTR put file
+  description: >-
+    Upload a file to the RTR put-file library so `run_rtr_admin_command` can copy it to
+    hosts with `put <name>`. Requires the Real time response (admin): Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response-admin/#rtr-createput-filesv2
+  namespace: tools.crowdstrike
+  name: create_rtr_put_file
+  expects:
+    name:
+      type: str
+      description: File name hosts receive.
+    content_base64:
+      type: str
+      description: Base64-encoded file content.
+    description:
+      type: str
+      description: File description.
+    comments_for_audit_log:
+      type: str | None
+      description: Audit log comment.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: create_rtr_put_file
+      action: tools.falconpy.call_command
+      args:
+        operation_id: RTR_CreatePut_FilesV2
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          data:
+            name: ${{ inputs.name }}
+            description: ${{ inputs.description }}
+            comments_for_audit_log: ${{ inputs.comments_for_audit_log }}
+        files:
+          - field: file
+            filename: ${{ inputs.name }}
+            content_base64: ${{ inputs.content_base64 }}
+  returns: ${{ steps.create_rtr_put_file.result }}

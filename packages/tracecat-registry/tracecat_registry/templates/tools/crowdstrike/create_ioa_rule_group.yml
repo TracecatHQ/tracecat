@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Create custom IOA rule group
+  description: >-
+    Create a custom IOA rule group. Assign it to a prevention policy with
+    `perform_prevention_policies_action` and `add-rule-group`. Requires the Custom IOA
+    rules: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/custom-ioa/#create-rule-groupmixin0
+  namespace: tools.crowdstrike
+  name: create_ioa_rule_group
+  expects:
+    name:
+      type: str
+      description: Rule group name.
+    platform:
+      type: str
+      description: "Platform: `windows`, `mac` or `linux`."
+    description:
+      type: str | None
+      description: Rule group description.
+      default: null
+    comment:
+      type: str | None
+      description: Audit log comment.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: create_ioa_rule_group
+      action: tools.falconpy.call_command
+      args:
+        operation_id: create_rule_groupMixin0
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            name: ${{ inputs.name }}
+            platform: ${{ inputs.platform }}
+            description: ${{ inputs.description }}
+            comment: ${{ inputs.comment }}
+  returns: ${{ steps.create_ioa_rule_group.result }}

@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Delete custom IOA rules
+  description: >-
+    Delete rules from a custom IOA rule group. Requires the Custom IOA rules: Write API
+    scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/custom-ioa/#delete-rules
+  namespace: tools.crowdstrike
+  name: delete_ioa_rules
+  expects:
+    rule_group_id:
+      type: str
+      description: Rule group ID.
+    ids:
+      type: list[str]
+      description: Rule instance IDs.
+    comment:
+      type: str | None
+      description: Audit log comment.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: delete_ioa_rules
+      action: tools.falconpy.call_command
+      args:
+        operation_id: delete_rules
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          rule_group_id: ${{ inputs.rule_group_id }}
+          ids: ${{ inputs.ids }}
+          comment: ${{ inputs.comment }}
+  returns: ${{ steps.delete_ioa_rules.result }}

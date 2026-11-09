@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Update sensor update policy
+  description: >-
+    Update a sensor update policy, for example to change the sensor build or turn
+    uninstall protection on. Requires the Sensor update policies: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/sensor-update-policy/#updatesensorupdatepoliciesv2
+  namespace: tools.crowdstrike
+  name: update_sensor_update_policy
+  expects:
+    id:
+      type: str
+      description: Sensor update policy ID.
+    name:
+      type: str | None
+      description: Policy name.
+      default: null
+    description:
+      type: str | None
+      description: Policy description.
+      default: null
+    settings:
+      type: dict[str, Any] | None
+      description: >-
+        Policy settings, for example `{"build": "<build>", "uninstall_protection":
+        "ENABLED"}`. Also accepts `variants`, `scheduler` and
+        `show_early_adopter_builds`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: update_sensor_update_policy
+      action: tools.falconpy.call_command
+      args:
+        operation_id: updateSensorUpdatePoliciesV2
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            resources:
+              - id: ${{ inputs.id }}
+                name: ${{ inputs.name }}
+                description: ${{ inputs.description }}
+                settings: ${{ inputs.settings }}
+  returns: ${{ steps.update_sensor_update_policy.result }}

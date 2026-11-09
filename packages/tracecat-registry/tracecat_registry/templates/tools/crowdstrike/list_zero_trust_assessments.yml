@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: List Zero Trust assessments
+  description: >-
+    Search hosts by Zero Trust Assessment (ZTA) score, for example to find hosts below a
+    posture threshold. Requires Falcon Zero Trust Assessment and the Zero Trust
+    Assessment: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/zero-trust-assessment/#getassessmentsbyscorev1
+  namespace: tools.crowdstrike
+  name: list_zero_trust_assessments
+  expects:
+    filter:
+      type: str
+      description: "FQL filter on `score`."
+    limit:
+      type: int | None
+      description: Maximum number of results to return.
+      default: null
+    after:
+      type: str | None
+      description: "Pagination token from the previous response's `meta.pagination.after`."
+      default: null
+    sort:
+      type: str | None
+      description: "Sort field. Supports `score`."
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_zero_trust_assessments
+      action: tools.falconpy.call_command
+      args:
+        operation_id: getAssessmentsByScoreV1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          limit: ${{ inputs.limit }}
+          after: ${{ inputs.after }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_zero_trust_assessments.result }}

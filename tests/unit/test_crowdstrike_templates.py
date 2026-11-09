@@ -17,6 +17,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
@@ -66,8 +67,17 @@ def fake_falconpy(tmp_path: Path) -> Iterator[ModuleType]:
                 operation_id: str,
                 params: dict[str, Any] | None = None,
                 member_cid: str | None = None,
+                base_url: str | None = None,
+                files: list[dict[str, Any]] | None = None,
             ) -> dict[str, Any]:
-                CALLS.append({"operation_id": operation_id, "params": params})
+                CALLS.append(
+                    {
+                        "operation_id": operation_id,
+                        "params": params,
+                        "member_cid": member_cid,
+                        "files": files,
+                    }
+                )
                 return {
                     "status_code": 200,
                     "headers": {},
@@ -156,3 +166,96 @@ async def test_crowdstrike_list_templates_accept_string_timestamps(
     assert calls[0]["params"] == {"filter": expected_filter, "limit": 5}
     assert list(calls[1]["params"]["body"].values()) == [[f"{operations[0]}-1"]]
     assert result == {"resources": [f"{operations[1]}-1"], "errors": []}
+
+
+def _dummy(type_: str) -> Any:
+    if type_.startswith("list[dict"):
+        return [{"name": "x", "value": "y"}]
+    if type_.startswith("list[int"):
+        return [1]
+    if type_.startswith("list"):
+        return ["x"]
+    if type_.startswith("dict"):
+        return {"k": "v"}
+    return {"str": "x", "int": 1, "bool": True}[type_]
+
+
+def _single_step_templates() -> list[str]:
+    names = []
+    for path in sorted(TEMPLATES.glob("*.yml")):
+        definition = yaml.safe_load(path.read_text())["definition"]
+        if len(definition["steps"]) == 1:
+            names.append(path.stem)
+    return names
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+@pytest.mark.parametrize("template", _single_step_templates())
+async def test_crowdstrike_single_call_templates(
+    template: str,
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+    fake_falconpy: ModuleType,
+) -> None:
+    definition = yaml.safe_load((TEMPLATES / f"{template}.yml").read_text())[
+        "definition"
+    ]
+    step_args = definition["steps"][0]["args"]
+    args = {
+        name: _dummy(spec["type"])
+        for name, spec in definition["expects"].items()
+        if "default" not in spec
+    }
+    args["member_cid"] = "child-cid"
+
+    session, db_repo_id = db_session_with_repo
+    repo = Repository()
+    repo.init(include_base=False, include_templates=False)
+    repo._register_udfs_from_package(fake_falconpy)
+    repo.register_template_action(
+        TemplateAction.from_yaml(TEMPLATES / f"{template}.yml")
+    )
+    action = f"tools.crowdstrike.{template}"
+    registry_lock = await create_manifest_for_actions(
+        session,
+        db_repo_id,
+        [repo.get(action), repo.get("tools.falconpy.call_command")],
+        test_role.organization_id,
+    )
+
+    result = await run_action_test(
+        input=RunActionInput(
+            task=ActionStatement(ref="call", action=action, args=args),
+            exec_context=create_default_execution_context(),
+            run_context=RunContext(
+                wf_id=TEST_WF_ID,
+                wf_exec_id=generate_test_exec_id(f"test_crowdstrike_{template}"),
+                wf_run_id=uuid.uuid4(),
+                environment="default",
+                logical_time=datetime.now(UTC),
+            ),
+            registry_lock=registry_lock,
+        ),
+        role=test_role,
+    )
+
+    calls: list[dict[str, Any]] = sys.modules[f"{FAKE_PACKAGE}.falconpy"].CALLS
+    assert len(calls) == 1
+    assert calls[0]["operation_id"] == step_args["operation_id"]
+    assert calls[0]["member_cid"] == "child-cid"
+    params = calls[0]["params"] or {}
+    payload = {
+        **params,
+        **(params.get("body") or {}),
+        **(params.get("data") or {}),
+    }
+    for resource_key in ("resources", "policies"):
+        for resource in payload.get(resource_key) or []:
+            payload |= resource
+    for file in calls[0]["files"] or []:
+        payload |= file
+    for name, value in args.items():
+        if name != "member_cid":
+            assert value in payload.values(), f"{name} not forwarded"
+    assert result["status_code"] == 200

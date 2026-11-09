@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Update host group
+  description: >-
+    Update a host group's name, description or dynamic assignment rule. Requires the
+    Host groups: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/host-group/#updatehostgroups
+  namespace: tools.crowdstrike
+  name: update_host_group
+  expects:
+    id:
+      type: str
+      description: Host group ID.
+    name:
+      type: str | None
+      description: Host group name.
+      default: null
+    description:
+      type: str | None
+      description: Host group description.
+      default: null
+    assignment_rule:
+      type: str | None
+      description: FQL rule for dynamic groups.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: update_host_group
+      action: tools.falconpy.call_command
+      args:
+        operation_id: updateHostGroups
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            resources:
+              - id: ${{ inputs.id }}
+                name: ${{ inputs.name }}
+                description: ${{ inputs.description }}
+                assignment_rule: ${{ inputs.assignment_rule }}
+  returns: ${{ steps.update_host_group.result }}

@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Update sensor visibility exclusion
+  description: >-
+    Update a sensor visibility exclusion. Requires the Sensor Visibility Exclusions:
+    Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/sensor-visibility-exclusions/#updatesensorvisibilityexclusionsv1
+  namespace: tools.crowdstrike
+  name: update_sensor_visibility_exclusion
+  expects:
+    id:
+      type: str
+      description: Exclusion ID.
+    value:
+      type: str
+      description: "Path or glob pattern to exclude, for example `/Users/*/Downloads/**`."
+    groups:
+      type: list[str]
+      description: >-
+        Host group IDs to apply the exclusion to. Use `["all"]` for all hosts.
+    is_descendant_process:
+      type: bool | None
+      description: Also apply the exclusion to descendant processes.
+      default: null
+    comment:
+      type: str | None
+      description: Why the exclusion exists.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: update_sensor_visibility_exclusion
+      action: tools.falconpy.call_command
+      args:
+        operation_id: updateSensorVisibilityExclusionsV1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            id: ${{ inputs.id }}
+            value: ${{ inputs.value }}
+            groups: ${{ inputs.groups }}
+            is_descendant_process: ${{ inputs.is_descendant_process }}
+            comment: ${{ inputs.comment }}
+  returns: ${{ steps.update_sensor_visibility_exclusion.result }}

@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: List RTR scripts
+  description: >-
+    List the IDs of custom scripts in the RTR script library. Requires the Real time
+    response (admin): Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response-admin/#rtr-listscripts
+  namespace: tools.crowdstrike
+  name: list_rtr_scripts
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter.
+      default: null
+    offset:
+      type: str | None
+      description: Offset to start from.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of results to return.
+      default: null
+    sort:
+      type: str | None
+      description: "Property and direction to sort by, for example `name.asc`."
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_rtr_scripts
+      action: tools.falconpy.call_command
+      args:
+        operation_id: RTR_ListScripts
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_rtr_scripts.result }}
