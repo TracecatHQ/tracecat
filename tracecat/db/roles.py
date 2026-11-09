@@ -77,7 +77,7 @@ import psycopg
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from alembic.script.revision import RevisionError
-from sqlalchemy import Connection, make_url, text
+from sqlalchemy import URL, Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from alembic import command as alembic_command
@@ -1101,6 +1101,10 @@ def status(conn: psycopg.Connection, roles: RoleNames = DEFAULT_ROLES) -> int:
         0 when ``migrate`` from this release can run, 1 when role setup is
         missing or behind, or ``public`` objects still need ``upgrade``.
     """
+    # Runs as the admin: resolve every operator and function from pg_catalog,
+    # as the bootstrap does (an earlier search_path entry could plant one).
+    for statement in _PINNED_SESSION:
+        conn.execute(statement.encode())
     state = read_role_setup(conn, roles)
     if not state.installed:
         print(f"role setup: not set up (this release: {ROLE_SETUP_VERSION})")
@@ -1144,6 +1148,62 @@ def pin_migration_search_path(connection: Connection) -> None:
             "THEN 'public, ibm_extension' ELSE 'public' END, false)"
         )
     )
+
+
+def _effective_database(url: URL) -> str | None:
+    """The database libpq connects to: ?dbname=, the path, PGDATABASE, the user."""
+    dbname = url.query.get("dbname")
+    if isinstance(dbname, str) and dbname:
+        return dbname
+    return url.database or os.environ.get("PGDATABASE") or url.username
+
+
+def _check_targets() -> int:
+    """Before changing anything: stop if the admin URI names another database
+    than this environment's own database settings.
+
+    Role setup runs on the admin URI's database. When the same environment
+    also names the app's or the migrations' database (``TRACECAT__DB_URI``,
+    else ``TRACECAT__DB_NAME``), as in the Compose migrations container,
+    a different name means role setup would land on the wrong database.
+    Database names don't alias within one server, so a different name stops
+    the run. Hosts do (localhost and postgres_db, or a pooler), so a
+    different host only warns.
+    """
+    admin = make_url(_admin_conninfo())
+    admin_db = _effective_database(admin)
+    hint = (
+        "hint: point TRACECAT__DB_ADMIN_URI at the same database as the "
+        "migrations and the app."
+    )
+    if not (other_uri := os.environ.get("TRACECAT__DB_URI")):
+        if (other_name := config.TRACECAT__DB_NAME) and admin_db != other_name:
+            print(
+                f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
+                f"but TRACECAT__DB_NAME is {_printable(other_name)}.",
+                file=sys.stderr,
+            )
+            print(hint, file=sys.stderr)
+            return 1
+        return 0
+    other = make_url(other_uri)
+    if admin_db != (other_db := _effective_database(other)):
+        print(
+            f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
+            f"but TRACECAT__DB_URI names {_printable(str(other_db))}.",
+            file=sys.stderr,
+        )
+        print(hint, file=sys.stderr)
+        return 1
+    if (admin.host, admin.port or 5432) != (other.host, other.port or 5432):
+        print(
+            f"warning: role setup runs on {_printable(str(admin.host))} "
+            f"(TRACECAT__DB_ADMIN_URI), but TRACECAT__DB_URI names "
+            f"{_printable(str(other.host))}. If those are different servers, point "
+            "TRACECAT__DB_ADMIN_URI at the database's server.",
+            file=sys.stderr,
+        )
+    return 0
 
 
 def _printable(text: str) -> str:
@@ -1880,6 +1940,10 @@ def _main(argv: Sequence[str] | None) -> int:
             return status(conn)
 
     login: LoginMethod = args.login
+    # --sql (bootstrap only) prints and connects nowhere.
+    writes = args.command == "upgrade" or not args.sql
+    if writes and (code := _check_targets()) != 0:
+        return code
     if args.command == "upgrade":
         with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
             result = run_upgrade(

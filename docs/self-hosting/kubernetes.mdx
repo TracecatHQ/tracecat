@@ -157,6 +157,8 @@ externalPostgres:
 
 For Amazon RDS, download the global CA bundle from the [AWS trust store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
 
+To log in with RDS IAM tokens instead of a password, set `externalPostgres.auth.mode: awsIam`. See [Database IAM login](/self-hosting/database-iam) for the database and IAM setup and the PgDog settings it needs.
+
 To run the services and the migrations Job on separate roles instead of this one login, see [Database roles](/self-hosting/database-roles). You set the roles up as the database admin, outside the cluster, before you deploy a release that changes them; the Job then logs in as `migrator`.
 
 #### CloudNativePG

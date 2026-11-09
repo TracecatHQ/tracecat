@@ -374,6 +374,7 @@
               "self-hosting/pgvector",
               "self-hosting/database-roles",
               "self-hosting/tls",
+              "self-hosting/database-iam",
               "self-hosting/environment-variables",
               "self-hosting/security",
               "self-hosting/support"

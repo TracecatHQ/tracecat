@@ -14,6 +14,14 @@ from tracecat.agent.constants import (
     AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
 )
 from tracecat.auth.enums import AuthType
+from tracecat.db.iam.types import (
+    TOKEN_SSLMODES,
+    DbAuth,
+    DbAuthMode,
+    DbAwsIamAuth,
+    DbAzureEntraAuth,
+    DbPasswordAuth,
+)
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.redis.types import (
@@ -331,6 +339,128 @@ TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 """The port to connect to the database on."""
 TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 """The SSL mode to connect to the database with."""
+
+
+def _parse_db_auth() -> DbAuth:
+    raw_mode = (
+        os.environ.get("TRACECAT__DB_AUTH_MODE") or ""
+    ).strip().lower() or "password"
+    # Don't echo the value, not even as the enum's chained error: a credential
+    # pasted into the wrong variable would end up in the logs. So the error is
+    # raised outside the except block.
+    try:
+        mode: DbAuthMode | None = DbAuthMode(raw_mode)
+    except ValueError:
+        mode = None
+    match mode:
+        case None:
+            raise ValueError(
+                f"TRACECAT__DB_AUTH_MODE must be one of {', '.join(DbAuthMode)}"
+            )
+        case DbAuthMode.PASSWORD:
+            return DbPasswordAuth()
+        case DbAuthMode.AZURE_ENTRA:
+            client_id = os.environ.get("TRACECAT__DB_AZURE_CLIENT_ID", "").strip()
+            return DbAzureEntraAuth(client_id=client_id or None)
+        case DbAuthMode.AWS_IAM:
+            host = (
+                os.environ.get("TRACECAT__DB_AWS_IAM_HOST")
+                or os.environ.get("TRACECAT__DB_ENDPOINT")
+                or ""
+            ).strip()
+            raw_port = (
+                os.environ.get("TRACECAT__DB_AWS_IAM_PORT")
+                or os.environ.get("TRACECAT__DB_PORT")
+                or "5432"
+            ).strip()
+            region = (
+                os.environ.get("TRACECAT__DB_AWS_REGION")
+                or os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or ""
+            ).strip()
+            missing = [
+                name
+                for name, value in (
+                    ("TRACECAT__DB_AWS_IAM_HOST (or TRACECAT__DB_ENDPOINT)", host),
+                    ("TRACECAT__DB_AWS_REGION", region),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"TRACECAT__DB_AUTH_MODE=aws_iam requires {', '.join(missing)}"
+                )
+            if not raw_port.isdigit():
+                raise ValueError(
+                    "TRACECAT__DB_AWS_IAM_PORT (or TRACECAT__DB_PORT) must be a "
+                    "port number"
+                )
+            return DbAwsIamAuth(host=host, port=int(raw_port), region=region)
+
+
+TRACECAT__DB_AUTH: DbAuth = _parse_db_auth()
+"""How Tracecat logs in to Postgres, from ``TRACECAT__DB_AUTH_MODE`` (default
+``password``).
+
+- ``password``: ``DbPasswordAuth``; ``TRACECAT__DB_PASS``,
+  ``TRACECAT__DB_PASS__ARN`` or ``TRACECAT__DB_URI``, as before.
+- ``aws_iam``: ``DbAwsIamAuth``. Each new connection logs in as
+  ``TRACECAT__DB_USER`` with an RDS IAM token signed for
+  ``TRACECAT__DB_AWS_IAM_HOST`` / ``TRACECAT__DB_AWS_IAM_PORT`` (default: the
+  connection's ``TRACECAT__DB_ENDPOINT`` / ``TRACECAT__DB_PORT``; set them to
+  the RDS endpoint when connecting through a pooler that passes the token
+  through) in ``TRACECAT__DB_AWS_REGION`` (default ``AWS_REGION``, then
+  ``AWS_DEFAULT_REGION``).
+- ``azure_entra``: ``DbAzureEntraAuth``. Each new connection logs in as
+  ``TRACECAT__DB_USER`` (the identity's Postgres role name) with an Entra ID
+  token for ``TRACECAT__DB_AZURE_CLIENT_ID`` (optional; DefaultAzureCredential
+  reads ``AZURE_CLIENT_ID`` otherwise).
+
+The token modes connect with ``TRACECAT__DB_USER``, ``TRACECAT__DB_ENDPOINT``,
+``TRACECAT__DB_PORT`` and ``TRACECAT__DB_NAME`` (``TRACECAT__DB_URI`` is not
+used, and must be unset), refuse a static password, and require ``TRACECAT__DB_SSLMODE`` of
+``require`` or stricter.
+"""
+
+# Fail at startup: a token mode with a leftover password or a plaintext-capable
+# sslmode is a misconfiguration, not something to fall back from.
+if not isinstance(TRACECAT__DB_AUTH, DbPasswordAuth):
+    if _db_missing := [
+        name
+        for name, value in (
+            ("TRACECAT__DB_USER", TRACECAT__DB_USER),
+            ("TRACECAT__DB_ENDPOINT", TRACECAT__DB_ENDPOINT),
+            ("TRACECAT__DB_PORT", TRACECAT__DB_PORT),
+            ("TRACECAT__DB_NAME", TRACECAT__DB_NAME),
+        )
+        if not value
+    ]:
+        raise ValueError(
+            f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} requires "
+            f"{', '.join(_db_missing)}"
+        )
+    if not ((_port := TRACECAT__DB_PORT or "").isdigit() and 0 < int(_port) < 65536):
+        raise ValueError("TRACECAT__DB_PORT must be a port number")
+    if TRACECAT__DB_PASS or os.environ.get("TRACECAT__DB_PASS__ARN"):
+        raise ValueError(
+            f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} logs in with a token: "
+            "unset TRACECAT__DB_PASS and TRACECAT__DB_PASS__ARN"
+        )
+    # The token modes don't use TRACECAT__DB_URI, and alembic would log in with
+    # it instead of a token, so it may not carry a credential (in the userinfo
+    # or the query). Commands that run alembic with an explicit URI drop
+    # TRACECAT__DB_AUTH_MODE from its environment.
+    if os.environ.get("TRACECAT__DB_URI"):
+        raise ValueError(
+            f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} logs in with a token: "
+            "unset TRACECAT__DB_URI"
+        )
+    if TRACECAT__DB_SSLMODE not in TOKEN_SSLMODES:
+        raise ValueError(
+            f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} requires TLS: set "
+            f"TRACECAT__DB_SSLMODE to one of {', '.join(sorted(TOKEN_SSLMODES))}"
+        )
 
 TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
 """Admin connection for ``tracecat db roles`` (``bootstrap``, ``upgrade``,

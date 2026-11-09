@@ -54,6 +54,7 @@ from tracecat.db.roles import (
     UnsafeDatabaseLoginError,
     UpgradeResult,
     _admin_conninfo,
+    _check_targets,
     _printable,
     admin_statements,
     apply_owner_grants,
@@ -2442,6 +2443,94 @@ def test_status_compares_the_stamp_with_this_release(
     with psycopg.connect(install.url("postgres")) as conn:
         assert status(conn, install.roles) == 1
     assert "database 0, this release" in capsys.readouterr().out
+
+
+def test_status_ignores_operators_planted_on_the_search_path(
+    install: MigrateInstall,
+) -> None:
+    """status runs as the admin: no admin SQL through a planted public.= operator."""
+    canary = f"canary_{uuid.uuid4().hex[:8]}"
+    try:
+        with psycopg.connect(install.url("postgres"), autocommit=True) as conn:
+            _run(
+                conn,
+                "CREATE FUNCTION public.leak(oid, oid) RETURNS boolean LANGUAGE plpgsql AS "
+                f"$f$ BEGIN EXECUTE 'CREATE ROLE {canary}'; RETURN $1 OPERATOR(pg_catalog.=) $2; "
+                "EXCEPTION WHEN duplicate_object THEN RETURN $1 OPERATOR(pg_catalog.=) $2; END $f$",
+            )
+            conn.execute(
+                "CREATE OPERATOR public.= (LEFTARG = oid, RIGHTARG = oid, FUNCTION = public.leak)"
+            )
+            _run(
+                conn,
+                f"ALTER DATABASE {quote_ident(install.database)} SET search_path = public, pg_catalog",
+            )
+        with psycopg.connect(install.url("postgres")) as conn:
+            status(conn, install.roles)
+        assert not _role_exists(canary)
+    finally:
+        with _superuser() as conn:
+            _run(conn, f"DROP ROLE IF EXISTS {quote_ident(canary)}")
+
+
+@pytest.mark.parametrize(
+    ("admin_uri", "other_uri", "code"),
+    [
+        (
+            "postgresql://synthetic_admin:pw@db.invalid?dbname=synthetic_app",
+            "postgresql://app:pw@db.invalid/synthetic_app",
+            0,
+        ),
+        (
+            "postgresql://synthetic_admin:pw@db.invalid/synthetic_app",
+            "postgresql://app:pw@db.invalid/synthetic_app?dbname=synthetic_other",
+            1,
+        ),
+        ("postgresql://synthetic_admin:pw@db.invalid/postgres", None, 0),
+    ],
+)
+def test_target_check_reads_query_database_names(
+    monkeypatch: pytest.MonkeyPatch,
+    admin_uri: str,
+    other_uri: str | None,
+    code: int,
+) -> None:
+    monkeypatch.delenv("PGDATABASE", raising=False)
+    monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", admin_uri)
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    monkeypatch.setattr(config, "TRACECAT__DB_NAME", None)
+    if other_uri is None:
+        monkeypatch.delenv("TRACECAT__DB_URI", raising=False)
+    else:
+        monkeypatch.setenv("TRACECAT__DB_URI", other_uri)
+    assert _check_targets() == code
+
+
+def test_upgrade_stops_before_changing_another_database(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Compose: role setup as the admin URI must target the migrations' database."""
+    suffix = _suffix()
+    database = _fresh_database(suffix)
+    elsewhere = _fresh_database(f"{suffix}_other")
+    try:
+        monkeypatch.setattr(
+            config, "TRACECAT__DB_ADMIN_URI", _url("postgres", "postgres", elsewhere)
+        )
+        monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+        monkeypatch.setenv(
+            "TRACECAT__DB_URI", _url("migrator", PASSWORD, database, "+psycopg")
+        )
+        acl_sql = "SELECT nspacl::text FROM pg_namespace WHERE nspname = 'public'"
+        with psycopg.connect(_url("postgres", "postgres", elsewhere)) as conn:
+            before = conn.execute(acl_sql).fetchone()
+        assert main(["upgrade", "--login", "password"]) == 1
+        assert "names database" in capsys.readouterr().err
+        with psycopg.connect(_url("postgres", "postgres", elsewhere)) as conn:
+            assert conn.execute(acl_sql).fetchone() == before  # nothing granted
+    finally:
+        _drop_all(elsewhere, [])
+        _drop_all(database, [])
 
 
 def test_status_without_role_setup_is_behind(
