@@ -23,6 +23,7 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.db import engine as db_engine
+from tracecat.db import roles as db_roles
 from tracecat.db.exceptions import DatabaseCredentialUnavailableError
 from tracecat.db.iam import aws as db_aws
 from tracecat.db.iam import azure as db_azure
@@ -458,6 +459,29 @@ def _import_config(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
 def test_valid_token_config_imports() -> None:
     result = _import_config(_TOKEN_ENV)
     assert result.returncode == 0, result.stderr
+    # A password-free URI is ignored, not refused.
+    result = _import_config(
+        {**_TOKEN_ENV, "TRACECAT__DB_URI": "postgresql://app@db/tracecat"}
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_alembic_with_an_explicit_uri_drops_the_token_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Role setup runs alembic as migrator with its token in the URI."""
+    seen: dict[str, str] = {}
+
+    def run(cmd: list[str], *, env: dict[str, str], check: bool) -> Any:
+        seen.update(env)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setenv("TRACECAT__DB_AUTH_MODE", "aws_iam")
+    monkeypatch.setattr(db_roles.subprocess, "run", run)
+
+    assert db_roles._alembic_upgrade("postgresql+psycopg://migrator:tok@db/x") == 0
+    assert seen["TRACECAT__DB_URI"] == "postgresql+psycopg://migrator:tok@db/x"
+    assert "TRACECAT__DB_AUTH_MODE" not in seen
 
 
 @pytest.mark.parametrize(
@@ -487,6 +511,10 @@ def test_valid_token_config_imports() -> None:
         (
             {**_TOKEN_ENV, "TRACECAT__DB_PASS__ARN": "arn:aws:secretsmanager:x"},
             "unset TRACECAT__DB_PASS and TRACECAT__DB_PASS__ARN",
+        ),
+        (
+            {**_TOKEN_ENV, "TRACECAT__DB_URI": "postgresql://app:leftover@db/tracecat"},
+            "remove the password from TRACECAT__DB_URI",
         ),
         (
             {**_TOKEN_ENV, "TRACECAT__DB_SSLMODE": "prefer"},

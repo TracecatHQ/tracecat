@@ -747,6 +747,9 @@ def _alembic_upgrade(db_uri: str | None) -> int:
     if db_uri is not None:
         # alembic/env.py prefers TRACECAT__DB_URI over the user/password settings.
         env["TRACECAT__DB_URI"] = db_uri
+        # The URI carries this login's credential (migrator's token), so the
+        # app's token mode, which refuses a password in it, doesn't apply.
+        env.pop("TRACECAT__DB_AUTH_MODE", None)
     cmd = [sys.executable, "-m", "alembic", "upgrade", "head"]
     return subprocess.run(cmd, env=env, check=False).returncode
 
