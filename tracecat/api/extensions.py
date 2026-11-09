@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
 from fastapi import APIRouter, FastAPI
-from starlette.routing import Match, Route
+from starlette.routing import BaseRoute, Match, Route
 
 from tracecat.api.lifespan import LifespanTaskSupervisor, StoppableTaskFactory
 
@@ -55,12 +55,12 @@ def _probe_path(path: str) -> str:
     )
 
 
-def _is_shadowed(app: FastAPI, route: Route) -> bool:
-    """Whether a mounted route would answer first for a generic request to this route."""
+def _is_shadowed(earlier: Sequence[BaseRoute], route: Route) -> bool:
+    """Whether an earlier route would answer first for a generic request to this route."""
     path = _probe_path(route.path)
     for method in route.methods or ("GET",):
         scope = {"type": "http", "path": path, "method": method, "root_path": ""}
-        if any(r.matches(scope)[0] is Match.FULL for r in app.router.routes):
+        if any(r.matches(scope)[0] is Match.FULL for r in earlier):
             return True
     return False
 
@@ -69,7 +69,7 @@ def include_api_extension_routers(app: FastAPI) -> None:
     """Mount every installed extension's routers; refuse routes another route shadows."""
     for name, extension in load_api_extensions().items():
         for router in extension.routers():
-            seen: set[tuple[str, str]] = set()
+            checked: list[BaseRoute] = []
             for route in router.routes:
                 # Nested routers hide their routes from the shadow check.
                 if not isinstance(route, Route):
@@ -77,12 +77,12 @@ def include_api_extension_routers(app: FastAPI) -> None:
                         f"API extension {name}: only HTTP routes are supported;"
                         " return each router from routers() instead of nesting"
                     )
-                keys = {(m, route.path) for m in route.methods or ("GET",)}
-                if keys & seen or _is_shadowed(app, route):
+                # Earlier routes of this router are not mounted yet, so check them too.
+                if _is_shadowed([*app.router.routes, *checked], route):
                     raise ValueError(
                         f"API extension {name}: {route.path} is already served"
                     )
-                seen |= keys
+                checked.append(route)
             app.include_router(router)
 
 

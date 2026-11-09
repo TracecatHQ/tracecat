@@ -10,6 +10,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from tracecat.api import extensions
+from tracecat.api.app import create_app
 from tracecat.api.lifespan import LifespanTaskSupervisor, StoppableTaskFactory
 
 
@@ -144,19 +145,34 @@ def test_typed_route_shadowed_by_builtin_fails_startup(
         extensions.include_api_extension_routers(app)
 
 
-def test_duplicate_route_within_a_router_fails_startup(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "paths",
+    [("/dup", "/dup"), ("/items/{item_id}", "/items/special")],
+    ids=["duplicate", "parameterized-first"],
+)
+def test_route_shadowed_within_a_router_fails_startup(
+    monkeypatch: pytest.MonkeyPatch, paths: tuple[str, str]
 ) -> None:
-    installed(monkeypatch, entry("ee", lambda: FakeExtension("/dup", "/dup")))
+    installed(monkeypatch, entry("ee", lambda: FakeExtension(*paths)))
     with pytest.raises(ValueError, match="is already served"):
         extensions.include_api_extension_routers(FastAPI())
+
+
+def test_literal_route_before_parameterized_route_mounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed(
+        monkeypatch,
+        entry("ee", lambda: FakeExtension("/items/special", "/items/{item_id}")),
+    )
+    app = FastAPI()
+    extensions.include_api_extension_routers(app)
+    assert TestClient(app).get("/items/special").json() == {"ok": True}
 
 
 def test_app_builtin_routes_are_shadow_checked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from tracecat.api.app import create_app
-
     installed(monkeypatch, entry("ee", lambda: FakeExtension("/health")))
     with pytest.raises(ValueError, match="is already served"):
         create_app()
