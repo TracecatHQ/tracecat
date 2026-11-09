@@ -54,7 +54,7 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
 from tracecat.integrations.catalog.resolver import (
     ResolvedCatalogConnection,
@@ -8844,6 +8844,58 @@ class TestMCPConnectionVerification:
         stored_tools = MCPToolSummary.validate_stored(integration.tools)
         assert stored_tools is not None
         assert [tool.name for tool in stored_tools] == ["search", "create", "delete"]
+
+    async def test_persist_mcp_integration_tools_missing_row_raises_not_found(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        with pytest.raises(TracecatNotFoundError, match="MCP integration not found"):
+            await integration_service.persist_mcp_integration_tools(
+                mcp_integration_id=uuid.uuid4(),
+                discovered_tools=[MCPToolSummary(name="search")],
+            )
+
+    async def test_stdio_test_connection_reports_row_deleted_during_probe(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Deleting the row mid-probe returns a failed test, not a 500."""
+        integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Deleted Mid Probe MCP",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+            )
+        )
+        integration_id = integration.id
+
+        async def _probe_stdio(
+            mcp_integration: MCPIntegration,
+        ) -> list[MCPToolSummary]:
+            assert mcp_integration.id == integration_id
+            assert await integration_service.delete_mcp_integration(
+                mcp_integration_id=integration_id
+            )
+            return [MCPToolSummary(name="search", description="Search")]
+
+        monkeypatch.setattr(
+            integration_service,
+            "_probe_mcp_stdio_server",
+            _probe_stdio,
+        )
+
+        result = await integration_service.test_mcp_connection(
+            params=MCPStdioIntegrationTestConnectionRequest(
+                server_type="stdio",
+                mcp_integration_id=integration_id,
+            )
+        )
+
+        assert result.success is False
+        assert result.mcp_integration_id == integration_id
+        assert result.message == "MCP integration not found"
+        assert result.tools is None
 
     async def test_update_mcp_tool_policies(
         self, integration_service: IntegrationService
