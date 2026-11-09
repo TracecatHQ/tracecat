@@ -47,6 +47,7 @@ from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
 )
+from tracecat.workspace_sync.adapters.base import BundledManifestAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.layout import ResourcePathIndex
 from tracecat.workspace_sync.schemas import (
@@ -115,10 +116,21 @@ def file_names_by_resource(
     Path planning keeps every readable path off other resources' id paths,
     so one id pattern can only ever name one resource.
 
+    A bundle file holds many resources, so each one in it is known by the
+    bundle path and its own id path (``case_tags/<source id>.yml``).
+
     The manifest and the include file belong to no resource and are skipped.
     """
     index = ResourcePathIndex(projection.paths)
     grouped: dict[PackageResourceKey, list[tuple[str, ...]]] = defaultdict(list)
+    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        if not isinstance(adapter, BundledManifestAdapter):
+            continue
+        for source_id in adapter.specs(projection.spec):
+            path = adapter.path_in(projection.paths, source_id)
+            if adapter.is_bundle_file(path) and path in projection.files:
+                key = PackageResourceKey(adapter.resource_type, source_id)
+                grouped[key].append((path, adapter.legacy_id_path(source_id)))
     for path in sorted(projection.files):
         if path in (MANIFEST_FILENAME, PACKAGE_INCLUDE_FILENAME):
             continue

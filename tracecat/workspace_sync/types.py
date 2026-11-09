@@ -176,6 +176,10 @@ class PushProjection:
     """What one push writes, and the remote roots it may delete stale files in."""
 
     projection: WorkspaceProjection
+    """What the push writes: local state, plus base bundle entries it keeps."""
+    local_projection: WorkspaceProjection
+    """Local state alone. It never depends on the branch, so durable pushes
+    fingerprint it to detect workspace changes between preview and apply."""
     delete_roots: tuple[str, ...]
     package_include: str | None = None
     """Include file text when the push is a managed resources package export."""

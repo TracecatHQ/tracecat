@@ -23,6 +23,18 @@ class WorkflowExportValidationError(TracecatValidationError):
         super().__init__(message)
 
 
+class PushBundleUnreadableError(TracecatValidationError):
+    """A partial push cannot keep the other entries of an unreadable bundle."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        super().__init__(
+            f"{path} on the target branch is not a valid bundle file, so this "
+            "push cannot keep the resources in it. Fix or delete the file, or "
+            "push the whole workspace."
+        )
+
+
 class PushPathConflictError(TracecatValidationError):
     """A partial push would write over a different resource on its branch."""
 

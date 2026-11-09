@@ -8,7 +8,7 @@ from collections import Counter, deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
-from typing import Any, Self, cast
+from typing import Any, Literal, Self, cast
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import delete, select
@@ -89,6 +89,7 @@ from tracecat.workspace_sync.adapters import (
     workspace_spec_from_maps,
 )
 from tracecat.workspace_sync.adapters.base import (
+    BundledManifestAdapter,
     ResourceDependencyRefs,
     SyncMappingService,
 )
@@ -117,8 +118,10 @@ from tracecat.workspace_sync.projector import (
     WorkspaceResourceProjector,
 )
 from tracecat.workspace_sync.resources import (
+    bundle_entry_texts,
     is_primary_resource_path,
     locate_resources,
+    merge_base_bundles,
     parse_workspace_spec_files,
     primary_resource_filter,
     serialize_workspace_spec_files,
@@ -394,7 +397,11 @@ class WorkspaceSyncService(SyncMappingService):
                 resource_ids=resource_ids,
                 base=base,
             )
-            return PushProjection(projection=projection, delete_roots=delete_roots)
+            return PushProjection(
+                projection=_with_base_bundles(projection, base, delete_roots),
+                local_projection=projection,
+                delete_roots=delete_roots,
+            )
 
         include_text = (
             render_package_include(package_include)
@@ -417,6 +424,7 @@ class WorkspaceSyncService(SyncMappingService):
         )
         return PushProjection(
             projection=package.projection,
+            local_projection=package.projection,
             delete_roots=package.delete_roots,
             package_include=package.include_text,
         )
@@ -603,6 +611,8 @@ class WorkspaceSyncService(SyncMappingService):
                 kept[adapter.spec_attr][source_id] = resource_spec
         if not skipped:
             return snapshot, []
+        # Bundled resources share one path; list each skipped path once.
+        skipped = list(set(skipped))
         kept_spec = workspace_spec_from_maps(kept)
         return (
             snapshot.model_copy(
@@ -817,13 +827,17 @@ class WorkspaceSyncService(SyncMappingService):
             base_branch=params.pr_base_branch,
             resource_filter=primary_resource_filter(projection.spec),
         )
+        delete_roots = _moved_resource_roots(projection, base.tree if base else None)
+        projection = _with_base_bundles(
+            projection, base.tree if base else None, delete_roots
+        )
         commit = await _write_push(
             transport,
             url=url,
             params=params,
             files=projection.files,
             base=base,
-            delete_roots=_moved_resource_roots(projection, base.tree if base else None),
+            delete_roots=delete_roots,
         )
         workflow.git_sync_branch = commit.ref
         self.session.add(workflow)
@@ -2082,6 +2096,19 @@ class WorkspaceSyncService(SyncMappingService):
         # serialization, and labels; the service owns comparing the full
         # current projection against the incoming repository snapshot.
         for path, target_content in sorted(target_files.items()):
+            if bundled := _bundled_adapter_for(path):
+                # Only incoming entries: a pull never deletes local-only tags.
+                diffs.extend(
+                    _bundle_resource_diffs(
+                        bundled,
+                        path=path,
+                        before=current_files.get(path),
+                        after=target_content,
+                        spec=target_spec,
+                        include_deleted=False,
+                    )
+                )
+                continue
             owner = index.owner(path)
             if owner is None:
                 continue
@@ -2129,6 +2156,18 @@ class WorkspaceSyncService(SyncMappingService):
         remote_paths = remote_tree.blob_paths or frozenset(remote_tree.files)
 
         for path, projected_content in sorted(projection.files.items()):
+            if bundled := _bundled_adapter_for(path):
+                diffs.extend(
+                    _bundle_resource_diffs(
+                        bundled,
+                        path=path,
+                        before=remote_tree.files.get(path),
+                        after=projected_content,
+                        spec=projection.spec,
+                        include_deleted=True,
+                    )
+                )
+                continue
             # Every projected resource file has an owner; the manifest and
             # include file do not.
             if (owner := index.owner(path)) is None:
@@ -2168,6 +2207,20 @@ class WorkspaceSyncService(SyncMappingService):
                 if path in projection.files:
                     continue
                 if not _path_is_under_roots(path, deletion_roots):
+                    continue
+                if (bundled := _bundled_adapter_for(path)) and (
+                    path in remote_tree.files
+                ):
+                    diffs.extend(
+                        _bundle_resource_diffs(
+                            bundled,
+                            path=path,
+                            before=remote_tree.files[path],
+                            after=None,
+                            spec=projection.spec,
+                            include_deleted=True,
+                        )
+                    )
                     continue
                 # A file no resource claims is labelled by its path.
                 owner = index.owner(path)
@@ -3322,6 +3375,24 @@ def _moved_resource_roots(
     return partial_push_delete_roots(projection.paths, locate_resources(base.files))
 
 
+def _with_base_bundles(
+    projection: WorkspaceProjection,
+    base: VcsTreeSnapshot | None,
+    delete_roots: Sequence[str],
+) -> WorkspaceProjection:
+    """Return ``projection`` writing bundles that keep the base's other entries.
+
+    Raises:
+        PushBundleUnreadableError: A base bundle the push writes is unreadable.
+    """
+    if base is None:
+        return projection
+    files = merge_base_bundles(projection.files, base.files, owned_roots=delete_roots)
+    if files == projection.files:
+        return projection
+    return projection.model_copy(update={"files": files})
+
+
 def _no_resource_files(path: str) -> bool:
     """Read no resource file contents, only the manifest and include file."""
     return False
@@ -3364,6 +3435,57 @@ def _unified_resource_diff(
             "... diff truncated ...",
         ]
     return "\n".join(lines), truncated
+
+
+def _bundled_adapter_for(path: str) -> BundledManifestAdapter | None:
+    """Return the bundled resource type whose bundle file ``path`` is."""
+    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        if isinstance(adapter, BundledManifestAdapter) and path == adapter.bundle_path:
+            return adapter
+    return None
+
+
+def _bundle_resource_diffs(
+    adapter: BundledManifestAdapter,
+    *,
+    path: str,
+    before: str | None,
+    after: str | None,
+    spec: WorkspaceSpec,
+    include_deleted: bool,
+) -> list[PullResourceDiff]:
+    """Diff a bundle file one entry at a time, so each resource is listed.
+
+    ``after`` is ``None`` when the bundle itself is deleted. Entries only in
+    ``before`` are reported as deleted when ``include_deleted`` is set.
+    """
+    before_entries = bundle_entry_texts(adapter, before)
+    after_entries = bundle_entry_texts(adapter, after)
+    diffs: list[PullResourceDiff] = []
+    for source_id in sorted(before_entries.keys() | after_entries.keys()):
+        old = before_entries.get(source_id)
+        new = after_entries.get(source_id)
+        if old == new or (new is None and not include_deleted):
+            continue
+        diff, truncated = _unified_resource_diff(path=path, before=old, after=new or "")
+        if new is None:
+            change_type: Literal["added", "modified", "deleted"] = "deleted"
+            title = None
+        else:
+            change_type = "added" if old is None else "modified"
+            title = _resource_title(spec, adapter=adapter, source_id=source_id)
+        diffs.append(
+            PullResourceDiff(
+                resource_type=adapter.resource_type.value,
+                source_id=source_id,
+                source_path=path,
+                change_type=change_type,
+                title=title,
+                diff=diff,
+                truncated=truncated,
+            )
+        )
+    return diffs
 
 
 def _resource_title(

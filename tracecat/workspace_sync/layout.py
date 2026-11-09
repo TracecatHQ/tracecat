@@ -23,7 +23,11 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 
 from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
-from tracecat.workspace_sync.adapters.base import ResourceAdapter, path_segment
+from tracecat.workspace_sync.adapters.base import (
+    BundledManifestAdapter,
+    ResourceAdapter,
+    path_segment,
+)
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.exceptions import PushPathConflictError
 from tracecat.workspace_sync.schemas import (
@@ -61,6 +65,9 @@ def plan_resource_paths(
     3. Every other resource, in source id order, takes its readable path. If
        that path is taken, the source id is appended: ``Triage-wf_4f2a...``.
 
+    Bundled types skip all three passes: every resource takes its ``fixed``
+    path, else the bundle path, since they share one file.
+
     Two rules keep paths unambiguous:
 
     - Paths are compared case-insensitively, so two folders never differ only
@@ -88,6 +95,12 @@ def plan_resource_paths(
             continue
         resource_type = adapter.resource_type
         fixed_paths = (fixed or {}).get(resource_type, {})
+        if isinstance(adapter, BundledManifestAdapter):
+            planned[resource_type] = {
+                source_id: fixed_paths.get(source_id, adapter.bundle_path)
+                for source_id in sorted(specs)
+            }
+            continue
         id_paths: dict[str, set[str]] = {}
         for source_id in [*specs, *(other_source_ids or {}).get(resource_type, ())]:
             folded = _fold(adapter.legacy_id_path(source_id))
@@ -257,7 +270,8 @@ def partial_push_delete_roots(
     too: every extra copy is stale.
 
     Full and package pushes delete every other resource file anyway, so only
-    partial pushes need this.
+    partial pushes need this. A bundle file is never a conflict: the push
+    keeps the other entries in it (see ``merge_base_bundles``).
 
     Raises:
         PushPathConflictError: The push would write into a location that holds
@@ -282,6 +296,10 @@ def partial_push_delete_roots(
         # Writing over a resource this push also writes is fine: its old
         # location is stale above. Any other holder would be overwritten.
         for location in sorted(planned.values()):
+            if isinstance(adapter, BundledManifestAdapter) and adapter.is_bundle_file(
+                location
+            ):
+                continue
             holder = holders.get(_fold(location))
             if holder is not None and holder not in planned:
                 conflicts.append(location)
@@ -310,7 +328,8 @@ class ResourcePathIndex:
 
     Built from planned paths, plus any locations found in a base tree, so a
     file a push deletes is labelled with its real source id. Paths no
-    resource claims return ``None``.
+    resource claims return ``None``, and so do bundle files: many resources
+    share one, so callers split it by entry instead.
     """
 
     def __init__(
@@ -331,6 +350,11 @@ class ResourcePathIndex:
 
     def _add(self, owner: PathOwner, primary_path: str) -> None:
         """Index a primary file, plus its folder for folder-owning types."""
+        adapter = owner.adapter
+        if isinstance(adapter, BundledManifestAdapter) and adapter.is_bundle_file(
+            primary_path
+        ):
+            return
         self._by_path[primary_path] = owner
         if owner.adapter.owns_directory:
             self._by_folder[owner.adapter.location(primary_path)] = owner

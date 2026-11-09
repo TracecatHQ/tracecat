@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import CaseTag
 from tracecat.workspace_sync.adapters.base import (
-    FlatManifestAdapter,
+    BundledManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
@@ -27,8 +27,12 @@ from tracecat.workspace_sync.schemas import (
 )
 
 
-class CaseTagAdapter(FlatManifestAdapter):
-    """Sync adapter for case tags, enforcing unique tag names on import."""
+class CaseTagAdapter(BundledManifestAdapter):
+    """Sync adapter for case tags, enforcing unique tag names on import.
+
+    Every tag lives in one ``case_tags/_all.yml`` file. Older repositories
+    hold one ``case_tags/<name>.yml`` file per tag, which still parse.
+    """
 
     resource_type = SyncResourceType.CASE_TAG
     spec_attr = "case_tags"
@@ -37,6 +41,7 @@ class CaseTagAdapter(FlatManifestAdapter):
     create_scope = "case:create"
     update_scope = "case:update"
     root = CASE_TAG_ROOT
+    bundle_key = "tags"
     import_identity_attrs = ("name",)
     import_identity_noun = "name"
 

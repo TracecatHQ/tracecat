@@ -83,7 +83,7 @@ ROOT_CLOSURE = {
     "tables/qa_indicators/table.yml",
     "variables/default/qa_config.yml",
     "secret_metadata/default/qa_threatintel.yml",
-    "case_tags/qa-alert.yml",
+    "case_tags/_all.yml",
 }
 
 
@@ -287,7 +287,8 @@ async def test_read_package_marks_explicit_implied_and_excluded(
     assert by_path["skills/qa-enrichment-skill/skill.yml"].pattern == (
         "skills/qa-enrichment-skill/**"
     )
-    assert by_path["case_tags/qa-alert.yml"].pattern == "case_tags/qa-alert.yml"
+    # Tags share the bundle file but are still picked by their id path.
+    assert by_path["case_tags/_all.yml"].pattern == "case_tags/qa-alert.yml"
 
 
 @pytest.mark.anyio

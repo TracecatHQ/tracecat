@@ -272,7 +272,7 @@ class DurableSyncService(WorkspaceSyncService):
                 remote_include=include_reader(package_include),
                 create_missing_mappings=False,
             )
-            projection = push.projection
+            projection = push.local_projection
         elif projection is None:
             projection = await self.project_workspace(
                 include_schedules=bool(inputs.pull and inputs.pull.sync_schedules),
@@ -453,8 +453,10 @@ class DurableSyncService(WorkspaceSyncService):
             return PreparedSync(
                 projection=projection,
                 preview=preview,
+                # Fingerprint local state only: the bundle entries the push
+                # keeps from the branch are guarded by ``compare_sha``.
                 workspace_fingerprint=await self.local_fingerprint(
-                    inputs, projection=projection
+                    inputs, projection=push.local_projection
                 ),
                 repository_fingerprint=repository_fingerprint,
                 compare_ref=fetched.compare_ref,

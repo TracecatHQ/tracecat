@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, NamedTuple
 
 import yaml
@@ -23,10 +23,14 @@ from tracecat.workspace_sync.adapters import (
     workspace_spec_from_maps,
 )
 from tracecat.workspace_sync.adapters.base import (
+    BundledManifestAdapter,
+    BundleFormatError,
     ResourceAdapter,
     VersionedSlug,
+    bundle_entry_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.exceptions import PushBundleUnreadableError
 from tracecat.workspace_sync.layout import (
     DEFAULT_ROOTS,
     ResourcePathIndex,
@@ -76,8 +80,17 @@ def parse_workspace_spec_files(
     }
     paths: ResourcePathMap = {}
     companion_files: list[tuple[ResourceAdapter, str, str, str]] = []
+    # Bundles are read first, so the newer format wins over a leftover
+    # per-resource copy of the same id, whatever the file names.
+    bundle_paths = {
+        adapter.bundle_path_in(roots)
+        for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
+        if isinstance(adapter, BundledManifestAdapter)
+    }
 
-    for path, content in sorted(files.items()):
+    for path, content in sorted(
+        files.items(), key=lambda item: (item[0] not in bundle_paths, item[0])
+    ):
         if workflow_key := WORKFLOW_RESOURCE_ADAPTER.path_key_from_path(path, roots):
             workflow, diagnostic = parse_workflow_spec(
                 path, content, path_key=workflow_key
@@ -96,6 +109,20 @@ def parse_workspace_spec_files(
             continue
 
         for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+            if isinstance(
+                adapter, BundledManifestAdapter
+            ) and path == adapter.bundle_path_in(roots):
+                for spec in _parse_bundle(adapter, path, content, diagnostics):
+                    _record_resource(
+                        adapter,
+                        path=path,
+                        spec=spec,
+                        destination=specs_by_attr[adapter.spec_attr],
+                        paths=paths,
+                        diagnostics=diagnostics,
+                    )
+                break
+
             if path_key := adapter.path_key_from_path(path, roots):
                 spec = _parse_yaml_resource(
                     path,
@@ -153,6 +180,14 @@ def locate_resources(files: Mapping[str, str]) -> ResourceLocations:
     locations: ResourceLocations = {}
     for path, content in sorted(files.items()):
         for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+            if (
+                isinstance(adapter, BundledManifestAdapter)
+                and path == adapter.bundle_path
+            ):
+                by_id = locations.setdefault(adapter.resource_type, {})
+                for source_id in _bundle_source_ids(adapter, content):
+                    by_id.setdefault(source_id, []).append(path)
+                break
             if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
                 continue
             source_id = _declared_source_id(adapter, content, default=path_key)
@@ -184,8 +219,124 @@ def is_primary_resource_path(
     """
     return any(
         adapter.path_key_from_path(path, DEFAULT_ROOTS) is not None
+        or (isinstance(adapter, BundledManifestAdapter) and path == adapter.bundle_path)
         for adapter in adapters
     )
+
+
+def merge_base_bundles(
+    files: Mapping[str, str],
+    base_files: Mapping[str, str],
+    *,
+    owned_roots: Sequence[str],
+) -> dict[str, str]:
+    """Keep the base tree's other bundled resources in the bundles a push writes.
+
+    A partial push writes only some resources of a bundled type, but the
+    bundle file holds all of them. Entries in the base bundle that the push
+    does not write are copied over, so pushing one tag never drops another.
+    A push that owns the bundle's folder, such as a full push, replaces the
+    bundle instead: resources it does not write are meant to be deleted.
+
+    Raises:
+        PushBundleUnreadableError: The base bundle is not a valid bundle file,
+            so its other entries cannot be kept.
+    """
+    merged = dict(files)
+    roots = [root.strip("/") for root in owned_roots if root.strip("/")]
+    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        if not isinstance(adapter, BundledManifestAdapter):
+            continue
+        path = adapter.bundle_path
+        pushed = files.get(path)
+        base = base_files.get(path)
+        if pushed is None or base is None:
+            continue
+        if any(path == root or path.startswith(f"{root}/") for root in roots):
+            continue
+        try:
+            base_entries = adapter.load_bundle(base)
+        except BundleFormatError as e:
+            raise PushBundleUnreadableError(path) from e
+        pushed_entries = adapter.load_bundle(pushed)
+        pushed_ids = {bundle_entry_id(entry) for entry in pushed_entries}
+        kept = [
+            entry for entry in base_entries if bundle_entry_id(entry) not in pushed_ids
+        ]
+        if kept:
+            merged[path] = adapter.dump_bundle([*pushed_entries, *kept])
+    return merged
+
+
+def bundle_entry_texts(
+    adapter: BundledManifestAdapter, content: str | None
+) -> dict[str, str]:
+    """Return each entry of a bundle file as YAML text, keyed by ``id``.
+
+    Previews diff a bundle one resource at a time. An unreadable bundle has
+    no entries; entries without an ``id`` are skipped.
+    """
+    if content is None:
+        return {}
+    try:
+        entries = adapter.load_bundle(content)
+    except BundleFormatError:
+        return {}
+    return {
+        source_id: yaml.safe_dump(entry, sort_keys=False, allow_unicode=True)
+        for entry in entries
+        if (source_id := bundle_entry_id(entry))
+    }
+
+
+def _bundle_source_ids(adapter: BundledManifestAdapter, content: str) -> list[str]:
+    """Return the ids a bundle file declares, or none when it is unreadable."""
+    try:
+        entries = adapter.load_bundle(content)
+    except BundleFormatError:
+        return []
+    return [source_id for entry in entries if (source_id := bundle_entry_id(entry))]
+
+
+def _parse_bundle(
+    adapter: BundledManifestAdapter,
+    path: str,
+    content: str,
+    diagnostics: list[PullDiagnostic],
+) -> list[BaseModel]:
+    """Parse every entry of a bundle file, recording a diagnostic per bad one."""
+    try:
+        entries = adapter.load_bundle(content)
+    except BundleFormatError as e:
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=path,
+                workflow_title=None,
+                error_type="parse",
+                message=str(e),
+                details={},
+            )
+        )
+        return []
+    specs: list[BaseModel] = []
+    for index, entry in enumerate(entries):
+        try:
+            specs.append(adapter.model.model_validate(entry))
+        except ValidationError as e:
+            title = entry.get("name") if isinstance(entry, dict) else None
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=path,
+                    workflow_title=title if isinstance(title, str) else None,
+                    error_type="validation",
+                    message=f"Validation error in entry {index}: {e}",
+                    details={
+                        "entry_index": index,
+                        "validation_errors": serializable_validation_errors(e.errors()),
+                    },
+                )
+            )
+    return specs
 
 
 def _declared_source_id(adapter: ResourceAdapter, content: str, *, default: str) -> str:
@@ -232,7 +383,8 @@ def _record_resource(
     """Store a parsed resource under its source id, rejecting duplicate ids.
 
     Two files with the same ``id`` would claim one resource. Files are visited
-    in path order, so the first one wins and the second gets a diagnostic.
+    bundles first, then in path order, so the first one wins and the second
+    gets a diagnostic.
     """
     source_id = _spec_id(spec)
     type_paths = paths.setdefault(adapter.resource_type, {})
@@ -281,10 +433,22 @@ def serialize_workspace_spec_files(
             serialize_workflow_spec(workflow_spec)
         )
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        # Bundled resources sharing one path are written as one bundle file.
+        bundles: dict[str, list[BaseModel]] = defaultdict(list)
         for source_id, resource_spec in sorted(adapter.specs(spec).items()):
             primary_path = adapter.path_in(planned, source_id)
+            if isinstance(adapter, BundledManifestAdapter) and adapter.is_bundle_file(
+                primary_path
+            ):
+                bundles[primary_path].append(resource_spec)
+                continue
             files[primary_path] = serialize_yaml_model(resource_spec)
             files.update(adapter.serialize_extra_files(primary_path, resource_spec))
+        if isinstance(adapter, BundledManifestAdapter):
+            for bundle_path, bundled in bundles.items():
+                files[bundle_path] = adapter.dump_bundle(
+                    adapter.bundle_entry(resource_spec) for resource_spec in bundled
+                )
     return dict(sorted(files.items()))
 
 
