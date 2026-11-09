@@ -242,6 +242,24 @@ describe("Spur registry icon mappings", () => {
   })
 })
 
+describe("Swif registry icon mappings", () => {
+  it.each(["tools.swif", "tools.swif.list_script_reports"])(
+    "renders the Swif mark for %s",
+    (key) => {
+      expect(svgTitle(getIcon(key))).toBe("Swif")
+    }
+  )
+
+  it("renders the Swif mark for the swif secret", () => {
+    const Icon = secretIcons.swif
+    expect(svgTitle(<Icon />)).toBe("Swif")
+  })
+
+  it("registers the Swif MCP catalog icon", () => {
+    expect(providerIcons.swif_mcp).toBeDefined()
+  })
+})
+
 describe("Trend Micro registry icon mappings", () => {
   it.each([
     "tools.trend_vision_one",
