@@ -11,6 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Request
 
+from tracecat.agent.channels.router import (
+    _resolve_service_role_for_workspace,
+    handle_channel_event,
+)
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
@@ -190,6 +194,17 @@ def test_list_my_pending_invitations_uses_bypass_session_dependency() -> None:
 def test_get_invitation_by_token_uses_bypass_session_dependency() -> None:
     source = inspect.getsource(get_invitation_by_token)
     assert "session: AsyncDBSessionBypass" in source
+
+
+def test_channel_event_uses_bypass_session_dependency() -> None:
+    """A public channel request has no role, so its token lookup needs bypass."""
+    source = inspect.getsource(handle_channel_event)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_channel_workspace_role_lookup_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(_resolve_service_role_for_workspace)
+    assert "get_async_session_bypass_rls_context_manager" in source
 
 
 def _patch_user_manager_pool_sessions(
