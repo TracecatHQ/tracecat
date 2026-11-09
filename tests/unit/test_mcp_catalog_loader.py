@@ -643,6 +643,29 @@ def test_google_secops_row_ships_templated_uri_and_pinned_authorize_params() -> 
     }
 
 
+def test_swif_row_discovers_oauth_and_takes_regional_server_uri() -> None:
+    """Swif uses DCR on a regional host, so only the server URL is configurable."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "swif-mcp", include_private=True
+    )
+    assert entry is not None
+    assert entry.category == "Endpoint"
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_oauth2"
+    assert spec.server_uri == "https://mcp.swifteam.com/mcp"
+    assert spec.scopes == ["swif:read", "offline_access"]
+    assert spec.oauth_authorization_endpoint is None
+    assert spec.oauth_token_endpoint is None
+    creds = {credential.key: credential for credential in spec.credentials}
+    assert set(creds) == {"SWIF_MCP_ENDPOINT"}
+    endpoint = creds["SWIF_MCP_ENDPOINT"]
+    assert endpoint.target == "server_uri"
+    assert endpoint.type == "url"
+    assert endpoint.secret is False
+
+
 def test_google_workspace_rows_pin_offline_consent_authorize_params() -> None:
     """Gmail, Drive and Calendar share the SecOps missing-refresh-token bug."""
     _clear_catalog_cache()

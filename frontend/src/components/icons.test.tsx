@@ -254,6 +254,10 @@ describe("Swif registry icon mappings", () => {
     const Icon = secretIcons.swif
     expect(svgTitle(<Icon />)).toBe("Swif")
   })
+
+  it("registers the Swif MCP catalog icon", () => {
+    expect(providerIcons.swif_mcp).toBeDefined()
+  })
 })
 
 describe("Trend Micro registry icon mappings", () => {
