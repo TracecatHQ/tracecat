@@ -1052,7 +1052,9 @@ class BundledManifestAdapter(FlatManifestAdapter):
             raise BundleFormatError(
                 f"Expected a bundle file with 'version: {BUNDLE_FORMAT_VERSION}'"
             )
-        entries = raw.get(self.bundle_key, [])
+        # A missing key is an error, not an empty bundle: a partial push
+        # would otherwise overwrite whatever the file holds.
+        entries = raw.get(self.bundle_key)
         if not isinstance(entries, list):
             raise BundleFormatError(f"Expected '{self.bundle_key}' to be a list")
         return entries

@@ -30,8 +30,8 @@ class PushBundleUnreadableError(TracecatValidationError):
         self.path = path
         super().__init__(
             f"{path} on the target branch is not a valid bundle file, so this "
-            "push cannot keep the resources in it. Fix or delete the file, or "
-            "push the whole workspace."
+            "push cannot keep the resources in it. Fix the file on the branch, "
+            "or restore it from an earlier commit, then push again."
         )
 
 

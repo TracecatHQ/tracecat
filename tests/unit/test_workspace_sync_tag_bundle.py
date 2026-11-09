@@ -156,7 +156,14 @@ def test_one_bad_entry_does_not_hide_the_others() -> None:
 
 @pytest.mark.parametrize(
     "content",
-    ["tags: [", "- id: urgent\n", "version: 2\ntags: []\n", "version: 1\ntags: {}\n"],
+    [
+        "tags: [",
+        "- id: urgent\n",
+        "version: 2\ntags: []\n",
+        "version: 1\ntags: {}\n",
+        # A versioned file without ``tags`` is not an empty bundle.
+        "version: 1\nitems: []\n",
+    ],
 )
 def test_unreadable_bundle_is_a_diagnostic(content: str) -> None:
     parsed = _parse({BUNDLE: content})
@@ -253,10 +260,11 @@ def test_push_that_owns_the_folder_replaces_the_bundle() -> None:
 def test_partial_push_refuses_to_overwrite_an_unreadable_bundle() -> None:
     pushed = _serialize(_tags(_tag("urgent", "Urgent")))
 
-    with pytest.raises(PushBundleUnreadableError) as exc_info:
-        merge_base_bundles(pushed, {BUNDLE: "tags: ["}, owned_roots=[])
+    for base in ("tags: [", "version: 1\nitems: [{id: theirs}]\n"):
+        with pytest.raises(PushBundleUnreadableError) as exc_info:
+            merge_base_bundles(pushed, {BUNDLE: base}, owned_roots=[])
 
-    assert exc_info.value.path == BUNDLE
+        assert exc_info.value.path == BUNDLE
 
 
 def test_pull_of_a_legacy_repository_serializes_at_the_paths_it_read() -> None:
