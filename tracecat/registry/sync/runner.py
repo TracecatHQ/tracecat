@@ -43,6 +43,7 @@ from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildResult,
     build_artifact_from_path,
     get_builtin_registry_source_path,
+    upload_registry_actions,
     upload_squashfs_venv,
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
@@ -184,7 +185,7 @@ class RegistrySyncRunner:
             request: Sync request with repository details.
 
         Returns:
-            RegistrySyncResult with discovered actions and artifact URI.
+            RegistrySyncResult with the discovered-actions URI and artifact URI.
 
         Raises:
             RegistrySyncRunnerError: If any phase fails.
@@ -427,11 +428,19 @@ class RegistrySyncRunner:
             storage_namespace=request.storage_namespace,
         )
         logger.info("Registry artifact uploaded", artifact_uri=artifact_uri)
+        # Commit-pinned keys are shared, and timestamp keys can collide within
+        # a second. Even a pre-upload HEAD cannot prove exclusive ownership:
+        # another sync may publish this URI before our actions upload fails.
+        # Retain the artifact on failure rather than break a live version.
+        actions_uri = await upload_registry_actions(
+            discovery.actions,
+            artifact_uri=artifact_uri,
+        )
         return RegistrySyncResult(
-            actions=discovery.actions,
+            actions_uri=actions_uri,
+            num_actions=len(discovery.actions),
             artifact_uri=artifact_uri,
             commit_sha=resolved.commit_sha,
-            validation_errors=discovery.validation_errors,
         )
 
     async def _get_builtin_package_path(self) -> Path:

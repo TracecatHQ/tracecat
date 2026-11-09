@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import tarfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from uuid import UUID, uuid4
 
 import pytest
+from tracecat_registry import RegistrySecret
 
+from tracecat.registry.actions.schemas import (
+    RegistryActionCreate,
+    RegistryActionOptions,
+    RegistryActionUDFImpl,
+)
+from tracecat.registry.artifact_keys import parse_s3_uri
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.sync import artifact
 from tracecat.registry.sync.artifact import upload_squashfs_venv
+from tracecat.registry.sync.schemas import RegistryActionsAdapter
 
 
 @pytest.mark.anyio
@@ -39,6 +50,161 @@ async def test_upload_squashfs_venv_uploads_only_squashfs(
         key="platform/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
         bucket="tracecat-registry",
         content_type="application/vnd.squashfs",
+    )
+
+
+@pytest.fixture
+def registry_actions() -> list[RegistryActionCreate]:
+    """Return a nonempty synthetic discovery result for storage round trips."""
+    return [
+        RegistryActionCreate(
+            repository_id=uuid4(),
+            name="reshape",
+            description="Reshape test payload",
+            namespace="core.transform",
+            type="udf",
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            interface={"expects": {}, "returns": {}},
+            implementation=RegistryActionUDFImpl(
+                type="udf",
+                url=DEFAULT_REGISTRY_ORIGIN,
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            secrets=[RegistrySecret(name="example", keys=["EXAMPLE_TOKEN"])],
+            default_title="Reshape",
+            display_group=None,
+            doc_url=None,
+            author=None,
+            deprecated=None,
+            options=RegistryActionOptions(),
+        )
+    ]
+
+
+@pytest.mark.anyio
+async def test_registry_actions_download_unchanged_from_beside_their_artifact(
+    mocker,
+    registry_actions: list[RegistryActionCreate],
+) -> None:
+    """Actions uploaded beside an artifact download back equal to the originals."""
+    store: dict[tuple[str, str], bytes] = {}
+
+    async def upload_file(
+        *,
+        content: bytes,
+        key: str,
+        bucket: str,
+        content_type: str | None = None,
+    ) -> None:
+        assert content_type == "application/json"
+        store[(bucket, key)] = content
+
+    async def download_file(*, key: str, bucket: str) -> bytes:
+        return store[(bucket, key)]
+
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.upload_file",
+        side_effect=upload_file,
+    )
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.download_file",
+        side_effect=download_file,
+    )
+    actions = registry_actions
+
+    actions_uri = await artifact.upload_registry_actions(
+        actions,
+        artifact_uri=(
+            "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
+            "site-packages.squashfs"
+        ),
+    )
+
+    bucket, key = parse_s3_uri(actions_uri)
+    actions_key = PurePosixPath(key)
+    assert bucket == "tracecat-registry"
+    assert actions_key.parent.parent == PurePosixPath(
+        "platform/tarball-venvs/tracecat_registry/v1/actions"
+    )
+    assert UUID(actions_key.parent.name).version == 4
+    assert actions_key.name == "actions.json"
+    assert await artifact.download_registry_actions(actions_uri) == actions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("version", ["abc123", "2026.01.01.000000"])
+async def test_concurrent_actions_uploads_preserve_each_syncs_discovery(
+    mocker,
+    registry_actions: list[RegistryActionCreate],
+    version: str,
+) -> None:
+    """Overlapping syncs sharing an artifact must read their own discovered actions."""
+    store: dict[tuple[str, str], bytes] = {}
+    both_uploaded = asyncio.Event()
+    upload_count = 0
+
+    async def upload_file(
+        *,
+        content: bytes,
+        key: str,
+        bucket: str,
+        content_type: str | None = None,
+    ) -> None:
+        nonlocal upload_count
+        assert content_type == "application/json"
+        store[(bucket, key)] = content
+        upload_count += 1
+        if upload_count == 2:
+            both_uploaded.set()
+        await both_uploaded.wait()
+
+    async def download_file(*, key: str, bucket: str) -> bytes:
+        return store[(bucket, key)]
+
+    mocker.patch.object(artifact.blob, "upload_file", side_effect=upload_file)
+    mocker.patch.object(artifact.blob, "download_file", side_effect=download_file)
+    first_actions = registry_actions
+    second_actions = [
+        action.model_copy(
+            update={"name": "alternate", "default_title": "Second discovery"}
+        )
+        for action in registry_actions
+    ]
+    artifact_uri = (
+        f"s3://tracecat-registry/org/tarball-venvs/example/{version}/"
+        "site-packages.squashfs"
+    )
+    async with asyncio.timeout(5):
+        first_uri, second_uri = await asyncio.gather(
+            artifact.upload_registry_actions(first_actions, artifact_uri=artifact_uri),
+            artifact.upload_registry_actions(second_actions, artifact_uri=artifact_uri),
+        )
+
+    # Both writes have completed before either API-side read; a shared key
+    # would now return the later publisher's actions for the earlier result.
+    assert await artifact.download_registry_actions(first_uri) == first_actions
+    assert await artifact.download_registry_actions(second_uri) == second_actions
+    assert first_uri != second_uri
+    assert len(store) == 2
+
+
+@pytest.mark.anyio
+async def test_registry_actions_download_accepts_legacy_shared_uri(
+    mocker,
+    registry_actions: list[RegistryActionCreate],
+) -> None:
+    """Existing shared-sidecar result URIs remain readable after key isolation."""
+    download_file = mocker.patch.object(
+        artifact.blob,
+        "download_file",
+        return_value=RegistryActionsAdapter.dump_json(registry_actions),
+    )
+    legacy_uri = "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/actions.json"
+    assert await artifact.download_registry_actions(legacy_uri) == registry_actions
+    download_file.assert_awaited_once_with(
+        key="platform/tarball-venvs/tracecat_registry/v1/actions.json",
+        bucket="tracecat-registry",
     )
 
 

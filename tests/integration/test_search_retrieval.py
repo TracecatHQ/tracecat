@@ -52,6 +52,7 @@ table = lifecycle.table
 workflow_bucket = lifecycle.workflow_bucket
 scoped_database = indexing.scoped_database
 close_redis_after_test = indexing.close_redis_after_test
+isolated_search_capacity = indexing.isolated_search_capacity
 provider_server = providers.provider_server
 
 

@@ -28,6 +28,7 @@ _RELEASE = """
 for _, key in ipairs(KEYS) do redis.call('ZREM', key, ARGV[1]) end
 return 1
 """
+_KEY_PREFIX = "{semantic-search}:capacity:"
 
 
 @asynccontextmanager
@@ -41,7 +42,7 @@ async def search_capacity(
     reserve two global slots and one workspace slot for foreground requests.
     Background jobs hold their permit across DB work as well as provider I/O.
     """
-    prefix = "{semantic-search}:capacity:"
+    prefix = _KEY_PREFIX
     workspace = f"{scope.organization_id}:{scope.workspace_id}"
     keys = [prefix + "global", prefix + workspace]
     limits = [8, 2]

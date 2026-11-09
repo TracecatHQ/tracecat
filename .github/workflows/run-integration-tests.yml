@@ -2,8 +2,10 @@ name: Integration Tests
 
 on:
   schedule:
-    # GitHub cron is UTC. Run hourly; plan-run enforces 10:00-18:00 America/New_York.
-    - cron: "0 14-23 * * 1-5"
+    # GitHub cron is UTC. 15:00-21:00 UTC starts every run inside 10:00-18:00
+    # America/New_York in both EST and EDT, so a scheduled run never skips the
+    # tests for the time of day and reports a green that tested nothing.
+    - cron: "0 15-21 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -31,30 +33,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "candidate=false" >> "$GITHUB_OUTPUT"
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ "$ACTOR" != "github-actions[bot]" ] &&
-              ! jq -e --arg actor "$TRIGGERING_ACTOR" 'index($actor)' <<< "$TRUSTED_CI_ACTORS_JSON" >/dev/null; then
-              echo "Manual integration run is not trusted for actor: $TRIGGERING_ACTOR" >&2
-              exit 1
-            fi
-            echo "candidate=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] &&
+            [ "$ACTOR" != "github-actions[bot]" ] &&
+            ! jq -e --arg actor "$TRIGGERING_ACTOR" 'index($actor)' <<< "$TRUSTED_CI_ACTORS_JSON" >/dev/null; then
+            echo "Manual integration run is not trusted for actor: $TRIGGERING_ACTOR" >&2
+            exit 1
           fi
-
-          local_dow=$(TZ=America/New_York date +%u)
-          local_hhmm=$(TZ=America/New_York date +%H%M)
-          if [ "$local_dow" -gt 5 ] || [[ "$local_hhmm" < "1000" || "$local_hhmm" > "1800" ]]; then
-            echo "Outside integration window in America/New_York: weekday=$local_dow time=$local_hhmm"
-            exit 0
-          fi
-
-          echo "candidate=true" >> "$GITHUB_OUTPUT"
 
       - name: Check prior successful integration for this commit
         id: integration-success
-        if: steps.trigger-policy.outputs.candidate == 'true'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .integration-success
@@ -65,17 +52,11 @@ jobs:
         id: decision
         env:
           EVENT_NAME: ${{ github.event_name }}
-          CANDIDATE: ${{ steps.trigger-policy.outputs.candidate }}
           CACHE_HIT: ${{ steps.integration-success.outputs.cache-hit || 'false' }}
         run: |
           set -euo pipefail
 
           echo "cache_hit=$CACHE_HIT" >> "$GITHUB_OUTPUT"
-
-          if [ "$CANDIDATE" != "true" ]; then
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           if [ "$EVENT_NAME" = "schedule" ] && [ "$CACHE_HIT" = "true" ]; then
             echo "Integration already passed for this commit; skipping scheduled run."
