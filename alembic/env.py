@@ -15,7 +15,11 @@ from tracecat.db.migration_lock import (
     release_migration_advisory_lock,
 )
 from tracecat.db.rls import enable_migration_rls_bypass
-from tracecat.db.roles import MIGRATION_SEARCH_PATH, pin_migration_search_path
+from tracecat.db.roles import (
+    MIGRATION_SEARCH_PATH,
+    migrate_role_checks,
+    pin_migration_search_path,
+)
 
 alembic_postgresql_enum.set_configuration(
     alembic_postgresql_enum.Config(
@@ -131,7 +135,10 @@ def run_migrations_online() -> None:
         has_advisory_lock = acquire_migration_advisory_lock(connection)
         try:
             with context.begin_transaction():
-                context.run_migrations()
+                # Role setup checks and owner-level grants, for
+                # `tracecat db roles migrate` only.
+                with migrate_role_checks(connection, config.attributes):
+                    context.run_migrations()
         finally:
             if has_advisory_lock:
                 try:

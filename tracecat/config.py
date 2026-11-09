@@ -333,17 +333,13 @@ TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 """The SSL mode to connect to the database with."""
 
 TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
-"""Admin connection for ``python -m tracecat.db.roles`` only.
+"""Admin connection for ``tracecat db roles`` (``bootstrap``, ``upgrade``,
+``status``) only.
 
 A superuser or a ``CREATEROLE`` role such as the RDS master. Never give it to
-app components. In the migrations entrypoint (``tracecat.db.roles migrate``)
-it is only a credential: ``TRACECAT__DB_ROLE_LOGIN`` turns role setup on.
+app components or the migrations: ``tracecat db roles migrate`` logs in as
+``migrator`` and doesn't read it.
 """
-TRACECAT__DB_ROLE_LOGIN = os.environ.get("TRACECAT__DB_ROLE_LOGIN") or None
-"""Turns database role setup on in the migrations entrypoint
-(``tracecat.db.roles migrate``) and says how the login roles authenticate:
-``password``, ``aws_iam`` or ``azure_entra``. Empty (the default) keeps a single
-database user. Requires ``TRACECAT__DB_ADMIN_URI``."""
 TRACECAT__DB_MIGRATOR_PASSWORD = (
     os.environ.get("TRACECAT__DB_MIGRATOR_PASSWORD") or None
 )

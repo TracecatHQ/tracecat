@@ -13,6 +13,7 @@ from tracecat_admin import __version__
 from tracecat_admin.commands import (
     admin,
     auth,
+    db,
     migrate,
     orgs,
     registry,
@@ -64,6 +65,7 @@ app.add_typer(orgs.app, name="orgs", help="Organization management commands.")
 app.add_typer(registry.app, name="registry", help="Registry management commands.")
 app.add_typer(settings.app, name="settings", help="Platform settings commands.")
 app.add_typer(migrate.app, name="migrate", help="Database migration commands.")
+app.add_typer(db.app, name="db", help="Database role setup commands.")
 app.add_typer(tiers.app, name="tiers", help="Tier management commands.")
 
 

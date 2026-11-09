@@ -777,15 +777,24 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      # Role setup (python -m tracecat.db.roles migrate) runs when both TRACECAT__DB_ROLE_LOGIN and TRACECAT__DB_ADMIN_URI are set.
+      # Migrations log in as migrator once database role setup is on.
+      TRACECAT__DB_URI: ${TRACECAT__DB_MIGRATOR_URI:-${TRACECAT__DB_URI}} # Sensitive
+      # With TRACECAT__DB_ROLE_LOGIN set, role setup runs as TRACECAT__DB_ADMIN_URI first.
       TRACECAT__DB_ADMIN_URI: ${TRACECAT__DB_ADMIN_URI:-} # Sensitive
       TRACECAT__DB_MIGRATOR_PASSWORD: ${TRACECAT__DB_MIGRATOR_PASSWORD:-} # Sensitive
       TRACECAT__DB_APP_PASSWORD: ${TRACECAT__DB_APP_PASSWORD:-} # Sensitive
       TRACECAT__DB_ROLE_LOGIN: ${TRACECAT__DB_ROLE_LOGIN:-}
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
-    command: ["python3", "-m", "tracecat.db.roles", "migrate"]
+    # Role setup (when on) as the admin, then migrations as migrator.
+    command:
+      - sh
+      - -ec
+      - |
+        if [ -n "$${TRACECAT__DB_ROLE_LOGIN}" ]; then
+          python3 -m tracecat.db.roles upgrade --login "$${TRACECAT__DB_ROLE_LOGIN}"
+        fi
+        exec python3 -m tracecat.db.roles migrate
     depends_on:
       postgres_db:
         condition: service_healthy
