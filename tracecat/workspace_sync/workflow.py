@@ -9,6 +9,7 @@ the thin workflow adapter shim:
 - workspace-sync spec -> workflow-store remote definition conversion
 - child-workflow local-id rewriting for imports
 - current and legacy workflow YAML parsing/serialization
+- splitting Python scripts out into ``scripts/<action ref>.py`` files
 
 The actual adapter class lives in ``tracecat.workspace_sync.adapters.workflow``.
 """
@@ -26,6 +27,7 @@ from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Form, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.forms.service import is_configured, stored_form_config
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
@@ -324,9 +326,104 @@ def workflow_spec_from_legacy(
     )
 
 
+WORKFLOW_SCRIPTS_DIR = "scripts"
+"""Folder inside a workflow folder that holds its Python scripts."""
+
+
+def _script_relpath(action: ActionStatement) -> str:
+    """Return where an action's script lives inside its workflow folder.
+
+    Refs are unique within a workflow and match ``[a-z0-9_]+``, so they are
+    safe, readable file names: ``enrich_ip`` -> ``scripts/enrich_ip.py``.
+    """
+    return f"{WORKFLOW_SCRIPTS_DIR}/{action.ref}.py"
+
+
+def _python_script(action: ActionStatement) -> str | None:
+    """Return the script a push writes to its own file, or ``None``.
+
+    Only the string ``script`` of a ``core.script.run_python`` action counts.
+    """
+    if action.action != PlatformAction.RUN_PYTHON:
+        return None
+    script = action.args.get("script")
+    return script if isinstance(script, str) else None
+
+
+def _with_actions(
+    spec: WorkflowResourceSpec, actions: list[ActionStatement]
+) -> WorkflowResourceSpec:
+    definition = spec.definition.model_copy(update={"actions": actions})
+    return spec.model_copy(update={"definition": definition})
+
+
+def workflow_script_files(spec: WorkflowResourceSpec) -> dict[str, str]:
+    """Return each Python script by its path inside the workflow folder.
+
+    These files hold the scripts :func:`serialize_workflow_spec` leaves out of
+    ``definition.yml``, so people can read them as plain Python.
+    """
+    return {
+        _script_relpath(action): script
+        for action in spec.definition.actions
+        if (script := _python_script(action)) is not None
+    }
+
+
+def _workflow_spec_without_scripts(spec: WorkflowResourceSpec) -> WorkflowResourceSpec:
+    """Drop every script :func:`workflow_script_files` writes to its own file."""
+    actions = [
+        action.model_copy(
+            update={"args": {k: v for k, v in action.args.items() if k != "script"}}
+        )
+        if _python_script(action) is not None
+        else action
+        for action in spec.definition.actions
+    ]
+    return _with_actions(spec, actions)
+
+
+def workflow_spec_with_script_files(
+    spec: WorkflowResourceSpec, scripts: Mapping[str, str]
+) -> tuple[WorkflowResourceSpec, list[str]]:
+    """Put each script file back into the action it was split out of.
+
+    ``scripts`` maps paths inside the workflow folder, such as
+    ``scripts/enrich_ip.py``, to file contents. An action that still has an
+    inline ``script``, as files written before scripts were split out do,
+    keeps it.
+
+    Returns:
+        The spec, and the script files that belong to no
+        ``core.script.run_python`` action. Pushes never leave such a file, so
+        it means a hand edit, such as a ref renamed without its file.
+    """
+    actions = []
+    for action in spec.definition.actions:
+        script = scripts.get(_script_relpath(action))
+        is_python = action.action == PlatformAction.RUN_PYTHON
+        if is_python and script is not None and "script" not in action.args:
+            action = action.model_copy(
+                update={"args": {**action.args, "script": script}}
+            )
+        actions.append(action)
+    python_paths = {
+        _script_relpath(action)
+        for action in spec.definition.actions
+        if action.action == PlatformAction.RUN_PYTHON
+    }
+    return _with_actions(spec, actions), sorted(scripts.keys() - python_paths)
+
+
 def serialize_workflow_spec(spec: WorkflowResourceSpec) -> str:
-    """Serialize a workflow spec to YAML, omitting null fields."""
-    data = spec.model_dump(mode="json", exclude_none=True)
+    """Serialize a workflow spec to ``definition.yml`` YAML, omitting null fields.
+
+    Python scripts are left out: :func:`workflow_script_files` writes each one
+    to its own file next to ``definition.yml``.
+    """
+    data = _workflow_spec_without_scripts(spec).model_dump(
+        mode="json", exclude_none=True
+    )
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 

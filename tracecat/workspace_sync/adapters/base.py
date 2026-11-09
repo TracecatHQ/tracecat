@@ -37,6 +37,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifestResources,
     WorkspaceSpec,
 )
+from tracecat.workspace_sync.serialization import serialize_yaml_model
 from tracecat.workspace_sync.types import PathsByType
 
 MANAGED_MAPPING_NAMESPACE = "managed"
@@ -477,6 +478,10 @@ class ResourceAdapter(ABC):
         such a file; the default has no companion files.
         """
         return None
+
+    def serialize_primary(self, spec: BaseModel) -> str:
+        """Serialize a resource's primary file, such as ``table.yml``."""
+        return serialize_yaml_model(spec)
 
     def serialize_extra_files(
         self,
