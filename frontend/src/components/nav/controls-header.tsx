@@ -96,6 +96,10 @@ import { SkillFolderCreateDialog } from "@/components/skills/skills-dashboard"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
+import {
+  normalizeTableFolderPath,
+  TableFolderCreateDialog,
+} from "@/components/tables/table-folder-dialogs"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
@@ -261,8 +265,12 @@ function WorkflowsBreadcrumb({
 }
 
 function TablesActions() {
-  const [activeDialog, setActiveDialog] = useState<"create" | "import" | null>(
-    null
+  const searchParams = useSearchParams()
+  const [activeDialog, setActiveDialog] = useState<
+    "create" | "import" | "folder" | null
+  >(null)
+  const currentFolderPath = normalizeTableFolderPath(
+    searchParams?.get("path") ?? null
   )
 
   return (
@@ -306,6 +314,15 @@ function TablesActions() {
               </span>
             </div>
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setActiveDialog("folder")}>
+            <FolderIcon className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Folder</span>
+              <span className="text-xs text-muted-foreground">
+                Organize tables into folders
+              </span>
+            </div>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <CreateTableDialog
@@ -315,6 +332,11 @@ function TablesActions() {
       <TableImportTableDialog
         open={activeDialog === "import"}
         onOpenChange={(open) => setActiveDialog(open ? "import" : null)}
+      />
+      <TableFolderCreateDialog
+        open={activeDialog === "folder"}
+        onOpenChange={(open) => setActiveDialog(open ? "folder" : null)}
+        parentPath={currentFolderPath}
       />
     </>
   )
