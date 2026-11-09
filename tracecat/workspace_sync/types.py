@@ -20,10 +20,12 @@ if TYPE_CHECKING:
     from tracecat.workspace_sync.schemas import (
         AgentPresetResourceSpec,
         McpIntegrationHint,
+        ResourcePathMap,
         SecretMetadataResourceSpec,
         WorkflowResourceSpec,
         WorkspaceProjection,
         WorkspaceRemoteSnapshot,
+        WorkspaceSpec,
     )
     from tracecat.workspace_sync.transport import VcsTreeSnapshot
 
@@ -152,6 +154,16 @@ class PushProjection:
     delete_roots: tuple[str, ...]
     package_include: str | None = None
     """Include file text when the push is a managed resources package export."""
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedWorkspaceFiles:
+    """Resources parsed from repository files, and where each one was found."""
+
+    spec: WorkspaceSpec
+    diagnostics: list[PullDiagnostic]
+    paths: ResourcePathMap
+    """Primary file path each resource was read from, by type then source id."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 import yaml
@@ -42,21 +41,12 @@ from tracecat.workspace_sync.schemas import (
     normalize_workflow_source_id,
 )
 from tracecat.workspace_sync.serialization import serialize_yaml_model
+from tracecat.workspace_sync.types import ParsedWorkspaceFiles
 from tracecat.workspace_sync.workflow import (
     is_current_workflow_spec,
     parse_workflow_spec,
     serialize_workflow_spec,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedWorkspaceFiles:
-    """Resources parsed from repository files, and where each one was found."""
-
-    spec: WorkspaceSpec
-    diagnostics: list[PullDiagnostic]
-    paths: ResourcePathMap
-    """Primary file path each resource was read from, by type then source id."""
 
 
 def parse_workspace_spec_files(
