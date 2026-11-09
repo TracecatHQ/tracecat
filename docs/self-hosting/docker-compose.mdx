@@ -149,6 +149,8 @@ The migration script offers to back up your existing `.env` before rewriting it;
 It keeps only keys that exist in the new template, so add `TRACECAT__IMAGE_TAG` back to `.env` after step 2 if you set it.
 After the stack starts, verify that your containers are healthy and that you can sign in successfully.
 
+With [database roles](/self-hosting/database-roles) on (`TRACECAT__DB_ROLE_LOGIN=password`), the `migrations` container brings the roles up to date as the `postgres` admin on each start, before it runs the migrations as `migrator`.
+
 ## Scaling
 
 Docker Compose runs all services on a single host.

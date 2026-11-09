@@ -104,6 +104,8 @@ export TF_VAR_tracecat_image_tag=1.1.0
 terraform apply
 ```
 
+The migrations task runs `alembic upgrade head` as the stack's database user. [Database roles](/self-hosting/database-roles) aren't available on Fargate yet.
+
 ## Temporal DB SSL enforcement
 
 For the bundled Fargate `temporalio/auto-setup` deployment, `temporal_db_force_ssl` defaults to `false`:
