@@ -2098,7 +2098,9 @@ def _configure_migrate(
     monkeypatch.setenv("TRACECAT__DB_URI", superuser)
     monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", superuser if admin else None)
     monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
-    monkeypatch.setattr(config, "TRACECAT__DB_ROLE_LOGIN", "password")
+    monkeypatch.setattr(
+        config, "TRACECAT__DB_ROLE_LOGIN", "password" if admin else None
+    )
     monkeypatch.setattr(config, "TRACECAT__DB_MIGRATOR_PASSWORD", PASSWORD)
     monkeypatch.setattr(config, "TRACECAT__DB_APP_PASSWORD", PASSWORD)
     monkeypatch.setattr(config, "TRACECAT__DB_AGENT_RUNTIME_PASSWORD", None)
@@ -2122,7 +2124,7 @@ def _login_attributes(name: str) -> tuple[object, ...] | None:
 def test_migrate_without_an_admin_runs_alembic_as_the_configured_user(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """No admin credential: exactly today's behaviour, nothing else changes."""
+    """Neither the login method nor an admin: today's behaviour, nothing else changes."""
     suffix = _suffix()
     roles = _test_roles(suffix)
     database = _fresh_database(suffix)
@@ -2190,6 +2192,45 @@ def test_migrate_refuses_role_setup_without_login_credentials(
         assert migrate(roles) == 1
         assert variable in capsys.readouterr().err
         assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            versions = conn.execute(
+                "SELECT to_regclass('public.alembic_version')"
+            ).fetchone()
+        assert versions == (None,)  # alembic never ran
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings])
+
+
+@pytest.mark.parametrize(
+    ("login", "admin", "message"),
+    [
+        ("password", False, "TRACECAT__DB_ADMIN_URI is empty"),
+        (None, True, "TRACECAT__DB_ROLE_LOGIN is empty"),
+        ("postgresql://admin:leaked@db.invalid/x", True, "has an unknown value"),
+    ],
+    ids=["login-without-admin", "admin-without-login", "unknown-login"],
+)
+def test_migrate_stops_when_the_switch_and_the_admin_disagree(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    login: str | None,
+    admin: bool,
+    message: str,
+) -> None:
+    """The login method is the switch: a missing or leftover half writes nothing."""
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    database = _fresh_database(suffix)
+    try:
+        _configure_migrate(monkeypatch, database, admin=admin)
+        monkeypatch.setattr(config, "TRACECAT__DB_ROLE_LOGIN", login)
+        before = _login_attributes("postgres")
+        assert migrate(roles) == 1
+        err = capsys.readouterr().err
+        assert message in err
+        assert PASSWORD not in err and "leaked" not in err
+        assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
+        assert _login_attributes("postgres") == before
         with psycopg.connect(_url("postgres", "postgres", database)) as conn:
             versions = conn.execute(
                 "SELECT to_regclass('public.alembic_version')"
