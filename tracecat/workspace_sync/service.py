@@ -100,7 +100,6 @@ from tracecat.workspace_sync.importer import (
     WorkspaceResourceImportService,
 )
 from tracecat.workspace_sync.layout import (
-    PathOwner,
     ResourcePathIndex,
     partial_push_delete_roots,
     plan_push_paths,
@@ -1186,16 +1185,15 @@ class WorkspaceSyncService(SyncMappingService):
                 WorkspaceSyncResourceMapping.resource_type.in_(
                     [resource_type.value for resource_type in SyncResourceType]
                 ),
-                WorkspaceSyncResourceMapping.source_path.is_not(None),
+                # Drops both NULL and empty paths.
+                WorkspaceSyncResourceMapping.source_path != "",
             )
         )
         paths: ResourcePathMap = {}
         for resource_type, source_id, source_path in rows.tuples():
-            # The SQL filter drops nulls; this also skips empty paths.
-            if source_path:
-                paths.setdefault(SyncResourceType(resource_type), {})[source_id] = (
-                    source_path
-                )
+            if source_path:  # Always true after the filter; narrows the type.
+                by_id = paths.setdefault(SyncResourceType(resource_type), {})
+                by_id[source_id] = source_path
         return paths
 
     async def _workflow_specs_with_case_tag_source_ids(
@@ -2171,7 +2169,8 @@ class WorkspaceSyncService(SyncMappingService):
                     continue
                 if not _path_is_under_roots(path, deletion_roots):
                     continue
-                resource_type, source_id = _diff_identity(index.owner(path), path)
+                # A file no resource claims is labelled by its path.
+                owner = index.owner(path)
                 if path in remote_tree.files:
                     diff, truncated = _unified_resource_diff(
                         path=path,
@@ -2183,8 +2182,10 @@ class WorkspaceSyncService(SyncMappingService):
                     truncated = False
                 diffs.append(
                     PullResourceDiff(
-                        resource_type=resource_type,
-                        source_id=source_id,
+                        resource_type=(
+                            owner.adapter.resource_type.value if owner else "file"
+                        ),
+                        source_id=owner.source_id if owner else path,
                         source_path=path,
                         change_type="deleted",
                         title=None,
@@ -3324,16 +3325,6 @@ def _moved_resource_roots(
 def _no_resource_files(path: str) -> bool:
     """Read no resource file contents, only the manifest and include file."""
     return False
-
-
-def _diff_identity(owner: PathOwner | None, path: str) -> tuple[str, str]:
-    """Return a diff entry's resource type and source id.
-
-    A file no resource claims is labelled as a plain file, by its path.
-    """
-    if owner is None:
-        return "file", path
-    return owner.adapter.resource_type.value, owner.source_id
 
 
 def _normalized_path_roots(roots: Sequence[str]) -> tuple[str, ...]:

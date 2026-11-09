@@ -18,6 +18,7 @@ parse, and the next push moves them to readable paths.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 
@@ -32,7 +33,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSpec,
 )
 
-_DEFAULT_ROOTS = WorkspaceManifest().resources
+DEFAULT_ROOTS = WorkspaceManifest().resources
 """Pushes always write the default resource roots."""
 
 
@@ -68,8 +69,7 @@ def plan_resource_paths(
         spec: Resources to place.
         fixed: Paths that must be used as is, e.g. paths read from a commit.
         previous: Where each resource was last written or read. A resource's
-            own previous path wins over ``reserved``: two resources cannot
-            share one location, so a conflicting claim is out of date.
+            own previous path wins over ``reserved``.
         reserved: Paths other resources hold in the repository.
         other_source_ids: Source ids of resources outside ``spec``, whose
             legacy id paths are off limits too.
@@ -109,11 +109,13 @@ def plan_resource_paths(
         last = (previous or {}).get(resource_type, {})
         for source_id in sorted(specs):
             path = last.get(source_id)
+            # A resource's own previous path ignores ``reserved``: two
+            # resources cannot share one location, so that claim is stale.
             if (
                 source_id not in planner.paths
                 and path is not None
                 and _is_readable_choice(adapter, path, keys[source_id], source_id)
-                and planner.is_free(source_id, path, own_previous=True)
+                and planner.is_free(source_id, path)
             ):
                 planner.claim(source_id, path)
         for source_id in sorted(specs):
@@ -137,11 +139,10 @@ class _TypePlanner:
     paths: dict[str, str] = field(default_factory=dict)
     """Chosen path by source id."""
 
-    def is_free(self, source_id: str, path: str, *, own_previous: bool) -> bool:
+    def is_free(self, source_id: str, path: str) -> bool:
+        """Return whether ``path`` is unclaimed and not another's id path."""
         folded = _fold(path)
         if folded in self.claimed:
-            return False
-        if not own_previous and folded in self.reserved:
             return False
         owners = self.id_paths.get(folded)
         return owners is None or source_id in owners
@@ -151,9 +152,10 @@ class _TypePlanner:
         self.claimed.add(_fold(path))
 
     def claim_readable(self, source_id: str, key: str) -> None:
+        """Claim the first free path among ``key`` and its suffixed variants."""
         for candidate in _candidate_keys(key, source_id):
             path = self.adapter.path_for_key(candidate)
-            if self.is_free(source_id, path, own_previous=False):
+            if self.is_free(source_id, path) and _fold(path) not in self.reserved:
                 self.claim(source_id, path)
                 return
 
@@ -177,18 +179,15 @@ def _is_readable_choice(
     That is the plain readable path, or a collision-suffixed one:
     ``key-<source id>`` or ``key-<source id>-<n>``.
     """
-    # Exact comparison: a case-only rename still moves the folder.
-    path_key = adapter.path_key_from_path(path, _DEFAULT_ROOTS)
+    path_key = adapter.path_key_from_path(path, DEFAULT_ROOTS)
     if path_key is None:
         return False
     suffixed = f"{key}-{path_segment(source_id)}"
-    if path_key in (key, suffixed):
-        return True
-    counter = path_key.removeprefix(f"{suffixed}-")
-    # Only the plain ASCII counters the planner writes: "2", not "02" or "²".
-    if counter == path_key or not (counter.isascii() and counter.isdigit()):
-        return False
-    return str(int(counter)) == counter and int(counter) >= 2
+    # E.g. "Triage", "Triage-wf_b" or "Triage-wf_b-2". The counter is written
+    # exactly as the planner writes it: from 2 up, no leading zero, ASCII only.
+    # Case-sensitive, so a case-only rename still moves the folder.
+    pattern = rf"{re.escape(key)}|{re.escape(suffixed)}(-([2-9]|[1-9][0-9]+))?"
+    return re.fullmatch(pattern, path_key) is not None
 
 
 def _fold(path: str) -> str:
@@ -216,14 +215,15 @@ def plan_push_paths(
         fixed: Paths to keep as they are, such as the full projection's paths
             when a package push writes a selection of it.
     """
-    others = {
-        adapter.resource_type: {
+    # Mapped resources this push does not write.
+    others: ResourcePathMap = {}
+    for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+        pushed = adapter.specs(spec)
+        others[adapter.resource_type] = {
             source_id: path
             for source_id, path in mapped.get(adapter.resource_type, {}).items()
-            if source_id not in adapter.specs(spec)
+            if source_id not in pushed
         }
-        for adapter in WORKSPACE_RESOURCE_ADAPTERS
-    }
     return plan_resource_paths(
         spec,
         fixed=fixed,
@@ -271,20 +271,23 @@ def partial_push_delete_roots(
     stale: set[str] = set()
     conflicts: list[str] = []
     for adapter in WORKSPACE_RESOURCE_ADAPTERS:
-        planned = paths.get(adapter.resource_type, {})
-        held_by: dict[str, str] = {}
+        planned = {
+            source_id: adapter.location(path)
+            for source_id, path in paths.get(adapter.resource_type, {}).items()
+        }
+        # Case-folded location in the base tree -> the source id found there.
+        holders: dict[str, str] = {}
         for source_id, found in base.get(adapter.resource_type, {}).items():
             for path in found:
                 location = adapter.location(path)
-                held_by[_fold(location)] = source_id
-                if source_id in planned and location != adapter.location(
-                    adapter.path_in(paths, source_id)
-                ):
+                holders[_fold(location)] = source_id
+                if source_id in planned and location != planned[source_id]:
                     stale.add(location)
-        for source_id, path in sorted(planned.items()):
-            location = adapter.location(path)
-            holder = held_by.get(_fold(location))
-            if holder is not None and holder != source_id and holder not in planned:
+        # Writing over a resource this push also writes is fine: its old
+        # location is stale above. Any other holder would be overwritten.
+        for location in sorted(planned.values()):
+            holder = holders.get(_fold(location))
+            if holder is not None and holder not in planned:
                 conflicts.append(location)
     if conflicts:
         raise PushPathConflictError(conflicts)

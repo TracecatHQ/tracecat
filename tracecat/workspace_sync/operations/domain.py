@@ -199,6 +199,7 @@ class DurableSyncService(WorkspaceSyncService):
         which does re-point, because they project and write in one step.
         """
         for offset in range(0, len(targets), 500):
+            batch = targets[offset : offset + 500]
             await self.session.execute(
                 insert(WorkspaceSyncResourceMapping)
                 .values(
@@ -211,11 +212,12 @@ class DurableSyncService(WorkspaceSyncService):
                             "source_path": target.source_path,
                             "local_id": target.local_id,
                         }
-                        for target in targets[offset : offset + 500]
+                        for target in batch
                     ]
                 )
                 .on_conflict_do_nothing()
             )
+            # Refresh the path of rows whose whole identity matches a target.
             rows = values(
                 column("resource_type", String),
                 column("source_id", String),
@@ -230,7 +232,7 @@ class DurableSyncService(WorkspaceSyncService):
                         target.local_id,
                         target.source_path,
                     )
-                    for target in targets[offset : offset + 500]
+                    for target in batch
                 ]
             )
             await self.session.execute(

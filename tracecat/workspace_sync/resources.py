@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
@@ -29,6 +29,7 @@ from tracecat.workspace_sync.adapters.base import (
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.layout import (
+    DEFAULT_ROOTS,
     ResourceLocations,
     ResourcePathIndex,
     plan_resource_paths,
@@ -157,11 +158,10 @@ def locate_resources(files: Mapping[str, str]) -> ResourceLocations:
     :func:`parse_workspace_spec_files` without validating whole files.
     Pushes write the default roots, so only those are searched.
     """
-    roots = WorkspaceManifest().resources
     locations: ResourceLocations = {}
     for path, content in sorted(files.items()):
         for adapter in WORKSPACE_RESOURCE_ADAPTERS:
-            if (path_key := adapter.path_key_from_path(path, roots)) is None:
+            if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
                 continue
             source_id = _declared_source_id(adapter, content, default=path_key)
             by_id = locations.setdefault(adapter.resource_type, {})
@@ -175,24 +175,24 @@ def primary_resource_filter(spec: WorkspaceSpec) -> Callable[[str], bool]:
 
     A push that writes only some types reads only those from its base tree.
     """
-    roots = tuple(
-        f"{adapter.root}/"
-        for adapter in WORKSPACE_RESOURCE_ADAPTERS
-        if adapter.specs(spec)
-    )
-    return lambda path: path.startswith(roots) and is_primary_resource_path(path)
+    adapters = [
+        adapter for adapter in WORKSPACE_RESOURCE_ADAPTERS if adapter.specs(spec)
+    ]
+    return lambda path: is_primary_resource_path(path, adapters)
 
 
-def is_primary_resource_path(path: str) -> bool:
-    """Return whether ``path`` is a resource's primary file under default roots.
+def is_primary_resource_path(
+    path: str,
+    adapters: Iterable[ResourceAdapter] = WORKSPACE_RESOURCE_ADAPTERS,
+) -> bool:
+    """Return whether ``path`` is a primary file of one of ``adapters``' types.
 
     A push reads only these from its base tree: their ``id`` is all
     :func:`locate_resources` needs, and companion files can be many.
     """
-    roots = WorkspaceManifest().resources
     return any(
-        adapter.path_key_from_path(path, roots) is not None
-        for adapter in WORKSPACE_RESOURCE_ADAPTERS
+        adapter.path_key_from_path(path, DEFAULT_ROOTS) is not None
+        for adapter in adapters
     )
 
 
