@@ -103,13 +103,12 @@ def plan_resource_paths(
                 for source_id in sorted(specs)
             }
             continue
-        id_paths: dict[str, set[str]] = {}
-        for source_id in [*specs, *(other_source_ids or {}).get(resource_type, ())]:
-            folded = _fold(adapter.legacy_id_path(source_id))
-            id_paths.setdefault(folded, set()).add(source_id)
         planner = _TypePlanner(
             adapter,
-            id_paths=id_paths,
+            id_paths=_id_paths(
+                adapter,
+                [*specs, *(other_source_ids or {}).get(resource_type, ())],
+            ),
             reserved={
                 _fold(path)
                 for path in [
@@ -142,6 +141,18 @@ def plan_resource_paths(
                 planner.claim_readable(source_id, keys[source_id])
         planned[resource_type] = dict(sorted(planner.paths.items()))
     return planned
+
+
+def _id_paths(
+    adapter: ResourceAdapter, source_ids: Iterable[str]
+) -> dict[str, set[str]]:
+    """Map each case-folded legacy id path to the source ids it belongs to."""
+    id_paths: dict[str, set[str]] = {}
+    for source_id in source_ids:
+        id_paths.setdefault(_fold(adapter.legacy_id_path(source_id)), set()).add(
+            source_id
+        )
+    return id_paths
 
 
 @dataclass(slots=True)
@@ -226,13 +237,13 @@ def per_resource_paths(
     Uses the same collision rules as :func:`plan_resource_paths`, without
     previous paths. Package includes use it to keep matching patterns that
     named a bundled resource's old file.
+
+    Without previous paths, two resources whose names map to one file name
+    are told apart by source id, not by which was pushed first. A
+    hand-written readable pattern written for the later one can then name
+    the other. Id patterns, which the package picker writes, are unaffected.
     """
-    id_paths: dict[str, set[str]] = {}
-    for source_id in specs:
-        id_paths.setdefault(_fold(adapter.legacy_id_path(source_id)), set()).add(
-            source_id
-        )
-    planner = _TypePlanner(adapter, id_paths=id_paths, reserved=set())
+    planner = _TypePlanner(adapter, id_paths=_id_paths(adapter, specs), reserved=set())
     for source_id in sorted(specs):
         planner.claim_readable(source_id, adapter.path_key(source_id, specs[source_id]))
     return planner.paths

@@ -189,7 +189,7 @@ def locate_resources(files: Mapping[str, str]) -> ResourceLocations:
     """
     locations: ResourceLocations = {}
     for path, content in sorted(files.items()):
-        if (bundled := bundled_adapter_for(path)) is not None:
+        if (bundled := _bundled_adapter_for(path)) is not None:
             by_id = locations.setdefault(bundled.resource_type, {})
             for entry in bundled.readable_entries(content):
                 if source_id := bundle_entry_id(entry):
@@ -225,7 +225,7 @@ def is_primary_resource_path(
     A push reads only these from its base tree: their ``id`` is all
     :func:`locate_resources` needs, and companion files can be many.
     """
-    bundled = bundled_adapter_for(path)
+    bundled = _bundled_adapter_for(path)
     return any(
         adapter is bundled
         or adapter.path_key_from_path(path, DEFAULT_ROOTS) is not None
@@ -233,7 +233,7 @@ def is_primary_resource_path(
     )
 
 
-def bundled_adapter_for(path: str) -> BundledManifestAdapter | None:
+def _bundled_adapter_for(path: str) -> BundledManifestAdapter | None:
     """Return the bundled type whose bundle file ``path`` is, under default roots.
 
     Pushes always write the default roots. Code reading a snapshot under
@@ -297,7 +297,8 @@ def merge_base_bundles(
         if clashes := _name_clashes(
             adapter,
             pushed_entries=pushed_entries,
-            base_entries=base_entries,
+            kept=kept,
+            skip_ids=pushed_ids | {bundle_entry_id(entry) for entry in base_entries},
             base_files=base_files,
         ):
             raise PushNameConflictError(clashes)
@@ -310,24 +311,22 @@ def _name_clashes(
     adapter: BundledManifestAdapter,
     *,
     pushed_entries: list[Any],
-    base_entries: list[Any],
+    kept: list[Any],
+    skip_ids: set[str],
     base_files: Mapping[str, str],
 ) -> list[str]:
     """Return the resources a push keeps whose name a pushed resource takes.
 
     The next pull would fail on the duplicate name. Separate files used to
-    conflict on path instead. Kept resources are the bundle's other entries,
-    plus files from before bundling whose id is neither pushed nor in the
-    bundle (a pull reads the bundle copy over a leftover file). Each clash is
+    conflict on path instead. Kept resources are the bundle's other entries
+    (``kept``), plus files from before bundling whose id is not in
+    ``skip_ids``: the pushed ids and the ids the base bundle already holds,
+    since a pull reads the bundle copy over a leftover file. Each clash is
     labelled ``<path> (<name>)``.
     """
-    pushed_ids = {bundle_entry_id(entry) for entry in pushed_entries}
-    bundled_ids = {bundle_entry_id(entry) for entry in base_entries}
     taken = {adapter.entry_identity(entry) for entry in pushed_entries} - {None}
     others: list[tuple[str, tuple[str, ...] | None]] = [
-        (adapter.bundle_path, adapter.entry_identity(entry))
-        for entry in base_entries
-        if bundle_entry_id(entry) not in pushed_ids
+        (adapter.bundle_path, adapter.entry_identity(entry)) for entry in kept
     ]
     for path, content in sorted(base_files.items()):
         if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
@@ -339,7 +338,7 @@ def _name_clashes(
             model=adapter.model,
             diagnostics=[],
         )
-        if spec is not None and _spec_id(spec) not in pushed_ids | bundled_ids:
+        if spec is not None and _spec_id(spec) not in skip_ids:
             others.append((path, adapter.import_identity(spec)))
     clashes: set[str] = set()
     for path, identity in others:
