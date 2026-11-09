@@ -47,10 +47,10 @@ admin) to ``tracecat_owner`` and dynamic schemas to ``app_owner``, one object
 or schema per transaction with a short lock timeout, so a busy install keeps
 running. It never grants the admin membership in a login role.
 
-``migrate`` is the migrations container's entrypoint: with an admin
-credential it runs ``upgrade`` and then ``alembic upgrade head`` as
-``migrator``; without one it runs ``alembic`` as the configured user, as
-before.
+``migrate`` is the migrations container's entrypoint. ``TRACECAT__DB_ROLE_LOGIN``
+turns role setup on: it runs ``upgrade`` with ``TRACECAT__DB_ADMIN_URI`` and
+then ``alembic upgrade head`` as ``migrator``. With neither set it runs
+``alembic`` as the configured user, as before; with only one set it stops.
 """
 
 from __future__ import annotations
@@ -773,22 +773,31 @@ def _login_uri(user: str, password: str) -> str:
     return url.render_as_string(hide_password=False)
 
 
+_SINGLE_USER_HINT = (
+    "clear both TRACECAT__DB_ROLE_LOGIN and TRACECAT__DB_ADMIN_URI to keep a "
+    "single database user"
+)
+
+
 def migrate(
     roles: RoleNames = DEFAULT_ROLES, *, lock_timeout: str = "5s", retries: int = 3
 ) -> int:
     """Entrypoint of the migrations container.
 
-    1. Without ``TRACECAT__DB_ADMIN_URI``: run alembic as the configured
-       database user, exactly as before.
-    2. Otherwise run ``upgrade`` as the admin (bootstrap included; a quick
-       no-op once done), then alembic as ``migrator``, then ``upgrade`` again
-       for what the migrations created.
-    3. Exit 0 only when role setup finished: a refused safety check, a lock
+    1. Neither ``TRACECAT__DB_ROLE_LOGIN`` nor ``TRACECAT__DB_ADMIN_URI``:
+       run alembic as the configured database user, exactly as before.
+    2. Only one of them: exit 1 before changing anything. The login method is
+       the switch and the admin URI only a credential, so a leftover or
+       missing one never silently changes which user runs the migrations.
+    3. Both: run ``upgrade`` as the admin (bootstrap included; a quick no-op
+       once done), then alembic as ``migrator``, then ``upgrade`` again for
+       what the migrations created.
+    4. Exit 0 only when role setup finished: a refused safety check, a lock
        that outlasts the retries (before or after alembic), or an IAM-lockout
        abort stops with exit 1. Finished transfers stay committed and the
        next run continues, so a held lock can delay a deploy but never moves
        migrations off ``migrator``.
-       With an admin URI, the ``migrator`` credential (and, with passwords,
+       With role setup on, the ``migrator`` credential (and, with passwords,
        ``app``'s) is required: without it, exit 1 before changing anything.
 
     With ``TRACECAT__DB_ROLE_LOGIN=aws_iam`` (or ``azure_entra``),
@@ -798,15 +807,50 @@ def migrate(
     Returns:
         Alembic's exit code, or 1 if role setup refused or didn't finish.
     """
-    if not config.TRACECAT__DB_ADMIN_URI:
+    login_setting = config.TRACECAT__DB_ROLE_LOGIN
+    admin_uri = config.TRACECAT__DB_ADMIN_URI
+    if not login_setting and not admin_uri:
         print(
-            "No TRACECAT__DB_ADMIN_URI: skipping role setup; running migrations "
-            "as the configured database user.",
+            "TRACECAT__DB_ROLE_LOGIN is empty: skipping role setup; running "
+            "migrations as the configured database user.",
             file=sys.stderr,
         )
         return _alembic_upgrade(None)
+    if not admin_uri:
+        print(
+            "error: TRACECAT__DB_ROLE_LOGIN is set, but TRACECAT__DB_ADMIN_URI "
+            "is empty, so role setup can't run.",
+            file=sys.stderr,
+        )
+        print(
+            "hint: set TRACECAT__DB_ADMIN_URI to an admin connection for the "
+            f"app's database, or {_SINGLE_USER_HINT}.",
+            file=sys.stderr,
+        )
+        return 1
+    if not login_setting:
+        print(
+            "error: TRACECAT__DB_ADMIN_URI is set, but TRACECAT__DB_ROLE_LOGIN "
+            "is empty, so role setup is off.",
+            file=sys.stderr,
+        )
+        print(
+            "hint: set TRACECAT__DB_ROLE_LOGIN to password, aws_iam or "
+            f"azure_entra to set up database roles, or {_SINGLE_USER_HINT}.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        login = LoginMethod(login_setting)
+    except ValueError:
+        print(
+            "error: TRACECAT__DB_ROLE_LOGIN is "
+            f"{_printable(login_setting)}; expected password, aws_iam or "
+            "azure_entra.",
+            file=sys.stderr,
+        )
+        return 1
 
-    login = LoginMethod(config.TRACECAT__DB_ROLE_LOGIN)
     passwords = (
         LoginPasswords.from_config()
         if login is LoginMethod.PASSWORD
@@ -822,16 +866,13 @@ def migrate(
         missing.append("TRACECAT__DB_APP_PASSWORD")
     if not migrator_password or missing:
         print(
-            "error: TRACECAT__DB_ADMIN_URI is set, but these are empty: "
+            "error: TRACECAT__DB_ROLE_LOGIN turns role setup on, but these are "
+            "empty: "
             f"{', '.join(missing)} (with IAM, the migrator variable carries the "
             "token minted at job start).",
             file=sys.stderr,
         )
-        print(
-            "hint: set it, or unset TRACECAT__DB_ADMIN_URI to keep a single "
-            "database user.",
-            file=sys.stderr,
-        )
+        print(f"hint: set it, or {_SINGLE_USER_HINT}.", file=sys.stderr)
         return 1
     if (code := _check_targets()) != 0:
         return code
@@ -866,8 +907,8 @@ def _check_targets() -> int:
             file=sys.stderr,
         )
         print(
-            "hint: point TRACECAT__DB_ADMIN_URI at the app's database, or unset it "
-            "to keep a single database user.",
+            "hint: point TRACECAT__DB_ADMIN_URI at the app's database, or "
+            f"{_SINGLE_USER_HINT}.",
             file=sys.stderr,
         )
         return 1
@@ -876,7 +917,7 @@ def _check_targets() -> int:
             f"warning: migrations run on {_printable(str(admin.host))} "
             f"(TRACECAT__DB_ADMIN_URI), but TRACECAT__DB_URI names "
             f"{_printable(str(app.host))}. If those are different servers, point "
-            "TRACECAT__DB_ADMIN_URI at the app's server or clear it.",
+            "TRACECAT__DB_ADMIN_URI at the app's server.",
             file=sys.stderr,
         )
     return 0
@@ -920,8 +961,7 @@ def _refused(exc: psycopg.errors.RaiseException) -> int:
     if diag.message_hint:
         print(f"hint: {_printable(diag.message_hint)}", file=sys.stderr)
     print(
-        "hint: fix the state above, or unset TRACECAT__DB_ADMIN_URI to run "
-        "migrations without role setup.",
+        f"hint: fix the state above, or {_SINGLE_USER_HINT}.",
         file=sys.stderr,
     )
     return 1
