@@ -26,10 +26,7 @@ from pydantic import BaseModel
 
 from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
 from tracecat.workspace_sync.adapters.base import ResourceAdapter, path_segment
-from tracecat.workspace_sync.adapters.bundled import (
-    BundledManifestAdapter,
-    is_bundle_location,
-)
+from tracecat.workspace_sync.adapters.bundled import BundledManifestAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.exceptions import PushPathConflictError
 from tracecat.workspace_sync.schemas import (
@@ -190,7 +187,7 @@ class _TypePlanner:
                 return
 
 
-def suffixed_key(key: str, source_id: str) -> str:
+def _suffixed_key(key: str, source_id: str) -> str:
     """Return the collision-suffixed path key ``<key>-<source id>``."""
     return f"{key}-{path_segment(source_id)}"
 
@@ -198,7 +195,7 @@ def suffixed_key(key: str, source_id: str) -> str:
 def _candidate_keys(key: str, source_id: str) -> Iterator[str]:
     """Yield ``key``, then ``key-<source id>``, then numbered variants."""
     yield key
-    suffixed = suffixed_key(key, source_id)
+    suffixed = _suffixed_key(key, source_id)
     yield suffixed
     counter = 2
     while True:
@@ -217,7 +214,7 @@ def _is_readable_choice(
     path_key = adapter.path_key_from_path(path, DEFAULT_ROOTS)
     if path_key is None:
         return False
-    suffixed = suffixed_key(key, source_id)
+    suffixed = _suffixed_key(key, source_id)
     # E.g. "Triage", "Triage-wf_b" or "Triage-wf_b-2". The counter is written
     # exactly as the planner writes it: from 2 up, no leading zero, ASCII only.
     # Case-sensitive, so a case-only rename still moves the folder.
@@ -334,7 +331,7 @@ def partial_push_delete_roots(
         # Writing over a resource this push also writes is fine: its old
         # location is stale above. Any other holder would be overwritten.
         for location in sorted(planned.values()):
-            if is_bundle_location(adapter, location):
+            if adapter.is_bundle_file(location):
                 continue
             holder = holders.get(_fold(location))
             if holder is not None and holder not in planned:
@@ -396,7 +393,7 @@ class ResourcePathIndex:
 
     def _add(self, owner: PathOwner, primary_path: str) -> None:
         """Index a primary file, plus its folder for folder-owning types."""
-        if is_bundle_location(owner.adapter, primary_path):
+        if owner.adapter.is_bundle_file(primary_path):
             return
         self._by_path[primary_path] = owner
         if owner.adapter.owns_directory:

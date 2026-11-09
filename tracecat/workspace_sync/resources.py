@@ -191,7 +191,7 @@ def locate_resources(files: Mapping[str, str]) -> ResourceLocations:
     for path, content in sorted(files.items()):
         if (bundled := _bundled_adapter_for(path)) is not None:
             by_id = locations.setdefault(bundled.resource_type, {})
-            for entry in bundled.readable_entries(content):
+            for entry in bundled.entries_or_empty(content):
                 if source_id := bundle_entry_id(entry):
                     by_id.setdefault(source_id, []).append(path)
             continue
@@ -225,10 +225,9 @@ def is_primary_resource_path(
     A push reads only these from its base tree: their ``id`` is all
     :func:`locate_resources` needs, and companion files can be many.
     """
-    bundled = _bundled_adapter_for(path)
     return any(
-        adapter is bundled
-        or adapter.path_key_from_path(path, DEFAULT_ROOTS) is not None
+        adapter.path_key_from_path(path, DEFAULT_ROOTS) is not None
+        or (isinstance(adapter, BundledManifestAdapter) and path == adapter.bundle_path)
         for adapter in adapters
     )
 
@@ -294,13 +293,7 @@ def merge_base_bundles(
         kept = [
             entry for entry in base_entries if bundle_entry_id(entry) not in pushed_ids
         ]
-        if clashes := _name_clashes(
-            adapter,
-            pushed_entries=pushed_entries,
-            kept=kept,
-            skip_ids=pushed_ids | {bundle_entry_id(entry) for entry in base_entries},
-            base_files=base_files,
-        ):
+        if clashes := _name_clashes(adapter, pushed_entries, base_files):
             raise PushNameConflictError(clashes)
         if kept:
             merged[path] = adapter.dump_bundle([*pushed_entries, *kept])
@@ -309,41 +302,34 @@ def merge_base_bundles(
 
 def _name_clashes(
     adapter: BundledManifestAdapter,
-    *,
     pushed_entries: list[Any],
-    kept: list[Any],
-    skip_ids: set[str],
     base_files: Mapping[str, str],
 ) -> list[str]:
     """Return the resources a push keeps whose name a pushed resource takes.
 
     The next pull would fail on the duplicate name. Separate files used to
-    conflict on path instead. Kept resources are the bundle's other entries
-    (``kept``), plus files from before bundling whose id is not in
-    ``skip_ids``: the pushed ids and the ids the base bundle already holds,
-    since a pull reads the bundle copy over a leftover file. Each clash is
-    labelled ``<path> (<name>)``.
+    conflict on path instead. The base tree's resources of this type are read
+    the way a pull reads them, so a bundle entry wins over a leftover file of
+    the same id. Each clash is labelled ``<path> (<name>)``.
     """
-    taken = {adapter.entry_identity(entry) for entry in pushed_entries} - {None}
-    others: list[tuple[str, tuple[str, ...] | None]] = [
-        (adapter.bundle_path, adapter.entry_identity(entry)) for entry in kept
-    ]
-    for path, content in sorted(base_files.items()):
-        if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
-            continue
-        spec = _parse_yaml_resource(
-            path,
-            content,
-            default_source_id=path_key,
-            model=adapter.model,
-            diagnostics=[],
-        )
-        if spec is not None and _spec_id(spec) not in skip_ids:
-            others.append((path, adapter.import_identity(spec)))
-    clashes: set[str] = set()
-    for path, identity in others:
-        if identity is not None and identity in taken:
-            clashes.add(f"{path} ({'/'.join(identity)})")
+    pushed_ids = {bundle_entry_id(entry) for entry in pushed_entries}
+    taken = {adapter.entry_identity(entry) for entry in pushed_entries}
+    parsed = parse_workspace_spec_files(
+        {
+            path: content
+            for path, content in base_files.items()
+            if path_is_under_roots(path, (adapter.root,))
+        },
+        manifest=WorkspaceManifest(),
+    )
+    paths = parsed.paths.get(adapter.resource_type, {})
+    clashes = {
+        f"{paths[source_id]} ({'/'.join(identity)})"
+        for source_id, spec in adapter.specs(parsed.spec).items()
+        if source_id not in pushed_ids
+        and (identity := adapter.import_identity(spec)) is not None
+        and identity in taken
+    }
     return sorted(clashes)
 
 
@@ -512,9 +498,7 @@ def _serialize_bundled(
         else:
             files[path] = serialize_yaml_model(resource_spec)
     for path, bundled in bundles.items():
-        files[path] = adapter.dump_bundle(
-            adapter.bundle_entry(resource_spec) for resource_spec in bundled
-        )
+        files[path] = adapter.dump_bundle(map(adapter.bundle_entry, bundled))
     return files
 
 

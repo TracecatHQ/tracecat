@@ -11,11 +11,7 @@ from typing import Any, ClassVar
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from tracecat.workspace_sync.adapters.base import (
-    FlatManifestAdapter,
-    ResourceAdapter,
-    path_parts,
-)
+from tracecat.workspace_sync.adapters.base import FlatManifestAdapter, path_parts
 from tracecat.workspace_sync.schemas import WorkspaceManifestResources
 
 BUNDLE_FORMAT_VERSION = 1
@@ -62,7 +58,7 @@ class BundledManifestAdapter(FlatManifestAdapter):
         return "/".join([*root_parts, self.bundle_filename])
 
     def is_bundle_file(self, path: str) -> bool:
-        """Return whether a path already known to be this type's is a bundle."""
+        """Return whether a location of this type is the bundle file."""
         return path.rsplit("/", 1)[-1] == self.bundle_filename
 
     def path_key_from_path(
@@ -124,7 +120,7 @@ class BundledManifestAdapter(FlatManifestAdapter):
             raise BundleFormatError(f"Expected '{self.bundle_key}' to be a list")
         return entries
 
-    def readable_entries(self, content: str | None) -> list[Any]:
+    def entries_or_empty(self, content: str | None) -> list[Any]:
         """Return a bundle's raw entries, or none when it is missing or invalid.
 
         For callers that only look: the parser reports invalid bundles.
@@ -143,7 +139,7 @@ class BundledManifestAdapter(FlatManifestAdapter):
         """
         return {
             source_id: yaml.safe_dump(entry, sort_keys=False, allow_unicode=True)
-            for entry in self.readable_entries(content)
+            for entry in self.entries_or_empty(content)
             if (source_id := bundle_entry_id(entry))
         }
 
@@ -166,8 +162,3 @@ def bundle_entry_id(entry: Any) -> str:
             return source_id
         case _:
             return ""
-
-
-def is_bundle_location(adapter: ResourceAdapter, path: str) -> bool:
-    """Return whether ``path``, a location of ``adapter``'s type, is a bundle."""
-    return isinstance(adapter, BundledManifestAdapter) and adapter.is_bundle_file(path)

@@ -828,10 +828,9 @@ class WorkspaceSyncService(SyncMappingService):
             base_branch=params.pr_base_branch,
             resource_filter=primary_resource_filter(projection.spec),
         )
-        delete_roots = _moved_resource_roots(projection, base.tree if base else None)
-        projection = _with_base_bundles(
-            projection, base.tree if base else None, delete_roots
-        )
+        base_tree = base.tree if base else None
+        delete_roots = _moved_resource_roots(projection, base_tree)
+        projection = _with_base_bundles(projection, base_tree, delete_roots)
         commit = await _write_push(
             transport,
             url=url,
@@ -2096,12 +2095,10 @@ class WorkspaceSyncService(SyncMappingService):
         # count: a pull never deletes local-only resources.
         diffs = [
             diff
-            for path, bundled in _bundle_files(target_paths).items()
-            for diff in _bundle_resource_diffs(
-                bundled,
-                path=path,
-                before=current_files.get(path),
-                after=target_files.get(path),
+            for diff in _bundle_diffs(
+                _bundle_files(target_paths),
+                before_files=current_files,
+                after_files=target_files,
                 spec=target_spec,
             )
             if diff.change_type != "deleted"
@@ -2154,29 +2151,25 @@ class WorkspaceSyncService(SyncMappingService):
         # resource's old folder shows under its real source id.
         index = ResourcePathIndex(projection.paths, locate_resources(remote_tree.files))
         deletion_roots = normalized_path_roots(delete_missing_paths_under)
-        diffs: list[PullResourceDiff] = []
         remote_paths = remote_tree.blob_paths or frozenset(remote_tree.files)
 
-        # Bundles are diffed one entry at a time, including a bundle the push
-        # deletes. The loops below skip the bundles handled here.
-        diffed_bundles: set[str] = set()
-        for bundled in BUNDLED_RESOURCE_ADAPTERS:
-            path = bundled.bundle_path
-            before = remote_tree.files.get(path)
-            after = projection.files.get(path)
-            deleted = before is not None and path_is_under_roots(path, deletion_roots)
-            if after is None and not deleted:
-                continue
-            diffed_bundles.add(path)
-            diffs.extend(
-                _bundle_resource_diffs(
-                    bundled,
-                    path=path,
-                    before=before,
-                    after=after,
-                    spec=projection.spec,
-                )
+        # Bundles are diffed one entry at a time: each bundle the push writes,
+        # and each one it deletes. The loops below skip them.
+        bundles = {
+            adapter.bundle_path: adapter
+            for adapter in BUNDLED_RESOURCE_ADAPTERS
+            if adapter.bundle_path in projection.files
+            or (
+                adapter.bundle_path in remote_tree.files
+                and path_is_under_roots(adapter.bundle_path, deletion_roots)
             )
+        }
+        diffs = _bundle_diffs(
+            bundles,
+            before_files=remote_tree.files,
+            after_files=projection.files,
+            spec=projection.spec,
+        )
 
         for path, projected_content in sorted(projection.files.items()):
             # Every projected resource file has an owner; the manifest,
@@ -2219,7 +2212,7 @@ class WorkspaceSyncService(SyncMappingService):
                     continue
                 if not path_is_under_roots(path, deletion_roots):
                     continue
-                if path in diffed_bundles:
+                if path in bundles:
                     continue
                 # A file no resource claims is labelled by its path.
                 owner = index.owner(path)
@@ -3392,8 +3385,6 @@ def _with_base_bundles(
         owned_roots=delete_roots,
         base_paths=base.blob_paths,
     )
-    if files == projection.files:
-        return projection
     return projection.model_copy(update={"files": files})
 
 
@@ -3441,46 +3432,48 @@ def _bundle_files(paths: PathsByType) -> dict[str, BundledManifestAdapter]:
     }
 
 
-def _bundle_resource_diffs(
-    adapter: BundledManifestAdapter,
+def _bundle_diffs(
+    bundles: Mapping[str, BundledManifestAdapter],
     *,
-    path: str,
-    before: str | None,
-    after: str | None,
+    before_files: Mapping[str, str],
+    after_files: Mapping[str, str],
     spec: WorkspaceSpec,
 ) -> list[PullResourceDiff]:
-    """Diff a bundle file one entry at a time, so each resource is listed.
+    """Diff each bundle file one entry at a time, so each resource is listed.
 
-    ``after`` is ``None`` when the bundle itself is deleted. An entry only in
-    ``before`` is reported as deleted.
+    ``bundles`` maps each bundle path to diff to its type. A bundle missing
+    from ``after_files`` is deleted, so all its entries are reported deleted.
     """
-    before_entries = adapter.entry_texts(before)
-    after_entries = adapter.entry_texts(after)
     diffs: list[PullResourceDiff] = []
-    for source_id in sorted(before_entries.keys() | after_entries.keys()):
-        old = before_entries.get(source_id)
-        new = after_entries.get(source_id)
-        if old == new:
-            continue
-        change_type: Literal["added", "modified", "deleted"]
-        title: str | None = None
-        if new is None:
-            change_type = "deleted"
-        else:
-            change_type = "added" if old is None else "modified"
-            title = _resource_title(spec, adapter=adapter, source_id=source_id)
-        diff, truncated = _unified_resource_diff(path=path, before=old, after=new or "")
-        diffs.append(
-            PullResourceDiff(
-                resource_type=adapter.resource_type.value,
-                source_id=source_id,
-                source_path=path,
-                change_type=change_type,
-                title=title,
-                diff=diff,
-                truncated=truncated,
+    for path, adapter in bundles.items():
+        before_entries = adapter.entry_texts(before_files.get(path))
+        after_entries = adapter.entry_texts(after_files.get(path))
+        for source_id in sorted(before_entries.keys() | after_entries.keys()):
+            old = before_entries.get(source_id)
+            new = after_entries.get(source_id)
+            if old == new:
+                continue
+            change_type: Literal["added", "modified", "deleted"]
+            title: str | None = None
+            if new is None:
+                change_type = "deleted"
+            else:
+                change_type = "added" if old is None else "modified"
+                title = _resource_title(spec, adapter=adapter, source_id=source_id)
+            diff, truncated = _unified_resource_diff(
+                path=path, before=old, after=new or ""
             )
-        )
+            diffs.append(
+                PullResourceDiff(
+                    resource_type=adapter.resource_type.value,
+                    source_id=source_id,
+                    source_path=path,
+                    change_type=change_type,
+                    title=title,
+                    diff=diff,
+                    truncated=truncated,
+                )
+            )
     return diffs
 
 
