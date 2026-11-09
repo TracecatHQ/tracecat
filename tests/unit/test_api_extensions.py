@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
 from tracecat.api import extensions
@@ -112,84 +112,90 @@ def test_invalid_extensions_fail_startup(
         extensions.load_api_extensions()
 
 
-def builtin_app() -> FastAPI:
-    # Mirrors app.py: built-ins arrive through include_router, not flat routes.
-    builtin = APIRouter(prefix="/agent/channels")
-    builtin.add_api_route("/{channel_type}/{token}", lambda: None, methods=["POST"])
+def builtin_app(*paths: str, method: str = "GET") -> FastAPI:
+    builtin = APIRouter()
+    for path in paths:
+        builtin.add_api_route(path, lambda: {"builtin": True}, methods=[method])
     app = FastAPI()
     app.include_router(builtin)
     return app
 
 
+CHANNEL_ROUTE = "/agent/channels/{channel_type}/{token}"
+
+
 @pytest.mark.parametrize(
-    "path",
-    ["/agent/channels/slack/events", "/agent/channels/{provider}/events"],
-    ids=["literal", "parameterized"],
+    ("builtins", "method", "paths"),
+    [
+        ((CHANNEL_ROUTE,), "POST", ("/agent/channels/slack/events",)),
+        ((CHANNEL_ROUTE,), "POST", ("/agent/channels/{provider}/events",)),
+        (("/items/{item_id:int}",), "GET", ("/items/{item_id:int}",)),
+        ((), "GET", ("/dup", "/dup")),
+        ((), "GET", ("/items/{item_id}", "/items/special")),
+        ((), "GET", ("/items/{item_id:uuid}", "/items/{item_id:uuid}")),
+        ((), "GET", ("/items/{item_id:int}", "/items/{item_id:int}")),
+    ],
+    ids=[
+        "builtin-literal",
+        "builtin-parameterized",
+        "builtin-typed",
+        "router-duplicate",
+        "router-parameterized-first",
+        "router-uuid",
+        "router-int",
+    ],
 )
-def test_route_shadowed_by_builtin_fails_startup(
-    monkeypatch: pytest.MonkeyPatch, path: str
-) -> None:
-    app = builtin_app()
-    installed(monkeypatch, entry("ee", lambda: FakeExtension(path, method="POST")))
-    with pytest.raises(ValueError, match="is already served"):
-        extensions.include_api_extension_routers(app)
-
-
-def test_typed_route_shadowed_by_builtin_fails_startup(
+def test_shadowed_route_fails_startup(
     monkeypatch: pytest.MonkeyPatch,
+    builtins: tuple[str, ...],
+    method: str,
+    paths: tuple[str, ...],
 ) -> None:
-    app = FastAPI()
-    app.add_api_route("/items/{item_id:int}", lambda item_id: None, methods=["GET"])
-    installed(monkeypatch, entry("ee", lambda: FakeExtension("/items/{item_id:int}")))
+    app = builtin_app(*builtins, method=method)
+    installed(monkeypatch, entry("ee", lambda: FakeExtension(*paths, method=method)))
     with pytest.raises(ValueError, match="is already served"):
         extensions.include_api_extension_routers(app)
 
 
 @pytest.mark.parametrize(
-    "paths",
-    [("/dup", "/dup"), ("/items/{item_id}", "/items/special")],
-    ids=["duplicate", "parameterized-first"],
+    ("builtins", "method", "paths", "request_path", "expected"),
+    [
+        (
+            (CHANNEL_ROUTE,),
+            "POST",
+            ("/agent/channels/a/b",),
+            "/agent/channels/a/b",
+            {"ok": True},
+        ),
+        (("/items/x",), "GET", ("/items/{item_id}",), "/items/x", {"builtin": True}),
+        (("/items/0",), "GET", ("/items/{item_id}",), "/items/0", {"builtin": True}),
+        (
+            (),
+            "GET",
+            ("/items/special", "/items/{item_id}"),
+            "/items/special",
+            {"ok": True},
+        ),
+    ],
+    ids=[
+        "other-method",
+        "literal-str-first",
+        "literal-int-first",
+        "router-literal-first",
+    ],
 )
-def test_route_shadowed_within_a_router_fails_startup(
-    monkeypatch: pytest.MonkeyPatch, paths: tuple[str, str]
+def test_unshadowed_route_mounts(
+    monkeypatch: pytest.MonkeyPatch,
+    builtins: tuple[str, ...],
+    method: str,
+    paths: tuple[str, ...],
+    request_path: str,
+    expected: dict[str, bool],
 ) -> None:
+    app = builtin_app(*builtins, method=method)
     installed(monkeypatch, entry("ee", lambda: FakeExtension(*paths)))
-    with pytest.raises(ValueError, match="is already served"):
-        extensions.include_api_extension_routers(FastAPI())
-
-
-@pytest.mark.parametrize(
-    "path", ["/items/{item_id:uuid}", "/items/{item_id:int}"], ids=["uuid", "int"]
-)
-def test_typed_route_shadowed_within_a_router_fails_startup(
-    monkeypatch: pytest.MonkeyPatch, path: str
-) -> None:
-    installed(monkeypatch, entry("ee", lambda: FakeExtension(path, path)))
-    with pytest.raises(ValueError, match="is already served"):
-        extensions.include_api_extension_routers(FastAPI())
-
-
-@pytest.mark.parametrize("literal", ["/items/x", "/items/0"], ids=["str", "int"])
-def test_parameterized_route_after_a_literal_exception_mounts(
-    monkeypatch: pytest.MonkeyPatch, literal: str
-) -> None:
-    app = FastAPI()
-    app.add_api_route(literal, lambda: {"literal": True}, methods=["GET"])
-    installed(monkeypatch, entry("ee", lambda: FakeExtension("/items/{item_id}")))
     extensions.include_api_extension_routers(app)
-    assert TestClient(app).get(literal).json() == {"literal": True}
-
-
-def test_literal_route_before_parameterized_route_mounts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    installed(
-        monkeypatch,
-        entry("ee", lambda: FakeExtension("/items/special", "/items/{item_id}")),
-    )
-    app = FastAPI()
-    extensions.include_api_extension_routers(app)
-    assert TestClient(app).get("/items/special").json() == {"ok": True}
+    assert TestClient(app).get(request_path).json() == expected
 
 
 def test_app_builtin_routes_are_shadow_checked(
@@ -198,15 +204,6 @@ def test_app_builtin_routes_are_shadow_checked(
     installed(monkeypatch, entry("ee", lambda: FakeExtension("/health")))
     with pytest.raises(ValueError, match="is already served"):
         create_app()
-
-
-def test_route_with_other_method_is_not_shadowed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app = builtin_app()
-    installed(monkeypatch, entry("ee", lambda: FakeExtension("/agent/channels/a/b")))
-    extensions.include_api_extension_routers(app)
-    assert TestClient(app).get("/agent/channels/a/b").json() == {"ok": True}
 
 
 def test_nested_extension_router_fails_startup(
@@ -218,4 +215,18 @@ def test_nested_extension_router_fails_startup(
     extension.routers()[0].include_router(inner)
     installed(monkeypatch, entry("ee", lambda: extension))
     with pytest.raises(TypeError, match="only HTTP routes"):
+        extensions.include_api_extension_routers(FastAPI())
+
+
+def test_websocket_extension_route_fails_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extension = FakeExtension()
+
+    async def socket(websocket: WebSocket) -> None:
+        await websocket.close()
+
+    extension.routers()[0].add_api_websocket_route("/ee/ws", socket)
+    installed(monkeypatch, entry("ee", lambda: extension))
+    with pytest.raises(TypeError, match="WebSocket routes are not supported"):
         extensions.include_api_extension_routers(FastAPI())

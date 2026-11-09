@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
 from fastapi import APIRouter, FastAPI
-from starlette.routing import BaseRoute, Match, Route
+from starlette.routing import BaseRoute, Match, Route, WebSocketRoute
 
 from tracecat.api.lifespan import LifespanTaskSupervisor, StoppableTaskFactory
 
@@ -17,7 +17,11 @@ API_EXTENSION_ENTRY_POINT_GROUP = "tracecat.api_extensions"
 
 @runtime_checkable
 class ApiExtension(Protocol):
-    """An installed package's API surface, mounted after the built-in routers."""
+    """An installed package's API surface, mounted after the built-in routers.
+
+    Factories run when the app module is imported, so they must not do I/O. Add
+    every route before ``routers()`` returns; later ones skip the shadow check.
+    """
 
     def routers(self) -> Sequence[APIRouter]: ...
 
@@ -79,6 +83,10 @@ def include_api_extension_routers(app: FastAPI) -> None:
         for router in extension.routers():
             checked: list[BaseRoute] = []
             for route in router.routes:
+                if isinstance(route, WebSocketRoute):
+                    raise TypeError(
+                        f"API extension {name}: WebSocket routes are not supported"
+                    )
                 # Nested routers hide their routes from the shadow check.
                 if not isinstance(route, Route):
                     raise TypeError(
