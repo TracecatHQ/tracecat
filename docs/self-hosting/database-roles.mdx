@@ -106,12 +106,14 @@ GRANT rds_iam TO alice;
 GRANT tracecat_readonly TO alice;
 ```
 
-Elsewhere, with a password (`\password alice` in psql sets it without sending it in plaintext):
+Elsewhere, with a password:
 
 ```sql
 CREATE ROLE alice LOGIN;
 GRANT tracecat_readonly TO alice;
 ```
+
+Then set her password in psql with `\password alice`, which hashes it on the client so the plaintext never reaches the server.
 
 `tracecat_readonly` can read every workspace's data in `public` except credential columns such as tokens and password hashes.
 
