@@ -544,25 +544,29 @@ async def get_async_session_tenant_context_manager(
 
     For system code that acts for one tenant without a ``ctx_role``. Use it
     instead of the bypass session so RLS keeps that code inside its tenant.
-    Under ``enforce`` it sets the tenant's context; given only a workspace, it
-    first reads the workspace's organization (the workspace policy admits its
-    own row). In ``off`` and ``shadow`` it behaves like ``get_async_session``.
+    Under ``enforce`` it sets the tenant's context; for a workspace, it first
+    reads the workspace's organization (the workspace policy admits its own
+    row), so the pair always matches. In ``off`` and ``shadow`` it behaves like
+    ``get_async_session``.
 
     Args:
-        organization_id: The tenant's organization.
-        workspace_id: The tenant's workspace, if the work is workspace-scoped.
+        organization_id: The tenant's organization, for org-scoped work.
+        workspace_id: The tenant's workspace, for workspace-scoped work.
 
     Raises:
-        ValueError: Neither ID was given.
+        ValueError: Not exactly one ID was given.
     """
-    if organization_id is None and workspace_id is None:
-        raise ValueError("A tenant session needs an organization or workspace ID")
+    if (organization_id is None) == (workspace_id is None):
+        # Both at once could pair one tenant's org with another's workspace.
+        raise ValueError(
+            "A tenant session needs exactly one of an organization or workspace ID"
+        )
     _assert_main_pool_checkout_allowed()
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
         if config.TRACECAT__RLS_MODE != config.RLSMode.ENFORCE:
             await _initialize_session_rls_context(session)
         else:
-            if organization_id is None:
+            if workspace_id is not None:
                 await set_rls_context(session, org_id=None, workspace_id=workspace_id)
                 organization_id = await session.scalar(
                     _WORKSPACE_ORGANIZATION_SQL, {"workspace_id": workspace_id}

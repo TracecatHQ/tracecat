@@ -476,8 +476,16 @@ class TestTenantSession:
         assert bypass == RLS_BYPASS_ON
 
     async def test_needs_a_tenant(self) -> None:
-        with pytest.raises(ValueError, match="organization or workspace"):
+        with pytest.raises(ValueError, match="exactly one"):
             async with get_async_session_tenant_context_manager():
+                pass
+
+    async def test_refuses_an_org_and_workspace_pair(self) -> None:
+        """A caller-supplied pair could join one tenant's org to another's workspace."""
+        with pytest.raises(ValueError, match="exactly one"):
+            async with get_async_session_tenant_context_manager(
+                organization_id=uuid.uuid4(), workspace_id=uuid.uuid4()
+            ):
                 pass
 
 
