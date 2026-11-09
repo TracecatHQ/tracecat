@@ -13,12 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import CaseTag
 from tracecat.workspace_sync.adapters.base import (
-    BundledManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
     SyncMappingService,
 )
+from tracecat.workspace_sync.adapters.bundled import BundledManifestAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     CASE_TAG_ROOT,

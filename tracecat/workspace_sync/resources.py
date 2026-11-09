@@ -17,16 +17,19 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
+    BUNDLED_RESOURCE_ADAPTERS,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     WORKFLOW_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
     workspace_spec_from_maps,
 )
 from tracecat.workspace_sync.adapters.base import (
-    BundledManifestAdapter,
-    BundleFormatError,
     ResourceAdapter,
     VersionedSlug,
+)
+from tracecat.workspace_sync.adapters.bundled import (
+    BundledManifestAdapter,
+    BundleFormatError,
     bundle_entry_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -37,6 +40,8 @@ from tracecat.workspace_sync.exceptions import (
 from tracecat.workspace_sync.layout import (
     DEFAULT_ROOTS,
     ResourcePathIndex,
+    normalized_path_roots,
+    path_is_under_roots,
     plan_resource_paths,
 )
 from tracecat.workspace_sync.schemas import (
@@ -83,17 +88,26 @@ def parse_workspace_spec_files(
     }
     paths: ResourcePathMap = {}
     companion_files: list[tuple[ResourceAdapter, str, str, str]] = []
-    # Bundles are read first, so the newer format wins over a leftover
-    # per-resource copy of the same id, whatever the file names.
-    bundle_paths = {
-        adapter.bundle_path_in(roots)
-        for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
-        if isinstance(adapter, BundledManifestAdapter)
-    }
 
-    for path, content in sorted(
-        files.items(), key=lambda item: (item[0] not in bundle_paths, item[0])
-    ):
+    # Bundles are recorded before per-resource files, so the newer format
+    # wins over a leftover per-resource copy of the same id.
+    for adapter in BUNDLED_RESOURCE_ADAPTERS:
+        path = adapter.bundle_path_in(roots)
+        if (content := files.get(path)) is None:
+            continue
+        for spec in _parse_bundle(adapter, path, content, diagnostics):
+            _record_resource(
+                adapter,
+                path=path,
+                spec=spec,
+                destination=specs_by_attr[adapter.spec_attr],
+                paths=paths,
+                diagnostics=diagnostics,
+            )
+
+    # Bundle files match no adapter's ``path_key_from_path``, so they are
+    # skipped here.
+    for path, content in sorted(files.items()):
         if workflow_key := WORKFLOW_RESOURCE_ADAPTER.path_key_from_path(path, roots):
             workflow, diagnostic = parse_workflow_spec(
                 path, content, path_key=workflow_key
@@ -112,20 +126,6 @@ def parse_workspace_spec_files(
             continue
 
         for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-            if isinstance(
-                adapter, BundledManifestAdapter
-            ) and path == adapter.bundle_path_in(roots):
-                for spec in _parse_bundle(adapter, path, content, diagnostics):
-                    _record_resource(
-                        adapter,
-                        path=path,
-                        spec=spec,
-                        destination=specs_by_attr[adapter.spec_attr],
-                        paths=paths,
-                        diagnostics=diagnostics,
-                    )
-                break
-
             if path_key := adapter.path_key_from_path(path, roots):
                 spec = _parse_yaml_resource(
                     path,
@@ -182,15 +182,12 @@ def locate_resources(files: Mapping[str, str]) -> ResourceLocations:
     """
     locations: ResourceLocations = {}
     for path, content in sorted(files.items()):
+        if (bundled := bundled_adapter_for(path)) is not None:
+            by_id = locations.setdefault(bundled.resource_type, {})
+            for source_id in _bundle_source_ids(bundled, content):
+                by_id.setdefault(source_id, []).append(path)
+            continue
         for adapter in WORKSPACE_RESOURCE_ADAPTERS:
-            if (
-                isinstance(adapter, BundledManifestAdapter)
-                and path == adapter.bundle_path
-            ):
-                by_id = locations.setdefault(adapter.resource_type, {})
-                for source_id in _bundle_source_ids(adapter, content):
-                    by_id.setdefault(source_id, []).append(path)
-                break
             if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
                 continue
             source_id = _declared_source_id(adapter, content, default=path_key)
@@ -220,11 +217,24 @@ def is_primary_resource_path(
     A push reads only these from its base tree: their ``id`` is all
     :func:`locate_resources` needs, and companion files can be many.
     """
+    bundled = bundled_adapter_for(path)
     return any(
-        adapter.path_key_from_path(path, DEFAULT_ROOTS) is not None
-        or (isinstance(adapter, BundledManifestAdapter) and path == adapter.bundle_path)
+        adapter is bundled
+        or adapter.path_key_from_path(path, DEFAULT_ROOTS) is not None
         for adapter in adapters
     )
+
+
+def bundled_adapter_for(path: str) -> BundledManifestAdapter | None:
+    """Return the bundled type whose bundle file ``path`` is, under default roots.
+
+    Pushes always write the default roots. Code reading a snapshot under
+    other roots looks up the paths that snapshot recorded instead.
+    """
+    for adapter in BUNDLED_RESOURCE_ADAPTERS:
+        if path == adapter.bundle_path:
+            return adapter
+    return None
 
 
 def merge_base_bundles(
@@ -248,16 +258,12 @@ def merge_base_bundles(
             one, such as a tag a teammate pushed that was never pulled here.
     """
     merged = dict(files)
-    roots = [root.strip("/") for root in owned_roots if root.strip("/")]
-    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-        if not isinstance(adapter, BundledManifestAdapter):
-            continue
+    roots = normalized_path_roots(owned_roots)
+    for adapter in BUNDLED_RESOURCE_ADAPTERS:
         path = adapter.bundle_path
         pushed = files.get(path)
         base = base_files.get(path)
-        if pushed is None or base is None:
-            continue
-        if any(path == root or path.startswith(f"{root}/") for root in roots):
+        if pushed is None or base is None or path_is_under_roots(path, roots):
             continue
         try:
             base_entries = adapter.load_bundle(base)
@@ -287,15 +293,15 @@ def merge_base_bundles(
 def _entry_identity(
     adapter: BundledManifestAdapter, entry: Any
 ) -> tuple[str, ...] | None:
-    """Return a raw bundle entry's import identity, such as its name."""
-    if not adapter.import_identity_attrs or not isinstance(entry, dict):
+    """Return a raw bundle entry's import identity, such as its name.
+
+    An entry the spec model rejects has none; the next pull reports it.
+    """
+    try:
+        spec = adapter.model.model_validate(entry)
+    except ValidationError:
         return None
-    values: list[str] = []
-    for attr in adapter.import_identity_attrs:
-        if not isinstance(value := entry.get(attr), str):
-            return None
-        values.append(value)
-    return tuple(values)
+    return adapter.import_identity(spec)
 
 
 def bundle_entry_texts(

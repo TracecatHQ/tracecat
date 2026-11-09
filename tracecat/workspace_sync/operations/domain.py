@@ -272,7 +272,7 @@ class DurableSyncService(WorkspaceSyncService):
                 remote_include=include_reader(package_include),
                 create_missing_mappings=False,
             )
-            projection = push.local_projection
+            projection = push.projection
         elif projection is None:
             projection = await self.project_workspace(
                 include_schedules=bool(inputs.pull and inputs.pull.sync_schedules),

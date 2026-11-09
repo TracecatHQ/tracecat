@@ -44,10 +44,10 @@ from tracecat.managed_resources.include import (
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.workspace_sync.adapters import (
+    BUNDLED_RESOURCE_ADAPTERS,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
 )
-from tracecat.workspace_sync.adapters.base import BundledManifestAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.layout import ResourcePathIndex
 from tracecat.workspace_sync.schemas import (
@@ -124,9 +124,7 @@ def file_names_by_resource(
     """
     index = ResourcePathIndex(projection.paths)
     grouped: dict[PackageResourceKey, list[tuple[str, ...]]] = defaultdict(list)
-    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-        if not isinstance(adapter, BundledManifestAdapter):
-            continue
+    for adapter in BUNDLED_RESOURCE_ADAPTERS:
         for source_id, spec in adapter.specs(projection.spec).items():
             path = adapter.path_in(projection.paths, source_id)
             if not adapter.is_bundle_file(path) or path not in projection.files:

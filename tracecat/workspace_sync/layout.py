@@ -19,15 +19,12 @@ parse, and the next push moves them to readable paths.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
-from tracecat.workspace_sync.adapters.base import (
-    BundledManifestAdapter,
-    ResourceAdapter,
-    path_segment,
-)
+from tracecat.workspace_sync.adapters.base import ResourceAdapter, path_segment
+from tracecat.workspace_sync.adapters.bundled import BundledManifestAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.exceptions import PushPathConflictError
 from tracecat.workspace_sync.schemas import (
@@ -306,6 +303,16 @@ def partial_push_delete_roots(
     if conflicts:
         raise PushPathConflictError(conflicts)
     return sorted(stale)
+
+
+def normalized_path_roots(roots: Sequence[str]) -> tuple[str, ...]:
+    """Strip surrounding slashes off path roots and drop empty entries."""
+    return tuple(root.strip("/") for root in roots if root.strip("/"))
+
+
+def path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
+    """Return whether ``path`` equals or sits beneath any root."""
+    return any(path == root or path.startswith(f"{root}/") for root in roots)
 
 
 def without_resources[T](
