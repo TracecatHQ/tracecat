@@ -46,6 +46,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifestResources,
     WorkspaceSpec,
 )
+from tracecat.workspace_sync.types import PathsByType
 
 SKILL_FILENAME = "skill.yml"
 SKILL_FILES_DIR = "files"
@@ -64,17 +65,18 @@ class SkillAdapter(DirectoryManifestAdapter):
     filename = SKILL_FILENAME
     import_identity_attrs = ("slug",)
     import_identity_noun = "slug"
+    path_name_attr = "slug"
 
-    def _file_source_path(self, source_id: str, file_path: str) -> str:
-        """Return the repository path for desired Skill-head file content."""
-        return f"{self.root}/{source_id}/{SKILL_FILES_DIR}/{file_path}"
+    def _file_path(self, primary_path: str, file_path: str) -> str:
+        """Return the repository path of Skill-head file content."""
+        return f"{self.location(primary_path)}/{SKILL_FILES_DIR}/{file_path}"
 
-    def extra_path_from_path(
+    def companion_relpath(
         self,
         path: str,
         roots: WorkspaceManifestResources,
-    ) -> tuple[str, str] | None:
-        """Map desired head file content to ``(source_id, relpath)``."""
+    ) -> str | None:
+        """Return desired head file content's path inside its skill folder."""
         parts = path_parts(path)
         root_parts = path_parts(roots.skills)
         # The leading segments must match the configured skills root exactly.
@@ -82,21 +84,20 @@ class SkillAdapter(DirectoryManifestAdapter):
             return None
         if len(parts) < len(root_parts) + 3:
             return None
-        source_id = parts[len(root_parts)]
-        if not source_id or parts[len(root_parts) + 1] != SKILL_FILES_DIR:
+        folder_end = len(root_parts) + 1
+        if parts[folder_end] != SKILL_FILES_DIR:
             return None
-        relpath = "/".join(parts[len(root_parts) + 1 :])
-        return (source_id, relpath) if relpath else None
+        return "/".join(parts[folder_end:])
 
     def serialize_extra_files(
         self,
-        source_id: str,
+        primary_path: str,
         spec: BaseModel,
     ) -> dict[str, str]:
-        """Serialize the desired Skill-head file contents."""
+        """Serialize the desired Skill-head file contents beside ``skill.yml``."""
         skill = cast(SkillResourceSpec, spec)
         return {
-            f"{self.root}/{source_id}/{SKILL_FILES_DIR}/{file_path}": content
+            self._file_path(primary_path, file_path): content
             for file_path, content in sorted(skill.file_contents.items())
         }
 
@@ -105,6 +106,8 @@ class SkillAdapter(DirectoryManifestAdapter):
         specs: dict[str, BaseModel],
         extra_files: Mapping[tuple[str, str], str],
         diagnostics: list[PullDiagnostic],
+        *,
+        paths: PathsByType,
     ) -> dict[str, BaseModel]:
         """Attach and validate desired Skill-head file contents."""
         contents_by_source: dict[str, dict[str, str]] = defaultdict(dict)
@@ -119,7 +122,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             spec = cast(SkillResourceSpec, base_spec)
             contents = contents_by_source.get(source_id, {})
             self._validate_head_files(
-                source_id=source_id,
+                primary_path=self.path_in(paths, source_id),
                 spec=spec,
                 contents=contents,
                 diagnostics=diagnostics,
@@ -134,7 +137,7 @@ class SkillAdapter(DirectoryManifestAdapter):
     def _validate_head_files(
         self,
         *,
-        source_id: str,
+        primary_path: str,
         spec: SkillResourceSpec,
         contents: Mapping[str, str],
         diagnostics: list[PullDiagnostic],
@@ -145,7 +148,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             if content is None:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=self.source_path(source_id),
+                        workflow_path=primary_path,
                         workflow_title=spec.name,
                         error_type="dependency",
                         message=(
@@ -164,7 +167,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             except ValueError as e:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=self._file_source_path(source_id, file_spec.path),
+                        workflow_path=self._file_path(primary_path, file_spec.path),
                         workflow_title=spec.name,
                         error_type="validation",
                         message=(
@@ -183,7 +186,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             if actual_hash != file_spec.sha256:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=self._file_source_path(source_id, file_spec.path),
+                        workflow_path=self._file_path(primary_path, file_spec.path),
                         workflow_title=spec.name,
                         error_type="validation",
                         message=(

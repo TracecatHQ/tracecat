@@ -40,42 +40,8 @@ from tracecat.workflow.store.schemas import (
     Status,
 )
 from tracecat.workspace_sync.schemas import (
-    WORKFLOW_DEFINITION_FILENAME,
-    WORKFLOW_ROOT,
     WorkflowResourceSpec,
 )
-
-
-def workflow_source_path(source_id: str) -> str:
-    """Repository path for a workflow's definition file."""
-    return f"{WORKFLOW_ROOT}/{source_id}/{WORKFLOW_DEFINITION_FILENAME}"
-
-
-def workflow_source_id_from_path(
-    path: str, *, workflow_root: str = WORKFLOW_ROOT
-) -> str | None:
-    """Return the source id a workflow definition path maps to, or ``None``.
-
-    Inverse of :func:`workflow_source_path`. ``None`` means ``path`` is not a
-    ``<workflow_root>/<source_id>/<definition>`` workflow file.
-    """
-    parts = [part for part in path.strip("/").split("/") if part]
-    root_parts = [part for part in workflow_root.strip("/").split("/") if part]
-    if len(parts) != len(root_parts) + 2:
-        return None
-    if parts[: len(root_parts)] != root_parts:
-        return None
-    source_id, filename = parts[-2], parts[-1]
-    if filename != WORKFLOW_DEFINITION_FILENAME:
-        return None
-    return source_id or None
-
-
-def is_workflow_definition_path(
-    path: str, *, workflow_root: str = WORKFLOW_ROOT
-) -> bool:
-    """Return whether ``path`` is a workflow definition file."""
-    return workflow_source_id_from_path(path, workflow_root=workflow_root) is not None
 
 
 def default_workflow_source_id(*, alias: str | None, title: str) -> str:
@@ -364,17 +330,27 @@ def serialize_workflow_spec(spec: WorkflowResourceSpec) -> str:
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
+def is_current_workflow_spec(raw: Mapping[str, Any]) -> bool:
+    """Return whether parsed YAML is the current ``type: workflow`` format.
+
+    Anything else is the legacy format, whose folder name is its id.
+    """
+    return raw.get("type") == "workflow" and raw.get("version") == 1
+
+
 def parse_workflow_spec(
-    path: str, content: str, *, workflow_root: str = WORKFLOW_ROOT
+    path: str, content: str, *, path_key: str
 ) -> tuple[WorkflowResourceSpec | None, PullDiagnostic | None]:
     """Parse a workflow YAML file into a spec, or a :class:`PullDiagnostic`.
 
     Accepts both the current ``type: workflow`` format and the legacy
-    :class:`RemoteWorkflowDefinition` layout. Returns ``(spec, None)`` on
-    success or ``(None, diagnostic)`` describing the parse, validation, or
-    source-id mismatch failure.
+    :class:`RemoteWorkflowDefinition` layout. A current-format file is
+    identified by its ``id``, or by its folder name if it has none. A
+    legacy-format file is always identified by its folder name, because its
+    in-file ``id`` is a workspace-local workflow id. Returns ``(spec, None)``
+    on success or ``(None, diagnostic)`` describing the parse or validation
+    failure.
     """
-    source_id = workflow_source_id_from_path(path, workflow_root=workflow_root)
     yaml_data: dict[str, Any] | None = None
     try:
         raw = yaml.safe_load(content)
@@ -388,22 +364,14 @@ def parse_workflow_spec(
             )
         yaml_data = raw
 
-        if raw.get("type") == "workflow" and raw.get("version") == 1:
-            if "id" not in raw and source_id is not None:
-                raw = {**raw, "id": source_id}
-            spec = WorkflowResourceSpec.model_validate(raw)
-            if source_id is not None and spec.id != source_id:
-                return None, PullDiagnostic(
-                    workflow_path=path,
-                    workflow_title=spec.definition.title,
-                    error_type="validation",
-                    message="Workflow source id does not match its repository path",
-                    details={"path_source_id": source_id, "spec_id": spec.id},
-                )
-            return spec, None
+        if is_current_workflow_spec(raw):
+            if "id" not in raw:
+                raw = {**raw, "id": path_key}
+            return WorkflowResourceSpec.model_validate(raw), None
 
+        # The legacy format predates readable paths: its folder is the id.
         legacy = RemoteWorkflowDefinition.model_validate(raw)
-        return workflow_spec_from_legacy(legacy, source_id=source_id), None
+        return workflow_spec_from_legacy(legacy, source_id=path_key), None
     except yaml.YAMLError as e:
         return None, PullDiagnostic(
             workflow_path=path,

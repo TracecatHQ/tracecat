@@ -46,6 +46,7 @@ from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     SECRET_METADATA_RESOURCE_ADAPTER,
     VARIABLE_RESOURCE_ADAPTER,
+    WORKFLOW_RESOURCE_ADAPTER,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
@@ -83,7 +84,6 @@ from tracecat.workspace_sync.transport import (
 from tracecat.workspace_sync.types import PreparedSnapshot, SyncCommitConflictError
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
-    workflow_source_path,
     workflow_spec_to_remote,
     workflow_spec_with_source_workflow_ids,
 )
@@ -146,7 +146,7 @@ async def test_pull_does_not_sync_schedules_by_default(
     )
     files = {
         "tracecat.json": canonical_json_text(WorkspaceManifest()),
-        workflow_source_path(spec.id): serialize_workflow_spec(spec),
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key(spec.id): serialize_workflow_spec(spec),
     }
     transport = AsyncMock()
     transport.read_files.return_value = VcsTreeSnapshot(
@@ -247,7 +247,7 @@ async def test_pull_dry_run_returns_resource_diffs_without_import(
     assert result.files == sorted(incoming_files)
     assert result.resources is not None
     assert [(resource.name, resource.path) for resource in result.resources] == [
-        ("sync-me", workflow_source_path(source_id))
+        ("sync-me", WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id))
     ]
     diff = result.resource_diffs[0]
     assert diff.change_type == "modified"
@@ -406,7 +406,7 @@ async def test_parse_files_rejects_legacy_workflow_tree_without_manifest(
 
     snapshot, diagnostics = await workspace_sync_service.parse_files(
         {
-            workflow_source_path(source_id): _legacy_workflow_yaml(
+            WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id): _legacy_workflow_yaml(
                 source_id,
                 title="Legacy workflow",
             )
@@ -428,7 +428,7 @@ async def test_parse_files_rejects_legacy_string_version_manifest(
     snapshot, diagnostics = await workspace_sync_service.parse_files(
         {
             MANIFEST_FILENAME: '{"version":"1"}',
-            workflow_source_path(source_id): _legacy_workflow_yaml(
+            WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id): _legacy_workflow_yaml(
                 source_id,
                 title="Legacy manifest workflow",
             ),
@@ -561,17 +561,19 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
         (resource.resource_type, resource.source_id, resource.name, resource.path)
         for resource in preview.resources
     ] == [
+        # Both workflows are titled "Sync me". The lower source id gets the
+        # plain folder; the other gets its source id appended. Sorted by path.
         (
             SyncResourceType.WORKFLOW,
-            "wf-1",
-            "wf-1",
-            "workflows/wf-1/definition.yml",
+            "wf-2",
+            "wf-2",
+            "workflows/Sync-me-wf-2/definition.yml",
         ),
         (
             SyncResourceType.WORKFLOW,
-            "wf-2",
-            "wf-2",
-            "workflows/wf-2/definition.yml",
+            "wf-1",
+            "wf-1",
+            "workflows/Sync-me/definition.yml",
         ),
     ]
     # Preview must never create sync mappings as a side effect.
@@ -630,6 +632,12 @@ async def test_preview_export_reports_resource_diffs_against_compare_ref(
                     ),
                 }
             ),
+            paths={
+                SyncResourceType.WORKFLOW: {
+                    "fresh": "workflows/fresh/definition.yml",
+                    "stale": "workflows/stale/definition.yml",
+                }
+            },
             files={
                 MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
                 "workflows/fresh/definition.yml": "version: 1\n",
@@ -857,6 +865,10 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
     )
     service.project_workspace = AsyncMock(return_value=projection)
     transport = AsyncMock()
+    transport.branch_exists.return_value = True
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="b" * 40, tree_sha="tree-sha", files={}
+    )
     transport.write_files.return_value = CommitInfo(
         status=PushStatus.COMMITTED,
         sha="a" * 40,
@@ -886,9 +898,10 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
     transport.write_files.assert_awaited_once()
     expected_paths = {
         MANIFEST_FILENAME,
-        workflow_source_path("parent"),
-        VARIABLE_RESOURCE_ADAPTER.source_path("default/api_token"),
-        SECRET_METADATA_RESOURCE_ADAPTER.source_path("default/vendor_api"),
+        # The folder is named after the workflow title, not its source id.
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key("Sync-me"),
+        VARIABLE_RESOURCE_ADAPTER.path_for_key("default/api_token"),
+        SECRET_METADATA_RESOURCE_ADAPTER.path_for_key("default/vendor_api"),
     }
     written_files = transport.write_files.await_args.kwargs["files"]
     assert set(written_files) == expected_paths
@@ -1697,6 +1710,11 @@ async def test_selected_export_deletes_stale_companion_files_under_selected_reso
             files={
                 MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
                 "skills/qa-enrichment-skill/skill.yml": "version: 1\nname: current\n",
+            },
+            paths={
+                SyncResourceType.SKILL: {
+                    "qa-enrichment-skill": "skills/qa-enrichment-skill/skill.yml"
+                }
             },
         )
     )
@@ -2806,7 +2824,7 @@ definition:
 def _workspace_files(spec: WorkflowResourceSpec) -> dict[str, str]:
     return {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
-        workflow_source_path(spec.id): serialize_workflow_spec(spec),
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key(spec.id): serialize_workflow_spec(spec),
     }
 
 
@@ -3611,3 +3629,135 @@ async def test_parse_diagnostics_stop_preview_before_partial_spec_processing(
             )
         entitlements.assert_awaited_once_with(snapshot.spec)
         correlate.assert_not_awaited()
+
+
+def _publish_service(
+    sample_dsl: DSLInput,
+) -> tuple[WorkspaceSyncService, AsyncMock, Any]:
+    """Build a service whose single-workflow push writes to a mocked transport."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update", "workflow:sync"}),
+    )
+    session = AsyncMock()
+    session.add = Mock()
+    service = WorkspaceSyncService(session=session, role=role)
+    spec = WorkspaceSpec(
+        workflows={
+            "parent": WorkflowResourceSpec(
+                id="parent", alias="parent", definition=sample_dsl
+            )
+        }
+    )
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=spec,
+            files=service._files_from_spec(manifest=WorkspaceManifest(), spec=spec),
+            paths={
+                SyncResourceType.WORKFLOW: {
+                    "parent": WORKFLOW_RESOURCE_ADAPTER.path_for_key("Sync-me")
+                }
+            },
+        )
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    transport = AsyncMock()
+    transport.branch_exists.return_value = True
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="b" * 40, tree_sha="tree-sha", files={}
+    )
+    workflow = cast(Any, SimpleNamespace(id=WorkflowUUID.new_uuid4()))
+    return service, transport, workflow
+
+
+@pytest.mark.anyio
+async def test_publish_reports_a_branch_that_moved_as_push_again(
+    sample_dsl: DSLInput,
+) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    transport.write_files.side_effect = SyncCommitConflictError(
+        "Target branch changed; create a new preview"
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(SyncCommitConflictError, match="Push again"),
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    # The write was pinned to the commit the cleanup was planned against.
+    assert transport.write_files.await_args.kwargs["expected_commit_sha"] == "b" * 40
+
+
+@pytest.mark.anyio
+async def test_publish_reports_a_branch_deleted_mid_push(sample_dsl: DSLInput) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    # The branch exists when the push reads it, then disappears.
+    transport.branch_exists.side_effect = [True, False]
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(SyncCommitConflictError, match="was deleted"),
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    transport.write_files.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_publish_reads_only_primary_files_of_pushed_types(
+    sample_dsl: DSLInput,
+) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    transport.write_files.return_value = CommitInfo(
+        status=PushStatus.COMMITTED,
+        sha="a" * 40,
+        ref="main",
+        base_ref="main",
+        pr_url=None,
+        pr_number=None,
+        pr_reused=False,
+        message="Committed workspace sync changes.",
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    resource_filter = transport.read_files.await_args.kwargs["resource_filter"]
+    assert resource_filter("workflows/Other/definition.yml")
+    # Types the push does not write, and companion files, are not read.
+    assert not resource_filter("tables/iocs/table.yml")
+    assert not resource_filter("workflows/Other/notes.md")

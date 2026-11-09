@@ -135,8 +135,14 @@ class VcsSyncTransport(Protocol):
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
-        """Read workspace sync files at a ref."""
+        """Read workspace sync files at a ref.
+
+        ``resource_filter`` limits which resource files have their contents
+        fetched; ``blob_paths`` still lists every file. The manifest and the
+        package include file are always read.
+        """
         ...
 
     async def write_files(
@@ -576,11 +582,12 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
             raise ValueError("A non-empty commit message is required")
         return message
 
+    @staticmethod
     async def _select_snapshot_files(
-        self,
         *,
         blob_paths: Sequence[str],
         fetch_text: Callable[[str], Awaitable[str | None]],
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> dict[str, str]:
         """Decode the manifest and managed-resource blobs from a commit tree.
 
@@ -616,7 +623,10 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
             if path != MANIFEST_FILENAME
             and (
                 path == PACKAGE_INCLUDE_FILENAME
-                or any(path.startswith(f"{root}/") for root in resource_roots)
+                or (
+                    any(path.startswith(f"{root}/") for root in resource_roots)
+                    and (resource_filter is None or resource_filter(path))
+                )
             )
         ]
         for path, content in await asyncio.gather(
@@ -661,6 +671,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``.
 
@@ -692,7 +703,11 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 if item.type == "blob" and item.path
             }
             archive_texts: dict[str, str | None] = {}
-            if is_feature_enabled(FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE):
+            # A filtered read wants a few files, so per-blob reads beat
+            # downloading the whole commit archive.
+            if resource_filter is None and is_feature_enabled(
+                FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE
+            ):
                 archive_texts = await self._read_archive_texts(
                     repo,
                     commit_sha=commit.sha,
@@ -714,6 +729,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             files = await self._select_snapshot_files(
                 blob_paths=list(blob_shas),
                 fetch_text=fetch_text,
+                resource_filter=resource_filter,
             )
             return VcsTreeSnapshot(
                 commit_sha=commit.sha,
@@ -1368,6 +1384,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``."""
         async with self._authed_client(url) as client:
@@ -1375,6 +1392,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 client=client,
                 url=url,
                 ref=f"refs/heads/{ref}" if ref_kind == "branch" else ref,
+                resource_filter=resource_filter,
             )
 
     async def write_files(
@@ -1750,6 +1768,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         client: httpx.AsyncClient,
         url: GitUrl,
         ref: str,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read workspace sync files with an existing GitLab client."""
         project_id = _gitlab_project_id(url)
@@ -1789,6 +1808,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         files = await self._select_snapshot_files(
             blob_paths=list(blob_shas),
             fetch_text=fetch_text,
+            resource_filter=resource_filter,
         )
         return VcsTreeSnapshot(
             commit_sha=commit_sha,
@@ -2348,6 +2368,7 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         async with self._connection(url) as (client, git, _path):
             sha = await git.fetch(self._git_remote(url, client), ref, ref_kind=ref_kind)
@@ -2364,7 +2385,9 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     return None
 
             files = await self._select_snapshot_files(
-                blob_paths=list(entries), fetch_text=fetch_text
+                blob_paths=list(entries),
+                fetch_text=fetch_text,
+                resource_filter=resource_filter,
             )
             tree = (await git.run("rev-parse", f"{sha}^{{tree}}")).decode().strip()
             return VcsTreeSnapshot(

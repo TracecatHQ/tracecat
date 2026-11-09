@@ -21,3 +21,15 @@ class WorkflowExportValidationError(TracecatValidationError):
         if self.omitted_count:
             message += f"; {self.omitted_count} additional error(s) omitted"
         super().__init__(message)
+
+
+class PushPathConflictError(TracecatValidationError):
+    """A partial push would write over a different resource on its branch."""
+
+    def __init__(self, locations: list[str]) -> None:
+        self.locations = locations
+        super().__init__(
+            "These paths already hold a different resource on the target "
+            f"branch: {', '.join(locations)}. Pull first, or rename the "
+            "resource before pushing."
+        )

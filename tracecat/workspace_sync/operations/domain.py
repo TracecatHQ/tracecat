@@ -2,11 +2,12 @@
 
 import hashlib
 import uuid
+from collections.abc import Sequence
 from dataclasses import replace
 
 import orjson
 from pydantic import JsonValue, TypeAdapter
-from sqlalchemy import String, func, select
+from sqlalchemy import String, Uuid, column, func, select, update, values
 from sqlalchemy.dialects.postgresql import insert
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.secrets.references.service import SecretReferencesService
@@ -55,6 +56,7 @@ from tracecat.workspace_sync.transport import (
     BaseWorkspaceSyncTransport,
     sync_commit_message,
 )
+from tracecat.workspace_sync.types import SyncMappingTarget
 
 
 def fingerprint(value: object) -> str:
@@ -179,6 +181,76 @@ class DurableSyncService(WorkspaceSyncService):
             stmt = stmt.with_for_update(of=MCPIntegration)
         rows = (await self.session.execute(stmt)).tuples().all()
         return fingerprint([list(row) for row in rows])
+
+    async def _write_mapping_targets(
+        self, targets: Sequence[SyncMappingTarget]
+    ) -> None:
+        """Insert new mappings and record this push's path on existing ones.
+
+        An existing mapping is never re-pointed: one whose source id or local
+        row is already claimed by another identity keeps its identity. Only a
+        row with the same source id and local row gets its path refreshed.
+
+        This takes two statements because the table has two unique
+        constraints (source id, and local row). ``ON CONFLICT DO UPDATE`` can
+        target only one of them, so a conflict on the other would fail.
+
+        Synchronous pushes use ``WorkspaceSyncService._upsert_mappings``,
+        which does re-point, because they project and write in one step.
+        """
+        for offset in range(0, len(targets), 500):
+            batch = targets[offset : offset + 500]
+            await self.session.execute(
+                insert(WorkspaceSyncResourceMapping)
+                .values(
+                    [
+                        {
+                            "workspace_id": self.workspace_id,
+                            "provider": self._mapping_provider_value,
+                            "resource_type": target.resource_type,
+                            "source_id": target.source_id,
+                            "source_path": target.source_path,
+                            "local_id": target.local_id,
+                        }
+                        for target in batch
+                    ]
+                )
+                .on_conflict_do_nothing()
+            )
+            # Refresh the path of rows whose whole identity matches a target.
+            rows = values(
+                column("resource_type", String),
+                column("source_id", String),
+                column("local_id", Uuid),
+                column("source_path", String),
+                name="refreshed",
+            ).data(
+                [
+                    (
+                        target.resource_type,
+                        target.source_id,
+                        target.local_id,
+                        target.source_path,
+                    )
+                    for target in batch
+                ]
+            )
+            await self.session.execute(
+                update(WorkspaceSyncResourceMapping)
+                .where(
+                    WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                    WorkspaceSyncResourceMapping.provider
+                    == self._mapping_provider_value,
+                    WorkspaceSyncResourceMapping.resource_type == rows.c.resource_type,
+                    WorkspaceSyncResourceMapping.source_id == rows.c.source_id,
+                    WorkspaceSyncResourceMapping.local_id == rows.c.local_id,
+                    WorkspaceSyncResourceMapping.source_path.is_distinct_from(
+                        rows.c.source_path
+                    ),
+                )
+                .values(source_path=rows.c.source_path)
+                .execution_options(synchronize_session=False)
+            )
 
     async def local_fingerprint(
         self,
@@ -364,13 +436,16 @@ class DurableSyncService(WorkspaceSyncService):
                     remote.files.get(PACKAGE_INCLUDE_FILENAME)
                 ),
                 create_missing_mappings=False,
+                base=remote,
             )
             projection = push.projection
             roots = list(push.delete_roots)
             preview = WorkspaceSyncExportPreview(
                 resource_counts=projection.spec.resource_count_map(),
                 files=sorted(projection.files),
-                resources=_preview_resources_from_spec(projection.spec),
+                resources=_preview_resources_from_spec(
+                    projection.spec, paths=projection.paths
+                ),
                 resource_diffs=self._resource_diffs_for_export(
                     projection, remote, delete_missing_paths_under=roots
                 ),
@@ -536,24 +611,7 @@ class DurableSyncService(WorkspaceSyncService):
             mapping_targets = projection.mapping_targets
             if recovered_sha is not None:
                 mapping_targets = await surviving_mapping_targets(self, mapping_targets)
-            for offset in range(0, len(mapping_targets), 500):
-                await self.session.execute(
-                    insert(WorkspaceSyncResourceMapping)
-                    .values(
-                        [
-                            {
-                                "workspace_id": self.workspace_id,
-                                "provider": self._mapping_provider_value,
-                                "resource_type": target.resource_type,
-                                "source_id": target.source_id,
-                                "source_path": target.source_path,
-                                "local_id": target.local_id,
-                            }
-                            for target in mapping_targets[offset : offset + 500]
-                        ]
-                    )
-                    .on_conflict_do_nothing()
-                )
+            await self._write_mapping_targets(mapping_targets)
             commit = await transport.write_files(
                 url=url,
                 files=projection.files,
