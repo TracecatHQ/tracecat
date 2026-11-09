@@ -46,11 +46,19 @@ def load_api_extensions() -> Mapping[str, ApiExtension]:
     return MappingProxyType(extensions)
 
 
+# Values each converter accepts that no literal route segment should use.
+_PROBE_VALUES = {
+    "int": "0",
+    "float": "0",
+    "uuid": "00000000-0000-0000-0000-000000000000",
+}
+
+
 def _probe_path(path: str) -> str:
     """Fill path params with a value their converter accepts."""
     return re.sub(
         r"{[^}:]+(?::([a-z]+))?}",
-        lambda m: "0" if m.group(1) in ("int", "float") else "x",
+        lambda m: _PROBE_VALUES.get(m.group(1) or "", "__shadow_probe__"),
         path,
     )
 

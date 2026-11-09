@@ -158,6 +158,28 @@ def test_route_shadowed_within_a_router_fails_startup(
         extensions.include_api_extension_routers(FastAPI())
 
 
+@pytest.mark.parametrize(
+    "path", ["/items/{item_id:uuid}", "/items/{item_id:int}"], ids=["uuid", "int"]
+)
+def test_typed_route_shadowed_within_a_router_fails_startup(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    installed(monkeypatch, entry("ee", lambda: FakeExtension(path, path)))
+    with pytest.raises(ValueError, match="is already served"):
+        extensions.include_api_extension_routers(FastAPI())
+
+
+@pytest.mark.parametrize("literal", ["/items/x", "/items/0"], ids=["str", "int"])
+def test_parameterized_route_after_a_literal_exception_mounts(
+    monkeypatch: pytest.MonkeyPatch, literal: str
+) -> None:
+    app = FastAPI()
+    app.add_api_route(literal, lambda: {"literal": True}, methods=["GET"])
+    installed(monkeypatch, entry("ee", lambda: FakeExtension("/items/{item_id}")))
+    extensions.include_api_extension_routers(app)
+    assert TestClient(app).get(literal).json() == {"literal": True}
+
+
 def test_literal_route_before_parameterized_route_mounts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
