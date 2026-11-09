@@ -9,7 +9,6 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent import delivery
-from tracecat.agent.approvals.batch import approval_batch_id
 from tracecat.agent.delivery import (
     ApprovalDecided,
     ApprovalPending,
@@ -19,6 +18,7 @@ from tracecat.agent.delivery import (
     DeliverChannelNoticeInput,
     NoopChannelDeliveryPort,
     TurnFinished,
+    approval_batch_id,
     deliver_channel_notice,
     get_channel_delivery_port,
     linked_thread_hint,

@@ -37,7 +37,6 @@ from tests.temporal.test_durable_agent_workflow import (
     replay_durable_agent_workflow_history,
 )
 from tracecat import config
-from tracecat.agent.approvals.batch import approval_batch_id
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.delivery import (
     ApprovalDecided,
@@ -46,6 +45,7 @@ from tracecat.agent.delivery import (
     ChannelNoticeResult,
     DeliverChannelNoticeInput,
     TurnFinished,
+    approval_batch_id,
 )
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs

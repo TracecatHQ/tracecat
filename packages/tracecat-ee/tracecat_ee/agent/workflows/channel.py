@@ -10,7 +10,6 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError, is_cancelled_exception
 
 with workflow.unsafe.imports_passed_through():
-    from tracecat.agent.approvals.batch import approval_batch_id
     from tracecat.agent.common.stream_types import ToolCallContent
     from tracecat.agent.delivery import (
         CHANNEL_DELIVERY_RETRY_POLICY,
@@ -21,6 +20,7 @@ with workflow.unsafe.imports_passed_through():
         ChannelNotice,
         DeliverChannelNoticeInput,
         TurnFinished,
+        approval_batch_id,
         deliver_channel_notice,
     )
     from tracecat.auth.types import Role
