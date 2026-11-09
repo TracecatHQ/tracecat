@@ -2041,10 +2041,9 @@ class WorkspaceSyncService(SyncMappingService):
     ) -> list[PullResourceDiff]:
         """Compute per-resource diffs between local state and the incoming snapshot.
 
-        Projects the current workspace read-only and serializes the target spec,
-        then emits a canonical unified file diff for every changed path that maps
-        to a resource. Adapters own path mapping and labels; the service compares
-        the full projection against the repository snapshot.
+        Projects the current workspace read-only and serializes the target spec
+        at the incoming paths. Diffs each bundle entry, then every file either
+        side writes for a resource in Git; local-only resources are skipped.
         """
         target_spec = _spec_for_pull_options(
             snapshot.spec,
@@ -2223,7 +2222,7 @@ class WorkspaceSyncService(SyncMappingService):
                     diff, truncated = _unified_resource_diff(
                         path=path,
                         before=remote_tree.files[path],
-                        after="",
+                        after=None,
                     )
                 else:
                     diff = "Existing file will be deleted; previous content is unavailable."
@@ -3479,9 +3478,7 @@ def _bundle_diffs(
             else:
                 change_type = "added" if old is None else "modified"
                 title = _resource_title(spec, adapter=adapter, source_id=source_id)
-            diff, truncated = _unified_resource_diff(
-                path=path, before=old, after=new or ""
-            )
+            diff, truncated = _unified_resource_diff(path=path, before=old, after=new)
             diffs.append(
                 PullResourceDiff(
                     resource_type=adapter.resource_type.value,
