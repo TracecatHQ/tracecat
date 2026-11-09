@@ -111,7 +111,9 @@ class BundledManifestAdapter(FlatManifestAdapter):
             raw = yaml.safe_load(content)
         except yaml.YAMLError as e:
             raise BundleFormatError(f"YAML parsing error: {e}") from e
-        if not isinstance(raw, dict) or raw.get("version") != BUNDLE_FORMAT_VERSION:
+        # ``bool`` is rejected first: YAML ``true`` would equal ``1``.
+        version = raw.get("version") if isinstance(raw, dict) else None
+        if isinstance(version, bool) or version != BUNDLE_FORMAT_VERSION:
             raise BundleFormatError(
                 f"Expected a bundle file with 'version: {BUNDLE_FORMAT_VERSION}'"
             )

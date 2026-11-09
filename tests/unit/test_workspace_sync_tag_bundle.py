@@ -165,6 +165,8 @@ def test_one_bad_entry_does_not_hide_the_others() -> None:
         "version: 1\ntags: {}\n",
         # A versioned file without ``tags`` is not an empty bundle.
         "version: 1\nitems: []\n",
+        # YAML ``true`` equals ``1`` in Python but is not a version.
+        "version: true\ntags: []\n",
     ],
 )
 def test_unreadable_bundle_is_a_diagnostic(content: str) -> None:
