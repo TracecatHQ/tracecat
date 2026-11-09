@@ -29,19 +29,21 @@ from tracecat.workspace_sync.adapters.base import (
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.layout import (
     DEFAULT_ROOTS,
-    ResourceLocations,
     ResourcePathIndex,
     plan_resource_paths,
 )
 from tracecat.workspace_sync.schemas import (
-    PathsByType,
-    ResourcePathMap,
     WorkspaceManifest,
     WorkspaceSpec,
     normalize_workflow_source_id,
 )
 from tracecat.workspace_sync.serialization import serialize_yaml_model
-from tracecat.workspace_sync.types import ParsedWorkspaceFiles
+from tracecat.workspace_sync.types import (
+    ParsedWorkspaceFiles,
+    PathsByType,
+    ResourceLocations,
+    ResourcePathMap,
+)
 from tracecat.workspace_sync.workflow import (
     is_current_workflow_spec,
     parse_workflow_spec,

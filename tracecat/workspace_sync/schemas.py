@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -30,6 +29,7 @@ from tracecat.workflow.store.schemas import (
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.types import (
+    ResourcePathMap,
     SyncMappingTarget,
     WorkflowExportCode,
     WorkflowExportStage,
@@ -47,12 +47,6 @@ CASE_DURATION_ROOT = "case_durations"
 VARIABLE_ROOT = "variables"
 SECRET_METADATA_ROOT = "secret_metadata"
 WORKFLOW_DEFINITION_FILENAME = "definition.yml"
-
-type ResourcePathMap = dict[SyncResourceType, dict[str, str]]
-"""Repository path of each resource, by type then source id."""
-
-type PathsByType = Mapping[SyncResourceType, Mapping[str, str]]
-"""Read-only view of a :data:`ResourcePathMap`, for function parameters."""
 
 
 class WorkspaceManifestResources(BaseModel):

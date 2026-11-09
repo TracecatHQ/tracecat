@@ -71,7 +71,6 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
     McpIntegrationHint,
-    PathsByType,
     WorkflowResourceSpec,
     WorkspaceSpec,
 )
@@ -83,6 +82,7 @@ from tracecat.workspace_sync.types import (
     CorrelatedMcpIntegrationRefs,
     McpIntegrationCorrelationKey,
     McpIntegrationReference,
+    PathsByType,
     WorkflowCatalogReference,
     WorkflowMcpIntegrationReference,
 )

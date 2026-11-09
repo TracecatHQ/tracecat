@@ -130,8 +130,6 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
-    PathsByType,
-    ResourcePathMap,
     ResourceRef,
     WorkflowExportDiagnostic,
     WorkflowResourceSpec,
@@ -156,10 +154,12 @@ from tracecat.workspace_sync.transport import (
     vcs_transport_for_provider,
 )
 from tracecat.workspace_sync.types import (
+    PathsByType,
     PreparedPullPreview,
     PreparedSnapshot,
     PushBase,
     PushProjection,
+    ResourcePathMap,
     SyncCommitConflictError,
     SyncMappingTarget,
     SyncWorkflowImportError,

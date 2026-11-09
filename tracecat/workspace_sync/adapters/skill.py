@@ -41,12 +41,12 @@ from tracecat.workspace_sync.adapters.base import (
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     SKILL_ROOT,
-    PathsByType,
     SkillFileSpec,
     SkillResourceSpec,
     WorkspaceManifestResources,
     WorkspaceSpec,
 )
+from tracecat.workspace_sync.types import PathsByType
 
 SKILL_FILENAME = "skill.yml"
 SKILL_FILES_DIR = "files"

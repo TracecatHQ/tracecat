@@ -47,11 +47,10 @@ from tracecat.workspace_sync.adapters.base import (
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     SECRET_METADATA_ROOT,
-    PathsByType,
     SecretMetadataResourceSpec,
     WorkspaceSpec,
 )
-from tracecat.workspace_sync.types import CorrelatedSecretStores
+from tracecat.workspace_sync.types import CorrelatedSecretStores, PathsByType
 
 
 class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):

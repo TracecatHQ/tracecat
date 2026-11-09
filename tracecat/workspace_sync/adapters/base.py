@@ -32,12 +32,12 @@ from tracecat.tables.enums import SqlType
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
-    PathsByType,
     SecretMetadataResourceSpec,
     VariableResourceSpec,
     WorkspaceManifestResources,
     WorkspaceSpec,
 )
+from tracecat.workspace_sync.types import PathsByType
 
 MANAGED_MAPPING_NAMESPACE = "managed"
 """Sync mapping namespace of managed rollouts in a target workspace.

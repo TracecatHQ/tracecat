@@ -27,10 +27,14 @@ from tracecat.workspace_sync.adapters.base import ResourceAdapter, path_segment
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.exceptions import PushPathConflictError
 from tracecat.workspace_sync.schemas import (
-    PathsByType,
-    ResourcePathMap,
     WorkspaceManifest,
     WorkspaceSpec,
+)
+from tracecat.workspace_sync.types import (
+    PathOwner,
+    PathsByType,
+    ResourceLocations,
+    ResourcePathMap,
 )
 
 DEFAULT_ROOTS = WorkspaceManifest().resources
@@ -241,14 +245,6 @@ def plan_push_paths(
     )
 
 
-type ResourceLocations = dict[SyncResourceType, dict[str, list[str]]]
-"""Every primary file path found for each resource, by type then source id.
-
-Usually one path per resource. A broken repository can hold the same ``id``
-in several files, for example after two unmerged renames.
-"""
-
-
 def partial_push_delete_roots(
     paths: PathsByType,
     base: ResourceLocations,
@@ -307,14 +303,6 @@ def without_resources[T](
         }
         for resource_type, by_id in by_type.items()
     }
-
-
-@dataclass(frozen=True, slots=True)
-class PathOwner:
-    """The resource a repository path belongs to."""
-
-    adapter: ResourceAdapter
-    source_id: str
 
 
 class ResourcePathIndex:
