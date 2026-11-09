@@ -1552,7 +1552,8 @@ class DurableAgentWorkflow:
                     lambda: self.approvals.is_ready() or self._cancel_requested
                 )
                 resumed_at = workflow.now()
-                if self._cancel_requested:
+                cancelled_while_waiting = self._cancel_requested
+                if cancelled_while_waiting:
                     logger.info(
                         "Agent turn cancelled while waiting for approval",
                         session_id=self.session_id,
@@ -1566,23 +1567,22 @@ class DurableAgentWorkflow:
                             for item in result.approval_items or []
                         }
                     )
-                    await self.approvals.handle_decisions()
-                    await self.channel.approval_decided()
-                    return await self._cancelled_turn_output(
-                        result, info, emit_cancelled=True
-                    )
                 # Persist approval decisions to DB (atomic with chat messages)
                 await self.approvals.handle_decisions()
-                await self.channel.approval_decided()
                 if self._cancel_requested:
-                    logger.info(
-                        "Agent turn cancelled after approval decisions",
-                        session_id=self.session_id,
-                        reason=self._cancel_reason,
-                    )
-                    return await self._cancelled_turn_output(
+                    if not cancelled_while_waiting:
+                        logger.info(
+                            "Agent turn cancelled after approval decisions",
+                            session_id=self.session_id,
+                            reason=self._cancel_reason,
+                        )
+                    output = await self._cancelled_turn_output(
                         result, info, emit_cancelled=True
                     )
+                    # Stop lands in the UI before a possibly slow channel update.
+                    await self.channel.approval_decided()
+                    return output
+                await self.channel.approval_decided()
 
                 # Approval waits are unbounded. Tokens are turn-scoped, so resumed
                 # user-MCP tool execution and the continuation need fresh tokens.

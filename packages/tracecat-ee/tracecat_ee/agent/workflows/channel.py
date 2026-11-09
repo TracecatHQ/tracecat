@@ -37,6 +37,8 @@ class ChannelNotifier:
         # Set only for a linked session; None keeps every notice inert.
         self._run_id: uuid.UUID | None = None
         self._decided: ApprovalDecided | None = None
+        # After one failed delivery, skip the rest so a dead provider stalls once.
+        self._degraded = False
 
     def capture(self, linked: bool, run_id: uuid.UUID) -> None:
         # Histories recorded before delivery replay without any notice.
@@ -82,13 +84,19 @@ class ChannelNotifier:
             return None
 
     async def _deliver(self, notice: ChannelNotice) -> str | None:
-        result = await workflow.execute_activity(
-            deliver_channel_notice,
-            DeliverChannelNoticeInput(role=self._role, notice=notice),
-            schedule_to_close_timeout=CHANNEL_DELIVERY_SCHEDULE_TO_CLOSE_TIMEOUT,
-            start_to_close_timeout=CHANNEL_DELIVERY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=CHANNEL_DELIVERY_RETRY_POLICY,
-        )
+        if self._degraded:
+            return None
+        try:
+            result = await workflow.execute_activity(
+                deliver_channel_notice,
+                DeliverChannelNoticeInput(role=self._role, notice=notice),
+                schedule_to_close_timeout=CHANNEL_DELIVERY_SCHEDULE_TO_CLOSE_TIMEOUT,
+                start_to_close_timeout=CHANNEL_DELIVERY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=CHANNEL_DELIVERY_RETRY_POLICY,
+            )
+        except ActivityError:
+            self._degraded = True
+            raise
         return result.ref
 
     def _log_failure(self, notice: ChannelNotice, exc: BaseException) -> None:

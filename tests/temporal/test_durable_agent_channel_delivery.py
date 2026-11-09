@@ -89,10 +89,11 @@ def _deliver_activity(recorder: Recorder, *, fail: bool = False) -> Callable[...
         notice = input.notice
         recorder.order.append(f"deliver:{notice.kind}")
         recorder.notices.append(notice)
+        if isinstance(notice, ApprovalPending):
+            recorder.approval_pending.set()
         if fail:
             raise ApplicationError("provider down", non_retryable=True)
         if isinstance(notice, ApprovalPending):
-            recorder.approval_pending.set()
             return ChannelNoticeResult(ref="card-1")
         return ChannelNoticeResult(ref=None)
 
@@ -119,9 +120,13 @@ async def _apply_approval_decisions(input: ApplyApprovalResultsActivityInputs) -
     del input
 
 
-@activity.defn(name="emit_session_cancelled")
-async def _emit_session_cancelled(input: EmitSessionCancelledInputs) -> None:
-    del input
+def _emit_cancelled_activity(recorder: Recorder) -> Callable[..., Any]:
+    @activity.defn(name="emit_session_cancelled")
+    async def emit_cancelled(input: EmitSessionCancelledInputs) -> None:
+        del input
+        recorder.order.append("emit_session_cancelled")
+
+    return emit_cancelled
 
 
 def _activities(
@@ -144,7 +149,7 @@ def _activities(
         _deliver_activity(recorder, fail=fail_delivery),
         _record_approval_requests,
         _apply_approval_decisions,
-        _emit_session_cancelled,
+        _emit_cancelled_activity(recorder),
     ]
 
 
@@ -384,8 +389,11 @@ async def test_approval_notices_carry_the_card_ref(
         history = await handle.fetch_history()
 
     batch_id = approval_batch_id(session_id, [TOOL_CALL_ID])
+    # A cancel reaches the UI before the channel card updates.
+    cancelled = ["emit_session_cancelled"] if outcome == "cancelled" else []
     assert recorder.order == [
         "deliver:approval_pending",
+        *cancelled,
         "deliver:approval_decided",
         "deliver:turn_finished",
         "finalize_turn",
@@ -396,4 +404,38 @@ async def test_approval_notices_carry_the_card_ref(
             session_id=session_id, batch_id=batch_id, previous_ref="card-1"
         ),
     ]
+    await replay_durable_agent_workflow_history(temporal_client, history)
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_failed_delivery_skips_the_rest_of_the_run(
+    svc_role: Role, temporal_client: Client, worker_for
+) -> None:
+    session_id = uuid.uuid4()
+    queue = f"test-channel-delivery-{session_id}"
+    recorder = Recorder()
+    worker = worker_for(
+        temporal_client,
+        queue,
+        _activities(recorder, _asks_for_approval_once, fail_delivery=True),
+    )
+
+    async with worker:
+        handle = await _start(
+            temporal_client,
+            _workflow_args(svc_role, session_id, approvals=True),
+            session_id,
+            queue,
+        )
+        await asyncio.wait_for(recorder.approval_pending.wait(), timeout=10)
+        await handle.execute_update(
+            DurableAgentWorkflow.set_approvals,
+            WorkflowApprovalSubmission(approvals={TOOL_CALL_ID: False}),
+        )
+        await handle.result()
+        history = await handle.fetch_history()
+
+    # One dead-provider stall per run, not one per notice.
+    assert recorder.order == ["deliver:approval_pending", "finalize_turn"]
     await replay_durable_agent_workflow_history(temporal_client, history)
