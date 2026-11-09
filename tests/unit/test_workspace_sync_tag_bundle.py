@@ -18,7 +18,10 @@ from tracecat.managed_resources.include import (
 )
 from tracecat.workspace_sync.adapters import CASE_TAG_RESOURCE_ADAPTER
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.exceptions import PushBundleUnreadableError
+from tracecat.workspace_sync.exceptions import (
+    PushBundleUnreadableError,
+    PushPathConflictError,
+)
 from tracecat.workspace_sync.layout import (
     ResourcePathIndex,
     partial_push_delete_roots,
@@ -257,6 +260,18 @@ def test_push_that_owns_the_folder_replaces_the_bundle() -> None:
     assert merged == pushed
 
 
+def test_partial_push_refuses_a_name_another_branch_tag_holds() -> None:
+    # A teammate pushed "Urgent" under another id. Merging would leave two
+    # tags named "Urgent", which the next pull rejects.
+    pushed = _serialize(_tags(_tag("urgent", "Urgent")))
+    base = {BUNDLE: _bundle({"id": "theirs", "name": "Urgent"})}
+
+    with pytest.raises(PushPathConflictError) as exc_info:
+        merge_base_bundles(pushed, base, owned_roots=[])
+
+    assert exc_info.value.locations == [BUNDLE]
+
+
 def test_partial_push_refuses_to_overwrite_an_unreadable_bundle() -> None:
     pushed = _serialize(_tags(_tag("urgent", "Urgent")))
 
@@ -299,14 +314,19 @@ def test_bundle_path_has_no_single_owner() -> None:
 
 
 @pytest.mark.parametrize(
-    "pattern",
+    ("pattern", "selected"),
     [
         # What the picker writes for one tag.
-        "case_tags/urgent.yml",
-        "case_tags/**",
+        ("case_tags/urgent.yml", {"urgent"}),
+        # Hand-written before bundling, by readable name.
+        ("case_tags/Urgent.yml", {"urgent"}),
+        ("case_tags/**", {"urgent", "phishing"}),
+        ("case_tags/**\n!case_tags/Urgent.yml", {"phishing"}),
     ],
 )
-def test_include_patterns_still_select_bundled_tags(pattern: str) -> None:
+def test_include_patterns_still_select_bundled_tags(
+    pattern: str, selected: set[str]
+) -> None:
     spec = _tags(_tag("urgent", "Urgent"), _tag("phishing", "Phishing"))
     projection = WorkspaceProjection(
         manifest=WorkspaceManifest(),
@@ -319,8 +339,4 @@ def test_include_patterns_still_select_bundled_tags(pattern: str) -> None:
         parse_package_include(pattern), file_names_by_resource(projection)
     )
 
-    urgent = PackageResourceKey(CASE_TAG, "urgent")
-    phishing = PackageResourceKey(CASE_TAG, "phishing")
-    assert matched == (
-        {urgent} if pattern.endswith("urgent.yml") else {urgent, phishing}
-    )
+    assert matched == {PackageResourceKey(CASE_TAG, tag) for tag in selected}

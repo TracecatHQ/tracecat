@@ -30,7 +30,10 @@ from tracecat.workspace_sync.adapters.base import (
     bundle_entry_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.exceptions import PushBundleUnreadableError
+from tracecat.workspace_sync.exceptions import (
+    PushBundleUnreadableError,
+    PushPathConflictError,
+)
 from tracecat.workspace_sync.layout import (
     DEFAULT_ROOTS,
     ResourcePathIndex,
@@ -241,6 +244,8 @@ def merge_base_bundles(
     Raises:
         PushBundleUnreadableError: The base bundle is not a valid bundle file,
             so its other entries cannot be kept.
+        PushPathConflictError: A kept entry has the same name as a pushed
+            one, such as a tag a teammate pushed that was never pulled here.
     """
     merged = dict(files)
     roots = [root.strip("/") for root in owned_roots if root.strip("/")]
@@ -263,9 +268,34 @@ def merge_base_bundles(
         kept = [
             entry for entry in base_entries if bundle_entry_id(entry) not in pushed_ids
         ]
+        # A kept entry with a pushed entry's name would make the next pull
+        # fail on a duplicate name. Separate files used to conflict on path.
+        pushed_identities = {
+            _entry_identity(adapter, entry) for entry in pushed_entries
+        }
+        if any(
+            (identity := _entry_identity(adapter, entry)) is not None
+            and identity in pushed_identities
+            for entry in kept
+        ):
+            raise PushPathConflictError([path])
         if kept:
             merged[path] = adapter.dump_bundle([*pushed_entries, *kept])
     return merged
+
+
+def _entry_identity(
+    adapter: BundledManifestAdapter, entry: Any
+) -> tuple[str, ...] | None:
+    """Return a raw bundle entry's import identity, such as its name."""
+    if not adapter.import_identity_attrs or not isinstance(entry, dict):
+        return None
+    values: list[str] = []
+    for attr in adapter.import_identity_attrs:
+        if not isinstance(value := entry.get(attr), str):
+            return None
+        values.append(value)
+    return tuple(values)
 
 
 def bundle_entry_texts(

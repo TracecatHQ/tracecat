@@ -117,7 +117,8 @@ def file_names_by_resource(
     so one id pattern can only ever name one resource.
 
     A bundle file holds many resources, so each one in it is known by the
-    bundle path and its own id path (``case_tags/<source id>.yml``).
+    bundle path, its id path (``case_tags/<source id>.yml``), and the
+    readable path it had before bundling (``case_tags/<name>.yml``).
 
     The manifest and the include file belong to no resource and are skipped.
     """
@@ -126,11 +127,16 @@ def file_names_by_resource(
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
         if not isinstance(adapter, BundledManifestAdapter):
             continue
-        for source_id in adapter.specs(projection.spec):
+        for source_id, spec in adapter.specs(projection.spec).items():
             path = adapter.path_in(projection.paths, source_id)
-            if adapter.is_bundle_file(path) and path in projection.files:
-                key = PackageResourceKey(adapter.resource_type, source_id)
-                grouped[key].append((path, adapter.legacy_id_path(source_id)))
+            if not adapter.is_bundle_file(path) or path not in projection.files:
+                continue
+            # Patterns written before bundling may name the per-resource file
+            # by id or by readable name, so both stay aliases.
+            readable = adapter.path_for_key(adapter.path_key(source_id, spec))
+            names = dict.fromkeys((path, adapter.legacy_id_path(source_id), readable))
+            key = PackageResourceKey(adapter.resource_type, source_id)
+            grouped[key].append(tuple(names))
     for path in sorted(projection.files):
         if path in (MANIFEST_FILENAME, PACKAGE_INCLUDE_FILENAME):
             continue
