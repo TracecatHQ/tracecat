@@ -1,4 +1,8 @@
-"""Database migration commands."""
+"""Database migration commands.
+
+These run alembic with a password URI (``TRACECAT__DB_URI`` or ``--db-uri``)
+only; the IAM token modes (``TRACECAT__DB_AUTH_MODE``) are not supported here.
+"""
 
 from __future__ import annotations
 

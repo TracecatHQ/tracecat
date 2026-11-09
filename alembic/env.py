@@ -9,7 +9,10 @@ import boto3
 from sqlalchemy import engine_from_config, make_url, pool
 
 from alembic import context
+from tracecat import config as tracecat_config
 from tracecat.db import models  # noqa: F401
+from tracecat.db.iam.tokens import mint_token
+from tracecat.db.iam.types import DbPasswordAuth
 from tracecat.db.migration_lock import (
     acquire_migration_advisory_lock,
     release_migration_advisory_lock,
@@ -31,8 +34,13 @@ if not TRACECAT__DB_URI:
     database = os.getenv("TRACECAT__DB_NAME", "postgres")
     sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
 
+    if not isinstance(auth := tracecat_config.TRACECAT__DB_AUTH, DbPasswordAuth):
+        # One token for this run: alembic opens a single connection at start,
+        # and Postgres checks the token only at login.
+        logging.info("Signing a database token (%s)", auth.mode)
+        password = mint_token(auth, str(username))
     # Check if in AWS environment
-    if arn := os.getenv("TRACECAT__DB_PASS__ARN"):
+    elif arn := os.getenv("TRACECAT__DB_PASS__ARN"):
         logging.info("Fetching database password from AWS Secrets Manager")
         session = boto3.Session()
         client = session.client("secretsmanager")

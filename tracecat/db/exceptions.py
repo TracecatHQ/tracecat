@@ -8,3 +8,11 @@ class DatabasePoolAcquisitionOrderError(RuntimeError):
 
 class AdvisoryLockLostError(RuntimeError):
     """Raised when a commit is attempted after the advisory lock holder ended."""
+
+
+class DatabaseCredentialUnavailableError(RuntimeError):
+    """A cloud token for a Postgres login could not be obtained.
+
+    For example STS or Entra ID is briefly unreachable, or the workload has no
+    cloud identity. The connection attempt fails; the next one tries again.
+    """

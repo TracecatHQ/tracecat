@@ -25,6 +25,8 @@ from tracecat.db.exceptions import (
     AuthPoolExhaustedError,
     DatabasePoolAcquisitionOrderError,
 )
+from tracecat.db.iam.tokens import build_token_provider
+from tracecat.db.iam.types import DbPasswordAuth, DbTokenProvider
 from tracecat.db.locks import (
     hold_pg_advisory_xact_lock,
     require_lock_holder_on_commit,
@@ -153,7 +155,7 @@ async def _initialize_session_rls_context(session: AsyncSession) -> None:
 def get_connection_string(
     *,
     username: str,
-    password: str,
+    password: str | None,
     host: str = "postgres_db",
     port: int | str = 5432,
     database: str = "postgres",
@@ -161,7 +163,8 @@ def get_connection_string(
     driver: Literal["asyncpg", "psycopg"] = "asyncpg",
     sslmode: str | None = None,
 ) -> str:
-    base = f"{scheme}+{driver}://{username}:{password}@{host}:{port!s}/{database}"
+    userinfo = username if password is None else f"{username}:{password}"
+    base = f"{scheme}+{driver}://{userinfo}@{host}:{port!s}/{database}"
     if sslmode:
         # asyncpg uses 'ssl' parameter, psycopg uses 'sslmode'
         if driver == "asyncpg":
@@ -173,8 +176,24 @@ def get_connection_string(
 
 
 def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
+    """The database URI. In a token mode it has no password: pass
+    ``_connect_args`` to the engine, whose password callable signs one token
+    per login."""
+    if not isinstance(config.TRACECAT__DB_AUTH, DbPasswordAuth):
+        # tracecat.config checked these at import.
+        assert config.TRACECAT__DB_USER and config.TRACECAT__DB_ENDPOINT
+        assert config.TRACECAT__DB_PORT and config.TRACECAT__DB_NAME
+        uri = get_connection_string(
+            username=config.TRACECAT__DB_USER,
+            password=None,
+            host=config.TRACECAT__DB_ENDPOINT,
+            port=config.TRACECAT__DB_PORT,
+            database=config.TRACECAT__DB_NAME,
+            driver=driver,
+            sslmode=config.TRACECAT__DB_SSLMODE,
+        )
     # Check if AWS environment
-    if config.TRACECAT__DB_PASS__ARN:
+    elif config.TRACECAT__DB_PASS__ARN:
         logger.info("Retrieving database password from AWS Secrets Manager...")
         try:
             session = boto3.session.Session()
@@ -284,6 +303,31 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
     return uri
 
 
+def _token_provider() -> DbTokenProvider | None:
+    """A new token provider in a token mode, else ``None``.
+
+    Each engine gets its own: an Entra credential is bound to the event loop it
+    first runs in.
+    """
+    if isinstance(auth := config.TRACECAT__DB_AUTH, DbPasswordAuth):
+        return None
+    assert config.TRACECAT__DB_USER  # checked at import
+    return build_token_provider(auth, config.TRACECAT__DB_USER)
+
+
+def _connect_args(application_name: str) -> dict[str, Any]:
+    """asyncpg ``connect()`` arguments for a pooled engine.
+
+    In a token mode, ``password`` is a token provider: asyncpg calls it for
+    each new connection, so pool growth and recycle log in with a valid token.
+    """
+    # Untyped: SQLAlchemy forwards these as asyncpg.connect() keyword arguments.
+    args: dict[str, Any] = {"server_settings": {"application_name": application_name}}
+    if (provider := _token_provider()) is not None:
+        args["password"] = provider
+    return args
+
+
 def _create_async_db_engine() -> AsyncEngine:
     # Postgres as default
     uri = _get_db_uri(driver="asyncpg")
@@ -297,9 +341,7 @@ def _create_async_db_engine() -> AsyncEngine:
         pool_use_lifo=True,  # Better for burst workloads
         # Attribute pooled connections to the originating service in
         # pg_stat_activity.
-        connect_args={
-            "server_settings": {"application_name": config.TRACECAT__SERVICE_NAME}
-        },
+        connect_args=_connect_args(config.TRACECAT__SERVICE_NAME),
     )
     event.listen(engine.sync_engine, "checkout", _guard_main_pool_checkout)
     return engine
@@ -322,11 +364,7 @@ def _create_async_auth_db_engine() -> AsyncEngine:
         pool_timeout=config.TRACECAT__DB_POOL_TIMEOUT,
         pool_pre_ping=True,
         pool_use_lifo=True,  # Better for burst workloads
-        connect_args={
-            "server_settings": {
-                "application_name": f"{config.TRACECAT__SERVICE_NAME}-auth"
-            }
-        },
+        connect_args=_connect_args(f"{config.TRACECAT__SERVICE_NAME}-auth"),
     )
 
 
@@ -342,12 +380,20 @@ async def verify_rls_enforceable_login() -> None:
     """
     if config.TRACECAT__RLS_MODE != config.RLSMode.ENFORCE:
         return
-    engine = create_async_engine(_get_db_uri(driver="asyncpg"), poolclass=NullPool)
+    # Its own provider, closed here: this may run in a throwaway event loop.
+    provider = _token_provider()
+    engine = create_async_engine(
+        _get_db_uri(driver="asyncpg"),
+        poolclass=NullPool,
+        connect_args={} if provider is None else {"password": provider},
+    )
     try:
         async with engine.connect() as conn:
             await assert_login_can_enforce_rls(conn)
     finally:
         await engine.dispose()
+        if provider is not None:
+            await provider.aclose()
 
 
 def get_async_engine() -> AsyncEngine:
