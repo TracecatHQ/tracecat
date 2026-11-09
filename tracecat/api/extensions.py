@@ -46,10 +46,18 @@ def load_api_extensions() -> Mapping[str, ApiExtension]:
     return MappingProxyType(extensions)
 
 
+def _probe_path(path: str) -> str:
+    """Fill path params with a value their converter accepts."""
+    return re.sub(
+        r"{[^}:]+(?::([a-z]+))?}",
+        lambda m: "0" if m.group(1) in ("int", "float") else "x",
+        path,
+    )
+
+
 def _is_shadowed(app: FastAPI, route: Route) -> bool:
     """Whether a mounted route would answer first for a generic request to this route."""
-    # Fill path params so parameterized routes are probed; typed converters are not.
-    path = re.sub(r"{[^}]+}", "x", route.path)
+    path = _probe_path(route.path)
     for method in route.methods or ("GET",):
         scope = {"type": "http", "path": path, "method": method, "root_path": ""}
         if any(r.matches(scope)[0] is Match.FULL for r in app.router.routes):
@@ -61,6 +69,7 @@ def include_api_extension_routers(app: FastAPI) -> None:
     """Mount every installed extension's routers; refuse routes another route shadows."""
     for name, extension in load_api_extensions().items():
         for router in extension.routers():
+            seen: set[tuple[str, str]] = set()
             for route in router.routes:
                 # Nested routers hide their routes from the shadow check.
                 if not isinstance(route, Route):
@@ -68,10 +77,12 @@ def include_api_extension_routers(app: FastAPI) -> None:
                         f"API extension {name}: only HTTP routes are supported;"
                         " return each router from routers() instead of nesting"
                     )
-                if _is_shadowed(app, route):
+                keys = {(m, route.path) for m in route.methods or ("GET",)}
+                if keys & seen or _is_shadowed(app, route):
                     raise ValueError(
                         f"API extension {name}: {route.path} is already served"
                     )
+                seen |= keys
             app.include_router(router)
 
 

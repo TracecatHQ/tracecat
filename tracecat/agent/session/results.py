@@ -6,6 +6,7 @@ The prefix names the thing whose state is reported; failures raise.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -71,5 +72,5 @@ class RunRef(BaseModel):
 class DecisionRecorded(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    pending_tool_call_ids: list[str]
+    pending_tool_call_ids: Sequence[str]
     resumed: RunRef | None

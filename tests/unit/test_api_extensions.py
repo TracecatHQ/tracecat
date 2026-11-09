@@ -134,6 +134,34 @@ def test_route_shadowed_by_builtin_fails_startup(
         extensions.include_api_extension_routers(app)
 
 
+def test_typed_route_shadowed_by_builtin_fails_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastAPI()
+    app.add_api_route("/items/{item_id:int}", lambda item_id: None, methods=["GET"])
+    installed(monkeypatch, entry("ee", lambda: FakeExtension("/items/{item_id:int}")))
+    with pytest.raises(ValueError, match="is already served"):
+        extensions.include_api_extension_routers(app)
+
+
+def test_duplicate_route_within_a_router_fails_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed(monkeypatch, entry("ee", lambda: FakeExtension("/dup", "/dup")))
+    with pytest.raises(ValueError, match="is already served"):
+        extensions.include_api_extension_routers(FastAPI())
+
+
+def test_app_builtin_routes_are_shadow_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.api.app import create_app
+
+    installed(monkeypatch, entry("ee", lambda: FakeExtension("/health")))
+    with pytest.raises(ValueError, match="is already served"):
+        create_app()
+
+
 def test_route_with_other_method_is_not_shadowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
