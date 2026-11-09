@@ -2191,6 +2191,29 @@ def test_migrate_without_role_setup_runs_alembic_as_the_configured_user(
         _drop_all(database, [*roles.logins, *roles.keyrings])
 
 
+def test_migrate_refuses_a_database_the_roles_were_not_set_up_in(
+    install: MigrateInstall,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Role setup on one database, migrations on another: stop, don't migrate."""
+    suffix = _suffix()
+    other = _fresh_database(f"{suffix}_other")
+    try:
+        monkeypatch.setenv(
+            "TRACECAT__DB_URI", _url("postgres", "postgres", other, "+psycopg")
+        )
+        assert migrate(install.roles) == 1
+        assert "role setup ran on another database" in capsys.readouterr().err
+        with psycopg.connect(_url("postgres", "postgres", other)) as conn:
+            versions = conn.execute(
+                "SELECT to_regclass('public.alembic_version')"
+            ).fetchone()
+        assert versions == (None,)
+    finally:
+        _drop_all(other, [])
+
+
 def test_migrate_as_migrator_after_upgrade_on_a_fresh_compose_install(
     install: MigrateInstall, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -2237,7 +2260,10 @@ def test_bootstrap_stamps_the_role_setup_version(topology: Topology) -> None:
     with psycopg.connect(topology.url(topology.admin)) as conn:
         state = read_role_setup(conn, topology.roles)
     assert state == RoleSetupState(
-        installed=True, version=ROLE_SETUP_VERSION, current_user=topology.admin
+        installed=True,
+        roles_exist=True,
+        version=ROLE_SETUP_VERSION,
+        current_user=topology.admin,
     )
     assert f"tracecat role setup {ROLE_SETUP_VERSION}" in render_sql(
         LoginMethod.PASSWORD, topology.roles

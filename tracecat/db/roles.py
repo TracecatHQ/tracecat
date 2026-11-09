@@ -859,6 +859,7 @@ ROLE_SETUP_STATE_SQL = """
 SELECT r.oid IS NOT NULL AND EXISTS (
          SELECT FROM pg_catalog.pg_namespace n, pg_catalog.aclexplode(n.nspacl) a
          WHERE n.nspname = 'public' AND a.grantee = r.oid AND a.privilege_type = 'CREATE'),
+       r.oid IS NOT NULL,
        pg_catalog.shobj_description(r.oid, 'pg_authid'),
        current_user
 FROM (SELECT pg_catalog.to_regrole(%(owner)s)::pg_catalog.oid) AS r(oid)
@@ -870,6 +871,9 @@ class RoleSetupState:
     """What a database has of the role setup, as any login can read it."""
 
     installed: bool
+    """The topology is set up in this database."""
+    roles_exist: bool
+    """The owner keyring exists in the cluster, for this database or another."""
     version: int | None
     """The stamp's version; ``None`` when there is none."""
     current_user: str
@@ -895,8 +899,10 @@ def read_role_setup(
     ).fetchone()
     if row is None:
         raise AssertionError("unreachable: the query returns one row")
-    installed, comment, current = row
-    return RoleSetupState(bool(installed), _stamp_version(comment), current)
+    installed, roles_exist, comment, current = row
+    return RoleSetupState(
+        bool(installed), bool(roles_exist), _stamp_version(comment), current
+    )
 
 
 def _driver_connection(connection: Connection) -> psycopg.Connection:
@@ -923,13 +929,24 @@ def check_role_setup(connection: Connection, roles: RoleNames) -> bool:
         then run as the configured user and the owner-level pass is skipped.
 
     Raises:
-        RoleSetupError: The stamp is missing or older than
+        RoleSetupError: The roles exist but belong to another database, the
+            stamp is missing or older than
             :data:`ROLE_SETUP_VERSION`, the login doesn't act as the owner
             keyring (it isn't ``migrator``), or ``public`` objects still
             belong to another role.
     """
     conn = _driver_connection(connection)
     state = read_role_setup(conn, roles)
+    if not state.installed and state.roles_exist:
+        # One install per cluster (the bootstrap enforces it): the roles were
+        # set up for another database, so the migrations or the role setup
+        # point at the wrong one.
+        raise RoleSetupError(
+            f"the Tracecat roles exist on this server ({roles.owner}), but this "
+            "database isn't set up with them: role setup ran on another database",
+            "point TRACECAT__DB_ADMIN_URI and the migrations' login at the same "
+            "database, then rerun `tracecat db roles upgrade`",
+        )
     if not state.installed:
         print(
             "No Tracecat role setup in this database: running migrations as the "
