@@ -158,23 +158,23 @@ def test_shadowed_route_fails_startup(
 
 
 @pytest.mark.parametrize(
-    ("builtins", "method", "paths", "request_path", "expected"),
+    ("builtins", "method", "paths", "builtin_hits", "extension_hits"),
     [
         (
             (CHANNEL_ROUTE,),
             "POST",
             ("/agent/channels/a/b",),
-            "/agent/channels/a/b",
-            {"ok": True},
+            (),
+            ("/agent/channels/a/b",),
         ),
-        (("/items/x",), "GET", ("/items/{item_id}",), "/items/x", {"builtin": True}),
-        (("/items/0",), "GET", ("/items/{item_id}",), "/items/0", {"builtin": True}),
+        (("/items/x",), "GET", ("/items/{item_id}",), ("/items/x",), ("/items/other",)),
+        (("/items/0",), "GET", ("/items/{item_id}",), ("/items/0",), ("/items/other",)),
         (
             (),
             "GET",
             ("/items/special", "/items/{item_id}"),
-            "/items/special",
-            {"ok": True},
+            (),
+            ("/items/special", "/items/other"),
         ),
     ],
     ids=[
@@ -189,13 +189,17 @@ def test_unshadowed_route_mounts(
     builtins: tuple[str, ...],
     method: str,
     paths: tuple[str, ...],
-    request_path: str,
-    expected: dict[str, bool],
+    builtin_hits: tuple[str, ...],
+    extension_hits: tuple[str, ...],
 ) -> None:
     app = builtin_app(*builtins, method=method)
     installed(monkeypatch, entry("ee", lambda: FakeExtension(*paths)))
     extensions.include_api_extension_routers(app)
-    assert TestClient(app).get(request_path).json() == expected
+    client = TestClient(app)
+    for path in builtin_hits:
+        assert client.get(path).json() == {"builtin": True}
+    for path in extension_hits:
+        assert client.get(path).json() == {"ok": True}
 
 
 def test_app_builtin_routes_are_shadow_checked(
