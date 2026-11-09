@@ -56,8 +56,8 @@ def _run_alembic(args: list[str], db_uri: str | None = None) -> int:
 
     env = os.environ.copy()
     env["TRACECAT__DB_URI"] = effective_db_uri
-    # The URI carries the login; the app's token mode (which refuses a
-    # password in it) doesn't apply to these commands.
+    # The URI carries the login; the app's token mode refuses any
+    # TRACECAT__DB_URI and doesn't apply to these commands.
     env.pop("TRACECAT__DB_AUTH_MODE", None)
 
     cmd = ["alembic", *args]

@@ -382,6 +382,8 @@ def db_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 def test_parse_db_auth_defaults_to_password(db_env: pytest.MonkeyPatch) -> None:
     assert config._parse_db_auth() == DbPasswordAuth()
+    db_env.setenv("TRACECAT__DB_AUTH_MODE", "   ")
+    assert config._parse_db_auth() == DbPasswordAuth()
 
 
 def test_parse_db_auth_aws_defaults_to_the_connection_endpoint(
@@ -484,6 +486,24 @@ def test_role_setup_refuses_to_send_migrators_token_in_plaintext(
     assert "must not travel in plaintext" in capsys.readouterr().err
 
 
+def test_role_setup_checks_the_admin_database_against_db_name(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without TRACECAT__DB_URI (token modes), TRACECAT__DB_NAME names the app's database."""
+    monkeypatch.delenv("TRACECAT__DB_URI", raising=False)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ADMIN_URI",
+        "postgresql://admin:pw@db.example:5432/other?sslmode=require",
+    )
+    monkeypatch.setattr(config, "TRACECAT__DB_NAME", "tracecat")
+    assert db_roles._check_targets() == 1
+    assert "TRACECAT__DB_NAME is tracecat" in capsys.readouterr().err
+
+    monkeypatch.setattr(config, "TRACECAT__DB_NAME", "other")
+    assert db_roles._check_targets() == 0
+
+
 def test_alembic_uri_keeps_role_names_with_spaces() -> None:
     """Entra role names may contain spaces, which quote_plus would turn into "+"."""
     env = {
@@ -560,6 +580,14 @@ def test_alembic_with_an_explicit_uri_drops_the_token_mode(
         (
             {**_TOKEN_ENV, "TRACECAT__DB_NAME": ""},
             "requires TRACECAT__DB_NAME",
+        ),
+        (
+            {
+                **_TOKEN_ENV,
+                "TRACECAT__DB_AUTH_MODE": "azure_entra",
+                "TRACECAT__DB_PORT": "6432x",
+            },
+            "TRACECAT__DB_PORT must be a port number",
         ),
         (
             {**_TOKEN_ENV, "TRACECAT__DB_PASS": "leftover"},

@@ -342,7 +342,9 @@ TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 
 
 def _parse_db_auth() -> DbAuth:
-    raw_mode = (os.environ.get("TRACECAT__DB_AUTH_MODE") or "password").strip().lower()
+    raw_mode = (
+        os.environ.get("TRACECAT__DB_AUTH_MODE") or ""
+    ).strip().lower() or "password"
     # Don't echo the value, not even as the enum's chained error: a credential
     # pasted into the wrong variable would end up in the logs. So the error is
     # raised outside the except block.
@@ -438,6 +440,8 @@ if not isinstance(TRACECAT__DB_AUTH, DbPasswordAuth):
             f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} requires "
             f"{', '.join(_db_missing)}"
         )
+    if not ((_port := TRACECAT__DB_PORT or "").isdigit() and 0 < int(_port) < 65536):
+        raise ValueError("TRACECAT__DB_PORT must be a port number")
     if TRACECAT__DB_PASS or os.environ.get("TRACECAT__DB_PASS__ARN"):
         raise ValueError(
             f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} logs in with a token: "
