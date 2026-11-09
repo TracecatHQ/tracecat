@@ -1164,11 +1164,11 @@ def _check_targets() -> int:
 
     Role setup runs on the admin URI's database. When the same environment
     also names the app's or the migrations' database (``TRACECAT__DB_URI``,
-    else ``TRACECAT__DB_NAME``), as in the Compose migrations container,
-    a different name means role setup would land on the wrong database.
-    Database names don't alias within one server, so a different name stops
-    the run. Hosts do (localhost and postgres_db, or a pooler), so a
-    different host only warns.
+    else ``TRACECAT__DB_NAME``, and Compose's ``TRACECAT__DB_MIGRATOR_URI``),
+    a different name means role setup or the migrations would land on the
+    wrong database. Database names don't alias within one server, so a
+    different name stops the run. Hosts do (localhost and postgres_db, or a
+    pooler), so a different host only warns.
     """
     admin = make_url(_admin_conninfo())
     admin_db = _effective_database(admin)
@@ -1176,7 +1176,12 @@ def _check_targets() -> int:
         "hint: point TRACECAT__DB_ADMIN_URI at the same database as the "
         "migrations and the app."
     )
-    if not (other_uri := os.environ.get("TRACECAT__DB_URI")):
+    others = {
+        name: uri
+        for name in ("TRACECAT__DB_URI", "TRACECAT__DB_MIGRATOR_URI")
+        if (uri := os.environ.get(name))
+    }
+    if "TRACECAT__DB_URI" not in others:
         if (other_name := config.TRACECAT__DB_NAME) and admin_db != other_name:
             print(
                 f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
@@ -1185,24 +1190,24 @@ def _check_targets() -> int:
             )
             print(hint, file=sys.stderr)
             return 1
-        return 0
-    other = make_url(other_uri)
-    if admin_db != (other_db := _effective_database(other)):
-        print(
-            f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
-            f"but TRACECAT__DB_URI names {_printable(str(other_db))}.",
-            file=sys.stderr,
-        )
-        print(hint, file=sys.stderr)
-        return 1
-    if (admin.host, admin.port or 5432) != (other.host, other.port or 5432):
-        print(
-            f"warning: role setup runs on {_printable(str(admin.host))} "
-            f"(TRACECAT__DB_ADMIN_URI), but TRACECAT__DB_URI names "
-            f"{_printable(str(other.host))}. If those are different servers, point "
-            "TRACECAT__DB_ADMIN_URI at the database's server.",
-            file=sys.stderr,
-        )
+    for name, uri in others.items():
+        other = make_url(uri)
+        if admin_db != (other_db := _effective_database(other)):
+            print(
+                f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
+                f"but {name} names {_printable(str(other_db))}.",
+                file=sys.stderr,
+            )
+            print(hint, file=sys.stderr)
+            return 1
+        if (admin.host, admin.port or 5432) != (other.host, other.port or 5432):
+            print(
+                f"warning: role setup runs on {_printable(str(admin.host))} "
+                f"(TRACECAT__DB_ADMIN_URI), but {name} names "
+                f"{_printable(str(other.host))}. If those are different servers, "
+                "point both at the database's server.",
+                file=sys.stderr,
+            )
     return 0
 
 

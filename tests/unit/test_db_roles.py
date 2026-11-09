@@ -2496,6 +2496,7 @@ def test_target_check_reads_query_database_names(
     code: int,
 ) -> None:
     monkeypatch.delenv("PGDATABASE", raising=False)
+    monkeypatch.delenv("TRACECAT__DB_MIGRATOR_URI", raising=False)
     monkeypatch.setattr(config, "TRACECAT__DB_ADMIN_URI", admin_uri)
     monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
     monkeypatch.setattr(config, "TRACECAT__DB_NAME", None)
@@ -2504,6 +2505,23 @@ def test_target_check_reads_query_database_names(
     else:
         monkeypatch.setenv("TRACECAT__DB_URI", other_uri)
     assert _check_targets() == code
+
+
+def test_target_check_covers_the_compose_migrator_uri(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """App and admin on A, migrations on B: role setup must not start."""
+    monkeypatch.delenv("PGDATABASE", raising=False)
+    monkeypatch.setattr(
+        config, "TRACECAT__DB_ADMIN_URI", "postgresql://synthetic_admin:pw@db.invalid/a"
+    )
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    monkeypatch.setenv("TRACECAT__DB_URI", "postgresql://app:pw@db.invalid/a")
+    monkeypatch.setenv(
+        "TRACECAT__DB_MIGRATOR_URI", "postgresql://migrator:pw@db.invalid/b"
+    )
+    assert _check_targets() == 1
+    assert "TRACECAT__DB_MIGRATOR_URI names b" in capsys.readouterr().err
 
 
 def test_upgrade_stops_before_changing_another_database(
