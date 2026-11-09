@@ -336,8 +336,8 @@ TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
 """Admin connection for ``python -m tracecat.db.roles`` only.
 
 A superuser or a ``CREATEROLE`` role such as the RDS master. Never give it to
-app components. Only a credential: ``TRACECAT__DB_ROLE_LOGIN`` turns role
-setup on.
+app components. In the migrations entrypoint (``tracecat.db.roles migrate``)
+it is only a credential: ``TRACECAT__DB_ROLE_LOGIN`` turns role setup on.
 """
 TRACECAT__DB_ROLE_LOGIN = os.environ.get("TRACECAT__DB_ROLE_LOGIN") or None
 """Turns database role setup on in the migrations entrypoint

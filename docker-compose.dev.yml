@@ -775,7 +775,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
-      # Role setup (python -m tracecat.db.roles migrate); off unless TRACECAT__DB_ROLE_LOGIN is set.
+      # Role setup (python -m tracecat.db.roles migrate) runs when both TRACECAT__DB_ROLE_LOGIN and TRACECAT__DB_ADMIN_URI are set.
       TRACECAT__DB_ADMIN_URI: ${TRACECAT__DB_ADMIN_URI:-} # Sensitive
       TRACECAT__DB_MIGRATOR_PASSWORD: ${TRACECAT__DB_MIGRATOR_PASSWORD:-} # Sensitive
       TRACECAT__DB_APP_PASSWORD: ${TRACECAT__DB_APP_PASSWORD:-} # Sensitive
