@@ -19,7 +19,7 @@ A token mode connects with these variables and refuses to start if `TRACECAT__DB
 | `TRACECAT__DB_NAME` | The database name, such as `tracecat` |
 | `TRACECAT__DB_SSLMODE` | `require`, `verify-ca` or `verify-full` |
 
-`require` encrypts the connection without checking the server's certificate. For a direct connection to the database, prefer `verify-full` and point `PGSSLROOTCERT` at the CA bundle, such as the [RDS global bundle](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem) or `/etc/ssl/certs/ca-certificates.crt` for Azure.
+`require` encrypts the connection without checking the server's certificate, and `verify-ca` checks the certificate's CA but not the host name, so any certificate from that CA passes. Only `verify-full` checks that the server is the host you named. For a direct connection to the database, use `verify-full` and point `PGSSLROOTCERT` at the CA bundle, such as the [RDS global bundle](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem) or `/etc/ssl/certs/ca-certificates.crt` for Azure.
 
 `aws_iam` also reads `TRACECAT__DB_AWS_REGION` (default `AWS_REGION`) and `TRACECAT__DB_AWS_IAM_HOST` / `TRACECAT__DB_AWS_IAM_PORT`, the RDS endpoint the token is signed for (default `TRACECAT__DB_ENDPOINT` / `TRACECAT__DB_PORT`). `azure_entra` reads `TRACECAT__DB_AZURE_CLIENT_ID`, the managed identity's client ID (default `AZURE_CLIENT_ID`).
 
@@ -63,6 +63,12 @@ A token mode connects with these variables and refuses to start if `TRACECAT__DB
     Every pod or task on that role can then log in as `app`, including executors that run workflow actions. Never grant it to the node's instance role: every pod on the node could then log in as `app`. On EKS, set `AWS_EC2_METADATA_DISABLED=true` on Tracecat's pods so a pod without its own identity fails instead of signing with the node role (the Helm chart sets it).
   </Step>
   <Step title="Configure Tracecat">
+    Download the RDS CA bundle and mount it into every Tracecat container, here at `/etc/tracecat/rds-global-bundle.pem` (a Kubernetes ConfigMap or Secret volume, or an ECS bind mount):
+
+    ```bash
+    curl -fsSLo rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+    ```
+
     ```bash
     TRACECAT__DB_AUTH_MODE=aws_iam
     TRACECAT__DB_USER=app
