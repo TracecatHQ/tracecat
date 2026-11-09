@@ -291,6 +291,21 @@ def test_token_mode_uri_has_no_password() -> None:
     assert uri.query == {"ssl": "require"}
 
 
+@pytest.mark.parametrize("username", ["service:name", "svc@tenant", "a/b%c"])
+@pytest.mark.usefixtures("aws_token_mode")
+def test_token_mode_uri_keeps_role_names_with_url_characters(
+    monkeypatch: pytest.MonkeyPatch, username: str
+) -> None:
+    """Entra-mapped role names may contain characters a URL must escape."""
+    monkeypatch.setattr(config, "TRACECAT__DB_USER", username)
+    for driver in ("asyncpg", "psycopg"):
+        uri = make_url(db_engine._get_db_uri(driver=driver))
+        assert (uri.username, uri.password) == (username, None)
+    assert make_url(db_engine._get_db_uri(driver="psycopg")).query == {
+        "sslmode": "require"
+    }
+
+
 @pytest.mark.usefixtures("aws_token_mode")
 def test_token_mode_engines_get_their_own_token_provider() -> None:
     main = db_engine._connect_args("tracecat-api")

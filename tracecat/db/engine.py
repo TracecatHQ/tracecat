@@ -9,7 +9,7 @@ import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
 from sqlalchemy import event
-from sqlalchemy.engine import Result
+from sqlalchemy.engine import URL, Result
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -155,7 +155,7 @@ async def _initialize_session_rls_context(session: AsyncSession) -> None:
 def get_connection_string(
     *,
     username: str,
-    password: str | None,
+    password: str,
     host: str = "postgres_db",
     port: int | str = 5432,
     database: str = "postgres",
@@ -163,8 +163,7 @@ def get_connection_string(
     driver: Literal["asyncpg", "psycopg"] = "asyncpg",
     sslmode: str | None = None,
 ) -> str:
-    userinfo = username if password is None else f"{username}:{password}"
-    base = f"{scheme}+{driver}://{userinfo}@{host}:{port!s}/{database}"
+    base = f"{scheme}+{driver}://{username}:{password}@{host}:{port!s}/{database}"
     if sslmode:
         # asyncpg uses 'ssl' parameter, psycopg uses 'sslmode'
         if driver == "asyncpg":
@@ -183,15 +182,19 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
         # tracecat.config checked these at import.
         assert config.TRACECAT__DB_USER and config.TRACECAT__DB_ENDPOINT
         assert config.TRACECAT__DB_PORT and config.TRACECAT__DB_NAME
-        uri = get_connection_string(
+        # URL.create escapes the role name: Entra-mapped roles may contain
+        # characters such as ":" or "@".
+        uri = URL.create(
+            f"postgresql+{driver}",
             username=config.TRACECAT__DB_USER,
-            password=None,
             host=config.TRACECAT__DB_ENDPOINT,
-            port=config.TRACECAT__DB_PORT,
+            port=int(config.TRACECAT__DB_PORT),
             database=config.TRACECAT__DB_NAME,
-            driver=driver,
-            sslmode=config.TRACECAT__DB_SSLMODE,
-        )
+            # asyncpg takes libpq's sslmode as its ssl parameter.
+            query={
+                "ssl" if driver == "asyncpg" else "sslmode": config.TRACECAT__DB_SSLMODE
+            },
+        ).render_as_string(hide_password=False)
     # Check if AWS environment
     elif config.TRACECAT__DB_PASS__ARN:
         logger.info("Retrieving database password from AWS Secrets Manager...")
