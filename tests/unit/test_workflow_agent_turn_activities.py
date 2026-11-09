@@ -37,6 +37,7 @@ from tracecat.agent.backends.types import (
     SessionWorkflowContext,
     TurnResult,
 )
+from tracecat.agent.parsers import resolve_agent_output
 from tracecat.agent.preset.activities import CustomModelProviderConfigResult
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.schemas import AgentSessionCreate
@@ -563,6 +564,62 @@ async def test_read_fails_without_retry_when_the_backend_is_gone() -> None:
             ReadWorkflowAgentTurnInput(backend_id="external", result={})
         )
     assert exc_info.value.non_retryable
+
+
+class AnswerTextBackend(InstalledBackend):
+    """Returns the model's final text as is, and structured output as an object.
+
+    The shape of a backend that leaves JSON-looking text unparsed.
+    """
+
+    def parse_turn_result(self, result: object) -> TurnResult:
+        match result:
+            case {"structured": dict(structured)}:
+                return TurnResult(output=structured)
+            case {"text": str(text)}:
+                return TurnResult(output=text)
+        raise AssertionError(f"Unexpected result: {result!r}")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("model_output", "expected"),
+    [
+        pytest.param(
+            '{"n": 2, "workflow": "ok"}',
+            {"n": 2, "workflow": "ok"},
+            id="json_text",
+        ),
+        pytest.param("The alert is benign.", "The alert is benign.", id="plain_text"),
+        pytest.param(
+            {"verdict": "benign"}, {"verdict": "benign"}, id="output_type_set"
+        ),
+    ],
+)
+async def test_workflow_output_is_the_same_on_every_backend(
+    model_output: str | dict[str, Any], expected: object
+) -> None:
+    """The same final model output gives a workflow the same value on any backend.
+
+    The built-in workflow resolves its final output with `resolve_agent_output`;
+    an installed backend's output is read through the same rule. JSON-looking
+    text becomes the parsed value, so `result.output.n` works either way; other
+    text stays a string; structured output (an output type was set) passes
+    through.
+    """
+    builtin = resolve_agent_output(model_output)
+    raw = (
+        {"structured": model_output}
+        if isinstance(model_output, dict)
+        else {"text": model_output}
+    )
+    with patch(f"{ACTIVITIES}.find_agent_backend", return_value=AnswerTextBackend()):
+        installed = await read_workflow_agent_turn_activity(
+            ReadWorkflowAgentTurnInput(backend_id="external", result=raw)
+        )
+    assert installed.error is None
+    assert builtin == expected
+    assert installed.output == expected
 
 
 def test_preset_overrides_match_the_builtin_workflow() -> None:
