@@ -932,8 +932,9 @@ def check_role_setup(connection: Connection, roles: RoleNames) -> bool:
         RoleSetupError: The roles exist but belong to another database, the
             stamp is missing or older than
             :data:`ROLE_SETUP_VERSION`, the login doesn't act as the owner
-            keyring (it isn't ``migrator``), or ``public`` objects still
-            belong to another role.
+            keyring (it isn't ``migrator``), ``public`` objects still
+            belong to another role, or a role other than ``migrator`` and
+            the admin can act as the owner keyring.
     """
     conn = _driver_connection(connection)
     state = read_role_setup(conn, roles)
@@ -975,6 +976,17 @@ def check_role_setup(connection: Connection, roles: RoleNames) -> bool:
             f"{_printable(first.label)} (owner {_printable(first.owner)})",
             UPGRADE_HINT,
         )
+    # The bootstrap's owner-keyring checks, on every deploy: they read only
+    # the catalogs, so drift (app granted the owner keyring, say) stops the
+    # deploy even between role setup runs.
+    try:
+        conn.execute(_do(_owner_reach_body(roles).rstrip("\n")).encode())
+    except psycopg.errors.RaiseException as exc:
+        diag = exc.diag
+        raise RoleSetupError(
+            f"role setup refused: {_printable(diag.message_primary or str(exc))}",
+            _printable(diag.message_hint or UPGRADE_HINT),
+        ) from exc
     return True
 
 
@@ -1040,10 +1052,16 @@ def migrate_role_checks(
     :func:`apply_owner_grants` after them when the database uses the
     topology. Without them (a plain ``alembic`` run), it does nothing.
     """
-    roles = attributes.get(MIGRATE_ROLES_ATTRIBUTE)
-    if not isinstance(roles, RoleNames):
+    if MIGRATE_ROLES_ATTRIBUTE not in attributes:
         yield
         return
+    roles = attributes[MIGRATE_ROLES_ATTRIBUTE]
+    if not isinstance(roles, RoleNames):
+        # E.g. a second copy of this module (python -m): fail, don't skip.
+        raise TypeError(
+            f"{MIGRATE_ROLES_ATTRIBUTE} must be a tracecat.db.roles.RoleNames, "
+            f"got {type(roles).__module__}.{type(roles).__qualname__}"
+        )
     owner_pass = check_role_setup(connection, roles)
     yield
     if owner_pass:

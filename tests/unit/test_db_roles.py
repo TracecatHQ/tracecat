@@ -30,12 +30,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 
 import psycopg
 import pytest
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, make_url
+from sqlalchemy import Connection, create_engine, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.database import TEST_DB_CONFIG
@@ -2396,6 +2397,35 @@ def test_migrate_stops_while_public_objects_await_the_upgrade(
     assert "TABLE legacy (owner postgres)" in err
     assert "run `tracecat db roles upgrade`" in err
     assert not install.alembic_version_exists()
+
+
+def test_migrate_stops_when_app_can_act_as_the_owner_keyring(
+    install: MigrateInstall, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The bootstrap's owner-keyring checks run on every deploy, as migrator."""
+    roles = install.roles
+    assert migrate(roles) == 0
+    head = _alembic_head(install.database)
+    with _superuser() as conn:
+        _run(conn, f"GRANT {quote_ident(roles.owner)} TO {quote_ident(roles.app)}")
+    assert migrate(roles) == 1
+    assert "can act as the owner keyring" in capsys.readouterr().err
+    assert _alembic_head(install.database) == head
+
+
+def test_migrate_role_checks_refuse_a_foreign_role_names_object() -> None:
+    """A second copy of the module would hand env.py a lookalike: fail, don't skip."""
+
+    @dataclass(frozen=True, slots=True)
+    class Lookalike:
+        owner: str = "tracecat_owner"
+
+    attributes: dict[str, object] = {roles_module.MIGRATE_ROLES_ATTRIBUTE: Lookalike()}
+    # The check comes before any use of the connection.
+    connection = cast(Connection, object())
+    with pytest.raises(TypeError, match="must be a tracecat.db.roles.RoleNames"):
+        with roles_module.migrate_role_checks(connection, attributes):
+            pass
 
 
 def test_status_compares_the_stamp_with_this_release(

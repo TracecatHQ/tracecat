@@ -14,7 +14,7 @@ By default Tracecat uses one PostgreSQL user for everything. With database roles
 | `app_owner` | No | Owns the workspace table schemas (`tables_*`, `custom_fields_*`) |
 | `tracecat_readonly` | No | Read access for people, without credential columns |
 
-Setting up roles is provisioning: you run it as the admin, once per install and again before a release that changes roles. Migrations then run as `migrator` and never need the admin.
+Setting up roles is provisioning: you run it as the admin, once per install and again before a release that changes roles. Migrations then run as `migrator` and never need the admin: once the roles are set up, the migrations container refuses any other login.
 
 ## Set up roles
 
@@ -116,8 +116,13 @@ To return to a single database user, point every service and the migrations back
 
 ```sql
 REASSIGN OWNED BY tracecat_owner, app_owner TO <admin>;
-DROP OWNED BY tracecat_owner, app_owner, tracecat_readonly, migrator, app, agent_runtime;
+DROP OWNED BY tracecat_owner;
+DROP OWNED BY app_owner;
+DROP OWNED BY tracecat_readonly;
+DROP OWNED BY migrator;
+DROP OWNED BY app;
+DROP OWNED BY agent_runtime;
 DROP ROLE app, agent_runtime, migrator, tracecat_readonly, tracecat_owner, app_owner;
 ```
 
-`REASSIGN OWNED` gives the tables back to the admin. `DROP OWNED` then only removes the roles' grants, and `DROP ROLE` removes the roles, including people's `tracecat_readonly` membership.
+`REASSIGN OWNED` gives the tables back to the admin. Each `DROP OWNED` then only removes that role's grants and default privileges; run them one role at a time, since one statement for several roles fails on their shared default privileges. `DROP ROLE` removes the roles, including people's `tracecat_readonly` membership.
