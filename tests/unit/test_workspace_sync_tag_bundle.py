@@ -286,6 +286,20 @@ def test_partial_push_refuses_a_name_a_leftover_tag_file_holds() -> None:
     assert exc_info.value.clashes == ["case_tags/Urgent.yml (Urgent)"]
 
 
+def test_stale_leftover_copy_of_a_bundled_tag_is_not_a_conflict() -> None:
+    # A pull reads tag x from the bundle, so its old name in a leftover file
+    # does not clash with a pushed tag taking that name.
+    pushed = _serialize(_tags(_tag("y", "Old")))
+    base = {
+        BUNDLE: _bundle({"id": "x", "name": "New"}),
+        "case_tags/Old.yml": serialize_yaml_model(_tag("x", "Old")),
+    }
+
+    merged = merge_base_bundles(pushed, base, owned_roots=[], base_paths=frozenset())
+
+    assert [tag["id"] for tag in yaml.safe_load(merged[BUNDLE])["tags"]] == ["x", "y"]
+
+
 def test_partial_push_moves_its_own_leftover_file_without_a_conflict() -> None:
     pushed = _serialize(_tags(_tag("urgent", "Urgent")))
     base = {"case_tags/Urgent.yml": serialize_yaml_model(_tag("urgent", "Urgent"))}
@@ -368,12 +382,37 @@ def test_readable_alias_never_takes_another_tags_id_path() -> None:
 @pytest.mark.parametrize(
     ("pattern", "selected"),
     [
+        # Both names map to "Alert-High"; the per-tag planner gave it to "a"
+        # and suffixed "b", so each old path still names one tag.
+        ("case_tags/Alert-High.yml", {"a"}),
+        ("case_tags/Alert-High-b.yml", {"b"}),
+    ],
+)
+def test_readable_aliases_follow_the_per_tag_collision_rules(
+    pattern: str, selected: set[str]
+) -> None:
+    spec = _tags(_tag("a", "Alert/High"), _tag("b", "Alert High"))
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(),
+        spec=spec,
+        files=_serialize(spec),
+        paths=plan_resource_paths(spec),
+    )
+
+    matched = matched_resources(
+        parse_package_include(pattern), file_names_by_resource(projection)
+    )
+
+    assert matched == {PackageResourceKey(CASE_TAG, tag) for tag in selected}
+
+
+@pytest.mark.parametrize(
+    ("pattern", "selected"),
+    [
         # What the picker writes for one tag.
         ("case_tags/urgent.yml", {"urgent"}),
         # Hand-written before bundling, by readable name.
         ("case_tags/Urgent.yml", {"urgent"}),
-        # The per-tag planner's collision-suffixed readable name.
-        ("case_tags/Urgent-urgent.yml", {"urgent"}),
         ("case_tags/**", {"urgent", "phishing"}),
         ("case_tags/**\n!case_tags/Urgent.yml", {"phishing"}),
     ],

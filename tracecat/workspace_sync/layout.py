@@ -22,6 +22,8 @@ import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from pydantic import BaseModel
+
 from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
 from tracecat.workspace_sync.adapters.base import ResourceAdapter, path_segment
 from tracecat.workspace_sync.adapters.bundled import (
@@ -214,6 +216,26 @@ def _is_readable_choice(
 
 def _fold(path: str) -> str:
     return path.casefold()
+
+
+def per_resource_paths(
+    adapter: ResourceAdapter, specs: Mapping[str, BaseModel]
+) -> dict[str, str]:
+    """Plan one readable file per resource, as before a type was bundled.
+
+    Uses the same collision rules as :func:`plan_resource_paths`, without
+    previous paths. Package includes use it to keep matching patterns that
+    named a bundled resource's old file.
+    """
+    id_paths: dict[str, set[str]] = {}
+    for source_id in specs:
+        id_paths.setdefault(_fold(adapter.legacy_id_path(source_id)), set()).add(
+            source_id
+        )
+    planner = _TypePlanner(adapter, id_paths=id_paths, reserved=set())
+    for source_id in sorted(specs):
+        planner.claim_readable(source_id, adapter.path_key(source_id, specs[source_id]))
+    return planner.paths
 
 
 def plan_push_paths(

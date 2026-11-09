@@ -297,7 +297,7 @@ def merge_base_bundles(
         if clashes := _name_clashes(
             adapter,
             pushed_entries=pushed_entries,
-            kept=kept,
+            base_entries=base_entries,
             base_files=base_files,
         ):
             raise PushNameConflictError(clashes)
@@ -310,20 +310,24 @@ def _name_clashes(
     adapter: BundledManifestAdapter,
     *,
     pushed_entries: list[Any],
-    kept: list[Any],
+    base_entries: list[Any],
     base_files: Mapping[str, str],
 ) -> list[str]:
     """Return the resources a push keeps whose name a pushed resource takes.
 
     The next pull would fail on the duplicate name. Separate files used to
     conflict on path instead. Kept resources are the bundle's other entries,
-    plus files from before bundling the push does not move into the bundle.
-    Each clash is labelled ``<path> (<name>)``.
+    plus files from before bundling whose id is neither pushed nor in the
+    bundle (a pull reads the bundle copy over a leftover file). Each clash is
+    labelled ``<path> (<name>)``.
     """
     pushed_ids = {bundle_entry_id(entry) for entry in pushed_entries}
+    bundled_ids = {bundle_entry_id(entry) for entry in base_entries}
     taken = {adapter.entry_identity(entry) for entry in pushed_entries} - {None}
     others: list[tuple[str, tuple[str, ...] | None]] = [
-        (adapter.bundle_path, adapter.entry_identity(entry)) for entry in kept
+        (adapter.bundle_path, adapter.entry_identity(entry))
+        for entry in base_entries
+        if bundle_entry_id(entry) not in pushed_ids
     ]
     for path, content in sorted(base_files.items()):
         if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
@@ -335,7 +339,7 @@ def _name_clashes(
             model=adapter.model,
             diagnostics=[],
         )
-        if spec is not None and _spec_id(spec) not in pushed_ids:
+        if spec is not None and _spec_id(spec) not in pushed_ids | bundled_ids:
             others.append((path, adapter.import_identity(spec)))
     clashes: set[str] = set()
     for path, identity in others:
