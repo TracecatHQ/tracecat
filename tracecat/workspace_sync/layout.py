@@ -19,11 +19,14 @@ parse, and the next push moves them to readable paths.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+
+from pydantic import BaseModel
 
 from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
 from tracecat.workspace_sync.adapters.base import ResourceAdapter, path_segment
+from tracecat.workspace_sync.adapters.bundled import BundledManifestAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.exceptions import PushPathConflictError
 from tracecat.workspace_sync.schemas import (
@@ -61,6 +64,9 @@ def plan_resource_paths(
     3. Every other resource, in source id order, takes its readable path. If
        that path is taken, the source id is appended: ``Triage-wf_4f2a...``.
 
+    Bundled types skip all three passes: every resource takes its ``fixed``
+    path, else the bundle path, since they share one file.
+
     Two rules keep paths unambiguous:
 
     - Paths are compared case-insensitively, so two folders never differ only
@@ -88,13 +94,18 @@ def plan_resource_paths(
             continue
         resource_type = adapter.resource_type
         fixed_paths = (fixed or {}).get(resource_type, {})
-        id_paths: dict[str, set[str]] = {}
-        for source_id in [*specs, *(other_source_ids or {}).get(resource_type, ())]:
-            folded = _fold(adapter.legacy_id_path(source_id))
-            id_paths.setdefault(folded, set()).add(source_id)
+        if isinstance(adapter, BundledManifestAdapter):
+            planned[resource_type] = {
+                source_id: fixed_paths.get(source_id, adapter.bundle_path)
+                for source_id in sorted(specs)
+            }
+            continue
         planner = _TypePlanner(
             adapter,
-            id_paths=id_paths,
+            id_paths=_id_paths(
+                adapter,
+                [*specs, *(other_source_ids or {}).get(resource_type, ())],
+            ),
             reserved={
                 _fold(path)
                 for path in [
@@ -127,6 +138,18 @@ def plan_resource_paths(
                 planner.claim_readable(source_id, keys[source_id])
         planned[resource_type] = dict(sorted(planner.paths.items()))
     return planned
+
+
+def _id_paths(
+    adapter: ResourceAdapter, source_ids: Iterable[str]
+) -> dict[str, set[str]]:
+    """Map each case-folded legacy id path to the source ids it belongs to."""
+    id_paths: dict[str, set[str]] = {}
+    for source_id in source_ids:
+        id_paths.setdefault(_fold(adapter.legacy_id_path(source_id)), set()).add(
+            source_id
+        )
+    return id_paths
 
 
 @dataclass(slots=True)
@@ -164,10 +187,15 @@ class _TypePlanner:
                 return
 
 
+def _suffixed_key(key: str, source_id: str) -> str:
+    """Return the collision-suffixed path key ``<key>-<source id>``."""
+    return f"{key}-{path_segment(source_id)}"
+
+
 def _candidate_keys(key: str, source_id: str) -> Iterator[str]:
     """Yield ``key``, then ``key-<source id>``, then numbered variants."""
     yield key
-    suffixed = f"{key}-{path_segment(source_id)}"
+    suffixed = _suffixed_key(key, source_id)
     yield suffixed
     counter = 2
     while True:
@@ -186,7 +214,7 @@ def _is_readable_choice(
     path_key = adapter.path_key_from_path(path, DEFAULT_ROOTS)
     if path_key is None:
         return False
-    suffixed = f"{key}-{path_segment(source_id)}"
+    suffixed = _suffixed_key(key, source_id)
     # E.g. "Triage", "Triage-wf_b" or "Triage-wf_b-2". The counter is written
     # exactly as the planner writes it: from 2 up, no leading zero, ASCII only.
     # Case-sensitive, so a case-only rename still moves the folder.
@@ -196,6 +224,26 @@ def _is_readable_choice(
 
 def _fold(path: str) -> str:
     return path.casefold()
+
+
+def per_resource_paths(
+    adapter: ResourceAdapter, specs: Mapping[str, BaseModel]
+) -> dict[str, str]:
+    """Plan one readable file per resource, as before a type was bundled.
+
+    Uses the same collision rules as :func:`plan_resource_paths`, without
+    previous paths. Package includes use it to keep matching patterns that
+    named a bundled resource's old file.
+
+    Without previous paths, two resources whose names map to one file name
+    are told apart by source id, not by which was pushed first. A
+    hand-written readable pattern written for the later one can then name
+    the other. Id patterns, which the package picker writes, are unaffected.
+    """
+    planner = _TypePlanner(adapter, id_paths=_id_paths(adapter, specs), reserved=set())
+    for source_id in sorted(specs):
+        planner.claim_readable(source_id, adapter.path_key(source_id, specs[source_id]))
+    return planner.paths
 
 
 def plan_push_paths(
@@ -257,7 +305,8 @@ def partial_push_delete_roots(
     too: every extra copy is stale.
 
     Full and package pushes delete every other resource file anyway, so only
-    partial pushes need this.
+    partial pushes need this. A bundle file is never a conflict: the push
+    keeps the other entries in it (see ``merge_base_bundles``).
 
     Raises:
         PushPathConflictError: The push would write into a location that holds
@@ -282,12 +331,24 @@ def partial_push_delete_roots(
         # Writing over a resource this push also writes is fine: its old
         # location is stale above. Any other holder would be overwritten.
         for location in sorted(planned.values()):
+            if adapter.is_bundle_file(location):
+                continue
             holder = holders.get(_fold(location))
             if holder is not None and holder not in planned:
                 conflicts.append(location)
     if conflicts:
         raise PushPathConflictError(conflicts)
     return sorted(stale)
+
+
+def normalized_path_roots(roots: Sequence[str]) -> tuple[str, ...]:
+    """Strip surrounding slashes off path roots and drop empty entries."""
+    return tuple(root.strip("/") for root in roots if root.strip("/"))
+
+
+def path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
+    """Return whether ``path`` equals or sits beneath any root."""
+    return any(path == root or path.startswith(f"{root}/") for root in roots)
 
 
 def without_resources[T](
@@ -310,7 +371,8 @@ class ResourcePathIndex:
 
     Built from planned paths, plus any locations found in a base tree, so a
     file a push deletes is labelled with its real source id. Paths no
-    resource claims return ``None``.
+    resource claims return ``None``, and so do bundle files: many resources
+    share one, so callers split it by entry instead.
     """
 
     def __init__(
@@ -331,6 +393,8 @@ class ResourcePathIndex:
 
     def _add(self, owner: PathOwner, primary_path: str) -> None:
         """Index a primary file, plus its folder for folder-owning types."""
+        if owner.adapter.is_bundle_file(primary_path):
+            return
         self._by_path[primary_path] = owner
         if owner.adapter.owns_directory:
             self._by_folder[owner.adapter.location(primary_path)] = owner

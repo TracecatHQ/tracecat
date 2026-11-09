@@ -445,6 +445,14 @@ class ResourceAdapter(ABC):
         identity is the ``id`` written inside the file.
         """
 
+    def is_bundle_file(self, path: str) -> bool:
+        """Return whether ``path``, a location of this type, holds many resources.
+
+        Only bundled types have one; every other type keeps one resource per
+        file.
+        """
+        return False
+
     def path_key(self, source_id: str, spec: BaseModel) -> str:
         """Return the readable folder or file name for a resource.
 
@@ -933,7 +941,7 @@ class DirectoryManifestAdapter(ResourceAdapter):
 class FlatManifestAdapter(ResourceAdapter):
     """Flat layout with one manifest file per resource.
 
-    One flat file per resource, with no companion files (case tags, fields,
+    One flat file per resource, with no companion files (case fields,
     dropdowns, durations).
     """
 

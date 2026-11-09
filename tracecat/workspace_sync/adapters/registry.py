@@ -7,6 +7,7 @@ from typing import Any
 
 from tracecat.workspace_sync.adapters.agent_preset import AgentPresetAdapter
 from tracecat.workspace_sync.adapters.base import ResourceAdapter
+from tracecat.workspace_sync.adapters.bundled import BundledManifestAdapter
 from tracecat.workspace_sync.adapters.case_dropdown import CaseDropdownAdapter
 from tracecat.workspace_sync.adapters.case_duration import CaseDurationAdapter
 from tracecat.workspace_sync.adapters.case_field import CaseFieldAdapter
@@ -57,6 +58,11 @@ NON_WORKFLOW_IMPORT_ADAPTERS: tuple[ResourceAdapter, ...] = (
     TABLE_RESOURCE_ADAPTER,
     SKILL_RESOURCE_ADAPTER,
     AGENT_PRESET_RESOURCE_ADAPTER,
+)
+
+# Types whose resources share one bundle file instead of a file each.
+BUNDLED_RESOURCE_ADAPTERS: tuple[BundledManifestAdapter, ...] = (
+    CASE_TAG_RESOURCE_ADAPTER,
 )
 
 WORKSPACE_RESOURCE_ADAPTERS: tuple[ResourceAdapter, ...] = (
