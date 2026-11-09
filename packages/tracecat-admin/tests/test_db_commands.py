@@ -10,6 +10,8 @@ from tracecat_admin.cli import app
 from tracecat_admin.commands import db
 from typer.testing import CliRunner
 
+from tracecat import config
+
 runner = CliRunner()
 
 
@@ -63,3 +65,18 @@ def test_roles_runs_the_real_script() -> None:
     assert "tracecat db roles" in result.stdout
     for command in ("bootstrap", "upgrade", "status", "migrate"):
         assert command in result.stdout
+
+
+def test_roles_connection_failure_prints_no_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unreachable database is an error line, not a traceback with the URI."""
+    secret = "synthetic-admin-secret"
+    monkeypatch.setattr(
+        config, "TRACECAT__DB_ADMIN_URI", f"postgresql://admin:{secret}@127.0.0.1:1/x"
+    )
+    monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+    result = runner.invoke(app, ["db", "roles", "status"])
+    assert result.exit_code == 1
+    assert "error:" in result.stderr
+    assert secret not in result.output + result.stderr

@@ -1879,6 +1879,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if diag and diag.message_hint:
             print(f"hint: {_printable(diag.message_hint)}", file=sys.stderr)
         return 1
+    except psycopg.OperationalError as exc:
+        # libpq's message names the host and user, never the password; the
+        # traceback's locals would hold the whole connection string.
+        print(f"error: {_printable(str(exc).strip())}", file=sys.stderr)
+        return 1
 
 
 def _main(argv: Sequence[str] | None) -> int:

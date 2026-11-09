@@ -25,6 +25,9 @@ app = typer.Typer(
     name="tracecat",
     help="Tracecat Admin CLI - Platform operator tools for Tracecat.",
     no_args_is_help=True,
+    # Tracebacks must not print local variables: they hold database URIs,
+    # passwords and service keys.
+    pretty_exceptions_show_locals=False,
 )
 
 
