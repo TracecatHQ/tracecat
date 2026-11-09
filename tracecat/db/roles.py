@@ -72,6 +72,7 @@ from sqlalchemy import URL, Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from tracecat import config
+from tracecat.db.iam.types import TOKEN_SSLMODES
 
 DYNAMIC_OWNER_ENV_VAR = "TRACECAT__DB_DYNAMIC_OWNER_ROLE"
 
@@ -851,6 +852,18 @@ def migrate(
         print(
             "error: TRACECAT__DB_ROLE_LOGIN has an unknown value; expected "
             "password, aws_iam or azure_entra.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # _admin_conninfo fills in TRACECAT__DB_SSLMODE when the URI names none.
+    admin_sslmode = make_url(_admin_conninfo()).query.get("sslmode")
+    if login is not LoginMethod.PASSWORD and admin_sslmode not in TOKEN_SSLMODES:
+        # migrator's token goes to the admin URI's host with its sslmode.
+        print(
+            "error: TRACECAT__DB_ROLE_LOGIN logs migrator in with a token, which "
+            "must not travel in plaintext: give TRACECAT__DB_ADMIN_URI sslmode "
+            "require, verify-ca or verify-full.",
             file=sys.stderr,
         )
         return 1

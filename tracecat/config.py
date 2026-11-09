@@ -417,7 +417,7 @@ TRACECAT__DB_AUTH: DbAuth = _parse_db_auth()
 
 The token modes connect with ``TRACECAT__DB_USER``, ``TRACECAT__DB_ENDPOINT``,
 ``TRACECAT__DB_PORT`` and ``TRACECAT__DB_NAME`` (``TRACECAT__DB_URI`` is not
-used), refuse a static password (also one in ``TRACECAT__DB_URI``), and require ``TRACECAT__DB_SSLMODE`` of
+used, and must be unset), refuse a static password, and require ``TRACECAT__DB_SSLMODE`` of
 ``require`` or stricter.
 """
 
@@ -443,13 +443,14 @@ if not isinstance(TRACECAT__DB_AUTH, DbPasswordAuth):
             f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} logs in with a token: "
             "unset TRACECAT__DB_PASS and TRACECAT__DB_PASS__ARN"
         )
-    # The token modes ignore TRACECAT__DB_URI, so a password in it would only
-    # linger in the pod. Commands that run alembic with an explicit URI drop
+    # The token modes don't use TRACECAT__DB_URI, and alembic would log in with
+    # it instead of a token, so it may not carry a credential (in the userinfo
+    # or the query). Commands that run alembic with an explicit URI drop
     # TRACECAT__DB_AUTH_MODE from its environment.
-    if urlsplit(os.environ.get("TRACECAT__DB_URI") or "").password:
+    if os.environ.get("TRACECAT__DB_URI"):
         raise ValueError(
             f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} logs in with a token: "
-            "remove the password from TRACECAT__DB_URI or unset it"
+            "unset TRACECAT__DB_URI"
         )
     if TRACECAT__DB_SSLMODE not in TOKEN_SSLMODES:
         raise ValueError(

@@ -459,11 +459,68 @@ def _import_config(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
 def test_valid_token_config_imports() -> None:
     result = _import_config(_TOKEN_ENV)
     assert result.returncode == 0, result.stderr
-    # A password-free URI is ignored, not refused.
-    result = _import_config(
-        {**_TOKEN_ENV, "TRACECAT__DB_URI": "postgresql://app@db/tracecat"}
+
+
+@pytest.mark.parametrize("sslmode", ["disable", "allow", "prefer"])
+def test_role_setup_refuses_to_send_migrators_token_in_plaintext(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    sslmode: str,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ADMIN_URI",
+        f"postgresql://admin:pw@db.example:5432/tracecat?sslmode={sslmode}",
+    )
+    monkeypatch.setattr(config, "TRACECAT__DB_ROLE_LOGIN", "aws_iam")
+    monkeypatch.setattr(config, "TRACECAT__DB_MIGRATOR_PASSWORD", "token")
+
+    def refuse(*args: Any, **kwargs: Any) -> int:
+        raise AssertionError("role setup must not start")
+
+    monkeypatch.setattr(db_roles, "_check_targets", refuse)
+
+    assert db_roles.migrate() == 1
+    assert "must not travel in plaintext" in capsys.readouterr().err
+
+
+def test_alembic_uri_keeps_role_names_with_spaces() -> None:
+    """Entra role names may contain spaces, which quote_plus would turn into "+"."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("TRACECAT__DB_", "AWS_"))
+    } | {
+        "TRACECAT__DB_USER": "service identity",
+        "TRACECAT__DB_PASS": "p w+d",
+        "TRACECAT__DB_ENDPOINT": "db.example",
+        "TRACECAT__DB_PORT": "5432",
+        "TRACECAT__DB_NAME": "tracecat",
+    }
+    probe = (
+        "import runpy, sys\n"
+        "from unittest import mock\n"
+        "from sqlalchemy import make_url\n"
+        "ctx = mock.MagicMock()\n"
+        "ctx.is_offline_mode.return_value = True\n"
+        "ctx.config.config_file_name = None\n"
+        "with mock.patch('alembic.context', ctx):\n"
+        "    ns = runpy.run_path('alembic/env.py')\n"
+        "url = make_url(ns['TRACECAT__DB_URI'])\n"
+        "print(repr((url.username, url.password, url.query['sslmode'])))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == repr(
+        ("service identity", "p w+d", "require")
+    )
 
 
 def test_alembic_with_an_explicit_uri_drops_the_token_mode(
@@ -514,7 +571,15 @@ def test_alembic_with_an_explicit_uri_drops_the_token_mode(
         ),
         (
             {**_TOKEN_ENV, "TRACECAT__DB_URI": "postgresql://app:leftover@db/tracecat"},
-            "remove the password from TRACECAT__DB_URI",
+            "unset TRACECAT__DB_URI",
+        ),
+        (
+            # libpq also reads a password from the query.
+            {
+                **_TOKEN_ENV,
+                "TRACECAT__DB_URI": "postgresql://app@db/x?password=leftover",
+            },
+            "unset TRACECAT__DB_URI",
         ),
         (
             {**_TOKEN_ENV, "TRACECAT__DB_SSLMODE": "prefer"},
