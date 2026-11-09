@@ -16,7 +16,10 @@ from tracecat.sync import CatalogMappingCandidate
 from tracecat.workspace_sync.adapters import AGENT_PRESET_RESOURCE_ADAPTER
 from tracecat.workspace_sync.adapters.base import SyncMappingService
 from tracecat.workspace_sync.layout import plan_resource_paths
-from tracecat.workspace_sync.schemas import WorkflowResourceSpec, WorkspaceSpec
+from tracecat.workspace_sync.schemas import (
+    WorkflowResourceSpec,
+    WorkspaceSpec,
+)
 from tracecat.workspace_sync.workflow import serialize_workflow_spec
 
 

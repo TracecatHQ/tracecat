@@ -46,6 +46,7 @@ const ACCESS: WorkspaceAgentModelAccessRead = {
       model_provider: "openai",
       model_name: "model-one",
       model_metadata: {},
+      lifecycle: null,
     },
     {
       id: "catalog-two",
@@ -54,6 +55,7 @@ const ACCESS: WorkspaceAgentModelAccessRead = {
       model_provider: "custom-model-provider",
       model_name: "model-two",
       model_metadata: {},
+      lifecycle: null,
       custom_provider_name: "Synthetic gateway",
     },
   ],

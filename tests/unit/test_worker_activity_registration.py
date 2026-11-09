@@ -19,6 +19,7 @@ from tracecat.agent.executor_worker import (
 )
 from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
 from tracecat.agent.preset.activities import (
+    resolve_agent_config_activity,
     resolve_agent_preset_config_activity,
     resolve_agent_preset_version_ref_activity,
 )
@@ -124,6 +125,7 @@ async def test_background_worker_runs_search_and_case_triggers_on_background_que
 
 def test_agent_worker_registers_preset_resolution_activities() -> None:
     names = _activity_names(get_agent_worker_activities())
+    assert _activity_name(resolve_agent_config_activity) in names
     assert _activity_name(resolve_agent_preset_config_activity) in names
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
     assert _activity_name(persist_stdio_mcp_connection_activity) in names
