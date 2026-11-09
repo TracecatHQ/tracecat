@@ -72,6 +72,7 @@ from sqlalchemy import URL, Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from tracecat import config
+from tracecat.db.iam.types import TOKEN_SSLMODES
 
 DYNAMIC_OWNER_ENV_VAR = "TRACECAT__DB_DYNAMIC_OWNER_ROLE"
 
@@ -747,6 +748,9 @@ def _alembic_upgrade(db_uri: str | None) -> int:
     if db_uri is not None:
         # alembic/env.py prefers TRACECAT__DB_URI over the user/password settings.
         env["TRACECAT__DB_URI"] = db_uri
+        # The URI carries this login's credential (migrator's token); the app's
+        # token mode refuses any TRACECAT__DB_URI and doesn't apply here.
+        env.pop("TRACECAT__DB_AUTH_MODE", None)
     cmd = [sys.executable, "-m", "alembic", "upgrade", "head"]
     return subprocess.run(cmd, env=env, check=False).returncode
 
@@ -852,6 +856,18 @@ def migrate(
         )
         return 1
 
+    # _admin_conninfo fills in TRACECAT__DB_SSLMODE when the URI names none.
+    admin_sslmode = make_url(_admin_conninfo()).query.get("sslmode")
+    if login is not LoginMethod.PASSWORD and admin_sslmode not in TOKEN_SSLMODES:
+        # migrator's token goes to the admin URI's host with its sslmode.
+        print(
+            "error: TRACECAT__DB_ROLE_LOGIN logs migrator in with a token, which "
+            "must not travel in plaintext: give TRACECAT__DB_ADMIN_URI sslmode "
+            "require, verify-ca or verify-full.",
+            file=sys.stderr,
+        )
+        return 1
+
     passwords = (
         LoginPasswords.from_config()
         if login is LoginMethod.PASSWORD
@@ -897,10 +913,25 @@ def _check_targets() -> int:
     do (localhost and postgres_db, or the app through PgDog), so a different
     host only warns.
     """
+    admin = make_url(_admin_conninfo())
+    admin_db = _effective_database(admin)
     if not (app_uri := os.environ.get("TRACECAT__DB_URI")):
+        # Token modes name the app's database with TRACECAT__DB_NAME only.
+        if (app_name := config.TRACECAT__DB_NAME) and admin_db != app_name:
+            print(
+                f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
+                f"but TRACECAT__DB_NAME is {_printable(app_name)}.",
+                file=sys.stderr,
+            )
+            print(
+                "hint: point TRACECAT__DB_ADMIN_URI at the app's database, or "
+                f"{_SINGLE_USER_HINT}.",
+                file=sys.stderr,
+            )
+            return 1
         return 0
-    admin, app = make_url(_admin_conninfo()), make_url(app_uri)
-    admin_db, app_db = _effective_database(admin), _effective_database(app)
+    app = make_url(app_uri)
+    app_db = _effective_database(app)
     if admin_db != app_db:
         print(
             f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "

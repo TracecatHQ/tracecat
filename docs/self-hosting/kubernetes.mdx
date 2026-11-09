@@ -157,6 +157,8 @@ externalPostgres:
 
 For Amazon RDS, download the global CA bundle from the [AWS trust store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
 
+To log in with RDS IAM tokens instead of a password, set `externalPostgres.auth.mode: awsIam`. See [Database IAM login](/self-hosting/database-iam) for the database and IAM setup and the PgDog settings it needs.
+
 #### CloudNativePG
 
 To run PostgreSQL inside Kubernetes, we recommend the [CloudNativePG](https://cloudnative-pg.io) operator. Load pgvector as an [image volume extension](https://cloudnative-pg.io/docs/1.30/imagevolume_extensions/#directly-in-the-cluster), then let a `Database` resource enable it in the application database.

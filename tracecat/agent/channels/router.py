@@ -33,8 +33,11 @@ from tracecat.agent.channels.service import AgentChannelService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
-from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    get_async_session_context_manager,
+)
 from tracecat.db.models import Workspace
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.logger import logger
@@ -83,15 +86,14 @@ def _sanitize_return_url(return_url: str) -> str:
     return return_url
 
 
-async def _resolve_service_role_for_workspace(
-    session: AsyncSession,
-    *,
-    workspace_id,
-) -> Role:
-    result = await session.execute(
-        select(Workspace.organization_id).where(Workspace.id == workspace_id)
-    )
-    organization_id = result.scalar_one_or_none()
+async def _resolve_service_role_for_workspace(*, workspace_id: uuid.UUID) -> Role:
+    # Public channel requests carry no role, and the workspace's org decides
+    # the role, so this lookup can't run under the role's own RLS context.
+    async with get_async_session_bypass_rls_context_manager() as session:
+        result = await session.execute(
+            select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        )
+        organization_id = result.scalar_one_or_none()
     if organization_id is None:
         raise ValueError(f"Workspace '{workspace_id}' not found")
     return Role(
@@ -124,17 +126,21 @@ async def _process_channel_event_async(
     payload: dict[str, Any],
 ) -> None:
     try:
-        async with get_async_session_context_manager() as session:
-            role = await _resolve_service_role_for_workspace(
-                session, workspace_id=validated_token.workspace_id
-            )
-            ctx_role.set(role)
-            handler = build_channel_handler(
-                channel_type=channel_type,
-                session=session,
-                role=role,
-            )
-            await handler.handle(payload=payload, token=validated_token)
+        role = await _resolve_service_role_for_workspace(
+            workspace_id=validated_token.workspace_id
+        )
+        # Set before the session opens: it takes its RLS context from the role.
+        role_token = ctx_role.set(role)
+        try:
+            async with get_async_session_context_manager() as session:
+                handler = build_channel_handler(
+                    channel_type=channel_type,
+                    session=session,
+                    role=role,
+                )
+                await handler.handle(payload=payload, token=validated_token)
+        finally:
+            ctx_role.reset(role_token)
     except Exception:
         logger.exception(
             "Failed processing external channel event",
@@ -151,9 +157,11 @@ async def handle_channel_event(
     token: str,
     request: Request,
     background_tasks: BackgroundTasks,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> dict[str, str] | Response:
     """Receive public external channel events."""
+    # The request has no role until its signed token resolves to a workspace,
+    # so the token and entitlement lookups run on a bypass session, like webhooks.
 
     validated_token = await validate_channel_token(
         channel_type=channel_type,
@@ -272,44 +280,46 @@ async def handle_slack_oauth_callback(
         )
 
     try:
-        async with get_async_session_context_manager() as session:
-            role = await _resolve_service_role_for_workspace(
-                session, workspace_id=workspace_id
-            )
-            service = AgentChannelService(session, role=role)
-            token = await service.get_token(token_id)
-            if token is None:
-                raise TracecatNotFoundError(f"Channel token '{token_id}' not found")
-            await service.require_active_preset_for_token(token, lock=True)
+        role = await _resolve_service_role_for_workspace(workspace_id=workspace_id)
+        role_token = ctx_role.set(role)
+        try:
+            async with get_async_session_context_manager() as session:
+                service = AgentChannelService(session, role=role)
+                token = await service.get_token(token_id)
+                if token is None:
+                    raise TracecatNotFoundError(f"Channel token '{token_id}' not found")
+                await service.require_active_preset_for_token(token, lock=True)
 
-            slack_config = service.parse_stored_channel_config(
-                channel_type=ChannelType(token.channel_type),
-                config_payload=token.config,
-            )
-            client_id = slack_config.slack_client_id
-            client_secret = slack_config.slack_client_secret
-            if not client_id or not client_secret:
-                raise TracecatValidationError(
-                    "Slack client ID and client secret are required"
+                slack_config = service.parse_stored_channel_config(
+                    channel_type=ChannelType(token.channel_type),
+                    config_payload=token.config,
                 )
+                client_id = slack_config.slack_client_id
+                client_secret = slack_config.slack_client_secret
+                if not client_id or not client_secret:
+                    raise TracecatValidationError(
+                        "Slack client ID and client secret are required"
+                    )
 
-            bot_token = await service.exchange_slack_oauth_code(
-                client_id=client_id,
-                client_secret=client_secret,
-                code=code,
-            )
-            await service.update_token(
-                token,
-                AgentChannelTokenUpdate(
-                    config=SlackChannelTokenConfig(
-                        slack_bot_token=bot_token,
-                        slack_client_id=client_id,
-                        slack_client_secret=client_secret,
-                        slack_signing_secret=slack_config.slack_signing_secret,
+                bot_token = await service.exchange_slack_oauth_code(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    code=code,
+                )
+                await service.update_token(
+                    token,
+                    AgentChannelTokenUpdate(
+                        config=SlackChannelTokenConfig(
+                            slack_bot_token=bot_token,
+                            slack_client_id=client_id,
+                            slack_client_secret=client_secret,
+                            slack_signing_secret=slack_config.slack_signing_secret,
+                        ),
+                        is_active=True,
                     ),
-                    is_active=True,
-                ),
-            )
+                )
+        finally:
+            ctx_role.reset(role_token)
     except (TracecatNotFoundError, TracecatValidationError) as exc:
         message = (
             _SLACK_CHANNEL_CONFIG_INACTIVE_MESSAGE
