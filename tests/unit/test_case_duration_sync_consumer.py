@@ -285,11 +285,11 @@ async def test_shared_sync_case_duration_uses_transaction_scoped_lock(
     lock_mock = AsyncMock(return_value=True)
 
     @contextlib.asynccontextmanager
-    async def fake_session_context():
+    async def fake_session_context(**_kwargs: object):
         yield fake_session
 
     monkeypatch.setattr(
-        "tracecat.cases.durations.materialization.get_async_session_bypass_rls_context_manager",
+        "tracecat.cases.durations.materialization.get_async_session_tenant_context_manager",
         fake_session_context,
     )
     monkeypatch.setattr(
@@ -343,7 +343,7 @@ async def test_consumer_skips_backfill_fanout_without_entitlement(
     publish_mock = AsyncMock()
 
     @contextlib.asynccontextmanager
-    async def fake_session_context():
+    async def fake_session_context(**_kwargs: object):
         yield session
 
     monkeypatch.setattr(

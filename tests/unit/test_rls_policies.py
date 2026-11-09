@@ -31,9 +31,12 @@ from tracecat.db.engine import (
     _initialize_session_rls_context,
     get_async_engine,
     get_async_session,
+    get_async_session_tenant_context_manager,
 )
+from tracecat.db.models import Workspace
 from tracecat.db.rls import (
     RLS_BYPASS_OFF,
+    RLS_BYPASS_ON,
     RLS_UNSET_VALUE,
     RLS_VAR_BYPASS,
     RLS_VAR_ORG_ID,
@@ -393,6 +396,89 @@ class TestRlsIsolation:
         assert await _row_ids_as(
             session, db_role=owner, schema_name=schema_name, table_name=table_name
         ) == [row_id]
+
+
+async def _rls_settings(session: AsyncSession) -> tuple[str, str, str]:
+    """Return the session's (bypass, org, workspace) RLS settings."""
+    row = (
+        await session.execute(
+            text(
+                f"SELECT current_setting('{RLS_VAR_BYPASS}', true), "
+                f"current_setting('{RLS_VAR_ORG_ID}', true), "
+                f"current_setting('{RLS_VAR_WORKSPACE_ID}', true)"
+            )
+        )
+    ).one()
+    return row[0], row[1], row[2]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+class TestTenantSession:
+    """System code that knows its tenant runs inside it, not under the bypass.
+
+    Invariant: under ``enforce`` a tenant session never turns the bypass on and
+    always carries the tenant's organization, re-applied on every transaction.
+    """
+
+    async def test_workspace_resolves_its_organization(
+        self, svc_workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.ENFORCE)
+        expected = (
+            RLS_BYPASS_OFF,
+            str(svc_workspace.organization_id),
+            str(svc_workspace.id),
+        )
+        async with get_async_session_tenant_context_manager(
+            workspace_id=svc_workspace.id
+        ) as session:
+            assert await _rls_settings(session) == expected
+            await session.commit()
+            assert await _rls_settings(session) == expected
+
+    async def test_organization_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.ENFORCE)
+        org_id = uuid.uuid4()
+        async with get_async_session_tenant_context_manager(
+            organization_id=org_id
+        ) as session:
+            assert await _rls_settings(session) == (
+                RLS_BYPASS_OFF,
+                str(org_id),
+                RLS_UNSET_VALUE,
+            )
+
+    async def test_unknown_workspace_stays_scoped_to_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deleted workspace leaves no organization, never the bypass."""
+        monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.ENFORCE)
+        workspace_id = uuid.uuid4()
+        async with get_async_session_tenant_context_manager(
+            workspace_id=workspace_id
+        ) as session:
+            assert await _rls_settings(session) == (
+                RLS_BYPASS_OFF,
+                RLS_UNSET_VALUE,
+                str(workspace_id),
+            )
+
+    @pytest.mark.parametrize("mode", [config.RLSMode.OFF, config.RLSMode.SHADOW])
+    async def test_off_and_shadow_match_every_other_session(
+        self, monkeypatch: pytest.MonkeyPatch, mode: config.RLSMode
+    ) -> None:
+        monkeypatch.setattr(config, "TRACECAT__RLS_MODE", mode)
+        async with get_async_session_tenant_context_manager(
+            organization_id=uuid.uuid4()
+        ) as session:
+            bypass, _, _ = await _rls_settings(session)
+        assert bypass == RLS_BYPASS_ON
+
+    async def test_needs_a_tenant(self) -> None:
+        with pytest.raises(ValueError, match="organization or workspace"):
+            async with get_async_session_tenant_context_manager():
+                pass
 
 
 @requires_rls_mode

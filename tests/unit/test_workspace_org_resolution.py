@@ -50,11 +50,11 @@ async def test_get_workspace_organization_id_activity_returns_match(monkeypatch)
     mock_session.execute.return_value = mock_result
 
     @asynccontextmanager
-    async def fake_session_manager():
+    async def fake_session_manager(**_kwargs: object):
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workspaces.activities.get_async_session_bypass_rls_context_manager",
+        "tracecat.workspaces.activities.get_async_session_tenant_context_manager",
         fake_session_manager,
     )
 
@@ -75,11 +75,11 @@ async def test_get_workspace_organization_id_activity_raises_when_missing(
     mock_session.execute.return_value = mock_result
 
     @asynccontextmanager
-    async def fake_session_manager():
+    async def fake_session_manager(**_kwargs: object):
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workspaces.activities.get_async_session_bypass_rls_context_manager",
+        "tracecat.workspaces.activities.get_async_session_tenant_context_manager",
         fake_session_manager,
     )
 
@@ -103,11 +103,11 @@ async def test_get_workspace_organization_id_activity_classifies_query_failure(
     mock_session.execute.side_effect = RuntimeError(diagnostic)
 
     @asynccontextmanager
-    async def fake_session_manager():
+    async def fake_session_manager(**_kwargs: object):
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workspaces.activities.get_async_session_bypass_rls_context_manager",
+        "tracecat.workspaces.activities.get_async_session_tenant_context_manager",
         fake_session_manager,
     )
 

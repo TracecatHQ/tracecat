@@ -28,7 +28,6 @@ from tracecat.db.engine import (
     get_async_session_context_manager,
 )
 from tracecat.db.models import (
-    LegacyMembership,
     OrganizationTier,
     Tier,
     User,
@@ -349,28 +348,6 @@ async def _get_or_create_local_user(
     return user, True
 
 
-async def _ensure_legacy_workspace_membership(
-    *,
-    session: AsyncSession,
-    user_id: UUID,
-    workspace_id: UUID,
-) -> None:
-    """Write the legacy table for app versions that still read it."""
-    result = await session.execute(
-        select(LegacyMembership).where(
-            LegacyMembership.user_id == user_id,
-            LegacyMembership.workspace_id == workspace_id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
-        session.add(
-            LegacyMembership(
-                user_id=user_id,
-                workspace_id=workspace_id,
-            )
-        )
-
-
 async def _ensure_role_assignment(
     *,
     session: AsyncSession,
@@ -470,11 +447,6 @@ async def create_dev_user(
 
         # The membership row is the aggregate root the assignments hang off.
         await ensure_member(session, organization_id, user.id)
-        await _ensure_legacy_workspace_membership(
-            session=session,
-            user_id=user.id,
-            workspace_id=workspace.id,
-        )
         await _ensure_role_assignment(
             session=session,
             user_id=user.id,

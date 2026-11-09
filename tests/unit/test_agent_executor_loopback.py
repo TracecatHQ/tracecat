@@ -300,8 +300,8 @@ async def test_persist_session_line_preserves_raw_nul_content(
     handler._sdk_session_id = "sdk-session"
     session = _FakeHistoryPersistenceSession()
     monkeypatch.setattr(
-        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
-        lambda: _FakeSessionContext(session),
+        "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
+        lambda **_kwargs: _FakeSessionContext(session),
     )
     raw_line = (
         r'{"type":"user","uuid":"line-uuid","message":{"role":"user",'
@@ -530,8 +530,8 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
             self.apply_artifact_side_effects = apply_artifact_side_effects
 
     monkeypatch.setattr(
-        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
-        lambda: _FakeSessionContext(fake_session),
+        "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
+        lambda **_kwargs: _FakeSessionContext(fake_session),
     )
     monkeypatch.setattr(
         "tracecat.agent.executor.loopback.AgentSessionService",

@@ -7460,8 +7460,8 @@ class Membership(Base):
     workspace_id: Mapped[uuid.UUID]
 
 
-# Physical workspace link table the app no longer reads. Writers keep it in
-# step so older app versions see the same rows; a follow-up drops it.
+# Physical workspace link table the app no longer reads (since 1.4.0) or
+# writes. User deletion still clears old rows for the FK; a follow-up drops it.
 class LegacyMembership(Base):
     __tablename__ = "membership"
     __table_args__ = (

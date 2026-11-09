@@ -118,12 +118,12 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
     mocker.patch("tracecat.executor.service.get_workspace_variables", return_value={})
 
     @asynccontextmanager
-    async def _session_cm():
+    async def _session_cm(**_kwargs: object):
         yield session
 
     # Ensure manifest resolution uses this test session.
     mocker.patch(
-        "tracecat.executor.service.get_async_session_bypass_rls_context_manager",
+        "tracecat.executor.service.get_async_session_tenant_context_manager",
         _session_cm,
     )
     mocker.patch(
@@ -131,7 +131,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
         _session_cm,
     )
     mocker.patch(
-        "tracecat.executor.registry_resolver.get_async_session_bypass_rls_context_manager",
+        "tracecat.executor.registry_resolver.get_async_session_tenant_context_manager",
         _session_cm,
     )
 
@@ -201,11 +201,11 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     )
 
     @asynccontextmanager
-    async def _session_cm():
+    async def _session_cm(**_kwargs: object):
         yield session
 
     mocker.patch(
-        "tracecat.executor.service.get_async_session_bypass_rls_context_manager",
+        "tracecat.executor.service.get_async_session_tenant_context_manager",
         _session_cm,
     )
     mocker.patch(
@@ -213,7 +213,7 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
         _session_cm,
     )
     mocker.patch(
-        "tracecat.executor.registry_resolver.get_async_session_bypass_rls_context_manager",
+        "tracecat.executor.registry_resolver.get_async_session_tenant_context_manager",
         _session_cm,
     )
 
