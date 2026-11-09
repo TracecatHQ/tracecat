@@ -42,7 +42,7 @@ from tracecat.workspace_sync.adapters.bundled import (
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.exceptions import (
     PushBundleUnreadableError,
-    PushPathConflictError,
+    PushNameConflictError,
 )
 from tracecat.workspace_sync.layout import (
     DEFAULT_ROOTS,
@@ -191,8 +191,9 @@ def locate_resources(files: Mapping[str, str]) -> ResourceLocations:
     for path, content in sorted(files.items()):
         if (bundled := bundled_adapter_for(path)) is not None:
             by_id = locations.setdefault(bundled.resource_type, {})
-            for source_id in _bundle_source_ids(bundled, content):
-                by_id.setdefault(source_id, []).append(path)
+            for entry in bundled.readable_entries(content):
+                if source_id := bundle_entry_id(entry):
+                    by_id.setdefault(source_id, []).append(path)
             continue
         for adapter in WORKSPACE_RESOURCE_ADAPTERS:
             if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
@@ -249,7 +250,7 @@ def merge_base_bundles(
     base_files: Mapping[str, str],
     *,
     owned_roots: Sequence[str],
-    base_paths: Collection[str] = (),
+    base_paths: Collection[str],
 ) -> dict[str, str]:
     """Keep the base tree's other bundled resources in the bundles a push writes.
 
@@ -263,15 +264,16 @@ def merge_base_bundles(
         files: What the push writes.
         base_files: Text contents read from the base tree.
         owned_roots: Roots the push deletes stale files under.
-        base_paths: Every file in the base tree, when known. A bundle listed
-            here but missing from ``base_files`` could not be read as text.
+        base_paths: Every file in the base tree, or empty when unknown. A
+            bundle listed here but missing from ``base_files`` could not be
+            read as text.
 
     Raises:
         PushBundleUnreadableError: The base bundle is not a valid bundle file,
             so its other entries cannot be kept.
-        PushPathConflictError: A resource the push keeps, in the bundle or in
-            a file from before bundling, has the same name as a pushed one,
-            such as a tag a teammate pushed that was never pulled here.
+        PushNameConflictError: A resource the push keeps has the same name as
+            a pushed one, such as a tag a teammate pushed that was never
+            pulled here.
     """
     merged = dict(files)
     roots = normalized_path_roots(owned_roots)
@@ -292,95 +294,54 @@ def merge_base_bundles(
         kept = [
             entry for entry in base_entries if bundle_entry_id(entry) not in pushed_ids
         ]
-        # A kept resource with a pushed resource's name would make the next
-        # pull fail on a duplicate name. Separate files used to conflict on
-        # path. Files from before bundling stay unless the push moves them.
-        others = [(path, entry) for entry in kept]
-        others.extend(
-            (legacy_path, entry)
-            for legacy_path, entry in _legacy_entries(adapter, base_files)
-            if bundle_entry_id(entry) not in pushed_ids
-        )
-        pushed_identities = {
-            _entry_identity(adapter, entry) for entry in pushed_entries
-        }
-        # A shared bundle path alone does not say which resource clashed.
-        conflicts = sorted(
-            {
-                f"{location} ({'/'.join(identity)})" if location == path else location
-                for location, entry in others
-                if (identity := _entry_identity(adapter, entry)) is not None
-                and identity in pushed_identities
-            }
-        )
-        if conflicts:
-            raise PushPathConflictError(conflicts)
+        if clashes := _name_clashes(
+            adapter,
+            pushed_entries=pushed_entries,
+            kept=kept,
+            base_files=base_files,
+        ):
+            raise PushNameConflictError(clashes)
         if kept:
             merged[path] = adapter.dump_bundle([*pushed_entries, *kept])
     return merged
 
 
-def _legacy_entries(
-    adapter: BundledManifestAdapter, base_files: Mapping[str, str]
-) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Yield each per-resource file from before bundling as a raw entry.
+def _name_clashes(
+    adapter: BundledManifestAdapter,
+    *,
+    pushed_entries: list[Any],
+    kept: list[Any],
+    base_files: Mapping[str, str],
+) -> list[str]:
+    """Return the resources a push keeps whose name a pushed resource takes.
 
-    A file without an ``id`` takes its file name, as the parser does.
-    Unreadable files are skipped; the next pull reports them.
+    The next pull would fail on the duplicate name. Separate files used to
+    conflict on path instead. Kept resources are the bundle's other entries,
+    plus files from before bundling the push does not move into the bundle.
+    Each clash is labelled ``<path> (<name>)``.
     """
+    pushed_ids = {bundle_entry_id(entry) for entry in pushed_entries}
+    taken = {adapter.entry_identity(entry) for entry in pushed_entries} - {None}
+    others: list[tuple[str, tuple[str, ...] | None]] = [
+        (adapter.bundle_path, adapter.entry_identity(entry)) for entry in kept
+    ]
     for path, content in sorted(base_files.items()):
         if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
             continue
-        try:
-            raw = yaml.safe_load(content)
-        except yaml.YAMLError:
-            continue
-        if isinstance(raw, dict):
-            yield path, {"id": path_key, **raw}
-
-
-def _entry_identity(
-    adapter: BundledManifestAdapter, entry: Any
-) -> tuple[str, ...] | None:
-    """Return a raw bundle entry's import identity, such as its name.
-
-    An entry the spec model rejects has none; the next pull reports it.
-    """
-    try:
-        spec = adapter.model.model_validate(entry)
-    except ValidationError:
-        return None
-    return adapter.import_identity(spec)
-
-
-def bundle_entry_texts(
-    adapter: BundledManifestAdapter, content: str | None
-) -> dict[str, str]:
-    """Return each entry of a bundle file as YAML text, keyed by ``id``.
-
-    Previews diff a bundle one resource at a time. An unreadable bundle has
-    no entries; entries without an ``id`` are skipped.
-    """
-    if content is None:
-        return {}
-    try:
-        entries = adapter.load_bundle(content)
-    except BundleFormatError:
-        return {}
-    return {
-        source_id: yaml.safe_dump(entry, sort_keys=False, allow_unicode=True)
-        for entry in entries
-        if (source_id := bundle_entry_id(entry))
-    }
-
-
-def _bundle_source_ids(adapter: BundledManifestAdapter, content: str) -> list[str]:
-    """Return the ids a bundle file declares, or none when it is unreadable."""
-    try:
-        entries = adapter.load_bundle(content)
-    except BundleFormatError:
-        return []
-    return [source_id for entry in entries if (source_id := bundle_entry_id(entry))]
+        spec = _parse_yaml_resource(
+            path,
+            content,
+            default_source_id=path_key,
+            model=adapter.model,
+            diagnostics=[],
+        )
+        if spec is not None and _spec_id(spec) not in pushed_ids:
+            others.append((path, adapter.import_identity(spec)))
+    clashes: set[str] = set()
+    for path, identity in others:
+        if identity is not None and identity in taken:
+            clashes.add(f"{path} ({'/'.join(identity)})")
+    return sorted(clashes)
 
 
 def _parse_bundle(
@@ -408,11 +369,12 @@ def _parse_bundle(
         try:
             specs.append(adapter.model.model_validate(entry))
         except ValidationError as e:
-            title = entry.get("name") if isinstance(entry, dict) else None
             diagnostics.append(
                 PullDiagnostic(
                     workflow_path=path,
-                    workflow_title=title if isinstance(title, str) else None,
+                    workflow_title=_resource_title(
+                        entry if isinstance(entry, dict) else None
+                    ),
                     error_type="validation",
                     message=f"Validation error in entry {index}: {e}",
                     details={
@@ -518,23 +480,39 @@ def serialize_workspace_spec_files(
             serialize_workflow_spec(workflow_spec)
         )
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-        # Bundled resources sharing one path are written as one bundle file.
-        bundles: dict[str, list[BaseModel]] = defaultdict(list)
+        if isinstance(adapter, BundledManifestAdapter):
+            files.update(_serialize_bundled(adapter, adapter.specs(spec), planned))
+            continue
         for source_id, resource_spec in sorted(adapter.specs(spec).items()):
             primary_path = adapter.path_in(planned, source_id)
-            if isinstance(adapter, BundledManifestAdapter) and adapter.is_bundle_file(
-                primary_path
-            ):
-                bundles[primary_path].append(resource_spec)
-                continue
             files[primary_path] = serialize_yaml_model(resource_spec)
             files.update(adapter.serialize_extra_files(primary_path, resource_spec))
-        if isinstance(adapter, BundledManifestAdapter):
-            for bundle_path, bundled in bundles.items():
-                files[bundle_path] = adapter.dump_bundle(
-                    adapter.bundle_entry(resource_spec) for resource_spec in bundled
-                )
     return dict(sorted(files.items()))
+
+
+def _serialize_bundled(
+    adapter: BundledManifestAdapter,
+    specs: Mapping[str, BaseModel],
+    planned: PathsByType,
+) -> dict[str, str]:
+    """Serialize a bundled type: one bundle file, plus any per-resource files.
+
+    Per-resource files appear only when ``planned`` keeps paths read from a
+    repository written before bundling, such as in a pull preview.
+    """
+    files: dict[str, str] = {}
+    bundles: dict[str, list[BaseModel]] = defaultdict(list)
+    for source_id, resource_spec in sorted(specs.items()):
+        path = adapter.path_in(planned, source_id)
+        if adapter.is_bundle_file(path):
+            bundles[path].append(resource_spec)
+        else:
+            files[path] = serialize_yaml_model(resource_spec)
+    for path, bundled in bundles.items():
+        files[path] = adapter.dump_bundle(
+            adapter.bundle_entry(resource_spec) for resource_spec in bundled
+        )
+    return files
 
 
 def validate_workspace_dependencies(

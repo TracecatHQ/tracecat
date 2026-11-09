@@ -20,7 +20,7 @@ from tracecat.workspace_sync.adapters import CASE_TAG_RESOURCE_ADAPTER
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.exceptions import (
     PushBundleUnreadableError,
-    PushPathConflictError,
+    PushNameConflictError,
 )
 from tracecat.workspace_sync.layout import (
     ResourcePathIndex,
@@ -30,7 +30,6 @@ from tracecat.workspace_sync.layout import (
 )
 from tracecat.workspace_sync.package import file_names_by_resource
 from tracecat.workspace_sync.resources import (
-    bundle_entry_texts,
     is_primary_resource_path,
     locate_resources,
     merge_base_bundles,
@@ -242,7 +241,7 @@ def test_partial_push_keeps_tags_it_does_not_write() -> None:
         )
     }
 
-    merged = merge_base_bundles(pushed, base, owned_roots=[])
+    merged = merge_base_bundles(pushed, base, owned_roots=[], base_paths=frozenset())
 
     assert yaml.safe_load(merged[BUNDLE])["tags"] == [
         {"id": "theirs", "name": "Theirs", "color": "#000000"},
@@ -255,7 +254,9 @@ def test_push_that_owns_the_folder_replaces_the_bundle() -> None:
     pushed = _serialize(_tags(_tag("urgent", "Urgent")))
     base = {BUNDLE: _bundle({"id": "deleted-locally", "name": "Gone"})}
 
-    merged = merge_base_bundles(pushed, base, owned_roots=["case_tags"])
+    merged = merge_base_bundles(
+        pushed, base, owned_roots=["case_tags"], base_paths=frozenset()
+    )
 
     assert merged == pushed
 
@@ -266,11 +267,11 @@ def test_partial_push_refuses_a_name_another_branch_tag_holds() -> None:
     pushed = _serialize(_tags(_tag("urgent", "Urgent")))
     base = {BUNDLE: _bundle({"id": "theirs", "name": "Urgent"})}
 
-    with pytest.raises(PushPathConflictError) as exc_info:
-        merge_base_bundles(pushed, base, owned_roots=[])
+    with pytest.raises(PushNameConflictError) as exc_info:
+        merge_base_bundles(pushed, base, owned_roots=[], base_paths=frozenset())
 
     # The shared path alone would not say which tag clashed.
-    assert exc_info.value.locations == [f"{BUNDLE} (Urgent)"]
+    assert exc_info.value.clashes == [f"{BUNDLE} (Urgent)"]
 
 
 def test_partial_push_refuses_a_name_a_leftover_tag_file_holds() -> None:
@@ -279,17 +280,20 @@ def test_partial_push_refuses_a_name_a_leftover_tag_file_holds() -> None:
     pushed = _serialize(_tags(_tag("urgent", "Urgent")))
     base = {"case_tags/Urgent.yml": serialize_yaml_model(_tag("foo", "Urgent"))}
 
-    with pytest.raises(PushPathConflictError) as exc_info:
-        merge_base_bundles(pushed, base, owned_roots=[])
+    with pytest.raises(PushNameConflictError) as exc_info:
+        merge_base_bundles(pushed, base, owned_roots=[], base_paths=frozenset())
 
-    assert exc_info.value.locations == ["case_tags/Urgent.yml"]
+    assert exc_info.value.clashes == ["case_tags/Urgent.yml (Urgent)"]
 
 
 def test_partial_push_moves_its_own_leftover_file_without_a_conflict() -> None:
     pushed = _serialize(_tags(_tag("urgent", "Urgent")))
     base = {"case_tags/Urgent.yml": serialize_yaml_model(_tag("urgent", "Urgent"))}
 
-    assert merge_base_bundles(pushed, base, owned_roots=[]) == pushed
+    assert (
+        merge_base_bundles(pushed, base, owned_roots=[], base_paths=frozenset())
+        == pushed
+    )
 
 
 def test_partial_push_refuses_a_bundle_it_could_not_read_as_text() -> None:
@@ -305,7 +309,9 @@ def test_partial_push_refuses_to_overwrite_an_unreadable_bundle() -> None:
 
     for base in ("tags: [", "version: 1\nitems: [{id: theirs}]\n"):
         with pytest.raises(PushBundleUnreadableError) as exc_info:
-            merge_base_bundles(pushed, {BUNDLE: base}, owned_roots=[])
+            merge_base_bundles(
+                pushed, {BUNDLE: base}, owned_roots=[], base_paths=frozenset()
+            )
 
         assert exc_info.value.path == BUNDLE
 
@@ -329,10 +335,8 @@ def test_pull_of_a_legacy_repository_serializes_at_the_paths_it_read() -> None:
 def test_bundle_entries_split_for_per_tag_diffs() -> None:
     content = _bundle({"id": "a", "name": "A"}, {"name": "no id"})
 
-    assert bundle_entry_texts(CASE_TAG_RESOURCE_ADAPTER, content) == {
-        "a": "id: a\nname: A\n"
-    }
-    assert bundle_entry_texts(CASE_TAG_RESOURCE_ADAPTER, "tags: [") == {}
+    assert CASE_TAG_RESOURCE_ADAPTER.entry_texts(content) == {"a": "id: a\nname: A\n"}
+    assert CASE_TAG_RESOURCE_ADAPTER.entry_texts("tags: [") == {}
 
 
 def test_bundle_path_has_no_single_owner() -> None:

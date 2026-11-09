@@ -48,9 +48,8 @@ from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
 )
-from tracecat.workspace_sync.adapters.base import path_segment
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.layout import ResourcePathIndex
+from tracecat.workspace_sync.layout import ResourcePathIndex, suffixed_key
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     PackageRegistryRequirement,
@@ -127,7 +126,7 @@ def file_names_by_resource(
     grouped: dict[PackageResourceKey, list[tuple[str, ...]]] = defaultdict(list)
     for adapter in BUNDLED_RESOURCE_ADAPTERS:
         specs = adapter.specs(projection.spec)
-        owners_by_id_path = {
+        source_id_by_id_path = {
             adapter.legacy_id_path(source_id).casefold(): source_id
             for source_id in specs
         }
@@ -143,13 +142,13 @@ def file_names_by_resource(
             path_key = adapter.path_key(source_id, spec)
             readable = [
                 adapter.path_for_key(path_key),
-                adapter.path_for_key(f"{path_key}-{path_segment(source_id)}"),
+                adapter.path_for_key(suffixed_key(path_key, source_id)),
             ]
             aliases = [adapter.legacy_id_path(source_id)]
             aliases.extend(
                 alias
                 for alias in readable
-                if owners_by_id_path.get(alias.casefold(), source_id) == source_id
+                if source_id_by_id_path.get(alias.casefold(), source_id) == source_id
             )
             names = dict.fromkeys((path, *aliases))
             key = PackageResourceKey(adapter.resource_type, source_id)

@@ -35,6 +35,18 @@ class PushBundleUnreadableError(TracecatValidationError):
         )
 
 
+class PushNameConflictError(TracecatValidationError):
+    """A partial push would give two resources in one bundle the same name."""
+
+    def __init__(self, clashes: list[str]) -> None:
+        self.clashes = clashes
+        super().__init__(
+            "These resources on the target branch already use a name this push "
+            f"writes: {', '.join(clashes)}. Pull first, or rename the resource "
+            "before pushing."
+        )
+
+
 class PushPathConflictError(TracecatValidationError):
     """A partial push would write over a different resource on its branch."""
 

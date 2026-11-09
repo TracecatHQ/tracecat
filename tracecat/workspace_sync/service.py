@@ -8,7 +8,7 @@ from collections import Counter, deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
-from typing import Any, Self, cast
+from typing import Any, Literal, Self, cast
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import delete, select
@@ -121,7 +121,6 @@ from tracecat.workspace_sync.projector import (
     WorkspaceResourceProjector,
 )
 from tracecat.workspace_sync.resources import (
-    bundle_entry_texts,
     is_primary_resource_path,
     locate_resources,
     merge_base_bundles,
@@ -2104,8 +2103,8 @@ class WorkspaceSyncService(SyncMappingService):
                 before=current_files.get(path),
                 after=target_files.get(path),
                 spec=target_spec,
-                include_deleted=False,
             )
+            if diff.change_type != "deleted"
         ]
         # The preview is a canonical file diff. Adapters own path mapping,
         # serialization, and labels; the service owns comparing the full
@@ -2176,7 +2175,6 @@ class WorkspaceSyncService(SyncMappingService):
                     before=before,
                     after=after,
                     spec=projection.spec,
-                    include_deleted=True,
                 )
             )
 
@@ -3450,35 +3448,35 @@ def _bundle_resource_diffs(
     before: str | None,
     after: str | None,
     spec: WorkspaceSpec,
-    include_deleted: bool,
 ) -> list[PullResourceDiff]:
     """Diff a bundle file one entry at a time, so each resource is listed.
 
-    ``after`` is ``None`` when the bundle itself is deleted. Entries only in
-    ``before`` are reported as deleted when ``include_deleted`` is set.
+    ``after`` is ``None`` when the bundle itself is deleted. An entry only in
+    ``before`` is reported as deleted.
     """
-    before_entries = bundle_entry_texts(adapter, before)
-    after_entries = bundle_entry_texts(adapter, after)
+    before_entries = adapter.entry_texts(before)
+    after_entries = adapter.entry_texts(after)
     diffs: list[PullResourceDiff] = []
     for source_id in sorted(before_entries.keys() | after_entries.keys()):
         old = before_entries.get(source_id)
         new = after_entries.get(source_id)
-        if old == new or (new is None and not include_deleted):
+        if old == new:
             continue
+        change_type: Literal["added", "modified", "deleted"]
+        title: str | None = None
+        if new is None:
+            change_type = "deleted"
+        else:
+            change_type = "added" if old is None else "modified"
+            title = _resource_title(spec, adapter=adapter, source_id=source_id)
         diff, truncated = _unified_resource_diff(path=path, before=old, after=new or "")
         diffs.append(
             PullResourceDiff(
                 resource_type=adapter.resource_type.value,
                 source_id=source_id,
                 source_path=path,
-                change_type=(
-                    "deleted" if new is None else "added" if old is None else "modified"
-                ),
-                title=(
-                    None
-                    if new is None
-                    else _resource_title(spec, adapter=adapter, source_id=source_id)
-                ),
+                change_type=change_type,
+                title=title,
                 diff=diff,
                 truncated=truncated,
             )

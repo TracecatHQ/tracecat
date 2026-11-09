@@ -9,9 +9,13 @@ from collections.abc import Iterable
 from typing import Any, ClassVar
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-from tracecat.workspace_sync.adapters.base import FlatManifestAdapter, path_parts
+from tracecat.workspace_sync.adapters.base import (
+    FlatManifestAdapter,
+    ResourceAdapter,
+    path_parts,
+)
 from tracecat.workspace_sync.schemas import WorkspaceManifestResources
 
 BUNDLE_FORMAT_VERSION = 1
@@ -118,6 +122,40 @@ class BundledManifestAdapter(FlatManifestAdapter):
             raise BundleFormatError(f"Expected '{self.bundle_key}' to be a list")
         return entries
 
+    def readable_entries(self, content: str | None) -> list[Any]:
+        """Return a bundle's raw entries, or none when it is missing or invalid.
+
+        For callers that only look: the parser reports invalid bundles.
+        """
+        if content is None:
+            return []
+        try:
+            return self.load_bundle(content)
+        except BundleFormatError:
+            return []
+
+    def entry_texts(self, content: str | None) -> dict[str, str]:
+        """Return each bundle entry as YAML text keyed by ``id``, for diffs.
+
+        Entries without an ``id`` are skipped.
+        """
+        return {
+            source_id: yaml.safe_dump(entry, sort_keys=False, allow_unicode=True)
+            for entry in self.readable_entries(content)
+            if (source_id := bundle_entry_id(entry))
+        }
+
+    def entry_identity(self, entry: Any) -> tuple[str, ...] | None:
+        """Return a raw entry's import identity, such as its name.
+
+        An entry the spec model rejects has none; the next pull reports it.
+        """
+        try:
+            spec = self.model.model_validate(entry)
+        except ValidationError:
+            return None
+        return self.import_identity(spec)
+
 
 def bundle_entry_id(entry: Any) -> str:
     """Return a raw bundle entry's ``id``, or ``""`` when it has none."""
@@ -126,3 +164,8 @@ def bundle_entry_id(entry: Any) -> str:
             return source_id
         case _:
             return ""
+
+
+def is_bundle_location(adapter: ResourceAdapter, path: str) -> bool:
+    """Return whether ``path``, a location of ``adapter``'s type, is a bundle."""
+    return isinstance(adapter, BundledManifestAdapter) and adapter.is_bundle_file(path)

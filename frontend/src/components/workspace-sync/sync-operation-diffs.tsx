@@ -324,7 +324,7 @@ function OperationDiffList({
   )
 }
 
-/** Counts added and removed lines in a unified diff, skipping file headers. */
+/** Returns the `source_path` values that more than one diff shares. */
 function pathsUsedMoreThanOnce(diffs: OperationDiff[]): Set<string> {
   const seen = new Set<string>()
   const shared = new Set<string>()
@@ -337,6 +337,7 @@ function pathsUsedMoreThanOnce(diffs: OperationDiff[]): Set<string> {
   return shared
 }
 
+/** Counts added and removed lines in a unified diff, skipping file headers. */
 export function countDiffLines(diff: string): {
   additions: number
   deletions: number
