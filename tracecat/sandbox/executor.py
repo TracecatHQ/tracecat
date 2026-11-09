@@ -1,5 +1,6 @@
 """nsjail executor for sandboxed Python execution."""
 
+import asyncio
 import itertools
 import os
 import re
@@ -11,6 +12,7 @@ from typing import Literal
 
 from opentelemetry.trace import Span
 
+from tracecat.concurrency import rejoin_future_through_cancellation
 from tracecat.config import (
     TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
     TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
@@ -26,7 +28,11 @@ from tracecat.observability.otel import platform_span, record_platform_span
 from tracecat.sandbox.exceptions import (
     SandboxValidationError,
 )
-from tracecat.sandbox.networking import resolve_sandbox_network_plan
+from tracecat.sandbox.netns_pool import SharedNetns
+from tracecat.sandbox.networking import (
+    SandboxNetworkPlan,
+    resolve_sandbox_network_plan,
+)
 from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess, invoke_nsjail
 from tracecat.sandbox.result_envelope import (
     ResultEnvelopeOutcome,
@@ -157,6 +163,7 @@ _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
 }
 _WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
 _WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
+_WORKLOAD_DONE_MARKER = b"\x00tracecat-workload-done\x00"
 _FAILURE_STDERR_TAIL_CHARS = 8192
 _NSJAIL_LOG_LINE_PATTERN = re.compile(r"^\[[A-Z]\]\[")
 
@@ -260,6 +267,27 @@ def _record_runner_phase_spans(
                 end_time_ns=end,
                 attributes={"tracecat.timing.source": "runner"},
             )
+
+
+def _decode_action_outcome(
+    job_dir: Path, completed: NsjailCompletedProcess, start_time: float
+) -> ResultEnvelopeOutcome | None:
+    """Decode the action's result.json through the typed envelope."""
+    with platform_span("tracecat.action.sandbox.read_result"):
+        return decode_result_envelope(
+            job_dir,
+            output_key="result",
+            stdout=completed.stdout.decode("utf-8", errors="replace"),
+            stderr=completed.stderr.decode("utf-8", errors="replace"),
+            stderr_limit=2000,
+            invalid_result_error="Action sandbox produced an invalid result file",
+            log_label="action",
+            exit_code=completed.returncode,
+            execution_time_ms=(time.time() - start_time) * 1000,
+            max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+            stream_source="process",
+            include_error_code=True,
+        )
 
 
 def _usable_result(
@@ -412,6 +440,9 @@ class NsjailExecutor:
         self.cache_dir = Path(cache_dir)
         self.cgroup_mount = cgroup_mount
         self.package_cache = self.cache_dir / "packages"
+        # Set by execute_action when it returned before NsJail exited. The jail
+        # still uses its job dir, mounts and network until this completes.
+        self.pending_finish: asyncio.Task[NsjailCompletedProcess] | None = None
 
     def _build_config(
         self,
@@ -912,12 +943,16 @@ class NsjailExecutor:
         self,
         job_dir: Path,
         config: ActionSandboxConfig,
+        shared_netns: SharedNetns | None = None,
     ) -> str:
         """Build nsjail protobuf config for action execution.
 
         Args:
             job_dir: Directory containing input.json (mounted at /work).
             config: Action sandbox configuration.
+            shared_netns: A leased network namespace to join instead of creating
+                one. nsjail then runs inside the holder's user namespace, so the
+                jail maps onto the executor's uid there.
 
         Returns:
             nsjail protobuf configuration as a string.
@@ -942,7 +977,15 @@ class NsjailExecutor:
                 "action_gateway_socket_mount_path",
             )
 
-        network_plan = resolve_sandbox_network_plan(job_dir, config.network)
+        if shared_netns is None:
+            network_plan = resolve_sandbox_network_plan(job_dir, config.network)
+            outside_uid, outside_gid = os.getuid(), os.getgid()
+        else:
+            # The holder runs NSTUN; the jail only needs the matching resolvers.
+            network_plan = SandboxNetworkPlan(
+                dns_mount_lines=shared_netns.dns_mount_lines
+            )
+            outside_uid = outside_gid = shared_netns.inside_id
 
         lines = [
             'name: "action_sandbox"',
@@ -951,7 +994,7 @@ class NsjailExecutor:
             "keep_env: false",
             "",
             "# Namespace isolation",
-            "clone_newnet: true",
+            f"clone_newnet: {'true' if shared_netns is None else 'false'}",
             "clone_newuser: true",
             "clone_newns: true",
             "clone_newpid: true",
@@ -959,8 +1002,8 @@ class NsjailExecutor:
             "clone_newuts: true",
             "",
             "# UID/GID mapping - map container user to current user",
-            f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
-            f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
+            f'uidmap {{ inside_id: "1000" outside_id: "{outside_uid}" count: 1 }}',
+            f'gidmap {{ inside_id: "1000" outside_id: "{outside_gid}" count: 1 }}',
             "",
             "# Syscall filtering",
             f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
@@ -1112,12 +1155,15 @@ class NsjailExecutor:
         self,
         job_dir: Path,
         config: ActionSandboxConfig,
+        shared_netns: SharedNetns | None = None,
     ) -> SandboxResult:
         """Execute a registry action inside the nsjail sandbox.
 
         Args:
             job_dir: Directory containing input.json (will be mounted at /work).
             config: Action sandbox configuration.
+            shared_netns: A leased network namespace to join instead of
+                creating one; it must carry the policy ``config.network`` asks for.
 
         Returns:
             SandboxResult with execution outcome.
@@ -1126,7 +1172,7 @@ class NsjailExecutor:
         start_time = time.time()
 
         # Generate nsjail config for action execution
-        nsjail_config = self._build_action_config(job_dir, config)
+        nsjail_config = self._build_action_config(job_dir, config, shared_netns)
         env_map = self._build_action_env_map(config)
 
         logger.debug(
@@ -1148,9 +1194,38 @@ class NsjailExecutor:
                 workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
                 workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
                 workload_started_marker=_WORKLOAD_STARTED_MARKER,
+                workload_done_marker=_WORKLOAD_DONE_MARKER,
+                command_prefix=(
+                    shared_netns.command_prefix() if shared_netns is not None else ()
+                ),
+                extra_pass_fds=(
+                    shared_netns.pass_fds() if shared_netns is not None else ()
+                ),
             )
-        returncode = completed.returncode
 
+        if completed.finish is not None:
+            # The runner reported done before NsJail exited. Return a valid
+            # result now and let the caller wait out the teardown; anything else
+            # (a forged marker, a partial file) waits for the exit and is
+            # classified as before.
+            early_result: SandboxResult | None = None
+            try:
+                outcome = _decode_action_outcome(job_dir, completed, start_time)
+                if outcome is not None and outcome.valid_envelope:
+                    early_result = _usable_result(outcome, completed)
+                    _record_runner_phase_spans(
+                        process_span, outcome.result.phase_marks, completed
+                    )
+            except BaseException:
+                # Never leave a running jail without an owner.
+                await rejoin_future_through_cancellation(completed.finish)
+                raise
+            if early_result is not None:
+                self.pending_finish = completed.finish
+                return early_result
+            completed = await completed.finish
+
+        returncode = completed.returncode
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = completed.stdout.decode("utf-8", errors="replace")
         stderr = completed.stderr.decode("utf-8", errors="replace")
@@ -1161,21 +1236,7 @@ class NsjailExecutor:
         result_path = job_dir / "result.json"
         result_file_exists = result_path.exists()
         workload_started = completed.workload_started
-        with platform_span("tracecat.action.sandbox.read_result"):
-            outcome = decode_result_envelope(
-                job_dir,
-                output_key="result",
-                stdout=stdout,
-                stderr=stderr,
-                stderr_limit=2000,
-                invalid_result_error="Action sandbox produced an invalid result file",
-                log_label="action",
-                exit_code=returncode,
-                execution_time_ms=execution_time_ms,
-                max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
-                stream_source="process",
-                include_error_code=True,
-            )
+        outcome = _decode_action_outcome(job_dir, completed, start_time)
         if outcome is not None:
             _record_runner_phase_spans(
                 process_span, outcome.result.phase_marks, completed
