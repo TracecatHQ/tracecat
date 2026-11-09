@@ -48,6 +48,7 @@ from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
 )
+from tracecat.workspace_sync.adapters.base import path_segment
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.layout import ResourcePathIndex
 from tracecat.workspace_sync.schemas import (
@@ -135,13 +136,21 @@ def file_names_by_resource(
             if not adapter.is_bundle_file(path) or path not in projection.files:
                 continue
             # Patterns written before bundling may name the per-resource file
-            # by id or by readable name, so both stay aliases. The readable
-            # one is dropped when it is another resource's id path, so an id
+            # by id or by readable name, plain or collision-suffixed
+            # (``<name>-<source id>``), so those stay aliases. A readable one
+            # is dropped when it is another resource's id path, so an id
             # pattern still names one resource.
-            id_path = adapter.legacy_id_path(source_id)
-            readable = adapter.path_for_key(adapter.path_key(source_id, spec))
-            owner = owners_by_id_path.get(readable.casefold(), source_id)
-            aliases = (id_path, readable) if owner == source_id else (id_path,)
+            path_key = adapter.path_key(source_id, spec)
+            readable = [
+                adapter.path_for_key(path_key),
+                adapter.path_for_key(f"{path_key}-{path_segment(source_id)}"),
+            ]
+            aliases = [adapter.legacy_id_path(source_id)]
+            aliases.extend(
+                alias
+                for alias in readable
+                if owners_by_id_path.get(alias.casefold(), source_id) == source_id
+            )
             names = dict.fromkeys((path, *aliases))
             key = PackageResourceKey(adapter.resource_type, source_id)
             grouped[key].append(tuple(names))

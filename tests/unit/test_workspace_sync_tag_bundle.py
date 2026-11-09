@@ -269,7 +269,8 @@ def test_partial_push_refuses_a_name_another_branch_tag_holds() -> None:
     with pytest.raises(PushPathConflictError) as exc_info:
         merge_base_bundles(pushed, base, owned_roots=[])
 
-    assert exc_info.value.locations == [BUNDLE]
+    # The shared path alone would not say which tag clashed.
+    assert exc_info.value.locations == [f"{BUNDLE} (Urgent)"]
 
 
 def test_partial_push_refuses_a_name_a_leftover_tag_file_holds() -> None:
@@ -367,6 +368,8 @@ def test_readable_alias_never_takes_another_tags_id_path() -> None:
         ("case_tags/urgent.yml", {"urgent"}),
         # Hand-written before bundling, by readable name.
         ("case_tags/Urgent.yml", {"urgent"}),
+        # The per-tag planner's collision-suffixed readable name.
+        ("case_tags/Urgent-urgent.yml", {"urgent"}),
         ("case_tags/**", {"urgent", "phishing"}),
         ("case_tags/**\n!case_tags/Urgent.yml", {"phishing"}),
     ],

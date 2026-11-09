@@ -304,9 +304,10 @@ def merge_base_bundles(
         pushed_identities = {
             _entry_identity(adapter, entry) for entry in pushed_entries
         }
+        # A shared bundle path alone does not say which resource clashed.
         conflicts = sorted(
             {
-                location
+                f"{location} ({'/'.join(identity)})" if location == path else location
                 for location, entry in others
                 if (identity := _entry_identity(adapter, entry)) is not None
                 and identity in pushed_identities
