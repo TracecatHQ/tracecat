@@ -1023,6 +1023,11 @@ class BundledManifestAdapter(FlatManifestAdapter):
 
         ``version`` and ``type`` are left out: the bundle header implies them,
         and the spec model fills them back in on parse.
+
+        The entry is an untyped dict on purpose. It is the JSON dump of
+        whichever spec model the subclass declares, including unknown fields
+        that model keeps (``extra="allow"``), so no single ``TypedDict``
+        describes it. It is only ever written to YAML, never read as fields.
         """
         return spec.model_dump(
             mode="json", exclude_none=True, exclude={"version", "type"}
