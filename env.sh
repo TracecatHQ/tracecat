@@ -70,11 +70,6 @@ echo -e "${YELLOW}Generating a Fernet encryption key for the database...${NC}"
 # Use a cross-platform base64 command (works on both Linux and macOS)
 db_fernet_key=$(openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_')
 
-echo -e "${YELLOW}Generating passwords for the migrator and app database roles...${NC}"
-# Hex only: the values go through sed and a connection URI unescaped.
-db_migrator_password=$(openssl rand -hex 32)
-db_app_password=$(openssl rand -hex 32)
-
 echo -e "${YELLOW}Creating new .env from .env.example...${NC}"
 cp .env.example .env
 
@@ -83,13 +78,6 @@ dotenv_replace "TRACECAT__SERVICE_KEY" "$service_key" "$env_file"
 dotenv_replace "TRACECAT__SIGNING_SECRET" "$signing_secret" "$env_file"
 dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
 dotenv_replace "USER_AUTH_SECRET" "$user_auth_secret" "$env_file"
-# The migrations container creates the roles; the app then logs in as `app`.
-# Escaped: .env keeps the references, which Compose expands.
-dotenv_replace "TRACECAT__DB_ADMIN_URI" 'postgresql+psycopg://\${TRACECAT__POSTGRES_USER}:\${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres' "$env_file"
-dotenv_replace "TRACECAT__DB_MIGRATOR_PASSWORD" "$db_migrator_password" "$env_file"
-dotenv_replace "TRACECAT__DB_APP_PASSWORD" "$db_app_password" "$env_file"
-# A reference, so rotating TRACECAT__DB_APP_PASSWORD rotates the app's login too.
-dotenv_replace "TRACECAT__DB_URI" 'postgresql+psycopg://app:\${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres' "$env_file"
 
 # Prompt user for environment mode
 while true; do
