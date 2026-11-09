@@ -87,6 +87,10 @@ from tracecat.api.common import (
     tracecat_exception_handler,
     without_inputs,
 )
+from tracecat.api.extensions import (
+    include_api_extension_routers,
+    spawn_api_extension_tasks,
+)
 from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import (
     authenticated_user_only,
@@ -333,6 +337,8 @@ async def lifespan(app: FastAPI):
             start_invitation_email_consumer,
             name="invitation_email_consumer",
         )
+
+    spawn_api_extension_tasks(supervisor)
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -650,6 +656,56 @@ def _users_router() -> APIRouter:
     return users_router
 
 
+class HealthResponse(BaseModel):
+    status: str
+
+
+def root() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+class AppInfo(BaseModel):
+    version: str
+    public_app_url: str
+    auth_allowed_types: list[AuthType]
+    saml_enabled: bool
+    saml_enforced: bool
+    ee_multi_tenant: bool
+
+
+async def info(session: AsyncDBSessionBypass) -> AppInfo:
+    """Non-sensitive information about the platform, for frontend configuration."""
+
+    keys = {"saml_enabled", "saml_enforced"}
+
+    # Use default organization for platform-level settings.
+    # Org-specific auth routing is handled by the /auth/discover endpoint.
+    org_id = await get_default_organization_id(session)
+    role = bootstrap_role(org_id)
+    await set_rls_context_from_role(session, role)
+    service = SettingsService(session, role=role)
+    settings = await service.list_org_settings(keys=keys)
+    keyvalues = {s.key: service.get_value(s) for s in settings}
+    for key in keys:
+        override_val = get_setting_override(key)
+        if override_val is not None:
+            keyvalues[key] = override_val
+        else:
+            keyvalues[key] = keyvalues.get(key, False)
+    return AppInfo(
+        version=APP_VERSION,
+        public_app_url=config.TRACECAT__PUBLIC_APP_URL,
+        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
+        saml_enabled=keyvalues["saml_enabled"],
+        saml_enforced=keyvalues["saml_enforced"],
+        ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
+    )
+
+
+async def check_health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -862,6 +918,12 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
+    # Built-ins mount before extensions so the shadow check covers them.
+    app.add_api_route("/", root, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/info", info, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/health", check_health, methods=["GET"], tags=["public"])
+    include_api_extension_routers(app)
+
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(
@@ -922,56 +984,3 @@ def create_app(**kwargs) -> FastAPI:
 
 initialize_api_sentry_from_environment()
 app = create_app()
-
-
-class HealthResponse(BaseModel):
-    status: str
-
-
-@app.get("/", include_in_schema=False)
-def root() -> HealthResponse:
-    return HealthResponse(status="ok")
-
-
-class AppInfo(BaseModel):
-    version: str
-    public_app_url: str
-    auth_allowed_types: list[AuthType]
-    saml_enabled: bool
-    saml_enforced: bool
-    ee_multi_tenant: bool
-
-
-@app.get("/info", include_in_schema=False)
-async def info(session: AsyncDBSessionBypass) -> AppInfo:
-    """Non-sensitive information about the platform, for frontend configuration."""
-
-    keys = {"saml_enabled", "saml_enforced"}
-
-    # Use default organization for platform-level settings.
-    # Org-specific auth routing is handled by the /auth/discover endpoint.
-    org_id = await get_default_organization_id(session)
-    role = bootstrap_role(org_id)
-    await set_rls_context_from_role(session, role)
-    service = SettingsService(session, role=role)
-    settings = await service.list_org_settings(keys=keys)
-    keyvalues = {s.key: service.get_value(s) for s in settings}
-    for key in keys:
-        override_val = get_setting_override(key)
-        if override_val is not None:
-            keyvalues[key] = override_val
-        else:
-            keyvalues[key] = keyvalues.get(key, False)
-    return AppInfo(
-        version=APP_VERSION,
-        public_app_url=config.TRACECAT__PUBLIC_APP_URL,
-        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
-        saml_enabled=keyvalues["saml_enabled"],
-        saml_enforced=keyvalues["saml_enforced"],
-        ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
-    )
-
-
-@app.get("/health", tags=["public"])
-async def check_health() -> HealthResponse:
-    return HealthResponse(status="ok")
