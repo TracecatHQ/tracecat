@@ -1027,7 +1027,8 @@ class BundledManifestAdapter(FlatManifestAdapter):
         The entry is an untyped dict on purpose. It is the JSON dump of
         whichever spec model the subclass declares, including unknown fields
         that model keeps (``extra="allow"``), so no single ``TypedDict``
-        describes it. It is only ever written to YAML, never read as fields.
+        describes it. Sorting and partial-push merging read its ``id`` and
+        import identity fields, such as ``name``; the rest is opaque.
         """
         return spec.model_dump(
             mode="json", exclude_none=True, exclude={"version", "type"}
