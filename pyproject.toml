@@ -105,9 +105,6 @@ members = ["packages/*"]
 [tool.uv]
 # Supply-chain cooldown: only resolve releases published at least 7 days ago.
 exclude-newer = "7 days"
-# Security fixes allowed inside the cooldown; each is also pinned exactly.
-# Remove on or after 2026-11-02: once the 7-day cutoff passes, these block upgrades.
-exclude-newer-package = { virtualenv = "2026-10-23T00:00:00Z" }
 # Keep overrides only for requirements that conflict with our pinned versions.
 override-dependencies = [
     # LiteLLM requires boto3>=1.43.1,<2.0; aioboto3 pins boto3<1.40.62.
@@ -121,7 +118,8 @@ constraint-dependencies = [
     "fickling==0.1.12",
     "mako==1.4.2",
     "pillow==13.0.0",
-    "pyasn1==0.6.4",
+    "oauthlib==4.0.1",
+    "pyasn1==0.6.5",
     "python-multipart==0.0.31",
     "urllib3==2.8.0",
     "virtualenv==21.14.13",
