@@ -343,15 +343,18 @@ TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 
 def _parse_db_auth() -> DbAuth:
     raw_mode = (os.environ.get("TRACECAT__DB_AUTH_MODE") or "password").strip().lower()
+    # Don't echo the value, not even as the enum's chained error: a credential
+    # pasted into the wrong variable would end up in the logs. So the error is
+    # raised outside the except block.
     try:
-        mode = DbAuthMode(raw_mode)
-    except ValueError as e:
-        raise ValueError(
-            # Don't echo the value: a credential pasted into the wrong
-            # variable would end up in the logs.
-            f"TRACECAT__DB_AUTH_MODE must be one of {', '.join(DbAuthMode)}"
-        ) from e
+        mode: DbAuthMode | None = DbAuthMode(raw_mode)
+    except ValueError:
+        mode = None
     match mode:
+        case None:
+            raise ValueError(
+                f"TRACECAT__DB_AUTH_MODE must be one of {', '.join(DbAuthMode)}"
+            )
         case DbAuthMode.PASSWORD:
             return DbPasswordAuth()
         case DbAuthMode.AZURE_ENTRA:

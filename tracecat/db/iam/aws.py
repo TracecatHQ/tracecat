@@ -12,11 +12,22 @@ import asyncio
 import threading
 import time
 from collections.abc import Callable
+from typing import Protocol
 
 import boto3
 
 from tracecat.db.exceptions import DatabaseCredentialUnavailableError
 from tracecat.db.iam.types import DbAwsIamAuth
+
+
+class RdsClient(Protocol):
+    """The part of boto3's RDS client used here (types-boto3 has no RDS stubs)."""
+
+    def generate_db_auth_token(
+        self, DBHostname: str, Port: int, DBUsername: str, Region: str | None = None
+    ) -> str: ...
+
+    def close(self) -> None: ...
 
 
 class RdsIamTokenProvider:
@@ -37,8 +48,10 @@ class RdsIamTokenProvider:
     ) -> None:
         self._auth = auth
         self._username = username
-        aws_session = session or boto3.Session(region_name=auth.region)
-        self._client = aws_session.client("rds", region_name=auth.region)
+        self._session = session
+        # Created on first use, off the event loop: creating it can resolve
+        # credentials over the network (container or Pod Identity endpoint).
+        self._client: RdsClient | None = None
         self._clock = clock
         self._lock = threading.Lock()
         self._token: str | None = None
@@ -60,7 +73,14 @@ class RdsIamTokenProvider:
             if (token := self._cached()) is not None:
                 return token
             try:
-                token = self._client.generate_db_auth_token(
+                if (client := self._client) is None:
+                    session = self._session or boto3.Session(
+                        region_name=self._auth.region
+                    )
+                    client = self._client = session.client(
+                        "rds", region_name=self._auth.region
+                    )
+                token = client.generate_db_auth_token(
                     DBHostname=self._auth.host,
                     Port=self._auth.port,
                     DBUsername=self._username,
@@ -82,4 +102,6 @@ class RdsIamTokenProvider:
         return await asyncio.to_thread(self.mint)
 
     async def aclose(self) -> None:
-        self._client.close()
+        if (client := self._client) is not None:
+            self._client = None
+            client.close()

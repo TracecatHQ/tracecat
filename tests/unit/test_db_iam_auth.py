@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from types import TracebackType
 from typing import Any, Self
@@ -23,6 +24,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.db import engine as db_engine
 from tracecat.db.exceptions import DatabaseCredentialUnavailableError
+from tracecat.db.iam import aws as db_aws
 from tracecat.db.iam import azure as db_azure
 from tracecat.db.iam.aws import RdsIamTokenProvider
 from tracecat.db.iam.azure import (
@@ -61,6 +63,9 @@ class _Clock:
 class _FakeRdsClient:
     def __init__(self, sign: Callable[..., str]) -> None:
         self.generate_db_auth_token = sign
+
+    def close(self) -> None:
+        pass
 
 
 # --- AWS ---
@@ -111,6 +116,30 @@ async def test_rds_provider_is_an_async_password_callable() -> None:
     first = await provider()
     assert first.startswith("db.abc123.us-east-1.rds.amazonaws.com:5432/?")
     assert await provider() == first  # cached
+    await provider.aclose()
+
+
+@pytest.mark.anyio
+async def test_rds_client_is_created_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Creating the client can resolve credentials over the network."""
+    threads: list[str] = []
+
+    class Session:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def client(self, *args: Any, **kwargs: Any) -> _FakeRdsClient:
+            threads.append(threading.current_thread().name)
+            return _FakeRdsClient(lambda **_: "token")
+
+    monkeypatch.setattr(db_aws.boto3, "Session", Session)
+
+    provider = RdsIamTokenProvider(AWS_AUTH, "app")
+    assert threads == []
+    assert await provider() == "token"
+    assert threads and threads[0] != threading.main_thread().name
     await provider.aclose()
 
 
@@ -420,7 +449,8 @@ def test_valid_token_config_imports() -> None:
     ("env", "message"),
     [
         (
-            {"TRACECAT__DB_AUTH_MODE": "iam"},
+            # A credential pasted into the wrong variable is never echoed.
+            {"TRACECAT__DB_AUTH_MODE": "leftover-credential"},
             "TRACECAT__DB_AUTH_MODE must be one of",
         ),
         (
