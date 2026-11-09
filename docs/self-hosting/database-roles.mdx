@@ -31,7 +31,7 @@ docker run --rm -i \
 ```
 
 - `TRACECAT__DB_ADMIN_URI`: the admin's connection URI for the Tracecat database, for example `postgresql://postgres:<password>@db.example.com:5432/tracecat`.
-- `--login`: how `app`, `migrator` and `agent_runtime` log in. `password` sets the passwords from `TRACECAT__DB_MIGRATOR_PASSWORD` and `TRACECAT__DB_APP_PASSWORD` (and `TRACECAT__DB_AGENT_RUNTIME_PASSWORD` if set). `aws_iam` grants `rds_iam` instead, so the roles log in with IAM tokens. `azure_entra` expects you to create the roles first with `pgaadauth_create_principal_with_oid`.
+- `--login`: how `app`, `migrator` and `agent_runtime` log in. `password` sets the passwords from `TRACECAT__DB_MIGRATOR_PASSWORD` and `TRACECAT__DB_APP_PASSWORD` (and `TRACECAT__DB_AGENT_RUNTIME_PASSWORD` if set). `aws_iam` grants `rds_iam` instead, so the roles log in with IAM tokens; leave the password variables unset. `azure_entra` expects you to create `migrator`, `app` and `agent_runtime` first, each mapped to the identity that logs in as it with `pgaadauth_create_principal_with_oid` (see [Database IAM login](/self-hosting/database-iam)); leave the password variables unset.
 
 Then give each part its login:
 
@@ -84,7 +84,7 @@ TRACECAT__DB_APP_PASSWORD=<letters and digits>
 TRACECAT__DB_MIGRATOR_URI=postgresql+psycopg://migrator:${TRACECAT__DB_MIGRATOR_PASSWORD}@postgres_db:5432/postgres
 ```
 
-On each start, the `migrations` container runs `tracecat db roles upgrade` as the admin, then the migrations as `migrator`. Once that has run, move the services to `app` with `TRACECAT__DB_URI=postgresql+psycopg://app:${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres`.
+On each start, the `migrations` container runs `tracecat db roles upgrade` as the admin, the migrations as `migrator`, then `upgrade` again (it installs the RLS guard once the schema exists). Until you change `TRACECAT__DB_URI`, the services keep logging in as the admin. Once the roles exist, move them to `app` with `TRACECAT__DB_URI=postgresql+psycopg://app:${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres`, and keep the variables above set: the next start needs them for role setup.
 
 ### Kubernetes
 
@@ -98,9 +98,18 @@ The Fargate stack runs Tracecat as one database user. Database roles aren't avai
 
 Give people their own login and the `tracecat_readonly` role. As the admin:
 
+On RDS, with IAM login:
+
 ```sql
 CREATE ROLE alice LOGIN;
-GRANT rds_iam TO alice;  -- on RDS, to log in with IAM tokens; elsewhere set a PASSWORD instead
+GRANT rds_iam TO alice;
+GRANT tracecat_readonly TO alice;
+```
+
+Elsewhere, with a password (`\password alice` in psql sets it without sending it in plaintext):
+
+```sql
+CREATE ROLE alice LOGIN;
 GRANT tracecat_readonly TO alice;
 ```
 

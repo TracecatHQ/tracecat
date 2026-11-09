@@ -467,8 +467,8 @@ TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
 ``status``) only.
 
 A superuser or a ``CREATEROLE`` role such as the RDS master. Never give it to
-app components or the migrations: ``tracecat db roles migrate`` logs in as
-``migrator`` and doesn't read it.
+app components. ``tracecat db roles migrate`` logs in as ``migrator`` and
+doesn't read it (Compose's migrations service has it for its role setup step).
 """
 TRACECAT__DB_MIGRATOR_PASSWORD = (
     os.environ.get("TRACECAT__DB_MIGRATOR_PASSWORD") or None

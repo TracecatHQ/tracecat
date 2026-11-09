@@ -779,10 +779,18 @@ services:
         if [ -n "$${TRACECAT__DB_ROLE_LOGIN}" ]; then
           python3 -m tracecat.db.roles upgrade --login "$${TRACECAT__DB_ROLE_LOGIN}"
         fi
-        if [ -n "$${TRACECAT__DB_MIGRATOR_URI}" ]; then
-          export TRACECAT__DB_URI="$${TRACECAT__DB_MIGRATOR_URI}"
+        # The migrations get migrator's login only, never the admin's.
+        (
+          unset TRACECAT__DB_ADMIN_URI TRACECAT__DB_MIGRATOR_PASSWORD TRACECAT__DB_APP_PASSWORD
+          if [ -n "$${TRACECAT__DB_MIGRATOR_URI}" ]; then
+            export TRACECAT__DB_URI="$${TRACECAT__DB_MIGRATOR_URI}"
+          fi
+          exec python3 -m tracecat.db.roles migrate
+        )
+        # Again once the schema exists: installs the dynamic-table RLS guard on a new install.
+        if [ -n "$${TRACECAT__DB_ROLE_LOGIN}" ]; then
+          python3 -m tracecat.db.roles upgrade --login "$${TRACECAT__DB_ROLE_LOGIN}"
         fi
-        exec python3 -m tracecat.db.roles migrate
     depends_on:
       postgres_db:
         condition: service_healthy

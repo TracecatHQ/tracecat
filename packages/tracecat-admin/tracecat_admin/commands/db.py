@@ -25,7 +25,11 @@ def roles(ctx: typer.Context) -> None:
     try:
         # Imported on use: the rest of the CLI runs without the tracecat package.
         module = importlib.import_module(ROLES_MODULE)
-    except ImportError:
+    except ModuleNotFoundError as exc:
+        # Only a missing tracecat package; anything else it imports failing
+        # is a real error, so let it surface.
+        if exc.name not in ("tracecat", "tracecat.db", ROLES_MODULE):
+            raise
         print_error(
             escape(
                 "tracecat db roles needs the tracecat package: run it from the "

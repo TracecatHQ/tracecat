@@ -28,11 +28,20 @@ class _RolesModule(ModuleType):
         return self.code
 
 
-def test_roles_forwards_every_argument(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["upgrade", "--login", "aws_iam", "--from", "tracecat"],
+        ["bootstrap", "--login", "password", "--sql"],
+    ],
+    ids=["upgrade", "bootstrap-sql"],
+)
+def test_roles_forwards_every_argument(
+    monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
     """Options the CLI doesn't know (--login, --from, --sql) reach the script."""
     fake = _RolesModule(code=3)
     monkeypatch.setattr(db.importlib, "import_module", lambda name: fake)
-    args = ["upgrade", "--login", "aws_iam", "--from", "tracecat"]
     result = runner.invoke(app, ["db", "roles", *args])
     assert fake.calls == [args]
     assert result.exit_code == 3
@@ -50,12 +59,24 @@ def test_roles_explains_a_missing_tracecat_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def missing(name: str) -> ModuleType:
-        raise ModuleNotFoundError(name)
+        raise ModuleNotFoundError(name, name="tracecat")
 
     monkeypatch.setattr(db.importlib, "import_module", missing)
     result = runner.invoke(app, ["db", "roles", "status"])
     assert result.exit_code == 1
     assert "tracecat-admin[bootstrap]" in result.stderr
+
+
+def test_roles_surfaces_other_import_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dependency of the script failing to import isn't a missing tracecat."""
+
+    def broken(name: str) -> ModuleType:
+        raise ModuleNotFoundError("No module named 'psycopg'", name="psycopg")
+
+    monkeypatch.setattr(db.importlib, "import_module", broken)
+    result = runner.invoke(app, ["db", "roles", "status"])
+    assert isinstance(result.exception, ModuleNotFoundError)
+    assert "tracecat-admin[bootstrap]" not in result.stderr
 
 
 def test_roles_runs_the_real_script() -> None:
