@@ -25,6 +25,7 @@ from tracecat.auth.saml import login as saml_login
 from tracecat.auth.saml import sso_acs
 from tracecat.auth.types import Role
 from tracecat.auth.users import UserManager
+from tracecat.cases.durations.sync_queue import sync_workspace_case_durations_inline
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.contexts import ctx_role
 from tracecat.db import rls as rls_module
@@ -441,6 +442,7 @@ def test_registry_sync_startup_uses_bypass_session_manager() -> None:
         get_workspace_organization_id_activity,
         get_registry_artifacts_for_lock,
         _load_manifest_entry,
+        sync_workspace_case_durations_inline,
     ],
 )
 def test_tenant_scoped_system_code_uses_tenant_session(

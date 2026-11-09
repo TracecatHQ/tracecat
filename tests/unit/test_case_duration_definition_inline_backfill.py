@@ -33,6 +33,10 @@ async def test_after_commit_inline_backfill_syncs_each_case_under_lock(
         fake_session_context,
     )
     monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.get_async_session_tenant_context_manager",
+        lambda **_kwargs: fake_session_context(),
+    )
+    monkeypatch.setattr(
         "tracecat.cases.durations.materialization.sync_case_duration",
         sync_mock,
     )

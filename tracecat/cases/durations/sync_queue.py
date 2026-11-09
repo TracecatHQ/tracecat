@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.cases.durations.reconciliation import CaseDurationBackfills
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    get_async_session_tenant_context_manager,
+)
 from tracecat.db.models import Case, CaseDurationDefinition, Workspace
 from tracecat.db.session_events import AfterCommitQueue
 from tracecat.logger import logger
@@ -122,7 +125,9 @@ async def enqueue_case_duration_backfill_for_orgs(
             # Local import: materialization imports this module at import time.
             from tracecat.cases.durations.materialization import sync_case_duration
 
-            async with get_async_session_bypass_rls_context_manager() as session:
+            async with get_async_session_tenant_context_manager(
+                workspace_id=workspace_id
+            ) as session:
                 stmt = (
                     select(Case.id)
                     .where(Case.workspace_id == workspace_id)
@@ -217,7 +222,9 @@ async def sync_workspace_case_durations_inline(*, workspace_id: uuid.UUID) -> bo
     # Local import: materialization imports this module at import time.
     from tracecat.cases.durations.materialization import sync_case_duration
 
-    async with get_async_session_bypass_rls_context_manager() as session:
+    async with get_async_session_tenant_context_manager(
+        workspace_id=workspace_id
+    ) as session:
         stmt = (
             select(Case.id)
             .where(Case.workspace_id == workspace_id)
