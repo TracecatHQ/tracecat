@@ -100,7 +100,7 @@ See [SAML configuration](/authentication/saml) for provider-specific setup instr
   <Accordion title="Can I use an external PostgreSQL or Redis?">
     Yes. Update `TRACECAT__DB_URI` to point to your managed PostgreSQL 15 or newer instance and `REDIS_URL` for Redis. For Temporal, update the Temporal PostgreSQL credentials in your `.env` file.
 
-    The migrations container sets up database roles through `TRACECAT__DB_ADMIN_URI`, which `env.sh` points at the bundled PostgreSQL. Set it to an admin connection for the same external instance, or clear it to keep a single database user. Migrations run against the database it names.
+    Database role setup is off by default, so Tracecat uses the single database user in `TRACECAT__DB_URI`. To turn it on, set `TRACECAT__DB_ADMIN_URI` to an admin connection for the same instance, plus `TRACECAT__DB_MIGRATOR_PASSWORD` and (with the default password login) `TRACECAT__DB_APP_PASSWORD`. Without them the migrations container exits with an error. Migrations then run against the database `TRACECAT__DB_ADMIN_URI` names.
 
     See [Security](/self-hosting/security) for production credential recommendations.
   </Accordion>

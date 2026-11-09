@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
+from tracecat.managed_resources.include import PACKAGE_INCLUDE_FILENAME
 from tracecat.registry.repositories.schemas import (
     GitBranchInfo,
     GitCommitInfo,
@@ -15,6 +16,7 @@ from tracecat.registry.repositories.schemas import (
 )
 from tracecat.sync import CommitInfo, PushStatus
 from tracecat.workspace_sync.enums import VcsProvider
+from tracecat.workspace_sync.schemas import MANIFEST_FILENAME
 from tracecat.workspace_sync.tags import (
     TAG_PAGE_MAX,
     decode_tag_cursor,
@@ -25,6 +27,7 @@ from tracecat.workspace_sync.transport import (
     VcsTreeSnapshot,
     sync_commit_message,
 )
+from tracecat.workspace_sync.types import SyncCommitConflictError
 
 
 @dataclass
@@ -91,6 +94,7 @@ class FakeVcsTransport:
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         repo = self._server._repo(url)
         if ref_kind == "branch":
@@ -99,10 +103,18 @@ class FakeVcsTransport:
             commit = repo._commits[ref]
         else:
             commit = repo.commit_at_ref(ref)
+        # Like the real readers: every path is listed, but only the manifest,
+        # the include file, and filtered resource files have contents.
         return VcsTreeSnapshot(
             commit_sha=commit.sha,
             tree_sha=commit.tree_sha,
-            files=dict(commit.files),
+            files={
+                path: content
+                for path, content in commit.files.items()
+                if resource_filter is None
+                or path in (MANIFEST_FILENAME, PACKAGE_INCLUDE_FILENAME)
+                or resource_filter(path)
+            },
             blob_paths=frozenset(commit.files),
         )
 
@@ -132,7 +144,7 @@ class FakeVcsTransport:
             expected_commit_sha
             and repo.commit_at_ref(target).sha != expected_commit_sha
         ):
-            raise TracecatValidationError("Target branch changed; create a new preview")
+            raise SyncCommitConflictError("Target branch changed; create a new preview")
         commit = repo.write_files(
             files=files,
             message=sync_commit_message(message, operation_id),

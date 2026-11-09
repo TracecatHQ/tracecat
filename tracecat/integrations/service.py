@@ -58,7 +58,11 @@ from tracecat.db.models import (
     WorkspaceOAuthProvider,
 )
 from tracecat.dsl.client import get_temporal_client
-from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entries,
@@ -4193,7 +4197,7 @@ class IntegrationService(BaseWorkspaceService):
             for_update=True,
         )
         if mcp_integration is None:
-            raise ValueError("MCP integration not found")
+            raise TracecatNotFoundError("MCP integration not found")
 
         merge_base_tools = (
             previous_tools if previous_tools is not None else mcp_integration.tools
@@ -4359,11 +4363,19 @@ class IntegrationService(BaseWorkspaceService):
                 error=e.error or e.message,
             )
 
-        merged_tools = await self.persist_mcp_integration_tools(
-            mcp_integration_id=mcp_integration.id,
-            discovered_tools=tools,
-            previous_tools=previous_tools,
-        )
+        try:
+            merged_tools = await self.persist_mcp_integration_tools(
+                mcp_integration_id=mcp_integration.id,
+                discovered_tools=tools,
+                previous_tools=previous_tools,
+            )
+        except TracecatNotFoundError:
+            # The row can be deleted while the probe runs unlocked.
+            return await self._record_mcp_verification_failure(
+                mcp_integration,
+                message="MCP integration not found",
+                error="MCP integration was deleted during verification",
+            )
         self.logger.info(
             "MCP integration verified",
             mcp_integration_id=str(mcp_integration.id),

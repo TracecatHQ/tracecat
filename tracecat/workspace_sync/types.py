@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from tracecat.exceptions import TracecatValidationError
+from tracecat.workspace_sync.enums import SyncResourceType
 
 if TYPE_CHECKING:
     from tracecat.agent.catalog.types import ModelKey
@@ -17,6 +19,7 @@ if TYPE_CHECKING:
         PullResult,
         SecretStoreMappingRequirement,
     )
+    from tracecat.workspace_sync.adapters.base import ResourceAdapter
     from tracecat.workspace_sync.schemas import (
         AgentPresetResourceSpec,
         McpIntegrationHint,
@@ -24,7 +27,32 @@ if TYPE_CHECKING:
         WorkflowResourceSpec,
         WorkspaceProjection,
         WorkspaceRemoteSnapshot,
+        WorkspaceSpec,
     )
+    from tracecat.workspace_sync.transport import VcsTreeSnapshot
+
+
+type ResourcePathMap = dict[SyncResourceType, dict[str, str]]
+"""Repository path of each resource, by type then source id."""
+
+type PathsByType = Mapping[SyncResourceType, Mapping[str, str]]
+"""Read-only view of a :data:`ResourcePathMap`, for function parameters."""
+
+
+type ResourceLocations = dict[SyncResourceType, dict[str, list[str]]]
+"""Every primary file path found for each resource, by type then source id.
+
+Usually one path per resource. A broken repository can hold the same ``id``
+in several files, for example after two unmerged renames.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class PathOwner:
+    """The resource a repository path belongs to."""
+
+    adapter: ResourceAdapter
+    source_id: str
 
 
 class CorrelatedAgentPresets(NamedTuple):
@@ -151,6 +179,26 @@ class PushProjection:
     delete_roots: tuple[str, ...]
     package_include: str | None = None
     """Include file text when the push is a managed resources package export."""
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedWorkspaceFiles:
+    """Resources parsed from repository files, and where each one was found."""
+
+    spec: WorkspaceSpec
+    diagnostics: list[PullDiagnostic]
+    paths: ResourcePathMap
+    """Primary file path each resource was read from, by type then source id."""
+
+
+@dataclass(frozen=True, slots=True)
+class PushBase:
+    """The branch tree a push writes onto."""
+
+    ref: str
+    """Branch name the push starts from: its target, or that branch's base."""
+    tree: VcsTreeSnapshot
+    """Resource files at that branch head."""
 
 
 @dataclass(frozen=True, slots=True)

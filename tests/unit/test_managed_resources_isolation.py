@@ -84,10 +84,10 @@ async def test_customer_push_leaves_out_managed_resources_but_keeps_references(
     assert result.commit.sha is not None
     files = fake_vcs.repo_files(GIT_URL, ref=result.commit.sha)
     workflow_files = {path for path in files if path.startswith("workflows/")}
-    assert "workflows/qa-child/definition.yml" not in workflow_files
-    assert "workflows/qa-root/definition.yml" in workflow_files
+    assert "workflows/qa-child-enrichment/definition.yml" not in workflow_files
+    assert "workflows/qa-root-orchestrator/definition.yml" in workflow_files
     # The customer workflow still calls the managed child by alias.
-    assert "qa-child" in files["workflows/qa-root/definition.yml"]
+    assert "qa-child" in files["workflows/qa-root-orchestrator/definition.yml"]
 
 
 @pytest.mark.anyio

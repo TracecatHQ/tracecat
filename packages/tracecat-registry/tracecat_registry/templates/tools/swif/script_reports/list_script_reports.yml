@@ -1,0 +1,160 @@
+type: action
+definition:
+  title: List script reports
+  description: >-
+    Search and filter stored results of scripts and osquery commands run on managed devices,
+    for threat hunting and fleet-wide evidence collection. Each report contains the command
+    or osquery SQL, the raw response, device, owner, team, status, and timestamps. Reports are
+    retained for up to 90 days. Calls GET /restful/organization/api/v1/script-reports.
+  display_group: Swif.ai (UEM)
+  doc_url: https://help.swif.ai/en/articles/14188336-public-apis-fetch-script-execution-reports
+  namespace: tools.swif
+  name: list_script_reports
+  secrets:
+    - name: swif
+      keys: ["SWIF_API_KEY"]
+  expects:
+    teamId:
+      type: str | None
+      description: Exact match on team ID (24-character MongoID).
+      default: null
+    deviceId:
+      type: str | None
+      description: Exact match on Swif device ID (24-character MongoID).
+      default: null
+    mdmDeviceId:
+      type: str | None
+      description: Case-insensitive partial match on MDM device ID.
+      default: null
+    deviceName:
+      type: str | None
+      description: Case-insensitive partial match on device name.
+      default: null
+    ownerId:
+      type: str | None
+      description: Exact match on device owner ID (24-character MongoID).
+      default: null
+    ownerName:
+      type: str | None
+      description: Case-insensitive partial match on device owner name.
+      default: null
+    ownerEmail:
+      type: str | None
+      description: Case-insensitive partial match on device owner email.
+      default: null
+    serialNumber:
+      type: str | None
+      description: Case-insensitive partial match on device serial number.
+      default: null
+    commandId:
+      type: str | None
+      description: Case-insensitive partial match on command execution ID.
+      default: null
+    commandTemplateId:
+      type: str | None
+      description: >-
+        Case-insensitive partial match on command template ID, for example an osquery command
+        template.
+      default: null
+    commandName:
+      type: str | None
+      description: Case-insensitive partial match on command display name.
+      default: null
+    commandType:
+      type: str | None
+      description: Case-insensitive partial match on command type, for example SCRIPT.
+      default: null
+    command:
+      type: str | None
+      description: Case-insensitive partial match on the raw command, script, or osquery SQL text.
+      default: null
+    response:
+      type: str | None
+      description: >-
+        Case-insensitive partial match on the raw command output, for example an indicator such
+        as a file hash, process name, or extension ID.
+      default: null
+    status:
+      type: int | None
+      description: Exact match on the integer execution status code.
+      default: null
+    startedAtFrom:
+      type: str | None
+      description: ISO 8601 lower bound on startedAt.
+      default: null
+    startedAtTo:
+      type: str | None
+      description: ISO 8601 upper bound on startedAt.
+      default: null
+    completedAtFrom:
+      type: str | None
+      description: ISO 8601 lower bound on completedAt.
+      default: null
+    completedAtTo:
+      type: str | None
+      description: ISO 8601 upper bound on completedAt.
+      default: null
+    collectedAtFrom:
+      type: str | None
+      description: >-
+        ISO 8601 lower bound on collectedAt. Use the last collectedAt seen to poll for new
+        reports.
+      default: null
+    collectedAtTo:
+      type: str | None
+      description: ISO 8601 upper bound on collectedAt.
+      default: null
+    search:
+      type: str | None
+      description: >-
+        Case-insensitive keyword search across team name, device, owner, serial number, command
+        ID, template, name, type, command text, and response.
+      default: null
+    offset:
+      type: int | None
+      description: Number of records to skip. Negative values are treated as 0.
+      default: null
+    limit:
+      type: int | None
+      description: Page size. Values of 0 or less default to 20; the maximum is 200.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Swif API base URL. Defaults to https://api.swifteam.com (global tenants). Use
+        https://api.eu.swifteam.com for EU tenants.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.swif.base_url || "https://api.swifteam.com" }}/restful/organization/api/v1/script-reports
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.swif.SWIF_API_KEY }}
+        params:
+          teamId: ${{ inputs.teamId }}
+          deviceId: ${{ inputs.deviceId }}
+          mdmDeviceId: ${{ inputs.mdmDeviceId }}
+          deviceName: ${{ inputs.deviceName }}
+          ownerId: ${{ inputs.ownerId }}
+          ownerName: ${{ inputs.ownerName }}
+          ownerEmail: ${{ inputs.ownerEmail }}
+          serialNumber: ${{ inputs.serialNumber }}
+          commandId: ${{ inputs.commandId }}
+          commandTemplateId: ${{ inputs.commandTemplateId }}
+          commandName: ${{ inputs.commandName }}
+          commandType: ${{ inputs.commandType }}
+          command: ${{ inputs.command }}
+          response: ${{ inputs.response }}
+          status: ${{ inputs.status }}
+          startedAtFrom: ${{ inputs.startedAtFrom }}
+          startedAtTo: ${{ inputs.startedAtTo }}
+          completedAtFrom: ${{ inputs.completedAtFrom }}
+          completedAtTo: ${{ inputs.completedAtTo }}
+          collectedAtFrom: ${{ inputs.collectedAtFrom }}
+          collectedAtTo: ${{ inputs.collectedAtTo }}
+          search: ${{ inputs.search }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.request.result }}

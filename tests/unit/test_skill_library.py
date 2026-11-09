@@ -68,6 +68,7 @@ from tracecat.workspace_sync.adapters import AGENT_PRESET_RESOURCE_ADAPTER
 from tracecat.workspace_sync.adapters.agent_preset import AgentPresetAdapter
 from tracecat.workspace_sync.adapters.base import SyncMappingService
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
+from tracecat.workspace_sync.layout import plan_resource_paths
 from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
     WorkspaceManifest,
@@ -513,7 +514,9 @@ async def test_sync_preview_blocks_only_unknown_library_skills() -> None:
     )
 
     diagnostics = await AgentPresetAdapter().library_skill_diagnostics(
-        workspace_service, presets
+        workspace_service,
+        presets,
+        paths=plan_resource_paths(WorkspaceSpec(agent_presets=presets)),
     )
 
     assert [(d.workflow_title, d.error_type) for d in diagnostics] == [
