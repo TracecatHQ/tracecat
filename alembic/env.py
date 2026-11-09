@@ -2,14 +2,16 @@ import json
 import logging
 import os
 from logging.config import fileConfig
-from urllib.parse import quote_plus
 
 import alembic_postgresql_enum
 import boto3
-from sqlalchemy import engine_from_config, make_url, pool
+from sqlalchemy import URL, engine_from_config, make_url, pool
 
 from alembic import context
+from tracecat import config as tracecat_config
 from tracecat.db import models  # noqa: F401
+from tracecat.db.iam.tokens import mint_token
+from tracecat.db.iam.types import DbPasswordAuth
 from tracecat.db.migration_lock import (
     acquire_migration_advisory_lock,
     release_migration_advisory_lock,
@@ -31,8 +33,13 @@ if not TRACECAT__DB_URI:
     database = os.getenv("TRACECAT__DB_NAME", "postgres")
     sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
 
+    if not isinstance(auth := tracecat_config.TRACECAT__DB_AUTH, DbPasswordAuth):
+        # One token for this run: alembic opens a single connection at start,
+        # and Postgres checks the token only at login.
+        logging.info("Signing a database token (%s)", auth.mode)
+        password = mint_token(auth, str(username))
     # Check if in AWS environment
-    if arn := os.getenv("TRACECAT__DB_PASS__ARN"):
+    elif arn := os.getenv("TRACECAT__DB_PASS__ARN"):
         logging.info("Fetching database password from AWS Secrets Manager")
         session = boto3.Session()
         client = session.client("secretsmanager")
@@ -52,12 +59,17 @@ if not TRACECAT__DB_URI:
         logging.info("Fetching database password from environment variable")
         password = os.getenv("TRACECAT__DB_PASS")
 
-    user = quote_plus("" if username is None else str(username))
-    pwd = quote_plus("" if password is None else str(password))
-    TRACECAT__DB_URI = (
-        f"postgresql+psycopg://{user}:{pwd}@{host}:{port!s}/{database}"
-        f"?sslmode={sslmode}"
-    )
+    # URL.create escapes the credentials: quote_plus would turn a space in an
+    # Entra role name into "+", which SQLAlchemy doesn't decode.
+    TRACECAT__DB_URI = URL.create(
+        "postgresql+psycopg",
+        username="" if username is None else str(username),
+        password="" if password is None else str(password),
+        host=host,
+        port=int(port),
+        database=database,
+        query={"sslmode": sslmode},
+    ).render_as_string(hide_password=False)
 
 
 # this is the Alembic Config object, which provides

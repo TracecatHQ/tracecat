@@ -117,6 +117,10 @@ This setting applies only to the bundled Temporal RDS instance. It requires a DB
 
 If you are using Temporal Cloud or another external Temporal cluster, set `disable_temporal_autosetup=true` and point `temporal_cluster_url` at your external cluster. In that setup, `temporal_db_force_ssl` is typically unused because the bundled Temporal RDS instance is not created. If you run your own external Temporal PostgreSQL and want SSL-only enforcement there, set `TF_VAR_temporal_db_force_ssl=true`.
 
+## Database login
+
+The Fargate deployment logs Tracecat in to RDS with a password from Secrets Manager. [Database IAM login](/self-hosting/database-iam) describes RDS IAM token login, which the Fargate Terraform doesn't configure yet.
+
 ## AWS role assumption
 
 The executor assumes the role from the `AWS_ROLE_ARN` key in a workflow's protected `aws` or `amazon_s3` secret, or from an external secret store, using its ECS task role. By default, `executor_deny_same_account_assume_role` denies that `sts:AssumeRole` call for any role in the deployment's own AWS account. Create your AWS integration roles in a different account.
