@@ -2096,7 +2096,7 @@ class WorkspaceSyncService(SyncMappingService):
         # serialization, and labels; the service owns comparing the full
         # current projection against the incoming repository snapshot.
         for path, target_content in sorted(target_files.items()):
-            if bundled := _bundled_adapter_for(path):
+            if bundled := _bundled_adapter_for(path, target_paths):
                 # Only incoming entries: a pull never deletes local-only tags.
                 diffs.extend(
                     _bundle_resource_diffs(
@@ -3437,10 +3437,21 @@ def _unified_resource_diff(
     return "\n".join(lines), truncated
 
 
-def _bundled_adapter_for(path: str) -> BundledManifestAdapter | None:
-    """Return the bundled resource type whose bundle file ``path`` is."""
+def _bundled_adapter_for(
+    path: str, paths: PathsByType | None = None
+) -> BundledManifestAdapter | None:
+    """Return the bundled resource type whose bundle file ``path`` is.
+
+    Pushes write bundles under the default roots. ``paths`` adds the bundles
+    resources were read from, such as one under a manifest-declared root.
+    """
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-        if isinstance(adapter, BundledManifestAdapter) and path == adapter.bundle_path:
+        if not isinstance(adapter, BundledManifestAdapter):
+            continue
+        if path == adapter.bundle_path:
+            return adapter
+        type_paths = (paths or {}).get(adapter.resource_type, {})
+        if adapter.is_bundle_file(path) and path in type_paths.values():
             return adapter
     return None
 

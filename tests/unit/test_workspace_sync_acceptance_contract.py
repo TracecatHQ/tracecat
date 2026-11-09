@@ -1905,6 +1905,39 @@ async def test_case_tags_move_into_one_bundle_and_partial_pushes_keep_others(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("root", [f"{CASE_TAG_ROOT}/", "config/tags/"])
+async def test_pull_preview_diffs_bundled_tags_under_any_manifest_root(
+    session: AsyncSession,
+    svc_role: Role,
+    root: str,
+) -> None:
+    """A renamed tag shows in the pull preview wherever the manifest puts tags."""
+    session.add(
+        CaseTag(workspace_id=svc_role.workspace_id, ref="urgent", name="Urgent")
+    )
+    await session.flush()
+    manifest = WorkspaceManifest.model_validate({"resources": {"case_tags": root}})
+    bundle_path = f"{root}_all.yml"
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        {
+            MANIFEST_FILENAME: canonical_json_text(manifest),
+            bundle_path: _yaml(
+                {"version": 1, "tags": [{"id": "urgent", "name": "Urgent v2"}]}
+            ),
+        },
+        commit_sha="e" * 40,
+    )
+    assert diagnostics == []
+
+    diffs = await service._resource_diffs_for_pull(snapshot, sync_schedules=False)
+
+    assert [(diff.source_id, diff.change_type, diff.source_path) for diff in diffs] == [
+        ("urgent", "modified", bundle_path)
+    ]
+
+
+@pytest.mark.anyio
 async def test_agent_preset_only_export_lazily_includes_dependency_closure(
     session: AsyncSession,
     svc_role: Role,

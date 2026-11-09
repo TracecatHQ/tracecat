@@ -998,6 +998,9 @@ class BundledManifestAdapter(FlatManifestAdapter):
 
     def bundle_path_in(self, roots: WorkspaceManifestResources) -> str:
         """Return the bundle path under the root a manifest declares."""
+        # ``getattr``: each adapter names its manifest root field by
+        # ``spec_attr``, a ``WorkspaceSpecField`` literal, so the field is
+        # only known per subclass. Other path helpers here look it up the same way.
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
         return "/".join([*root_parts, self.bundle_filename])
 
