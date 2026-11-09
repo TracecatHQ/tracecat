@@ -796,15 +796,15 @@ async def test_build_config_prefers_pinned_preset_version_id(
     execute_activity_mock.assert_awaited_once()
     assert execute_activity_mock.await_args is not None
     activity_input = execute_activity_mock.await_args.args[1]
-    expected_type = (
-        ResolveAgentConfigActivityInput
-        if patched
-        else ResolveAgentPresetConfigActivityInput
-    )
-    assert type(activity_input) is expected_type
-    assert workflow_instance._config_source(workflow_args) == AgentPresetRef(
-        preset_version_id=pinned_version_id
-    )
+    expected_preset = AgentPresetRef(preset_version_id=pinned_version_id)
+    if patched:
+        assert isinstance(activity_input, ResolveAgentConfigActivityInput)
+        assert activity_input.source == expected_preset
+    else:
+        assert type(activity_input) is ResolveAgentPresetConfigActivityInput
+        assert activity_input.preset_version_id == pinned_version_id
+        assert activity_input.preset_slug is None
+        assert activity_input.preset_version is None
     assert cfg.model_name == pinned_config.model_name
     assert cfg.model_provider == pinned_config.model_provider
     assert cfg.actions == ["core.http_request"]
