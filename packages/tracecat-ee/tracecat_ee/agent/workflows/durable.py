@@ -647,18 +647,6 @@ class DurableAgentWorkflow:
             has_base_url=bool(cfg.base_url),
         )
 
-    async def _resolve_config(
-        self, source: ResolveAgentConfigActivityInput
-    ) -> AgentConfig:
-        # Local: runs on this worker, so a rolling deploy never misses it.
-        payload = await workflow.execute_local_activity(
-            resolve_agent_config_activity,
-            source,
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RETRY_POLICIES["activity:fail_slow"],
-        )
-        return agent_config_from_payload(payload)
-
     def _config_source(
         self, args: AgentWorkflowArgs
     ) -> AgentPresetRef | AgentConfigPayload:
@@ -673,14 +661,19 @@ class DurableAgentWorkflow:
             return agent_config_to_payload(args.agent_args.config)
         raise_application_error_from_classification(invalid_agent_configuration())
 
-    async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
-        source = self._config_source(args)
+    async def _resolve_config(
+        self, source: AgentPresetRef | AgentConfigPayload
+    ) -> AgentConfig:
         if workflow.patched(DurableAgentWorkflowPatch.RESOLVE_AGENT_CONFIG):
-            cfg = await self._resolve_config(
-                ResolveAgentConfigActivityInput(role=self.role, source=source)
+            # Local: runs on this worker, so a rolling deploy never misses it.
+            payload = await workflow.execute_local_activity(
+                resolve_agent_config_activity,
+                ResolveAgentConfigActivityInput(role=self.role, source=source),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         elif isinstance(source, AgentPresetRef):
-            preset_config_payload = await workflow.execute_activity(
+            payload = await workflow.execute_activity(
                 resolve_agent_preset_config_activity,
                 ResolveAgentPresetConfigActivityInput(
                     role=self.role, **source.model_dump()
@@ -688,10 +681,14 @@ class DurableAgentWorkflow:
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-            cfg = agent_config_from_payload(preset_config_payload)
         else:
-            cfg = agent_config_from_payload(source)
+            # Pre-patch histories ran inline configs as given.
+            payload = source
+        return agent_config_from_payload(payload)
 
+    async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
+        source = self._config_source(args)
+        cfg = await self._resolve_config(source)
         if isinstance(source, AgentPresetRef):
             # When using a preset, the 'config' in args acts as an override layer
             cfg = apply_preset_overrides(cfg, args.agent_args.config)

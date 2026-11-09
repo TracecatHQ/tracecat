@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import assert_never
 
 import sqlalchemy as sa
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -125,6 +126,8 @@ async def resolve_agent_config_activity(
                     return await _apply_model_replacement(
                         service.session, args.role, config
                     )
+                case unreachable:
+                    assert_never(unreachable)
     except AgentProviderCredentialsNotFoundError as exc:
         raise_application_error_from_classification(
             agent_provider_credentials_missing(exc)

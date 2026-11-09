@@ -30,6 +30,7 @@ from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import (
     AgentPresetRef,
     ResolveAgentConfigActivityInput,
+    ResolveAgentPresetConfigActivityInput,
 )
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.session.activities import FinalizeTurnInput, FinalizeTurnResult
@@ -795,15 +796,15 @@ async def test_build_config_prefers_pinned_preset_version_id(
     execute_activity_mock.assert_awaited_once()
     assert execute_activity_mock.await_args is not None
     activity_input = execute_activity_mock.await_args.args[1]
-    preset = (
-        activity_input.source
-        if isinstance(activity_input, ResolveAgentConfigActivityInput)
-        else activity_input
+    expected_type = (
+        ResolveAgentConfigActivityInput
+        if patched
+        else ResolveAgentPresetConfigActivityInput
     )
-    assert isinstance(preset, AgentPresetRef)
-    assert preset.preset_version_id == pinned_version_id
-    assert preset.preset_slug is None
-    assert preset.preset_version is None
+    assert type(activity_input) is expected_type
+    assert workflow_instance._config_source(workflow_args) == AgentPresetRef(
+        preset_version_id=pinned_version_id
+    )
     assert cfg.model_name == pinned_config.model_name
     assert cfg.model_provider == pinned_config.model_provider
     assert cfg.actions == ["core.http_request"]
