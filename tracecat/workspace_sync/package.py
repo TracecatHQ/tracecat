@@ -125,14 +125,24 @@ def file_names_by_resource(
     index = ResourcePathIndex(projection.paths)
     grouped: dict[PackageResourceKey, list[tuple[str, ...]]] = defaultdict(list)
     for adapter in BUNDLED_RESOURCE_ADAPTERS:
-        for source_id, spec in adapter.specs(projection.spec).items():
+        specs = adapter.specs(projection.spec)
+        owners_by_id_path = {
+            adapter.legacy_id_path(source_id).casefold(): source_id
+            for source_id in specs
+        }
+        for source_id, spec in specs.items():
             path = adapter.path_in(projection.paths, source_id)
             if not adapter.is_bundle_file(path) or path not in projection.files:
                 continue
             # Patterns written before bundling may name the per-resource file
-            # by id or by readable name, so both stay aliases.
+            # by id or by readable name, so both stay aliases. The readable
+            # one is dropped when it is another resource's id path, so an id
+            # pattern still names one resource.
+            id_path = adapter.legacy_id_path(source_id)
             readable = adapter.path_for_key(adapter.path_key(source_id, spec))
-            names = dict.fromkeys((path, adapter.legacy_id_path(source_id), readable))
+            owner = owners_by_id_path.get(readable.casefold(), source_id)
+            aliases = (id_path, readable) if owner == source_id else (id_path,)
+            names = dict.fromkeys((path, *aliases))
             key = PackageResourceKey(adapter.resource_type, source_id)
             grouped[key].append(tuple(names))
     for path in sorted(projection.files):

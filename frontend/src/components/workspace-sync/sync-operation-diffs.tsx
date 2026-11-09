@@ -258,6 +258,8 @@ function OperationDiffList({
   const { diffs, isLoading, error, hasMore, isLoadingMore, loadMore } =
     useOperationDiffs(workspaceId, operationId)
   const source = { workspaceId, operationId }
+  // Bundled resources, such as case tags, share one file; name each one.
+  const sharedPaths = pathsUsedMoreThanOnce(diffs)
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
@@ -289,6 +291,12 @@ function OperationDiffList({
                   <ChangeIcon changeType={diff.change_type} />
                   <span className="min-w-0 flex-1 truncate font-mono text-xs">
                     {diff.source_path}
+                    {sharedPaths.has(diff.source_path) && (
+                      <span className="font-sans text-muted-foreground">
+                        {" "}
+                        · {diff.title ?? diff.source_id}
+                      </span>
+                    )}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {isOpen ? "Hide diff" : "View diff"}
@@ -317,6 +325,18 @@ function OperationDiffList({
 }
 
 /** Counts added and removed lines in a unified diff, skipping file headers. */
+function pathsUsedMoreThanOnce(diffs: OperationDiff[]): Set<string> {
+  const seen = new Set<string>()
+  const shared = new Set<string>()
+  for (const diff of diffs) {
+    if (seen.has(diff.source_path)) {
+      shared.add(diff.source_path)
+    }
+    seen.add(diff.source_path)
+  }
+  return shared
+}
+
 export function countDiffLines(diff: string): {
   additions: number
   deletions: number

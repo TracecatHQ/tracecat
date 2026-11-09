@@ -272,6 +272,33 @@ def test_partial_push_refuses_a_name_another_branch_tag_holds() -> None:
     assert exc_info.value.locations == [BUNDLE]
 
 
+def test_partial_push_refuses_a_name_a_leftover_tag_file_holds() -> None:
+    # The branch still has a file from before bundling for another tag with
+    # the pushed tag's name. Separate files used to conflict on this path.
+    pushed = _serialize(_tags(_tag("urgent", "Urgent")))
+    base = {"case_tags/Urgent.yml": serialize_yaml_model(_tag("foo", "Urgent"))}
+
+    with pytest.raises(PushPathConflictError) as exc_info:
+        merge_base_bundles(pushed, base, owned_roots=[])
+
+    assert exc_info.value.locations == ["case_tags/Urgent.yml"]
+
+
+def test_partial_push_moves_its_own_leftover_file_without_a_conflict() -> None:
+    pushed = _serialize(_tags(_tag("urgent", "Urgent")))
+    base = {"case_tags/Urgent.yml": serialize_yaml_model(_tag("urgent", "Urgent"))}
+
+    assert merge_base_bundles(pushed, base, owned_roots=[]) == pushed
+
+
+def test_partial_push_refuses_a_bundle_it_could_not_read_as_text() -> None:
+    # Transports list non-UTF-8 files but leave out their contents.
+    pushed = _serialize(_tags(_tag("urgent", "Urgent")))
+
+    with pytest.raises(PushBundleUnreadableError):
+        merge_base_bundles(pushed, {}, owned_roots=[], base_paths={BUNDLE})
+
+
 def test_partial_push_refuses_to_overwrite_an_unreadable_bundle() -> None:
     pushed = _serialize(_tags(_tag("urgent", "Urgent")))
 
@@ -311,6 +338,26 @@ def test_bundle_path_has_no_single_owner() -> None:
     paths = plan_resource_paths(_tags(_tag("a", "A"), _tag("b", "B")))
 
     assert ResourcePathIndex(paths).owner(BUNDLE) is None
+
+
+def test_readable_alias_never_takes_another_tags_id_path() -> None:
+    # "Critical" was mapped as "urgent" before a rename; a new tag named
+    # "urgent" got the id "urgent-2". The picker's pattern for "Critical"
+    # must not also select the new tag.
+    spec = _tags(_tag("urgent", "Critical"), _tag("urgent-2", "urgent"))
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(),
+        spec=spec,
+        files=_serialize(spec),
+        paths=plan_resource_paths(spec),
+    )
+
+    matched = matched_resources(
+        parse_package_include("case_tags/urgent.yml"),
+        file_names_by_resource(projection),
+    )
+
+    assert matched == {PackageResourceKey(CASE_TAG, "urgent")}
 
 
 @pytest.mark.parametrize(

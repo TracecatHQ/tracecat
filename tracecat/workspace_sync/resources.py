@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from typing import Any, NamedTuple
 
 import yaml
@@ -242,6 +249,7 @@ def merge_base_bundles(
     base_files: Mapping[str, str],
     *,
     owned_roots: Sequence[str],
+    base_paths: Collection[str] = (),
 ) -> dict[str, str]:
     """Keep the base tree's other bundled resources in the bundles a push writes.
 
@@ -251,22 +259,32 @@ def merge_base_bundles(
     A push that owns the bundle's folder, such as a full push, replaces the
     bundle instead: resources it does not write are meant to be deleted.
 
+    Args:
+        files: What the push writes.
+        base_files: Text contents read from the base tree.
+        owned_roots: Roots the push deletes stale files under.
+        base_paths: Every file in the base tree, when known. A bundle listed
+            here but missing from ``base_files`` could not be read as text.
+
     Raises:
         PushBundleUnreadableError: The base bundle is not a valid bundle file,
             so its other entries cannot be kept.
-        PushPathConflictError: A kept entry has the same name as a pushed
-            one, such as a tag a teammate pushed that was never pulled here.
+        PushPathConflictError: A resource the push keeps, in the bundle or in
+            a file from before bundling, has the same name as a pushed one,
+            such as a tag a teammate pushed that was never pulled here.
     """
     merged = dict(files)
     roots = normalized_path_roots(owned_roots)
     for adapter in BUNDLED_RESOURCE_ADAPTERS:
         path = adapter.bundle_path
         pushed = files.get(path)
-        base = base_files.get(path)
-        if pushed is None or base is None or path_is_under_roots(path, roots):
+        if pushed is None or path_is_under_roots(path, roots):
             continue
+        base = base_files.get(path)
+        if base is None and path in base_paths:
+            raise PushBundleUnreadableError(path)
         try:
-            base_entries = adapter.load_bundle(base)
+            base_entries = [] if base is None else adapter.load_bundle(base)
         except BundleFormatError as e:
             raise PushBundleUnreadableError(path) from e
         pushed_entries = adapter.load_bundle(pushed)
@@ -274,20 +292,50 @@ def merge_base_bundles(
         kept = [
             entry for entry in base_entries if bundle_entry_id(entry) not in pushed_ids
         ]
-        # A kept entry with a pushed entry's name would make the next pull
-        # fail on a duplicate name. Separate files used to conflict on path.
+        # A kept resource with a pushed resource's name would make the next
+        # pull fail on a duplicate name. Separate files used to conflict on
+        # path. Files from before bundling stay unless the push moves them.
+        others = [(path, entry) for entry in kept]
+        others.extend(
+            (legacy_path, entry)
+            for legacy_path, entry in _legacy_entries(adapter, base_files)
+            if bundle_entry_id(entry) not in pushed_ids
+        )
         pushed_identities = {
             _entry_identity(adapter, entry) for entry in pushed_entries
         }
-        if any(
-            (identity := _entry_identity(adapter, entry)) is not None
-            and identity in pushed_identities
-            for entry in kept
-        ):
-            raise PushPathConflictError([path])
+        conflicts = sorted(
+            {
+                location
+                for location, entry in others
+                if (identity := _entry_identity(adapter, entry)) is not None
+                and identity in pushed_identities
+            }
+        )
+        if conflicts:
+            raise PushPathConflictError(conflicts)
         if kept:
             merged[path] = adapter.dump_bundle([*pushed_entries, *kept])
     return merged
+
+
+def _legacy_entries(
+    adapter: BundledManifestAdapter, base_files: Mapping[str, str]
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield each per-resource file from before bundling as a raw entry.
+
+    A file without an ``id`` takes its file name, as the parser does.
+    Unreadable files are skipped; the next pull reports them.
+    """
+    for path, content in sorted(base_files.items()):
+        if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
+            continue
+        try:
+            raw = yaml.safe_load(content)
+        except yaml.YAMLError:
+            continue
+        if isinstance(raw, dict):
+            yield path, {"id": path_key, **raw}
 
 
 def _entry_identity(

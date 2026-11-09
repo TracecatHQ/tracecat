@@ -3388,7 +3388,12 @@ def _with_base_bundles(
     """
     if base is None:
         return projection
-    files = merge_base_bundles(projection.files, base.files, owned_roots=delete_roots)
+    files = merge_base_bundles(
+        projection.files,
+        base.files,
+        owned_roots=delete_roots,
+        base_paths=base.blob_paths,
+    )
     if files == projection.files:
         return projection
     return projection.model_copy(update={"files": files})
