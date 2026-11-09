@@ -434,6 +434,38 @@ Default: `null`.
 
 </ParamField>
 
+## Get quarantined files
+
+Action ID: `tools.crowdstrike.get_quarantined_files`
+
+Get quarantined file metadata by ID. Requires the Quarantined Files: Read API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/quarantine/#getquarantinefiles](https://developer.crowdstrike.com/api-reference/collections/quarantine/#getquarantinefiles)
+
+### Input fields
+
+<ParamField path="ids" type="array[string]" required>
+
+Quarantined file IDs.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get RTR active responder command status
 
 Action ID: `tools.crowdstrike.get_rtr_active_responder_command_status`
@@ -514,6 +546,54 @@ Default: `0`.
 
 </ParamField>
 
+## Get RTR batch get command status
+
+Action ID: `tools.crowdstrike.get_rtr_batch_get_command_status`
+
+Get the status of an RTR batch get command, including the session ID and SHA256 of each retrieved file. Requires the Real time response: Write API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchgetcmdstatus](https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchgetcmdstatus)
+
+### Input fields
+
+<ParamField path="batch_get_cmd_req_id" type="string" required>
+
+Batch get command request ID from `run_rtr_batch_get_command`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout" type="integer | null">
+
+Seconds to wait for the request. Defaults to 30, maximum 600.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_duration" type="string | null">
+
+Timeout as a duration, for example `30s`. Maximum `10m`.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get RTR command status
 
 Action ID: `tools.crowdstrike.get_rtr_command_status`
@@ -551,6 +631,52 @@ Default: `null`.
 Sequence ID to retrieve. Command responses are chunked across sequences.
 
 Default: `0`.
+
+</ParamField>
+
+## Get RTR extracted file
+
+Action ID: `tools.crowdstrike.get_rtr_extracted_file`
+
+Download a file retrieved with the RTR `get` command. Returns `&#123;"content_base64": ...&#125;` containing the 7-Zip archive CrowdStrike returns. Files larger than the Tracecat file size limit are rejected. Requires the Real time response: Write API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-getextractedfilecontents](https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-getextractedfilecontents)
+
+### Input fields
+
+<ParamField path="session_id" type="string" required>
+
+RTR session ID the file was retrieved in.
+
+</ParamField>
+
+<ParamField path="sha256" type="string" required>
+
+SHA256 of the retrieved file.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filename" type="string | null">
+
+Name for the archive and the file inside it.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
 
 </ParamField>
 
@@ -1126,6 +1252,104 @@ Default: `null`.
 
 </ParamField>
 
+## List quarantined files
+
+Action ID: `tools.crowdstrike.list_quarantined_files`
+
+Search quarantined files and return their IDs. Use `get_quarantined_files` for details. Requires the Quarantined Files: Read API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/quarantine/#queryquarantinefiles](https://developer.crowdstrike.com/api-reference/collections/quarantine/#queryquarantinefiles)
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+FQL filter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of results to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="string | null">
+
+Offset to start from.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="q" type="string | null">
+
+Free-text search across all indexed fields.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Property and direction to sort by, for example `name.asc`.
+
+Default: `null`.
+
+</ParamField>
+
+## List RTR session files
+
+Action ID: `tools.crowdstrike.list_rtr_session_files`
+
+List the files retrieved with `get` in an RTR session, including their SHA256s. Requires the Real time response: Write API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-listfilesv2](https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-listfilesv2)
+
+### Input fields
+
+<ParamField path="session_id" type="string" required>
+
+RTR session ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
 ## List vulnerabilities
 
 Action ID: `tools.crowdstrike.list_vulnerabilities`
@@ -1291,6 +1515,328 @@ Default: `null`.
 Run the command when an offline host returns to service.
 
 Default: `false`.
+
+</ParamField>
+
+## Run RTR batch active responder command
+
+Action ID: `tools.crowdstrike.run_rtr_batch_active_responder_command`
+
+Run an active responder RTR command on every host in an RTR batch session and return each host's output. Requires the Real time response: Write API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchactiverespondercmd](https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchactiverespondercmd)
+
+### Input fields
+
+<ParamField path="base_command" type="string" required>
+
+Base command to run, for example `kill`.
+
+</ParamField>
+
+<ParamField path="batch_id" type="string" required>
+
+Batch ID from `tools.crowdstrike.start_rtr_batch_session`.
+
+</ParamField>
+
+<ParamField path="command_string" type="string" required>
+
+Full command string, including the base command and its arguments.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="host_timeout_duration" type="string | null">
+
+How long each host has to finish, for example `20s`. Must be less than the overall timeout.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="optional_hosts" type="array[string] | null">
+
+Subset of host AIDs in the batch to run the command on. Defaults to every host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="persist_all" type="boolean">
+
+Queue the command for hosts that are offline.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="timeout" type="integer | null">
+
+Seconds to wait for the request. Defaults to 30, maximum 600.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_duration" type="string | null">
+
+Timeout as a duration, for example `30s`. Maximum `10m`.
+
+Default: `null`.
+
+</ParamField>
+
+## Run RTR batch admin command
+
+Action ID: `tools.crowdstrike.run_rtr_batch_admin_command`
+
+Run an admin RTR command on every host in an RTR batch session and return each host's output. Requires the Real time response (admin): Write API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/real-time-response-admin/#batchadmincmd](https://developer.crowdstrike.com/api-reference/collections/real-time-response-admin/#batchadmincmd)
+
+### Input fields
+
+<ParamField path="base_command" type="string" required>
+
+Base command to run, for example `runscript`.
+
+</ParamField>
+
+<ParamField path="batch_id" type="string" required>
+
+Batch ID from `tools.crowdstrike.start_rtr_batch_session`.
+
+</ParamField>
+
+<ParamField path="command_string" type="string" required>
+
+Full command string, including the base command and its arguments.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="host_timeout_duration" type="string | null">
+
+How long each host has to finish, for example `20s`. Must be less than the overall timeout.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="optional_hosts" type="array[string] | null">
+
+Subset of host AIDs in the batch to run the command on. Defaults to every host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="persist_all" type="boolean">
+
+Queue the command for hosts that are offline.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="timeout" type="integer | null">
+
+Seconds to wait for the request. Defaults to 30, maximum 600.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_duration" type="string | null">
+
+Timeout as a duration, for example `30s`. Maximum `10m`.
+
+Default: `null`.
+
+</ParamField>
+
+## Run RTR batch command
+
+Action ID: `tools.crowdstrike.run_rtr_batch_command`
+
+Run a read-only RTR command on every host in an RTR batch session and return each host's output. Requires the Real time response: Read API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchcmd](https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchcmd)
+
+### Input fields
+
+<ParamField path="base_command" type="string" required>
+
+Base command to run, for example `ls`.
+
+</ParamField>
+
+<ParamField path="batch_id" type="string" required>
+
+Batch ID from `tools.crowdstrike.start_rtr_batch_session`.
+
+</ParamField>
+
+<ParamField path="command_string" type="string" required>
+
+Full command string, including the base command and its arguments.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="host_timeout_duration" type="string | null">
+
+How long each host has to finish, for example `20s`. Must be less than the overall timeout.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="optional_hosts" type="array[string] | null">
+
+Subset of host AIDs in the batch to run the command on. Defaults to every host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="persist_all" type="boolean">
+
+Queue the command for hosts that are offline.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="timeout" type="integer | null">
+
+Seconds to wait for the request. Defaults to 30, maximum 600.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_duration" type="string | null">
+
+Timeout as a duration, for example `30s`. Maximum `10m`.
+
+Default: `null`.
+
+</ParamField>
+
+## Run RTR batch get command
+
+Action ID: `tools.crowdstrike.run_rtr_batch_get_command`
+
+Retrieve a file from every host in an RTR batch session. Poll `get_rtr_batch_get_command_status` for the uploaded file SHA256s. Requires the Real time response: Write API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchgetcmd](https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchgetcmd)
+
+### Input fields
+
+<ParamField path="batch_id" type="string" required>
+
+Batch ID from `tools.crowdstrike.start_rtr_batch_session`.
+
+</ParamField>
+
+<ParamField path="file_path" type="string" required>
+
+Full path of the file to retrieve from each host.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="host_timeout_duration" type="string | null">
+
+How long each host has to finish, for example `20s`. Must be less than the overall timeout.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="optional_hosts" type="array[string] | null">
+
+Subset of host AIDs in the batch to retrieve from. Defaults to every host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout" type="integer | null">
+
+Seconds to wait for the request. Defaults to 30, maximum 600.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_duration" type="string | null">
+
+Timeout as a duration, for example `30s`. Maximum `10m`.
+
+Default: `null`.
 
 </ParamField>
 
@@ -1590,6 +2136,78 @@ Default: `"1d"`.
 
 </ParamField>
 
+## Start RTR batch session
+
+Action ID: `tools.crowdstrike.start_rtr_batch_session`
+
+Start Real Time Response sessions on many hosts at once and return a batch ID for the batch command actions. Keep it alive with `refresh_rtr_batch_session`. Requires the Real time response: Read API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchinitsessions](https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchinitsessions)
+
+### Input fields
+
+<ParamField path="host_ids" type="array[string]" required>
+
+Host AIDs to start sessions on.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="existing_batch_id" type="string | null">
+
+Existing batch ID to add the hosts to.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="host_timeout_duration" type="string | null">
+
+How long each host has to finish, for example `20s`. Must be less than the overall timeout.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="queue_offline" type="boolean">
+
+Queue commands for hosts that are offline.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="timeout" type="integer | null">
+
+Seconds to wait for the request. Defaults to 30, maximum 600.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_duration" type="string | null">
+
+Timeout as a duration, for example `30s`. Maximum `10m`.
+
+Default: `null`.
+
+</ParamField>
+
 ## Start RTR session
 
 Action ID: `tools.crowdstrike.start_rtr_session`
@@ -1813,6 +2431,52 @@ Falcon Grouping Tags, for example `FalconGroupingTags/quarantine`.
 <ParamField path="base_url" type="string | null">
 
 Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="member_cid" type="string | null">
+
+CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+
+Default: `null`.
+
+</ParamField>
+
+## Update quarantined files
+
+Action ID: `tools.crowdstrike.update_quarantined_files`
+
+Release, unrelease or permanently delete quarantined files by ID. Requires the Quarantined Files: Write API scope.
+
+Reference: [https://developer.crowdstrike.com/api-reference/collections/quarantine/#updatequarantineddetectsbyids](https://developer.crowdstrike.com/api-reference/collections/quarantine/#updatequarantineddetectsbyids)
+
+### Input fields
+
+<ParamField path="action" type="string" required>
+
+Action: `release`, `unrelease` or `delete`.
+
+</ParamField>
+
+<ParamField path="ids" type="array[string]" required>
+
+Quarantined file IDs.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable, then FalconPy's US-1 default.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="comment" type="string | null">
+
+Audit log comment.
 
 Default: `null`.
 
