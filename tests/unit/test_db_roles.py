@@ -2206,7 +2206,7 @@ def test_migrate_refuses_role_setup_without_login_credentials(
     [
         ("password", False, "TRACECAT__DB_ADMIN_URI is empty"),
         (None, True, "TRACECAT__DB_ROLE_LOGIN is empty"),
-        ("kerberos", True, "expected password, aws_iam or azure_entra"),
+        ("postgresql://admin:leaked@db.invalid/x", True, "has an unknown value"),
     ],
     ids=["login-without-admin", "admin-without-login", "unknown-login"],
 )
@@ -2228,7 +2228,7 @@ def test_migrate_stops_when_the_switch_and_the_admin_disagree(
         assert migrate(roles) == 1
         err = capsys.readouterr().err
         assert message in err
-        assert PASSWORD not in err
+        assert PASSWORD not in err and "leaked" not in err
         assert not any(_role_exists(name) for name in (*roles.logins, *roles.keyrings))
         assert _login_attributes("postgres") == before
         with psycopg.connect(_url("postgres", "postgres", database)) as conn:

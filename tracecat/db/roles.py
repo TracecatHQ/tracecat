@@ -843,10 +843,11 @@ def migrate(
     try:
         login = LoginMethod(login_setting)
     except ValueError:
+        # Don't echo the value: a credential pasted into the wrong variable
+        # would end up in the deploy logs.
         print(
-            "error: TRACECAT__DB_ROLE_LOGIN is "
-            f"{_printable(login_setting)}; expected password, aws_iam or "
-            "azure_entra.",
+            "error: TRACECAT__DB_ROLE_LOGIN has an unknown value; expected "
+            "password, aws_iam or azure_entra.",
             file=sys.stderr,
         )
         return 1
