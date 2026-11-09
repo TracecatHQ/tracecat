@@ -66,7 +66,7 @@ with workflow.unsafe.imports_passed_through():
         action_name_to_mcp_tool_name,
         normalize_mcp_tool_name,
     )
-    from tracecat.agent.parsers import try_parse_json
+    from tracecat.agent.parsers import resolve_agent_output
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         ResolveAgentsConfigActivityInput,
@@ -488,16 +488,6 @@ class CompiledAgentRun(BaseModel):
     @property
     def sandbox_subagents(self) -> list[SandboxSubagentConfig]:
         return [subagent.to_sandbox_subagent() for subagent in self.subagents]
-
-
-def _resolve_agent_output(
-    *,
-    output: Any,
-) -> Any:
-    """Resolve final agent output."""
-    if output is not None:
-        return try_parse_json(output) if isinstance(output, str) else output
-    return None
 
 
 def _use_per_turn_agent_bindings() -> bool:
@@ -1730,9 +1720,7 @@ class DurableAgentWorkflow:
                 continue
 
             # Agent completed successfully
-            output = _resolve_agent_output(
-                output=result.output,
-            )
+            output = resolve_agent_output(result.output)
             message_history = await self._load_terminal_message_history(result)
             return AgentOutput(
                 output=output,

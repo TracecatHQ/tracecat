@@ -30,6 +30,7 @@ from tracecat.agent.error_policy import (
     invalid_agent_configuration,
 )
 from tracecat.agent.gateway_providers import is_gateway_provider
+from tracecat.agent.parsers import resolve_agent_output
 from tracecat.agent.preset.activities import (
     resolve_custom_model_provider_config_activity,
 )
@@ -356,4 +357,8 @@ async def read_workflow_agent_turn_activity(
     if backend is None:
         raise ApplicationError("Agent backend is unavailable", non_retryable=True)
     result = backend.parse_turn_result(input.result)
-    return ReadWorkflowAgentTurnResult(output=result.output, error=result.error)
+    # The backend returns its own output; workflows read it under the rule
+    # the built-in backend applies, so both give the same value.
+    return ReadWorkflowAgentTurnResult(
+        output=resolve_agent_output(result.output), error=result.error
+    )
