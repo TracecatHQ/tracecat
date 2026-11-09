@@ -5,8 +5,6 @@ from typing import Any
 import pytest
 from tracecat_registry.integrations import crowdstrike_falconpy
 from tracecat_registry.integrations.crowdstrike_falconpy import (
-    FalconPyFile,
-    _decode_file,
     _encode_bytes,
     _read_stream,
 )
@@ -69,34 +67,3 @@ def test_read_stream_returns_error_body() -> None:
     assert result["status_code"] == 404
     assert result["body"] == {"errors": [{"message": "not found"}]}
     assert stream.closed
-
-
-def test_decode_file_builds_multipart_tuple() -> None:
-    file: FalconPyFile = {
-        "field": "file",
-        "filename": "tool.exe",
-        "content_base64": base64.b64encode(b"MZ\x90\x00").decode(),
-    }
-    assert _decode_file(file) == (
-        "file",
-        ("tool.exe", b"MZ\x90\x00", "application/octet-stream"),
-    )
-
-
-def test_decode_file_rejects_invalid_base64() -> None:
-    with pytest.raises(ValueError, match="Invalid base64"):
-        _decode_file(
-            {"field": "file", "filename": "x", "content_base64": "not base64!"}
-        )
-
-
-def test_decode_file_rejects_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(crowdstrike_falconpy, "TRACECAT__MAX_FILE_SIZE_BYTES", 2)
-    with pytest.raises(ValueError, match="maximum size"):
-        _decode_file(
-            {
-                "field": "file",
-                "filename": "x",
-                "content_base64": base64.b64encode(b"12345678").decode(),
-            }
-        )

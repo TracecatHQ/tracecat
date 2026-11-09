@@ -1,9 +1,8 @@
 """Generic interface to FalconPy Uber class."""
 
 import base64
-import binascii
 from collections.abc import Iterator
-from typing import Annotated, Any, NotRequired, Protocol, TypedDict, cast
+from typing import Annotated, Any, Protocol, cast
 
 from falconpy import APIHarnessV2
 from pydantic import Field
@@ -24,22 +23,6 @@ crowdstrike_secret = RegistrySecret(
 """
 
 
-class FalconPyFile(TypedDict):
-    """File to upload as a multipart form field."""
-
-    field: str
-    """Multipart form field name, for example `file`."""
-
-    filename: str
-    """File name sent with the upload."""
-
-    content_base64: str
-    """Base64-encoded file content."""
-
-    content_type: NotRequired[str]
-    """MIME type of the content. Defaults to `application/octet-stream`."""
-
-
 def _size_error() -> ValueError:
     return ValueError(
         "CrowdStrike file content exceeds maximum size limit of "
@@ -51,20 +34,6 @@ def _encode_bytes(content: bytes) -> dict[str, str]:
     if len(content) > TRACECAT__MAX_FILE_SIZE_BYTES:
         raise _size_error()
     return {"content_base64": base64.b64encode(content).decode("ascii")}
-
-
-def _decode_file(file: FalconPyFile) -> tuple[str, tuple[str, bytes, str]]:
-    encoded = "".join(file["content_base64"].split())
-    if len(encoded) * 3 // 4 > TRACECAT__MAX_FILE_SIZE_BYTES + 2:
-        raise _size_error()
-    try:
-        content = base64.b64decode(encoded, validate=True)
-    except binascii.Error as e:
-        raise ValueError(f"Invalid base64 content for file {file['filename']!r}") from e
-    if len(content) > TRACECAT__MAX_FILE_SIZE_BYTES:
-        raise _size_error()
-    content_type = file.get("content_type") or "application/octet-stream"
-    return file["field"], (file["filename"], content, content_type)
 
 
 class _StreamingResponse(Protocol):
@@ -136,16 +105,6 @@ async def call_command(
         dict[str, Any] | None,
         Field(..., description="Extra keyword arguments to pass to the Falcon API"),
     ] = None,
-    files: Annotated[
-        list[FalconPyFile] | None,
-        Field(
-            ...,
-            description=(
-                "Files to upload as multipart form fields. Each file has `field`,"
-                " `filename`, `content_base64` and optional `content_type`."
-            ),
-        ),
-    ] = None,
 ) -> Any:
     """Binary responses are returned as `{"content_base64": ...}`."""
     params = params or {}
@@ -165,8 +124,6 @@ async def call_command(
         member_cid=member_cid,
         **extra_kwargs,
     )
-    if files:
-        params = {**params, "files": [_decode_file(file) for file in files]}
     result = falcon.command(operation_id, **params)
     if isinstance(result, bytes | bytearray):
         return _encode_bytes(bytes(result))

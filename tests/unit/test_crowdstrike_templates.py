@@ -68,14 +68,12 @@ def fake_falconpy(tmp_path: Path) -> Iterator[ModuleType]:
                 params: dict[str, Any] | None = None,
                 member_cid: str | None = None,
                 base_url: str | None = None,
-                files: list[dict[str, Any]] | None = None,
             ) -> dict[str, Any]:
                 CALLS.append(
                     {
                         "operation_id": operation_id,
                         "params": params,
                         "member_cid": member_cid,
-                        "files": files,
                     }
                 )
                 return {
@@ -248,13 +246,7 @@ async def test_crowdstrike_single_call_templates(
     payload = {
         **params,
         **(params.get("body") or {}),
-        **(params.get("data") or {}),
     }
-    for resource_key in ("resources", "policies"):
-        for resource in payload.get(resource_key) or []:
-            payload |= resource
-    for file in calls[0]["files"] or []:
-        payload |= file
     for name, value in args.items():
         if name != "member_cid":
             assert value in payload.values(), f"{name} not forwarded"
