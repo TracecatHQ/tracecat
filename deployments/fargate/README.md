@@ -181,3 +181,20 @@ Keep the operation table and stored preview artifacts when rolling back. Let
 running lifecycle workflows finish on a worker that understands them before
 removing that worker version. After an import commits, the worker retries pending
 schedule and background updates automatically; it does not import those resources again.
+
+## Workload IAM permissions boundary
+
+Set `iam_role_permissions_boundary` to the managed-policy ARN maintained by your
+platform administrator to apply one ceiling to every task and execution role,
+including optional services. For example:
+
+```hcl
+iam_role_permissions_boundary = "arn:aws:iam::123456789012:policy/WorkloadBoundary"
+```
+
+The default is `null` for installations without a boundary. Setting the input
+updates existing roles in place and preserves their names and ARNs. Review the
+full plan and reject any deletion or replacement before applying. The platform
+administrator must own the boundary policy separately from this workload stack.
+Add service permissions to workload identity policies within that ceiling; keep
+the boundary ARN stable when extending its approved scopes.

@@ -24,6 +24,8 @@ module "network" {
 module "ecs" {
   source = "./modules/ecs"
 
+  iam_role_permissions_boundary = var.iam_role_permissions_boundary
+
   # AWS provider
   aws_region                            = var.aws_region
   name_prefix                           = var.name_prefix
