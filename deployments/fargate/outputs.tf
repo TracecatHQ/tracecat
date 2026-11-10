@@ -196,3 +196,8 @@ output "core_db_sg_id" {
   description = "The ID of the core database security group"
   value       = module.ecs.core_db_sg_id
 }
+
+output "alb_arn" {
+  description = "ARN of the application load balancer for an independently managed WAF association."
+  value       = module.ecs.alb_arn
+}

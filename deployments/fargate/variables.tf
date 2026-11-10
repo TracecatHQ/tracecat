@@ -46,24 +46,6 @@ variable "redis_default_user_id" {
   default     = "default-user-tracecat"
 }
 
-variable "waf_attachments_endpoint_pattern_name" {
-  type        = string
-  description = "WAF regex pattern set name for attachments endpoint matching. When null, defaults to \"$${name_prefix}-attachments-endpoint-pattern\"."
-  default     = null
-}
-
-variable "waf_mcp_oauth_endpoints_pattern_name" {
-  type        = string
-  description = "WAF regex pattern set name for MCP OAuth endpoint matching. When null, defaults to \"$${name_prefix}-mcp-oauth-endpoints-pattern\"."
-  default     = null
-}
-
-variable "waf_mcp_public_endpoint_pattern_name" {
-  type        = string
-  description = "WAF regex pattern set name for MCP public endpoint matching. When null, defaults to \"$${name_prefix}-mcp-public-endpoint-pattern\"."
-  default     = null
-}
-
 ### Networking
 
 variable "vpc_cidr" {
@@ -1076,13 +1058,20 @@ variable "background_worker_max_concurrent_activities" {
   }
 }
 
-variable "edge_log_bucket_name" {
-  description = "Same-region central S3 bucket for all WAF events and ALB access/connection logs. Configure its cross-account delivery policy before enabling."
+variable "enable_alb_logging" {
+  description = "Enable ALB access and TLS connection logs in the configured S3 bucket. Supplying a bucket alone does not enable logging."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "alb_log_bucket_name" {
+  description = "Same-region S3 bucket for ALB access and TLS connection logs. Configure its delivery policy before enabling logging."
   type        = string
   default     = null
 
   validation {
-    condition     = var.edge_log_bucket_name == null ? true : can(regex("^aws-waf-logs-[a-z0-9.-]+$", var.edge_log_bucket_name))
-    error_message = "edge_log_bucket_name must start with aws-waf-logs- so AWS WAF can deliver to it."
+    condition     = var.alb_log_bucket_name == null ? true : can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.alb_log_bucket_name))
+    error_message = "alb_log_bucket_name must be a valid-length lowercase S3 bucket name."
   }
 }
