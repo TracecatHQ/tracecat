@@ -47,7 +47,6 @@ from tracecat.db.models import (
     GroupRoleAssignment,
     Invitation,
     InvitationGrant,
-    LegacyMembership,
     Organization,
     OrganizationMembership,
     RoleScope,
@@ -1012,25 +1011,6 @@ class TestRBACServiceUserAssignments:
             is not None
         )
 
-    async def test_create_workspace_assignment_writes_legacy_membership(
-        self,
-        session: AsyncSession,
-        role: Role,
-        user: User,
-        workspace: Workspace,
-    ):
-        """Workspace-scoped assignment mirrors presence into the legacy table."""
-        service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Legacy Workspace Role")
-
-        await service.create_user_assignment(
-            user_id=user.id,
-            role_id=custom_role.id,
-            workspace_id=workspace.id,
-        )
-
-        assert await _legacy_workspace_row(session, user.id, workspace.id) is not None
-
     async def test_delete_last_org_assignment_keeps_org_membership(
         self,
         session: AsyncSession,
@@ -1093,44 +1073,6 @@ class TestRBACServiceUserAssignments:
         assert await _org_membership_row(session, user.id, org.id) is not None
         assert await _org_membership_row(session, user.id, other_org.id) is not None
 
-    async def test_delete_last_workspace_assignment_removes_legacy_membership(
-        self,
-        session: AsyncSession,
-        role: Role,
-        user: User,
-        org: Organization,
-        workspace: Workspace,
-    ):
-        """Legacy eviction is scoped to the workspace being left."""
-        other_workspace = Workspace(
-            id=uuid.uuid4(),
-            name="Other Workspace",
-            organization_id=org.id,
-        )
-        session.add(other_workspace)
-        await session.commit()
-
-        service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Evictable Workspace Role")
-        assignment = await service.create_user_assignment(
-            user_id=user.id,
-            role_id=custom_role.id,
-            workspace_id=workspace.id,
-        )
-        await service.create_user_assignment(
-            user_id=user.id,
-            role_id=custom_role.id,
-            workspace_id=other_workspace.id,
-        )
-
-        await service.delete_user_assignment(assignment.id)
-
-        assert await _legacy_workspace_row(session, user.id, workspace.id) is None
-        assert (
-            await _legacy_workspace_row(session, user.id, other_workspace.id)
-            is not None
-        )
-
 
 async def _org_membership_row(
     session: AsyncSession, user_id: uuid.UUID, organization_id: uuid.UUID
@@ -1139,18 +1081,6 @@ async def _org_membership_row(
         select(OrganizationMembership).where(
             OrganizationMembership.user_id == user_id,
             OrganizationMembership.organization_id == organization_id,
-        )
-    )
-    return result.scalar_one_or_none()
-
-
-async def _legacy_workspace_row(
-    session: AsyncSession, user_id: uuid.UUID, workspace_id: uuid.UUID
-) -> LegacyMembership | None:
-    result = await session.execute(
-        select(LegacyMembership).where(
-            LegacyMembership.user_id == user_id,
-            LegacyMembership.workspace_id == workspace_id,
         )
     )
     return result.scalar_one_or_none()
@@ -1416,13 +1346,6 @@ class TestAtomicRoleEdits:
             UserRoleAssignmentSpec(role_id=editor, workspace_id=other.id),
         ]
         await service.replace_user_assignments(params)
-        assert set(
-            await session.scalars(
-                select(LegacyMembership.workspace_id).where(
-                    LegacyMembership.user_id == member.id
-                )
-            )
-        ) == {other.id}
         assert (await _org_assignment(session, member.id)).id == original_org.id
         assert (
             await session.scalar(

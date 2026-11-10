@@ -46,6 +46,7 @@
 | `TRACECAT__DB_MIGRATOR_PASSWORD` | Empty | Password that `tracecat db roles upgrade --login password` sets on `migrator`. Use letters and digits. Password login only: with `aws_iam` or `azure_entra`, `migrator` logs in with its cloud token and role setup refuses a password. |
 | `TRACECAT__DB_APP_PASSWORD` | Empty | Password that `tracecat db roles upgrade --login password` sets on `app` (password login only). Use letters and digits. To run the services as `app`, point `TRACECAT__DB_URI` at it, for example `postgresql+psycopg://app:${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres`; keep `TRACECAT__DB_ROLE_LOGIN` and `TRACECAT__DB_ADMIN_URI` set so each start can run role setup. |
 | `TRACECAT__DB_MIGRATOR_URI` | Empty | Docker Compose only. The migrations' login once roles are set up: it must log in as `migrator`, for example `postgresql+psycopg://migrator:${TRACECAT__DB_MIGRATOR_PASSWORD}@postgres_db:5432/postgres`. Empty uses `TRACECAT__DB_URI`, which the migrations refuse once roles are set up unless it already logs in as `migrator`. |
+| `TRACECAT__RLS_MODE` | `off` | PostgreSQL row-level security mode for every Tracecat service: `off`, `shadow` or `enforce`. `off` and `shadow` run every session with the RLS bypass on. `enforce` scopes each tenant session to its tenant (platform admin and cross-tenant system sessions keep the bypass) and needs a login that can't skip RLS, such as `app`; services refuse to start otherwise. Any other value falls back to `off` with a warning. The bundled Compose files don't pass this variable to the services, so set it in each service's `environment` (for example in a Compose override file). See [Tenant isolation](/security/architecture#tenant-isolation). |
 
 ### Authentication
 
@@ -63,6 +64,7 @@
 | `OIDC_ISSUER` | | OIDC issuer URL (e.g. `https://accounts.google.com`). |
 | `OIDC_CLIENT_ID` | | OAuth client ID from your identity provider. |
 | `OIDC_CLIENT_SECRET` | | OAuth client secret from your identity provider. |
+| `OIDC_CREDENTIALS__ARN` | | AWS Secrets Manager ARN of a JSON secret with `clientId` and `clientSecret`. Takes precedence over `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`. |
 | `OIDC_SCOPES` | `openid profile email` | Space-separated OAuth scopes to request. |
 
 ### SAML

@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import uuid
 from collections import Counter
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,6 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Request
 
+from tracecat.agent.channels.router import (
+    _resolve_service_role_for_workspace,
+    handle_channel_event,
+)
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
@@ -21,6 +25,8 @@ from tracecat.auth.saml import login as saml_login
 from tracecat.auth.saml import sso_acs
 from tracecat.auth.types import Role
 from tracecat.auth.users import UserManager
+from tracecat.cases.durations.consumer import CaseDurationSyncConsumer
+from tracecat.cases.durations.sync_queue import sync_workspace_case_durations_inline
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.contexts import ctx_role
 from tracecat.db import rls as rls_module
@@ -36,6 +42,7 @@ from tracecat.invitations.router import (
     list_my_pending_invitations,
 )
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
+from tracecat.search.indexing_workflow import index_search_collection
 from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.webhooks.dependencies import validate_incoming_webhook
@@ -189,6 +196,12 @@ def test_list_my_pending_invitations_uses_bypass_session_dependency() -> None:
 
 def test_get_invitation_by_token_uses_bypass_session_dependency() -> None:
     source = inspect.getsource(get_invitation_by_token)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_channel_event_uses_bypass_session_dependency() -> None:
+    """A public channel request has no role, so its token lookup needs bypass."""
+    source = inspect.getsource(handle_channel_event)
     assert "session: AsyncDBSessionBypass" in source
 
 
@@ -418,14 +431,27 @@ def test_registry_sync_startup_uses_bypass_session_manager() -> None:
     assert "get_async_session_bypass_rls_context_manager" in source
 
 
-def test_loopback_persist_session_line_uses_bypass_session_manager() -> None:
-    source = inspect.getsource(LoopbackHandler._persist_session_line)
-    assert "get_async_session_bypass_rls_context_manager" in source
-
-
-def test_schedule_workspace_org_lookup_activity_uses_bypass_session_manager() -> None:
-    source = inspect.getsource(get_workspace_organization_id_activity)
-    assert "get_async_session_bypass_rls_context_manager" in source
+@pytest.mark.parametrize(
+    "func",
+    [
+        LoopbackHandler._persist_session_line,
+        LoopbackHandler._persist_artifact_side_effects,
+        get_workspace_organization_id_activity,
+        get_registry_artifacts_for_lock,
+        _load_manifest_entry,
+        sync_workspace_case_durations_inline,
+        CaseDurationSyncConsumer._process_backfill_job,
+        _resolve_service_role_for_workspace,
+        index_search_collection,
+    ],
+)
+def test_tenant_scoped_system_code_uses_tenant_session(
+    func: Callable[..., object],
+) -> None:
+    """Code that already knows its tenant stays inside it instead of bypassing."""
+    source = inspect.getsource(func)
+    assert "get_async_session_tenant_context_manager" in source
+    assert "bypass" not in source
 
 
 def test_worker_activity_names_are_unique() -> None:
@@ -556,13 +582,3 @@ def test_auth_discovery_saml_check_reuses_authorized_bypass_session() -> None:
     source = inspect.getsource(AuthDiscoveryService._org_saml_enabled)
     assert "get_setting_from_bypass_session" in source
     assert "session=self.session" in source
-
-
-def test_registry_artifact_lookup_uses_bypass_session_manager() -> None:
-    source = inspect.getsource(get_registry_artifacts_for_lock)
-    assert "get_async_session_bypass_rls_context_manager" in source
-
-
-def test_registry_manifest_lookup_uses_bypass_session_manager() -> None:
-    source = inspect.getsource(_load_manifest_entry)
-    assert "get_async_session_bypass_rls_context_manager" in source

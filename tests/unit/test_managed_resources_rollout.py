@@ -75,6 +75,7 @@ from tracecat.managed_resources.rollout import (
     ManagedRolloutEngine,
     _conflicts,
     _delete_resource,
+    _incoming_changes,
     _unused_match_keys,
     target_role,
 )
@@ -85,7 +86,7 @@ from tracecat.managed_resources.source_setting import (
 )
 from tracecat.pagination import PageParams
 from tracecat.registry.repositories.service import RegistryReposService
-from tracecat.sync import PullDiagnostic
+from tracecat.sync import PullDiagnostic, PullResourceDiff, PullResult
 from tracecat.tables.schemas import TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -1175,3 +1176,41 @@ async def test_release_candidate_shows_the_head_commit_and_its_package(
     explicit = {(e.resource_type, e.source_id) for e in after.package.explicit}
     assert ("workflow", "qa-orphan") in explicit
     assert ("table", "qa_indicators") not in explicit
+
+
+def _file_diff(
+    source_id: str, path: str, change: Literal["added", "modified"]
+) -> PullResourceDiff:
+    return PullResourceDiff(
+        resource_type="workflow",
+        source_id=source_id,
+        source_path=path,
+        change_type=change,
+        title=source_id,
+        diff="",
+    )
+
+
+def test_incoming_changes_list_each_resource_once() -> None:
+    # The pull diff has one entry per file; a workflow with scripts has several.
+    result = PullResult(
+        success=True,
+        commit_sha="a" * 40,
+        workflows_found=2,
+        workflows_imported=0,
+        diagnostics=[],
+        message="",
+        resource_diffs=[
+            _file_diff("wf_new", "workflows/New/definition.yml", "added"),
+            _file_diff("wf_new", "workflows/New/scripts/enrich.py", "added"),
+            _file_diff("wf_old", "workflows/Old/definition.yml", "modified"),
+            _file_diff("wf_old", "workflows/Old/scripts/score.py", "modified"),
+        ],
+    )
+
+    changes = _incoming_changes(result)
+
+    assert [(c.source_id, c.change) for c in changes] == [
+        ("wf_new", "added"),
+        ("wf_old", "modified"),
+    ]

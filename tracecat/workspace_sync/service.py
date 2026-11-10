@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections import Counter, deque
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
 from typing import Any, Literal, Self, cast
@@ -66,6 +66,7 @@ from tracecat.sync import (
     ResourcePullCount,
     SecretStoreMappingRequirement,
     SyncPreviewResource,
+    first_diff_per_resource,
 )
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -829,7 +830,12 @@ class WorkspaceSyncService(SyncMappingService):
             resource_filter=primary_resource_filter(projection.spec),
         )
         base_tree = base.tree if base else None
-        delete_roots = _moved_resource_roots(projection, base_tree)
+        # Own each workflow folder, so a removed action's script file is
+        # deleted.
+        delete_roots = [
+            *_moved_resource_roots(projection, base_tree),
+            *_resource_folders(projection, [WORKFLOW_RESOURCE_ADAPTER]),
+        ]
         projection = _with_base_bundles(projection, base_tree, delete_roots)
         commit = await _write_push(
             transport,
@@ -976,6 +982,7 @@ class WorkspaceSyncService(SyncMappingService):
                 library_skill_installs=prepared.library_skill_installs,
             )
             return PreparedPullPreview(snapshot=prepared.snapshot, preview=preview)
+        changed_count = len(first_diff_per_resource(resource_diffs))
         preview = PullResult(
             success=True,
             commit_sha=snapshot.commit_sha,
@@ -983,7 +990,7 @@ class WorkspaceSyncService(SyncMappingService):
             workflows_imported=0,
             diagnostics=[],
             message=(
-                f"Dry run completed - {len(resource_diffs)} resource change(s) detected"
+                f"Dry run completed - {changed_count} resource change(s) detected"
             ),
             resource_counts=resource_counts,
             resource_diffs=resource_diffs,
@@ -1553,13 +1560,7 @@ class WorkspaceSyncService(SyncMappingService):
             if cleaned := root.strip("/"):
                 roots.append(cleaned)
 
-        for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-            if not adapter.owns_directory:
-                continue
-            for source_id in adapter.specs(projection.spec):
-                roots.append(
-                    adapter.location(adapter.path_in(projection.paths, source_id))
-                )
+        roots.extend(_resource_folders(projection, WORKSPACE_RESOURCE_ADAPTERS))
         roots.extend(_moved_resource_roots(projection, base))
         self._enforce_required_scopes(
             sorted(_export_read_scopes_for_projection(projection, roots))
@@ -2040,10 +2041,9 @@ class WorkspaceSyncService(SyncMappingService):
     ) -> list[PullResourceDiff]:
         """Compute per-resource diffs between local state and the incoming snapshot.
 
-        Projects the current workspace read-only and serializes the target spec,
-        then emits a canonical unified file diff for every changed path that maps
-        to a resource. Adapters own path mapping and labels; the service compares
-        the full projection against the repository snapshot.
+        Projects the current workspace read-only and serializes the target spec
+        at the incoming paths. Diffs each bundle entry, then every file either
+        side writes for a resource in Git; local-only resources are skipped.
         """
         target_spec = _spec_for_pull_options(
             snapshot.spec,
@@ -2103,20 +2103,22 @@ class WorkspaceSyncService(SyncMappingService):
             )
             if diff.change_type != "deleted"
         ]
-        # The preview is a canonical file diff. Adapters own path mapping,
-        # serialization, and labels; the service owns comparing the full
-        # current projection against the incoming repository snapshot.
-        for path, target_content in sorted(target_files.items()):
-            # Bundles have no single owner, so they are skipped here.
+        # Compare local files too: a script file deleted in Git leaves
+        # ``definition.yml`` unchanged, yet the pull removes that script.
+        for path in sorted(target_files.keys() | current_files.keys()):
             owner = index.owner(path)
+            # Skips the manifest, bundles (diffed above), and local resources
+            # absent from Git, whose paths are planned around incoming ones.
             if owner is None:
                 continue
 
+            target_content = target_files.get(path)
             current_content = current_files.get(path)
             if current_content == target_content:
                 continue
 
             adapter, source_id = owner.adapter, owner.source_id
+            is_new = adapter.path_in(target_paths, source_id) not in current_files
             diff, truncated = _unified_resource_diff(
                 path=path,
                 before=current_content,
@@ -2127,7 +2129,7 @@ class WorkspaceSyncService(SyncMappingService):
                     resource_type=adapter.resource_type.value,
                     source_id=source_id,
                     source_path=path,
-                    change_type="added" if current_content is None else "modified",
+                    change_type="added" if is_new else "modified",
                     title=_resource_title(
                         target_spec,
                         adapter=adapter,
@@ -2220,7 +2222,7 @@ class WorkspaceSyncService(SyncMappingService):
                     diff, truncated = _unified_resource_diff(
                         path=path,
                         before=remote_tree.files[path],
-                        after="",
+                        after=None,
                     )
                 else:
                     diff = "Existing file will be deleted; previous content is unavailable."
@@ -3388,6 +3390,22 @@ def _with_base_bundles(
     return projection.model_copy(update={"files": files})
 
 
+def _resource_folders(
+    projection: WorkspaceProjection, adapters: Iterable[ResourceAdapter]
+) -> list[str]:
+    """Return the folder of each written resource whose type owns a folder.
+
+    The push owns these folders, so it deletes the files it no longer writes
+    there, such as the script of a removed workflow action.
+    """
+    return [
+        adapter.location(adapter.path_in(projection.paths, source_id))
+        for adapter in adapters
+        if adapter.owns_directory
+        for source_id in adapter.specs(projection.spec)
+    ]
+
+
 def _no_resource_files(path: str) -> bool:
     """Read no resource file contents, only the manifest and include file."""
     return False
@@ -3397,7 +3415,7 @@ def _unified_resource_diff(
     *,
     path: str,
     before: str | None,
-    after: str,
+    after: str | None,
 ) -> tuple[str, bool]:
     """Build a unified diff of ``before`` versus ``after`` for ``path``.
 
@@ -3407,7 +3425,7 @@ def _unified_resource_diff(
     lines = list(
         unified_diff(
             (before or "").splitlines(),
-            after.splitlines(),
+            (after or "").splitlines(),
             fromfile=f"current/{path}",
             tofile=f"incoming/{path}",
             lineterm="",
@@ -3460,9 +3478,7 @@ def _bundle_diffs(
             else:
                 change_type = "added" if old is None else "modified"
                 title = _resource_title(spec, adapter=adapter, source_id=source_id)
-            diff, truncated = _unified_resource_diff(
-                path=path, before=old, after=new or ""
-            )
+            diff, truncated = _unified_resource_diff(path=path, before=old, after=new)
             diffs.append(
                 PullResourceDiff(
                     resource_type=adapter.resource_type.value,

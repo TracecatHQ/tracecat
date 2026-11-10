@@ -27,7 +27,7 @@ from tracecat.contexts import (
     ctx_role,
     ctx_secret_masks,
 )
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
@@ -218,7 +218,9 @@ async def get_registry_artifacts_for_lock(
 
     # Fetch all misses with a single UNION ALL query
     fetched_artifacts: list[RegistryArtifactsContext] = []
-    async with get_async_session_bypass_rls_context_manager() as session:
+    async with get_async_session_tenant_context_manager(
+        organization_id=organization_id
+    ) as session:
         statements = []
 
         # Platform query (no org filter)

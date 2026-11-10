@@ -56,7 +56,6 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSpec,
     normalize_workflow_source_id,
 )
-from tracecat.workspace_sync.serialization import serialize_yaml_model
 from tracecat.workspace_sync.types import (
     ParsedWorkspaceFiles,
     PathsByType,
@@ -66,7 +65,6 @@ from tracecat.workspace_sync.types import (
 from tracecat.workspace_sync.workflow import (
     is_current_workflow_spec,
     parse_workflow_spec,
-    serialize_workflow_spec,
 )
 
 
@@ -83,8 +81,9 @@ def parse_workspace_spec_files(
     (``workflows/wf_abc/definition.yml``) parse the same way. A file without
     an ``id`` falls back to its folder or file name, as older files did.
 
-    Primary files are parsed first. Companion files, such as skill files, are
-    then attached to the resource whose folder they sit in.
+    Primary files are parsed first. Companion files, such as skill files and
+    workflow Python scripts, are then attached to the resource whose folder
+    they sit in.
     """
     diagnostics: list[PullDiagnostic] = []
     roots = manifest.resources
@@ -151,10 +150,13 @@ def parse_workspace_spec_files(
                         diagnostics=diagnostics,
                     )
                 break
-
-            if relpath := adapter.companion_relpath(path, roots):
-                companion_files.append((adapter, path, relpath, content))
-                break
+        else:
+            # Not a primary file: maybe a companion, such as a skill file or a
+            # workflow's Python script.
+            for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+                if relpath := adapter.companion_relpath(path, roots):
+                    companion_files.append((adapter, path, relpath, content))
+                    break
 
     index = ResourcePathIndex(paths)
     extra_files: dict[SyncResourceType, dict[tuple[str, str], str]] = defaultdict(dict)
@@ -165,7 +167,7 @@ def parse_workspace_spec_files(
         if owner is not None and owner.adapter is adapter:
             extra_files[adapter.resource_type][(owner.source_id, relpath)] = content
 
-    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+    for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         specs_by_attr[adapter.spec_attr] = adapter.attach_extra_files(
             specs_by_attr[adapter.spec_attr],
             extra_files.get(adapter.resource_type, {}),
@@ -457,24 +459,20 @@ def serialize_workspace_spec_files(
 ) -> dict[str, str]:
     """Serialize a workspace spec into its full set of repository files.
 
-    Writes the manifest, each workflow definition, and every non-workflow
-    resource's primary file plus companion files, returning a path-sorted map of
+    Writes the manifest, then every resource's primary file plus companion
+    files, such as workflow Python scripts, returning a path-sorted map of
     repository path to file content. Resources in ``paths`` are written there;
     the rest get readable paths from :func:`plan_resource_paths`.
     """
     planned = plan_resource_paths(spec, fixed=paths)
     files = {manifest_filename: manifest_serializer(manifest)}
-    for source_id, workflow_spec in sorted(spec.workflows.items()):
-        files[WORKFLOW_RESOURCE_ADAPTER.path_in(planned, source_id)] = (
-            serialize_workflow_spec(workflow_spec)
-        )
-    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+    for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         if isinstance(adapter, BundledManifestAdapter):
             files.update(_serialize_bundled(adapter, adapter.specs(spec), planned))
             continue
         for source_id, resource_spec in sorted(adapter.specs(spec).items()):
             primary_path = adapter.path_in(planned, source_id)
-            files[primary_path] = serialize_yaml_model(resource_spec)
+            files[primary_path] = adapter.serialize_primary(resource_spec)
             files.update(adapter.serialize_extra_files(primary_path, resource_spec))
     return dict(sorted(files.items()))
 
@@ -496,7 +494,7 @@ def _serialize_bundled(
         if adapter.is_bundle_file(path):
             bundles[path].append(resource_spec)
         else:
-            files[path] = serialize_yaml_model(resource_spec)
+            files[path] = adapter.serialize_primary(resource_spec)
     for path, bundled in bundles.items():
         files[path] = adapter.dump_bundle(map(adapter.bundle_entry, bundled))
     return files
