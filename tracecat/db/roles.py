@@ -1830,7 +1830,9 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
     table owner (or a member of the owner role) can turn RLS off. This is a
     necessary condition for enforce mode, not proof of isolation: dynamic
     tables are owned by ``app_owner`` on purpose and rely on FORCE RLS plus
-    the DDL guard, and policies still honour ``app.rls_bypass``.
+    the DDL guard. The RLS settings (``app.rls_bypass`` and the tenant IDs)
+    are custom settings any role can set, so RLS guards against missing
+    tenant filters in app queries, not against SQL run as this login.
 
     Args:
         conn: A connection logged in as the app's database user.

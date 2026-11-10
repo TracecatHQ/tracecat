@@ -35,8 +35,8 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
-    get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
+    get_async_session_tenant_context_manager,
 )
 from tracecat.db.models import Workspace
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -88,8 +88,10 @@ def _sanitize_return_url(return_url: str) -> str:
 
 async def _resolve_service_role_for_workspace(*, workspace_id: uuid.UUID) -> Role:
     # Public channel requests carry no role, and the workspace's org decides
-    # the role, so this lookup can't run under the role's own RLS context.
-    async with get_async_session_bypass_rls_context_manager() as session:
+    # the role, so this lookup uses that workspace's tenant context under enforce.
+    async with get_async_session_tenant_context_manager(
+        workspace_id=workspace_id
+    ) as session:
         result = await session.execute(
             select(Workspace.organization_id).where(Workspace.id == workspace_id)
         )

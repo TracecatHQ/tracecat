@@ -185,7 +185,7 @@ class AdminUserService(BasePlatformService):
             )
         )
         # Membership is derived, so removing the assignments delists the user.
-        # The legacy table is still cleared for app versions that read it.
+        # Rows left in the legacy table would block the user delete (FK).
         await self.session.execute(
             delete(LegacyMembership).where(LegacyMembership.user_id == user_id)
         )

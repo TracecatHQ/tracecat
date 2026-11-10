@@ -10,14 +10,13 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-from sqlalchemy import Insert, delete, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.authz.membership import ensure_member, mirror_workspace_membership
+from tracecat.authz.membership import ensure_member
 from tracecat.db.models import (
     Group,
     GroupMember,
@@ -34,9 +33,6 @@ from tracecat.db.models import (
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.db.rls import (
-    RLS_BYPASS_OFF,
-    RLS_BYPASS_ON,
-    RLS_VAR_BYPASS,
     set_rls_context,
 )
 
@@ -397,41 +393,10 @@ async def test_deleting_membership_unwinds_children(
     assert refreshed_rt.status == "revoked"
 
 
-async def test_mirror_helper_sets_and_restores_rls_bypass(
-    session: AsyncSession, org: Organization, workspace: Workspace, user: User
-) -> None:
-    """The legacy mirror runs under the bypass and hands the context back."""
-    await ensure_member(session, org.id, user.id)
-    await set_rls_context(session, org_id=org.id, workspace_id=None, user_id=user.id)
-
-    async def read_bypass() -> str | None:
-        return await session.scalar(
-            text(f"SELECT current_setting('{RLS_VAR_BYPASS}', true)")
-        )
-
-    assert await read_bypass() == RLS_BYPASS_OFF
-
-    seen: list[str | None] = []
-    original_execute = session.execute
-
-    async def spy(statement, *args, **kwargs):  # noqa: ANN001, ANN202
-        if isinstance(statement, Insert):
-            seen.append(await read_bypass())
-        return await original_execute(statement, *args, **kwargs)
-
-    with patch.object(session, "execute", spy):
-        await mirror_workspace_membership(
-            session, user_id=user.id, workspace_id=workspace.id
-        )
-
-    assert seen == [RLS_BYPASS_ON]
-    assert await read_bypass() == RLS_BYPASS_OFF
-
-
 def test_membership_deletion_has_one_choke_point() -> None:
     """Only ``OrgService.delete_member`` may delete a membership row.
 
-    Removal revokes sessions, drops the legacy mirror and cascades role paths.
+    Removal revokes sessions and cascades role paths.
     A second deletion site would skip that and silently strand access.
     """
     repo_root = Path(__file__).resolve().parents[2]

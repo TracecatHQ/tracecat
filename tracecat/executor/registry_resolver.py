@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 
 from tracecat.db.engine import (
-    get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
+    get_async_session_tenant_context_manager,
 )
 from tracecat.db.models import (
     PlatformRegistryRepository,
@@ -150,7 +150,13 @@ async def _load_manifest_entry(
     organization_id: OrganizationID | None,
 ) -> ManifestCacheEntry:
     """Fetch one immutable manifest and build its action implementation index."""
-    async with get_async_session_bypass_rls_context_manager() as session:
+    # Platform registry tables carry no RLS; org registries need the org's scope.
+    session_cm = (
+        get_async_session_context_manager()
+        if organization_id is None
+        else get_async_session_tenant_context_manager(organization_id=organization_id)
+    )
+    async with session_cm as session:
         manifest = await _fetch_manifest(session, origin, version, organization_id)
         impl_index = _build_impl_index(manifest, origin)
 

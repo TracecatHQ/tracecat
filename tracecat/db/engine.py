@@ -1,6 +1,7 @@
 import base64
 import contextlib
 import json
+import uuid
 from collections.abc import AsyncGenerator
 from contextvars import ContextVar
 from typing import Any, Literal, Protocol
@@ -8,7 +9,7 @@ from typing import Any, Literal, Protocol
 import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.engine import URL, Result
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
@@ -526,6 +527,54 @@ async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, 
                 require_lock_holder_on_commit(session, holder, lock_key)
                 await _initialize_session_rls_context(session)
                 yield session
+
+
+_WORKSPACE_ORGANIZATION_SQL = text(
+    "SELECT organization_id FROM workspace WHERE id = :workspace_id"
+)
+
+
+@contextlib.asynccontextmanager
+async def get_async_session_tenant_context_manager(
+    *,
+    organization_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID | None = None,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Get a session scoped to a tenant the caller already knows.
+
+    For system code that acts for one tenant without a ``ctx_role``. Use it
+    instead of the bypass session so RLS keeps that code inside its tenant.
+    Under ``enforce`` it sets the tenant's context; for a workspace, it first
+    reads the workspace's organization (the workspace policy admits its own
+    row), so the pair always matches. In ``off`` and ``shadow`` it behaves like
+    ``get_async_session``.
+
+    Args:
+        organization_id: The tenant's organization, for org-scoped work.
+        workspace_id: The tenant's workspace, for workspace-scoped work.
+
+    Raises:
+        ValueError: Not exactly one ID was given.
+    """
+    if (organization_id is None) == (workspace_id is None):
+        # Both at once could pair one tenant's org with another's workspace.
+        raise ValueError(
+            "A tenant session needs exactly one of an organization or workspace ID"
+        )
+    _assert_main_pool_checkout_allowed()
+    async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
+        if config.TRACECAT__RLS_MODE != config.RLSMode.ENFORCE:
+            await _initialize_session_rls_context(session)
+        else:
+            if workspace_id is not None:
+                await set_rls_context(session, org_id=None, workspace_id=workspace_id)
+                organization_id = await session.scalar(
+                    _WORKSPACE_ORGANIZATION_SQL, {"workspace_id": workspace_id}
+                )
+            await set_rls_context(
+                session, org_id=organization_id, workspace_id=workspace_id
+            )
+        yield session
 
 
 def get_async_session_bypass_rls_context_manager() -> (
