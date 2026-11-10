@@ -9,6 +9,24 @@ resource "aws_alb" "this" {
   subnets            = var.public_subnet_ids
   security_groups    = [aws_security_group.alb.id]
 
+  dynamic "access_logs" {
+    for_each = var.edge_log_bucket_name == null ? [] : [var.edge_log_bucket_name]
+    content {
+      enabled = true
+      bucket  = access_logs.value
+      prefix  = "alb/access"
+    }
+  }
+
+  dynamic "connection_logs" {
+    for_each = var.edge_log_bucket_name == null ? [] : [var.edge_log_bucket_name]
+    content {
+      enabled = true
+      bucket  = connection_logs.value
+      prefix  = "alb/connection"
+    }
+  }
+
   tags = {
     Name = "${var.name_prefix}-alb"
   }

@@ -1075,3 +1075,14 @@ variable "background_worker_max_concurrent_activities" {
     error_message = "background_worker_max_concurrent_activities must be a positive integer."
   }
 }
+
+variable "edge_log_bucket_name" {
+  description = "Same-region central S3 bucket for all WAF events and ALB access/connection logs. Configure its cross-account delivery policy before enabling."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.edge_log_bucket_name == null ? true : can(regex("^aws-waf-logs-[a-z0-9.-]+$", var.edge_log_bucket_name))
+    error_message = "edge_log_bucket_name must start with aws-waf-logs- so AWS WAF can deliver to it."
+  }
+}

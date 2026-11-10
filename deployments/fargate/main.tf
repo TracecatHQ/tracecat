@@ -24,6 +24,8 @@ module "network" {
 module "ecs" {
   source = "./modules/ecs"
 
+  edge_log_bucket_name = var.edge_log_bucket_name
+
   # AWS provider
   aws_region                            = var.aws_region
   name_prefix                           = var.name_prefix

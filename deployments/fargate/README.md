@@ -181,3 +181,25 @@ Keep the operation table and stored preview artifacts when rolling back. Let
 running lifecycle workflows finish on a worker that understands them before
 removing that worker version. After an import commits, the worker retries pending
 schedule and background updates automatically; it does not import those resources again.
+
+### Edge traffic logging
+
+Set `edge_log_bucket_name` to opt into centralized WAF event logging and ALB
+access and TLS connection logs. The bucket must be in the load balancer's AWS
+region, start with `aws-waf-logs-`, and have its cross-account delivery policy
+configured first. Leave this variable unset for deployments without a configured
+archive destination.
+
+WAF events are delivered directly to S3 without action-based logging filters;
+allowed and blocked requests are both retained. Authorization, proxy authorization,
+cookie, and API-key headers are redacted from this stream. Redaction does not
+change WAF sampled requests or guarantee removal of sensitive URI/query data.
+The ALB writes request records under `alb/access/` and TLS connection records under
+`alb/connection/`; WAF uses `AWSLogs/<account>/WAFLogs/<region>/`.
+
+The archive needs SSE-S3 encryption, bucket-owner ownership, and grants to
+`delivery.logs.amazonaws.com` (WAF) and
+`logdelivery.elasticloadbalancing.amazonaws.com` (ALB), scoped to the source
+account and region. Deploy the archive policy before applying this setting.
+ALB log delivery is best effort and is separate from CloudTrail management API
+auditing. Target health-check diagnostics are a separate ALB logging feature.
