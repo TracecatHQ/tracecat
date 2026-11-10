@@ -1,5 +1,6 @@
 """Tests for platform OIDC client configuration."""
 
+import base64
 import importlib
 import logging
 from unittest.mock import MagicMock, patch
@@ -146,10 +147,10 @@ def test_config_ignores_google_oauth_env_aliases(monkeypatch) -> None:
 
 
 @pytest.fixture
-def clear_oidc_secret_cache():
-    oidc._retrieve_client_secret.cache_clear()
+def clear_oidc_credentials_cache():
+    oidc._retrieve_client_credentials.cache_clear()
     yield
-    oidc._retrieve_client_secret.cache_clear()
+    oidc._retrieve_client_credentials.cache_clear()
 
 
 def _mock_secretsmanager(response: dict[str, str]) -> MagicMock:
@@ -158,49 +159,101 @@ def _mock_secretsmanager(response: dict[str, str]) -> MagicMock:
     return client
 
 
-@pytest.mark.usefixtures("clear_oidc_secret_cache")
-def test_oidc_client_secret_arn_is_read_once_and_wins(monkeypatch) -> None:
+def _get_credentials_from(
+    monkeypatch: pytest.MonkeyPatch, response: dict[str, str]
+) -> oidc.OIDCClientCredentials:
+    monkeypatch.setattr(config, "OIDC_CREDENTIALS__ARN", "arn:test")
+    client = _mock_secretsmanager(response)
+    with patch("tracecat.auth.oidc.boto3.session.Session") as mock_session:
+        mock_session.return_value.client.return_value = client
+        return oidc.get_platform_oidc_client_credentials()
+
+
+@pytest.mark.usefixtures("clear_oidc_credentials_cache")
+def test_oidc_credentials_arn_is_read_once_and_wins(monkeypatch) -> None:
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "env-id")
     monkeypatch.setattr(config, "OIDC_CLIENT_SECRET", "env-secret")
-    monkeypatch.setattr(config, "OIDC_CLIENT_SECRET__ARN", "arn:test")
-    client = _mock_secretsmanager({"SecretString": "arn-secret\n"})
+    monkeypatch.setattr(config, "OIDC_CREDENTIALS__ARN", "arn:test")
+    client = _mock_secretsmanager(
+        {"SecretString": '{"clientId": "arn-id", "clientSecret": "arn-secret\\n"}'}
+    )
 
     with patch("tracecat.auth.oidc.boto3.session.Session") as mock_session:
         mock_session.return_value.client.return_value = client
-        first = oidc.get_platform_oidc_client_secret()
-        second = oidc.get_platform_oidc_client_secret()
+        first = oidc.get_platform_oidc_client_credentials()
+        second = oidc.get_platform_oidc_client_credentials()
 
-    assert first == "arn-secret"
-    assert second == "arn-secret"
+    expected = oidc.OIDCClientCredentials(
+        client_id="arn-id", client_secret="arn-secret"
+    )
+    assert first == expected
+    assert second == expected
     client.get_secret_value.assert_called_once_with(SecretId="arn:test")
 
 
-@pytest.mark.usefixtures("clear_oidc_secret_cache")
-def test_oidc_client_secret_without_arn_uses_env(monkeypatch) -> None:
+@pytest.mark.usefixtures("clear_oidc_credentials_cache")
+def test_oidc_credentials_arn_feeds_oauth_client(monkeypatch) -> None:
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
+    monkeypatch.setattr(config, "OIDC_SCOPES", ("openid",))
+    monkeypatch.setattr(config, "OIDC_CREDENTIALS__ARN", "arn:test")
+    client = _mock_secretsmanager(
+        {"SecretString": '{"clientId": "arn-id", "clientSecret": "arn-secret"}'}
+    )
+
+    with (
+        patch("tracecat.auth.oidc.boto3.session.Session") as mock_session,
+        patch("tracecat.auth.oidc.OpenID", autospec=True) as mock_openid,
+    ):
+        mock_session.return_value.client.return_value = client
+        create_platform_oauth_client()
+
+    assert mock_openid.call_args.kwargs["client_id"] == "arn-id"
+    assert mock_openid.call_args.kwargs["client_secret"] == "arn-secret"
+
+
+@pytest.mark.usefixtures("clear_oidc_credentials_cache")
+def test_oidc_credentials_without_arn_use_env(monkeypatch) -> None:
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "env-id")
     monkeypatch.setattr(config, "OIDC_CLIENT_SECRET", "env-secret")
-    monkeypatch.setattr(config, "OIDC_CLIENT_SECRET__ARN", None)
+    monkeypatch.setattr(config, "OIDC_CREDENTIALS__ARN", None)
 
     with patch("tracecat.auth.oidc.boto3.session.Session") as mock_session:
-        assert oidc.get_platform_oidc_client_secret() == "env-secret"
+        credentials = oidc.get_platform_oidc_client_credentials()
 
+    assert credentials == oidc.OIDCClientCredentials(
+        client_id="env-id", client_secret="env-secret"
+    )
     mock_session.assert_not_called()
 
 
-@pytest.mark.usefixtures("clear_oidc_secret_cache")
-def test_oidc_client_secret_arn_rejects_empty_secret(monkeypatch) -> None:
-    monkeypatch.setattr(config, "OIDC_CLIENT_SECRET__ARN", "arn:test")
-    client = _mock_secretsmanager({"SecretString": "  "})
+@pytest.mark.usefixtures("clear_oidc_credentials_cache")
+@pytest.mark.parametrize(
+    "secret_string",
+    [
+        "plain-secret",
+        "[]",
+        '{"clientId": "arn-id"}',
+        '{"clientSecret": "arn-secret"}',
+        '{"clientId": "arn-id", "clientSecret": "  "}',
+        '{"clientId": 1, "clientSecret": "arn-secret"}',
+        "",
+    ],
+)
+def test_oidc_credentials_arn_rejects_invalid_secret(
+    monkeypatch, secret_string: str
+) -> None:
+    with pytest.raises(ValueError, match="OIDC credentials"):
+        _get_credentials_from(monkeypatch, {"SecretString": secret_string})
 
-    with patch("tracecat.auth.oidc.boto3.session.Session") as mock_session:
-        mock_session.return_value.client.return_value = client
-        with pytest.raises(ValueError, match="OIDC client secret"):
-            oidc.get_platform_oidc_client_secret()
 
+@pytest.mark.usefixtures("clear_oidc_credentials_cache")
+def test_oidc_credentials_arn_reads_secret_binary(monkeypatch) -> None:
+    payload = base64.b64encode(
+        b'{"clientId": "binary-id", "clientSecret": "binary-secret"}'
+    ).decode()
 
-@pytest.mark.usefixtures("clear_oidc_secret_cache")
-def test_oidc_client_secret_arn_reads_secret_binary(monkeypatch) -> None:
-    monkeypatch.setattr(config, "OIDC_CLIENT_SECRET__ARN", "arn:test")
-    client = _mock_secretsmanager({"SecretBinary": "YmluYXJ5LXNlY3JldA=="})
+    credentials = _get_credentials_from(monkeypatch, {"SecretBinary": payload})
 
-    with patch("tracecat.auth.oidc.boto3.session.Session") as mock_session:
-        mock_session.return_value.client.return_value = client
-        assert oidc.get_platform_oidc_client_secret() == "binary-secret"
+    assert credentials == oidc.OIDCClientCredentials(
+        client_id="binary-id", client_secret="binary-secret"
+    )
