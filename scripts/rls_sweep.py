@@ -159,11 +159,19 @@ def scrub(text: str) -> str:
     return DB_URI_PASSWORD.sub(lambda m: m.group(1) + "[REDACTED]@", text)
 
 
+# Substrings that mark a credential-bearing key (e.g. slack_client_secret).
+SENSITIVE_PARTS = ("secret", "token", "password", "api_key", "cookie", "credential")
+
+
+def sensitive_key(key: str) -> bool:
+    k = key.lower()
+    return k in REDACT_KEYS or any(part in k for part in SENSITIVE_PARTS)
+
+
 def redact(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            k: "[REDACTED]" if k.lower() in REDACT_KEYS else redact(v)
-            for k, v in value.items()
+            k: "[REDACTED]" if sensitive_key(k) else redact(v) for k, v in value.items()
         }
     if isinstance(value, list):
         return [redact(v) for v in value]
@@ -722,21 +730,14 @@ def check_manual_run(run: Run, api: Api) -> Any:
         "case_summary": f"{run.tag} a seed case",
         "loop": [1, 2, 3],
     }
-    if isinstance(result, dict):
-        wrong = {k: result.get(k) for k, v in expected.items() if result.get(k) != v}
-        expect(not wrong, f"probe read wrong values: {wrong}")
-        expect(
-            result.get("child") == {"from": "probe"},
-            f"child result {result.get('child')}",
-        )
-    else:
-        # Large results are stored externally; the per-action statuses still prove each read ran.
-        failed = [
-            e
-            for e in out["events"]
-            if e["status"] not in (None, "COMPLETED", "SUCCEEDED")
-        ]
-        expect(not failed, f"probe actions failed: {failed}")
+    # The final event carries the whole result; without it nothing was verified.
+    expect(isinstance(result, dict), f"probe run has no result to verify: {result!r}")
+    wrong = {k: result.get(k) for k, v in expected.items() if result.get(k) != v}
+    expect(not wrong, f"probe read wrong values: {wrong}")
+    expect(
+        result.get("child") == {"from": "probe"},
+        f"child result {result.get('child')}",
+    )
     return {"exec_id": exec_id, "status": done["status"], "result": result}
 
 
@@ -1319,7 +1320,7 @@ def check_isolation(run: Run, api: Api) -> Any:
             and OWNER_MARKER in (old.get("description") or "")
             and not old.get("disabled_at")
         ):
-            api.call("POST", f"{sa_base}/{old['id']}/disable", ws=None, ok=None)
+            api.call("POST", f"{sa_base}/{old['id']}/disable", ws=None, ok=(200, 204))
     scopes = api.json("GET", f"/api/workspaces/{a}/service-accounts/scopes", ws=None)
     wanted = {"case:read", "table:read", "workflow:read", "secret:read"}
     scope_ids = [x["id"] for x in scopes["items"] if x["name"] in wanted]
@@ -1416,7 +1417,8 @@ def _isolation_probes(run: Run, key_api: Api) -> list[dict[str, Any]]:
             f"A {name} list has no B ids",
             f"/api/{name}",
             a,
-            (200, 403),
+            # The key holds all four read scopes (asserted above), so lists must load.
+            (200,),
             b_ids + markers,
         )
         probe(
@@ -1657,6 +1659,7 @@ with engine.connect() as c:
             "bypass": child_counts("on", "", "", parent_ids),
             "own": child_counts("off", org, owner, parent_ids),
             "other_workspace": child_counts("off", org, other, parent_ids),
+            "org_only": child_counts("off", org, "", parent_ids),
             "none": child_counts("off", "", "", parent_ids),
             "foreign_org": child_counts("off", str(uuid.uuid4()), str(uuid.uuid4()), parent_ids),
         }
@@ -1665,11 +1668,20 @@ with engine.connect() as c:
             if views["own"][n] != total:
                 findings.append({"table": n, "workspace": owner, "issue": "own workspace sees fewer rows than bypass",
                                  "bypass": total, "own": views["own"][n]})
-            for view in ("other_workspace", "none", "foreign_org"):
+            # Tag links follow workspace-only parents; service-account children
+            # follow an org-optional parent and admit org-only sessions by design.
+            denied = ["other_workspace", "none", "foreign_org"]
+            if PARENTS[n][1] in pure_ws:
+                denied.append("org_only")
+            for view in denied:
                 if views[view][n]:
                     findings.append({"table": n, "workspace": owner, "issue": f"{view} sees rows",
                                      "count": views[view][n]})
     out["parent_tenanted"] = parent_out
+    out["unexercised_child_tables"] = sorted(
+        n for n in parent_tables if n in PARENTS
+        and not any(v["bypass"].get(n) for v in parent_out.values())
+    )
     for d in dyn:
         if not (d["rls"] and d["force"]):
             findings.append({"table": f'{d["schema"]}.{d["table"]}', "issue": "dynamic table without RLS+FORCE"})
@@ -1730,13 +1742,24 @@ def check_sql(run: Run) -> Any:
         not login["superuser"] and not login["bypassrls"],
         f"app login bypasses RLS: {login}",
     )
+    checked = data["tables_checked"]
+    # A probe that inspected nothing is not a pass.
+    expect(
+        data["tenant_tables_registered"] > 0
+        and checked["workspace"] > 0
+        and checked["org"] > 0,
+        f"SQL probe inspected too little: {checked}",
+    )
     expect(
         not data["findings"],
         f"{len(data['findings'])} policy findings: {data['findings'][:3]}",
     )
     return {
         "login": login,
-        "tables_checked": data["tables_checked"],
+        "tenant_tables_registered": data["tenant_tables_registered"],
+        "tables_checked": checked,
+        # Child tables with no rows in the QA pair: only their RLS metadata was checked.
+        "unexercised_child_tables": data["unexercised_child_tables"],
         "org_tier": data["org_tier"],
     }
 
