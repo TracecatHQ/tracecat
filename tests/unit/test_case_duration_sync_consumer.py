@@ -274,6 +274,7 @@ async def test_shared_sync_case_duration_uses_transaction_scoped_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
+    expected_workspace_id = workspace_id
     case_id = uuid.uuid4()
     fake_session = MagicMock()
     fake_session.commit = AsyncMock()
@@ -285,7 +286,8 @@ async def test_shared_sync_case_duration_uses_transaction_scoped_lock(
     lock_mock = AsyncMock(return_value=True)
 
     @contextlib.asynccontextmanager
-    async def fake_session_context(**_kwargs: object):
+    async def fake_session_context(*, workspace_id: uuid.UUID):
+        assert workspace_id == expected_workspace_id
         yield fake_session
 
     monkeypatch.setattr(

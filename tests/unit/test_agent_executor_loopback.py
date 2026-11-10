@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
 from typing import cast
@@ -292,6 +293,18 @@ def _make_handler() -> LoopbackHandler:
     )
 
 
+def _tenant_session_for(
+    expected_workspace_id: UUID, session: object
+) -> Callable[..., _FakeSessionContext]:
+    """Tenant-session stub that only accepts the handler's own workspace."""
+
+    def factory(*, workspace_id: UUID) -> _FakeSessionContext:
+        assert workspace_id == expected_workspace_id
+        return _FakeSessionContext(session)
+
+    return factory
+
+
 @pytest.mark.anyio
 async def test_persist_session_line_preserves_raw_nul_content(
     monkeypatch: pytest.MonkeyPatch,
@@ -301,7 +314,7 @@ async def test_persist_session_line_preserves_raw_nul_content(
     session = _FakeHistoryPersistenceSession()
     monkeypatch.setattr(
         "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
-        lambda **_kwargs: _FakeSessionContext(session),
+        _tenant_session_for(handler.input.workspace_id, session),
     )
     raw_line = (
         r'{"type":"user","uuid":"line-uuid","message":{"role":"user",'
@@ -531,7 +544,7 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
 
     monkeypatch.setattr(
         "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
-        lambda **_kwargs: _FakeSessionContext(fake_session),
+        _tenant_session_for(handler.input.workspace_id, fake_session),
     )
     monkeypatch.setattr(
         "tracecat.agent.executor.loopback.AgentSessionService",

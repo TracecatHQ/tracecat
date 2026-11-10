@@ -327,7 +327,7 @@ async def test_delete_user_clears_sessions_and_memberships(
         )
         is None
     )
-    # Rows older app versions wrote to the legacy table go with the user (FK).
+    # Rows older app versions wrote to the legacy table are removed before the user (non-cascading FK).
     assert (
         await session.scalar(
             select(LegacyMembership).where(LegacyMembership.user_id == user_id)

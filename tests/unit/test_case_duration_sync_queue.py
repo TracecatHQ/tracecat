@@ -135,10 +135,6 @@ async def test_org_backfill_publishes_only_defined_workspaces_for_org(
         "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
         fake_session_context,
     )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.get_async_session_tenant_context_manager",
-        lambda **_kwargs: fake_session_context(),
-    )
     publish_mock = AsyncMock(return_value="1-0")
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
@@ -218,10 +214,6 @@ async def test_orgs_backfill_publishes_defined_workspaces_for_all_selected_orgs(
         "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
         fake_session_context,
     )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.get_async_session_tenant_context_manager",
-        lambda **_kwargs: fake_session_context(),
-    )
     publish_mock = AsyncMock(return_value="1-0")
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
@@ -263,13 +255,18 @@ def _mock_org_backfill_environment(
     async def fake_session_context():
         yield session
 
+    def fake_tenant_session(*, workspace_id: uuid.UUID):
+        # Only the workspace whose publish failed falls back inline.
+        assert workspace_id == workspace_ids[0]
+        return fake_session_context()
+
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
         fake_session_context,
     )
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.get_async_session_tenant_context_manager",
-        lambda **_kwargs: fake_session_context(),
+        fake_tenant_session,
     )
     publish_mock = AsyncMock(side_effect=[ConnectionError("redis unavailable"), "1-0"])
     monkeypatch.setattr(
@@ -435,10 +432,6 @@ def _mock_rollout_environment(
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
         fake_session_context,
-    )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.get_async_session_tenant_context_manager",
-        lambda **_kwargs: fake_session_context(),
     )
     publish_mock = AsyncMock(return_value="1-0")
     monkeypatch.setattr(
