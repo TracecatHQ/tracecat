@@ -684,10 +684,16 @@ def test_vcs_credential_routes_accept_org_actors() -> None:
         assert role == vcs_router.OrgActorRole
 
 
-def test_registry_repository_sync_route_accepts_org_actors() -> None:
-    role = get_type_hints(
-        registry_repos_router.sync_registry_repository, include_extras=True
-    )["role"]
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        registry_repos_router.sync_registry_repository,
+        registry_repos_router.list_registry_repositories,
+        registry_repos_router.get_registry_repository,
+    ],
+)
+def test_registry_repository_routes_accept_org_actors(endpoint: object) -> None:
+    role = get_type_hints(endpoint, include_extras=True)["role"]
     assert role == registry_repos_router.OrgActorRole
 
 

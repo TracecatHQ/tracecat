@@ -70,6 +70,20 @@ You must have the "Organization Admin" role to add and manage the custom registr
   </Step>
 </Steps>
 
+## Sync from CI
+
+Use an organization service account with `org:registry:read` and `org:registry:update` to sync from a CI pipeline.
+Copy the repository ID from the Versions page, or list repositories with `GET /api/registry/repos`.
+
+```bash
+curl -X POST https://platform.tracecat.com/api/registry/repos/<REPOSITORY_ID>/sync \
+  --header "Authorization: Bearer <SERVICE_ACCOUNT_API_KEY>" \
+  --header "Content-Type: application/json" \
+  --data '{"target_commit_sha": "<COMMIT_SHA>"}'
+```
+
+Omit the body to sync `HEAD`. The service account does not need `org:secret:read` to use the registry SSH key.
+
 ## Manage versions
 
 Each sync creates a version pinned to its source commit.

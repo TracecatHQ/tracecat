@@ -181,11 +181,7 @@ async def list_repository_versions(
 @require_scope("org:registry:read")
 async def list_registry_repositories(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> list[RegistryRepositoryReadMinimal]:
     """List org-scoped registry repositories.
@@ -241,11 +237,7 @@ async def list_registry_repositories(
 @require_scope("org:registry:read")
 async def get_registry_repository(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
+    role: OrgActorRole,
     session: AsyncDBSession,
     repository_id: uuid.UUID,
 ) -> RegistryRepositoryRead:

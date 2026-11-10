@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import check_scopes, require_scope
 from tracecat.db.models import (
     BaseSecret,
     OrganizationSecret,
@@ -61,6 +61,13 @@ from tracecat.secrets.schemas import (
 from tracecat.secrets.types import ExternalSecretReference
 from tracecat.service import BaseOrgService
 from tracecat.workspace_sync.enums import SyncResourceType
+
+REGISTRY_SSH_KEY_SCOPES = (
+    "org:secret:read",
+    "org:registry:read",
+    "org:registry:update",
+)
+"""Any one of these scopes lets a caller use the registry SSH key internally."""
 
 
 def is_external_reference(secret: BaseSecret) -> TypeGuard[Secret]:
@@ -578,7 +585,7 @@ class SecretsService(BaseOrgService):
         """Delete an organization secret for callers with their own access gate."""
         await self._delete_secret(org_secret)
 
-    @require_scope("org:secret:read")
+    @require_scope(*REGISTRY_SSH_KEY_SCOPES, require_all=False)
     async def get_ssh_key(
         self,
         key_name: str | None = None,
@@ -591,13 +598,31 @@ class SecretsService(BaseOrgService):
             case _:
                 raise ValueError(f"Invalid target: {target}")
 
-    @require_scope("org:secret:read")
+    @require_scope(*REGISTRY_SSH_KEY_SCOPES, require_all=False)
+    async def get_registry_ssh_key_secret(
+        self, environment: str | None = None
+    ) -> OrganizationSecret:
+        """Get the registry Git SSH key secret.
+
+        Registry scopes are enough: the key is only used to clone the registry
+        and is never returned to the caller.
+        """
+        return await self._get_org_secret_by_name(
+            REGISTRY_GIT_SSH_KEY_SECRET_NAME, environment
+        )
+
+    @require_scope(*REGISTRY_SSH_KEY_SCOPES, require_all=False)
     async def get_registry_ssh_key(
         self, key_name: str | None = None, environment: str | None = None
     ) -> SecretStr:
+        key_name = key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME
         try:
-            key_name = key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME
-            secret = await self.get_org_secret_by_name(key_name, environment)
+            if key_name == REGISTRY_GIT_SSH_KEY_SECRET_NAME:
+                secret = await self.get_registry_ssh_key_secret(environment)
+            else:
+                # Any other org secret still needs secret read access.
+                check_scopes(self.role, "org:secret:read")
+                secret = await self._get_org_secret_by_name(key_name, environment)
             kv = self.decrypt_keys(secret.encrypted_keys)[0]
             logger.debug("SSH key found", key_name=key_name, key_length=len(kv.value))
             raw_value = kv.value.get_secret_value()
