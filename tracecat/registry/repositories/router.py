@@ -21,6 +21,7 @@ from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
     RegistryNotFound,
+    ScopeDeniedError,
     TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
@@ -42,7 +43,10 @@ from tracecat.registry.repositories.schemas import (
     RegistryVersionPromoteResponse,
     RegistryVersionRead,
 )
-from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.repositories.service import (
+    RegistryReposService,
+    ensure_registry_ssh_origin_allowed,
+)
 from tracecat.registry.versions.schemas import VersionDiff
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.settings.service import get_setting
@@ -136,7 +140,7 @@ async def sync_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except (EntitlementRequired, HTTPException):
+    except (EntitlementRequired, HTTPException, ScopeDeniedError):
         raise
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)
@@ -309,6 +313,7 @@ async def list_repository_commits(
         allowed_domains = allowed_domains_setting or {"github.com"}
 
         git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
+        await ensure_registry_ssh_origin_allowed(role, repo.origin)
 
         # Get SSH context for git operations
         async with (
@@ -339,7 +344,7 @@ async def list_repository_commits(
 
             return commits
 
-    except HTTPException:
+    except (HTTPException, ScopeDeniedError):
         raise
     except ValueError as e:
         logger.error("Invalid git URL", origin=repo.origin, error=str(e))

@@ -82,7 +82,8 @@ curl -X POST https://platform.tracecat.com/api/registry/repos/<REPOSITORY_ID>/sy
   --data '{"target_commit_sha": "<COMMIT_SHA>"}'
 ```
 
-Omit the body to sync `HEAD`. The service account does not need `org:secret:read` to use the registry SSH key.
+Omit the body to sync `HEAD`. The service account does not need `org:secret:read` to use the registry SSH key for the repository URL set on the Repository page.
+Registry scopes do not cover other repository origins; syncing those with the SSH key requires `org:secret:read`.
 
 ## Manage versions
 
