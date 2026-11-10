@@ -171,7 +171,7 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
     # Unique by tool_call_id: handle_decisions builds these from a dict, and the
     # persistence upsert cannot carry one conflict key twice.
     decisions: list[ApprovalDecisionPayload]
-    # Delivered once the decisions are durable.
+    # Published once the decisions are durable.
     channel_updates: list[RunUpdate] = Field(default_factory=list)
 
 

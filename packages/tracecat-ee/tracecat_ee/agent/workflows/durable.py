@@ -1027,7 +1027,7 @@ class DurableAgentWorkflow:
         ).session_id
         updates: list[RunUpdate] = []
         if self.channel_run_id is not None:
-            # A cancelled approval wait left its decision for here, after Stop.
+            # Closes an approval message the turn left open (a cancelled wait).
             updates = [
                 *self.approvals.take_unpublished_decision(),
                 TurnFinished(session_id=self.session_id, run_id=self.channel_run_id),
@@ -1050,7 +1050,7 @@ class DurableAgentWorkflow:
                 )
                 + publish_budget(updates),
                 # Retry-safe: pointer cleanup is compare-and-clear by run_id,
-                # clients tolerate a duplicate END, and delivery is idempotent.
+                # clients tolerate a duplicate END, and publishing is idempotent.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         except ActivityError as exc:

@@ -288,8 +288,8 @@ class TestRecordApprovalRequestsActivity:
             approvals=approvals,
         )
 
-        # Execute the activity logic directly. With nothing to deliver it
-        # returns None, which workflow code from before delivery still decodes.
+        # Execute the activity logic directly. With nothing to publish it
+        # returns None, which workflow code from before publishing still decodes.
         assert await ApprovalManager.record_approval_requests(input_data) is None
 
         # Verify records were created

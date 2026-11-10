@@ -37,7 +37,7 @@ TURN_FINISHED = TurnFinished(session_id=SESSION_ID, run_id=RUN_ID)
 UPDATES: list[RunUpdate] = [
     TURN_FINISHED,
     ApprovalPending(session_id=SESSION_ID, run_id=RUN_ID, batch_id=BATCH_ID),
-    ApprovalDecided(session_id=SESSION_ID, batch_id=BATCH_ID, pending_ref="ts-1"),
+    ApprovalDecided(session_id=SESSION_ID, batch_id=BATCH_ID, pending_ref="ref-1"),
     ApprovalDecided(session_id=SESSION_ID, batch_id=BATCH_ID, pending_ref=None),
 ]
 
@@ -69,7 +69,7 @@ class _RecordingPublisher:
         if self.error is not None:
             raise self.error
         self.updates.append(update)
-        return "ts-1"
+        return "ref-1"
 
 
 @pytest.fixture
@@ -137,7 +137,7 @@ async def test_installed_publisher_receives_the_updates_in_order(installed) -> N
 
     refs = await publish_updates(ROLE, UPDATES[:2])
 
-    assert refs == ["ts-1", "ts-1"]
+    assert refs == ["ref-1", "ref-1"]
     assert publisher.updates == UPDATES[:2]
 
 
@@ -186,7 +186,7 @@ class _HangingPublisher(_RecordingPublisher):
 
     async def publish(self, role: Role, update: RunUpdate) -> str | None:
         await asyncio.Event().wait()
-        return "ts-1"
+        return "ref-1"
 
 
 @pytest.mark.anyio

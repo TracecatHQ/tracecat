@@ -220,7 +220,7 @@ async def _run_to_completion(
 @pytest.mark.anyio
 @pytest.mark.integration
 @pytest.mark.parametrize("linked", [True, False])
-async def test_finalize_publishes_turn_finished_before_the_release(
+async def test_finalize_carries_turn_finished_only_when_linked(
     svc_role: Role, temporal_client: Client, agent_worker_factory, linked: bool
 ) -> None:
     session_id = uuid.uuid4()

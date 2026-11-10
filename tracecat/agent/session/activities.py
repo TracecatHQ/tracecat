@@ -500,7 +500,7 @@ class FinalizeTurnInput(BaseModel):
     # set emit_terminal_done=True and pass their captured per-turn stream ID.
     active_stream_id: uuid.UUID | None = None
     emit_terminal_done: bool = False
-    # Delivered before the release, so the reply posts before the next turn starts.
+    # Published before the release, so the reply posts before the next turn starts.
     channel_updates: list[RunUpdate] = Field(default_factory=list)
 
 

@@ -375,15 +375,16 @@ class ApprovalManager:
             )
             for approval in approvals
         ]
-        updates: list[RunUpdate] = []
-        batch_id: uuid.UUID | None = None
-        if publish_to is not None:
-            batch_id = approval_batch_id(publish_to, [item.id for item in approvals])
-            updates.append(
-                ApprovalPending(
-                    session_id=self.session_id, run_id=publish_to, batch_id=batch_id
-                )
+        pending = (
+            ApprovalPending(
+                session_id=self.session_id,
+                run_id=publish_to,
+                batch_id=approval_batch_id(publish_to, [item.id for item in approvals]),
             )
+            if publish_to is not None
+            else None
+        )
+        updates: list[RunUpdate] = [pending] if pending is not None else []
         # Persist the approval state (and chat messages atomically for chat namespace)
         pending_ref = await workflow.execute_activity(
             ApprovalManager.record_approval_requests,
@@ -397,14 +398,16 @@ class ApprovalManager:
         )
         self._unpublished_decision = (
             ApprovalDecided(
-                session_id=self.session_id, batch_id=batch_id, pending_ref=pending_ref
+                session_id=self.session_id,
+                batch_id=pending.batch_id,
+                pending_ref=pending_ref,
             )
-            if batch_id is not None
+            if pending is not None
             else None
         )
 
     def take_unpublished_decision(self) -> list[RunUpdate]:
-        """The decision update not yet published, once; empty when none is owed."""
+        """The update closing the open approval message, once; empty when none is open."""
         decided, self._unpublished_decision = self._unpublished_decision, None
         return [decided] if decided is not None else []
 
@@ -463,7 +466,7 @@ class ApprovalManager:
                 )
 
     async def handle_decisions(self, *, publish: bool = True) -> None:
-        """Record the decisions; ``publish=False`` leaves the update to finalize."""
+        """Record the decisions; ``publish=False`` keeps the message open for later."""
         decisions: list[ApprovalDecisionPayload] = []
 
         for tool_call_id, result in self._approvals.items():
@@ -505,7 +508,8 @@ class ApprovalManager:
                 )
             )
         if decisions:
-            updates = self.take_unpublished_decision() if publish else []
+            decided = self._unpublished_decision
+            updates: list[RunUpdate] = [decided] if publish and decided else []
             await workflow.execute_activity(
                 ApprovalManager.apply_approval_decisions,
                 arg=ApplyApprovalResultsActivityInputs(
@@ -516,6 +520,9 @@ class ApprovalManager:
                 ),
                 start_to_close_timeout=timedelta(seconds=30) + publish_budget(updates),
             )
+            # Cleared only once published, so a failed apply still closes it at finalize.
+            if updates:
+                self._unpublished_decision = None
         self._approved_by_by_tool_call_id.clear()
         self._decision_metadata_by_tool_call_id.clear()
 
@@ -688,4 +695,5 @@ class ApprovalManager:
                 stream_id=owner.active_stream_id,
             )
         refs = await publish_updates(input.role, input.channel_updates)
+        # At most one update: the batch's ApprovalPending.
         return refs[0] if refs else None
