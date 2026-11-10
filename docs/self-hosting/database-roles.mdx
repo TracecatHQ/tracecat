@@ -115,7 +115,7 @@ GRANT tracecat_readonly TO alice;
 
 Then set her password in psql with `\password alice`, which hashes it on the client so the plaintext never reaches the server.
 
-`tracecat_readonly` can read every workspace's data in `public` except credential columns such as tokens and password hashes.
+`tracecat_readonly` can read every workspace's data in `public` except credential columns such as tokens and password hashes. Row-level security still applies to it, so a session sees rows only after it opts in: run `SET app.rls_bypass = 'on';` first (or `SET app.current_workspace_id = '<workspace-id>';` for one workspace). The role stays read-only either way.
 
 ## Break-glass access
 
