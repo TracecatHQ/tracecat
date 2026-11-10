@@ -1891,6 +1891,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
 
+def _login_method(value: str) -> LoginMethod:
+    """``--login`` parser that never echoes the value.
+
+    Compose passes ``TRACECAT__DB_ROLE_LOGIN`` here; a credential pasted into
+    that variable must not land in the deploy logs, which argparse's own
+    "invalid value" message would do.
+    """
+    try:
+        return LoginMethod(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected one of {', '.join(LoginMethod)}"
+        ) from None
+
+
 def _main(argv: Sequence[str] | None) -> int:
     parser = argparse.ArgumentParser(
         prog="tracecat db roles",
@@ -1903,8 +1918,8 @@ def _main(argv: Sequence[str] | None) -> int:
     )
     bootstrap.add_argument(
         "--login",
-        type=LoginMethod,
-        choices=list(LoginMethod),
+        type=_login_method,
+        metavar="{" + ",".join(LoginMethod) + "}",
         default=LoginMethod.PASSWORD,
         help="How the login roles authenticate (default: password).",
     )
@@ -1919,8 +1934,8 @@ def _main(argv: Sequence[str] | None) -> int:
     )
     upgrade.add_argument(
         "--login",
-        type=LoginMethod,
-        choices=list(LoginMethod),
+        type=_login_method,
+        metavar="{" + ",".join(LoginMethod) + "}",
         default=LoginMethod.PASSWORD,
         help="How the login roles authenticate (default: password).",
     )

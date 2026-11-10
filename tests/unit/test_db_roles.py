@@ -2445,6 +2445,20 @@ def test_status_compares_the_stamp_with_this_release(
     assert "database 0, this release" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("command", ["bootstrap", "upgrade"])
+def test_login_option_never_echoes_its_value(
+    capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    """Compose passes TRACECAT__DB_ROLE_LOGIN: a pasted credential stays out of logs."""
+    secret = "postgresql://admin:synthetic-secret@db.invalid/x"
+    with pytest.raises(SystemExit) as exc:
+        main([command, "--login", secret])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "expected one of password, aws_iam, azure_entra" in err
+    assert "synthetic-secret" not in err
+
+
 def test_status_ignores_operators_planted_on_the_search_path(
     install: MigrateInstall,
 ) -> None:
