@@ -194,7 +194,6 @@ iam_role_permissions_boundary = "arn:aws:iam::123456789012:policy/WorkloadBounda
 
 The default is `null` for installations without a boundary. Setting the input
 updates existing roles in place and preserves their names and ARNs. Review the
-full plan and reject any deletion or replacement before applying. The platform
-administrator must own the boundary policy separately from this workload stack.
+full plan and reject any deletion or replacement before applying. Manage the boundary policy separately from this workload stack.
 Add service permissions to workload identity policies within that ceiling; keep
 the boundary ARN stable when extending its approved scopes.
