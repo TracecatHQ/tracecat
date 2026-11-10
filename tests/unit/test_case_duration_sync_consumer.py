@@ -345,11 +345,12 @@ async def test_consumer_skips_backfill_fanout_without_entitlement(
     publish_mock = AsyncMock()
 
     @contextlib.asynccontextmanager
-    async def fake_session_context(**_kwargs: object):
+    async def fake_session_context(*, workspace_id: uuid.UUID):
+        assert workspace_id == job.workspace_id
         yield session
 
     monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.get_async_session_bypass_rls_context_manager",
+        "tracecat.cases.durations.consumer.get_async_session_tenant_context_manager",
         fake_session_context,
     )
     monkeypatch.setattr(

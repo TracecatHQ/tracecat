@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import Request
+from tracecat_ee.tunnels.routing import resolve_tunnel_target
 
 from tracecat.agent.channels.router import (
     _resolve_service_role_for_workspace,
@@ -25,6 +26,7 @@ from tracecat.auth.saml import login as saml_login
 from tracecat.auth.saml import sso_acs
 from tracecat.auth.types import Role
 from tracecat.auth.users import UserManager
+from tracecat.cases.durations.consumer import CaseDurationSyncConsumer
 from tracecat.cases.durations.sync_queue import sync_workspace_case_durations_inline
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.contexts import ctx_role
@@ -41,6 +43,7 @@ from tracecat.invitations.router import (
     list_my_pending_invitations,
 )
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
+from tracecat.search.indexing_workflow import index_search_collection
 from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.webhooks.dependencies import validate_incoming_webhook
@@ -201,11 +204,6 @@ def test_channel_event_uses_bypass_session_dependency() -> None:
     """A public channel request has no role, so its token lookup needs bypass."""
     source = inspect.getsource(handle_channel_event)
     assert "session: AsyncDBSessionBypass" in source
-
-
-def test_channel_workspace_role_lookup_uses_bypass_session_manager() -> None:
-    source = inspect.getsource(_resolve_service_role_for_workspace)
-    assert "get_async_session_bypass_rls_context_manager" in source
 
 
 def _patch_user_manager_pool_sessions(
@@ -443,6 +441,10 @@ def test_registry_sync_startup_uses_bypass_session_manager() -> None:
         get_registry_artifacts_for_lock,
         _load_manifest_entry,
         sync_workspace_case_durations_inline,
+        CaseDurationSyncConsumer._process_backfill_job,
+        _resolve_service_role_for_workspace,
+        index_search_collection,
+        resolve_tunnel_target,
     ],
 )
 def test_tenant_scoped_system_code_uses_tenant_session(
