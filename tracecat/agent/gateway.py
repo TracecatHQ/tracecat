@@ -628,8 +628,13 @@ class TracecatCallbackHandler(CustomLogger):
             APIConnectionError
             | BadGatewayError
             | InternalServerError
-            | ServiceUnavailableError,
+            | ServiceUnavailableError
+            | httpx.NetworkError
+            | httpx.RemoteProtocolError,
         ):
+            # When a pre-first-chunk Anthropic stream fallback also fails, the
+            # router re-raises the wrapped transport error (e.g. httpx.ReadError)
+            # instead of a LiteLLM exception.
             # Includes MidStreamFallbackError wrapping a provider 5xx or a
             # dropped connection; wrapped throttling was handled above.
             status_code = getattr(original_exception, "status_code", None)
