@@ -1891,31 +1891,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
 
-def _missing_new_passwords(
+def _creates_login_without_password(
     conn: psycopg.Connection,
     passwords: LoginPasswords,
     roles: RoleNames = DEFAULT_ROLES,
-) -> list[str]:
-    """Password variables that are empty for ``migrator``/``app`` roles that
-    don't exist yet: ``--login password`` would create them without one.
+) -> bool:
+    """Whether ``--login password`` would create ``migrator`` or ``app``
+    without a password (the role doesn't exist yet and its password is unset).
 
     A rerun on existing roles may leave their passwords unchanged.
     ``agent_runtime`` is optional (nothing logs in as it yet).
     """
-    # The variable names and the password values stay apart, so nothing that
-    # gets printed is derived from a password.
-    unset = {roles.migrator: not passwords.migrator, roles.app: not passwords.app}
-    missing: list[str] = []
-    for name, variable in (
-        (roles.migrator, "TRACECAT__DB_MIGRATOR_PASSWORD"),
-        (roles.app, "TRACECAT__DB_APP_PASSWORD"),
+    for name, password in (
+        (roles.migrator, passwords.migrator),
+        (roles.app, passwords.app),
     ):
         exists = conn.execute(
             "SELECT pg_catalog.to_regrole(%(r)s) IS NOT NULL", {"r": quote_ident(name)}
         ).fetchone()
-        if unset[name] and exists == (False,):
-            missing.append(variable)
-    return missing
+        if not password and exists == (False,):
+            return True
+    return False
 
 
 def _login_method(value: str) -> LoginMethod:
@@ -1997,10 +1993,11 @@ def _main(argv: Sequence[str] | None) -> int:
         return code
     if writes and login is LoginMethod.PASSWORD:
         with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
-            if missing := _missing_new_passwords(conn, LoginPasswords.from_config()):
+            if _creates_login_without_password(conn, LoginPasswords.from_config()):
                 print(
-                    f"error: {', '.join(missing)} empty: role setup would create a "
-                    "login role without a password.",
+                    "error: role setup would create migrator or app without a "
+                    "password: set TRACECAT__DB_MIGRATOR_PASSWORD and "
+                    "TRACECAT__DB_APP_PASSWORD.",
                     file=sys.stderr,
                 )
                 return 1

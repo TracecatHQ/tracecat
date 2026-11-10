@@ -2481,12 +2481,16 @@ def test_password_setup_refuses_new_logins_without_passwords(
         monkeypatch.setattr(config, "TRACECAT__DB_MIGRATOR_PASSWORD", PASSWORD)
         monkeypatch.setattr(config, "TRACECAT__DB_APP_PASSWORD", None)
         with psycopg.connect(_url("postgres", "postgres", database)) as conn:
-            missing = roles_module._missing_new_passwords(
+            assert roles_module._creates_login_without_password(
                 conn, LoginPasswords.from_config(), _test_roles(suffix)
             )
-        assert missing == ["TRACECAT__DB_APP_PASSWORD"]
+            assert not roles_module._creates_login_without_password(
+                conn, LoginPasswords(PASSWORD, PASSWORD), _test_roles(suffix)
+            )
         assert main(["upgrade", "--login", "password"]) == 1
-        assert "TRACECAT__DB_APP_PASSWORD empty" in capsys.readouterr().err
+        assert "would create migrator or app without a password" in (
+            capsys.readouterr().err
+        )
     finally:
         _drop_all(database, [])
 
