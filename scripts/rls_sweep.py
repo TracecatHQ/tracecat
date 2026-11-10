@@ -24,7 +24,8 @@ What it does, as one user in one organization:
    with the RLS bypass, to another workspace, and to no context.
 5. Optionally scans service logs for RLS error signatures (`--logs`).
 
-Writes `results.json`, `summary.md` and raw evidence to `--out` and prints
+Writes `results.json`, `summary.md` and evidence to `--out` (keep it outside
+the repo: evidence names workspaces and objects in the target org) and prints
 one PASS/FAIL line per check. Exits 0 when every check ran and passed, 1 on
 any FAIL, 2 when nothing failed but a check was skipped (for example
 `--sql skip`). With `--baseline`, a check that passed in the baseline and
@@ -38,9 +39,9 @@ token is deleted and the isolation service account is disabled after use.
 
 Usage:
     uv run --no-project --with httpx==0.28.1 python scripts/rls_sweep.py \
-        --target staging --out reports/off
+        --target staging --out ~/rls-sweep/off
     uv run --no-project --with httpx==0.28.1 python scripts/rls_sweep.py \
-        --target staging --out reports/enforce --baseline reports/off
+        --target staging --out ~/rls-sweep/enforce --baseline ~/rls-sweep/off
 
 Targets:
     staging  https://app.tracecat-staging.com. Password from
@@ -147,11 +148,15 @@ CAPABILITY_PATHS = re.compile(
 )
 
 
+DB_URI_PASSWORD = re.compile(r"(\w+(?:\+\w+)?://[^:/@\s]+:)[^@\s]+@")
+
+
 def scrub(text: str) -> str:
-    """Mask the credential segment of webhook and channel capability URLs."""
-    return CAPABILITY_PATHS.sub(
+    """Mask capability-URL secrets and passwords in connection URIs."""
+    text = CAPABILITY_PATHS.sub(
         lambda m: (m.group(1) or m.group(2)) + "[REDACTED]", text
     )
+    return DB_URI_PASSWORD.sub(lambda m: m.group(1) + "[REDACTED]@", text)
 
 
 def redact(value: Any) -> Any:
@@ -165,6 +170,16 @@ def redact(value: Any) -> Any:
     if isinstance(value, str):
         return scrub(value)
     return value
+
+
+def summarize(value: Any) -> Any:
+    """Shape of a read response: reads carry member emails, case text and row data."""
+    items = items_of(value)
+    if items is not None:
+        return {"items": len(items)}
+    if isinstance(value, dict):
+        return {"keys": sorted(value)[:20]}
+    return type(value).__name__
 
 
 def items_of(body: Any) -> list[Any] | None:
@@ -274,7 +289,7 @@ class Api:
                 "params": params,
                 "status": r.status_code,
                 "request": redact(body),
-                "response": redact(value),
+                "response": summarize(value) if method == "GET" else redact(value),
             }
         )
         if ok is not None:
@@ -968,6 +983,11 @@ def stream_turn(
                             "type": kind,
                             "tool": data.get("toolName"),
                             "call": data.get("toolCallId"),
+                            # Failed tools still emit tool-output-available, with errorText.
+                            "tool_error": (data.get("output") or {}).get("errorText")
+                            if kind == "tool-output-available"
+                            and isinstance(data.get("output"), dict)
+                            else None,
                             "delta": data.get("delta"),
                             "error": data.get("errorText"),
                         }
@@ -992,11 +1012,17 @@ def stream_turn(
             {
                 names.get(e["call"], "?")
                 for e in events
-                if e["type"] == "tool-output-available"
+                if e["type"] == "tool-output-available" and not e["tool_error"]
             }
         ),
+        "tool_errors": [
+            f"{names.get(e['call'], '?')}: {str(e['tool_error'])[:200]}"
+            for e in events
+            if e["tool_error"]
+        ],
     }
     expect(done and not summary["errors"], f"{label}: turn failed {summary['errors']}")
+    expect(not summary["tool_errors"], f"{label}: tool failed {summary['tool_errors']}")
     return summary
 
 
@@ -1071,6 +1097,11 @@ def check_agent_turn(run: Run, api: Api) -> Any:
     return {"session": session["id"], **out}
 
 
+def is_reshape(tool: str | None) -> bool:
+    """Approval requests name the tool through the MCP proxy, tool events don't."""
+    return tool in ("core.transform.reshape", "mcp__tracecat__core__transform__reshape")
+
+
 def check_approval(run: Run, api: Api) -> Any:
     """A tool that needs approval pauses the turn; approving it resumes the run."""
     s, t = run.seeds, run.target
@@ -1128,6 +1159,9 @@ def check_approval(run: Run, api: Api) -> Any:
         "core.transform.reshape" not in paused["outputs"],
         f"tool ran before it was approved: outputs {paused['outputs']}",
     )
+    # Approve only the call this check asks for; anything else is unexpected.
+    unexpected = [a for a in paused["approvals"] if not is_reshape(a["tool"])]
+    expect(not unexpected, f"unexpected approval requests: {unexpected}")
     decisions = [
         {"tool_call_id": a["tool_call_id"], "action": "approve"}
         for a in paused["approvals"]
@@ -1183,7 +1217,7 @@ def check_channel(run: Run, api: Api) -> Any:
     # Tokens from earlier runs carry signing secrets this run doesn't know.
     for old in items_of(api.json("GET", "/api/agent/channels/tokens")) or []:
         if old.get("agent_preset_id") == s["preset"]:
-            api.call("DELETE", f"/api/agent/channels/tokens/{old['id']}", ok=None)
+            api.call("DELETE", f"/api/agent/channels/tokens/{old['id']}", ok=(200, 204))
     signing_secret = secrets.token_hex(32)
     token = api.json(
         "POST",
@@ -1496,6 +1530,23 @@ with engine.connect() as c:
                            "assigned_differs_from_default": tier[0] is not None and tier[0] != tier[1]}
     org = orgs[A]
     tenant = set(t.ALL_TENANT_RLS_TABLES)
+    # Policy metadata for every registered tenant table, independent of row counts:
+    # an empty table with RLS off would otherwise pass every visibility check.
+    with c.begin():
+        ctx(c, bypass="on")
+        meta = {r[0]: r[1:] for r in c.execute(text(
+            "SELECT c.relname, c.relrowsecurity, (SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid) "
+            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')")).tuples().all()}
+    policy_findings = []
+    for n in sorted(tenant):
+        if n not in meta:
+            policy_findings.append({"table": n, "issue": "registered tenant table missing"})
+        elif not meta[n][0]:
+            policy_findings.append({"table": n, "issue": "RLS disabled"})
+        elif not meta[n][1]:
+            policy_findings.append({"table": n, "issue": "no RLS policy"})
+    out["tenant_tables_registered"] = len(tenant)
     ws_tables = sorted(n for n, has_ws, _ in cols if n in tenant and has_ws)
     org_tables = sorted(n for n, has_ws, has_org in cols if n in tenant and has_org and not has_ws)
     # Tables that inherit tenancy through a parent row (no tenant column of their own).
@@ -1535,7 +1586,7 @@ with engine.connect() as c:
                                    {"o": org}).scalar_one()
         return res
 
-    findings = []
+    findings = list(policy_findings)
     pure_ws = t.WORKSPACE_POLICY_TABLES | t.SPECIAL_WORKSPACE_POLICY_TABLES
     for owner, other in ((A, B), (B, A)):
         views = {
@@ -1658,10 +1709,14 @@ def run_sql_probe(run: Run) -> dict[str, Any]:
     proc = subprocess.run(
         cmd, input=SQL_PROBE, capture_output=True, text=True, timeout=600
     )
-    (run.out / "evidence" / "sql-stderr.txt").write_text(proc.stderr[-20000:])
+    if proc.returncode != 0:
+        # The probe imports the app's engine module, whose trace logs can carry the DB URI.
+        (run.out / "evidence" / "sql-stderr.txt").write_text(
+            scrub(proc.stderr[-20000:])
+        )
     expect(
         proc.returncode == 0,
-        f"SQL probe exit {proc.returncode}: {proc.stderr.strip()[-400:]}",
+        scrub(f"SQL probe exit {proc.returncode}: {proc.stderr.strip()[-400:]}"),
     )
     data = json.loads(proc.stdout.strip().splitlines()[-1])
     (run.out / "evidence" / "sql.json").write_text(json.dumps(data, indent=2))
@@ -1875,7 +1930,12 @@ def run_checks(
     else:
         gets = sweep_gets(run, api)
         # 501/503 are deliberate (unimplemented / unconfigured); 500 is a crash.
-        server_errors = sorted(p for p, v in gets.items() if v.get("status") == 500)
+        # A route we could not read (timeout, reset) is unknown, not clean.
+        server_errors = sorted(
+            p
+            for p, v in gets.items()
+            if v.get("status") == 500 or v.get("status") is None
+        )
         print(
             f"{'FAIL' if server_errors else 'PASS':4} get_sweep        {len(gets)} routes, 5xx: {server_errors}"
         )
@@ -1883,7 +1943,7 @@ def run_checks(
             CheckResult(
                 name="get_sweep",
                 surface="H14 every parameter-free GET route",
-                expected="no 500; vs baseline: no 2xx→error, no data→empty",
+                expected="no 500 or unreadable route; vs baseline: no 2xx→error, no data→empty",
                 result="FAIL" if server_errors else "PASS",
                 observed={"routes": len(gets), "server_errors": server_errors},
             )
