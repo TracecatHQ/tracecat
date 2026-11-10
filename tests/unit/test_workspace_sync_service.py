@@ -50,6 +50,7 @@ from tracecat.workspace_sync.adapters import (
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
+from tracecat.workspace_sync.layout import plan_resource_paths
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     AgentPresetResourceSpec,
@@ -544,6 +545,7 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
             manifest=WorkspaceManifest(),
             spec=spec,
             files={"b.json": "{}", "a.json": "{}"},
+            paths=plan_resource_paths(spec),
         )
     )
 
@@ -859,6 +861,7 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
             manifest=projection_manifest,
             spec=projection_spec,
         ),
+        paths=plan_resource_paths(projection_spec),
     )
     service._workspace_git_url = AsyncMock(
         return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
@@ -3729,7 +3732,7 @@ async def test_publish_reports_a_branch_deleted_mid_push(sample_dsl: DSLInput) -
 
 
 @pytest.mark.anyio
-async def test_publish_reads_only_primary_files_of_pushed_types(
+async def test_publish_reads_primary_files_and_owns_workflow_folders(
     sample_dsl: DSLInput,
 ) -> None:
     service, transport, workflow = _publish_service(sample_dsl)
@@ -3761,3 +3764,99 @@ async def test_publish_reads_only_primary_files_of_pushed_types(
     # Types the push does not write, and companion files, are not read.
     assert not resource_filter("tables/iocs/table.yml")
     assert not resource_filter("workflows/Other/notes.md")
+    # The push owns the workflow folder, so it deletes the script files of
+    # actions the workflow no longer has.
+    delete_roots = transport.write_files.await_args.kwargs["delete_missing_paths_under"]
+    assert "workflows/Sync-me" in delete_roots
+
+
+_TRIAGE_PATHS = {
+    SyncResourceType.WORKFLOW: {
+        "wf_a": WORKFLOW_RESOURCE_ADAPTER.path_for_key("Triage")
+    }
+}
+
+
+@pytest.mark.anyio
+async def test_partial_push_owns_each_pushed_workflow_folder(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    spec = WorkspaceSpec(
+        workflows={
+            "wf_a": WorkflowResourceSpec(id="wf_a", alias="a", definition=sample_dsl)
+        }
+    )
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(), spec=spec, files={}, paths=_TRIAGE_PATHS
+    )
+
+    roots = await workspace_sync_service._export_delete_roots(
+        projection,
+        full_workspace_export=False,
+        resource_ids={SyncResourceType.WORKFLOW: {uuid.uuid4()}},
+        base=None,
+    )
+
+    # So the push deletes script files of actions the workflow no longer has.
+    assert roots == ("workflows/Triage",)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("current_args", "incoming_args"),
+    [
+        pytest.param({"script": "x = 1"}, {}, id="script-file-deleted-in-git"),
+        pytest.param({}, {"script": "x = 1"}, id="script-file-added-in-git"),
+    ],
+)
+async def test_pull_preview_shows_a_changed_script_file_as_modified(
+    workspace_sync_service: WorkspaceSyncService,
+    current_args: dict[str, object],
+    incoming_args: dict[str, object],
+) -> None:
+    def workflow(
+        args: dict[str, object], source_id: str = "wf_a", title: str = "Triage"
+    ) -> WorkflowResourceSpec:
+        return WorkflowResourceSpec(
+            id=source_id,
+            alias=source_id,
+            definition=DSLInput(
+                title=title,
+                description="Pull preview test workflow",
+                entrypoint=DSLEntrypoint(ref="score", expects={}),
+                actions=[
+                    ActionStatement(
+                        ref="score", action="core.script.run_python", args=args
+                    )
+                ],
+            ),
+        )
+
+    # A local-only workflow is not in Git, so the preview must not list it.
+    current = WorkspaceSpec(
+        workflows={
+            "wf_a": workflow(current_args),
+            "wf_local": workflow({"script": "y = 2"}, "wf_local", "Local"),
+        }
+    )
+    incoming = WorkspaceSpec(workflows={"wf_a": workflow(incoming_args)})
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(), spec=current, files={}, paths=_TRIAGE_PATHS
+        )
+    )
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="a" * 40, files={}, spec=incoming, paths=_TRIAGE_PATHS
+    )
+
+    diffs = await workspace_sync_service._resource_diffs_for_pull(
+        snapshot, sync_schedules=False
+    )
+
+    # definition.yml is unchanged, so only the script file shows the change.
+    # The workflow already exists, so it is modified, not added.
+    assert [(d.source_path, d.change_type) for d in diffs] == [
+        ("workflows/Triage/scripts/score.py", "modified")
+    ]
+    assert "x = 1" in diffs[0].diff
