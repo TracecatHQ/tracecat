@@ -1898,12 +1898,11 @@ def _login_method(value: str) -> LoginMethod:
     that variable must not land in the deploy logs, which argparse's own
     "invalid value" message would do.
     """
-    try:
-        return LoginMethod(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"expected one of {', '.join(LoginMethod)}"
-        ) from None
+    # Check membership instead of catching LoginMethod's ValueError: that
+    # exception would carry the value along as the new error's __context__.
+    if value not in {method.value for method in LoginMethod}:
+        raise argparse.ArgumentTypeError(f"expected one of {', '.join(LoginMethod)}")
+    return LoginMethod(value)
 
 
 def _main(argv: Sequence[str] | None) -> int:

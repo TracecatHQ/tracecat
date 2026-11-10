@@ -20,6 +20,7 @@ Invariants:
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import re
@@ -2454,6 +2455,10 @@ def test_login_option_never_echoes_its_value(
     with pytest.raises(SystemExit) as exc:
         main([command, "--login", secret])
     assert exc.value.code == 2
+    # Nor on any exception argparse saw.
+    with pytest.raises(argparse.ArgumentTypeError) as parse_error:
+        roles_module._login_method(secret)
+    assert parse_error.value.__context__ is None
     err = capsys.readouterr().err
     assert "expected one of password, aws_iam, azure_entra" in err
     assert "synthetic-secret" not in err
