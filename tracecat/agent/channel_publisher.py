@@ -105,21 +105,9 @@ class ChannelPublisher(Protocol):
         ...
 
 
-class NoopChannelPublisher:
-    """Default publisher used when no channel extension is installed."""
-
-    async def is_linked(self, role: Role, session_id: uuid.UUID) -> bool:
-        del role, session_id
-        return False
-
-    async def publish(self, role: Role, update: RunUpdate) -> str | None:
-        del role, update
-        return None
-
-
 @lru_cache(maxsize=1)
-def get_channel_publisher() -> ChannelPublisher:
-    """Build the installed publisher from its entry point, else the no-op one.
+def get_channel_publisher() -> ChannelPublisher | None:
+    """Build the installed publisher from its entry point; None when there is none.
 
     The entry point names a zero-argument callable, such as the publisher class.
     """
@@ -127,16 +115,17 @@ def get_channel_publisher() -> ChannelPublisher:
     if len(installed) > 1:
         names = ", ".join(sorted(entry_point.name for entry_point in installed))
         raise RuntimeError(f"Multiple channel publishers installed: {names}")
-    if installed:
-        return installed[0].load()()
-    return NoopChannelPublisher()
+    return installed[0].load()() if installed else None
 
 
 async def is_channel_linked(role: Role, session_id: uuid.UUID) -> bool:
     """Ask the publisher whether a session is linked, failing closed."""
     try:
+        publisher = get_channel_publisher()
+        if publisher is None:
+            return False
         return await asyncio.wait_for(
-            get_channel_publisher().is_linked(role, session_id),
+            publisher.is_linked(role, session_id),
             timeout=CHANNEL_LINK_CHECK_TIMEOUT_SECONDS,
         )
     except Exception as e:
@@ -163,6 +152,9 @@ async def _publish(role: Role, update: RunUpdate) -> str | None:
     try:
         async with asyncio.timeout(PUBLISH_BUDGET.total_seconds()):
             publisher = get_channel_publisher()
+            if publisher is None:
+                # Only linked runs publish, and linking needs a publisher.
+                raise RuntimeError("No channel publisher is installed")
             for attempt in range(1, _PUBLISH_ATTEMPTS + 1):
                 try:
                     return await publisher.publish(role, update)

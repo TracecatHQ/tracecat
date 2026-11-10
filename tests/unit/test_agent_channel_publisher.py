@@ -13,7 +13,6 @@ from tracecat.agent.channel_publisher import (
     ApprovalDecided,
     ApprovalPending,
     ChannelPublishRetryAfter,
-    NoopChannelPublisher,
     RunUpdate,
     TurnFinished,
     approval_batch_id,
@@ -123,11 +122,11 @@ def no_backoff(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
 
 @pytest.mark.anyio
-async def test_noop_publisher_is_the_default(installed) -> None:
+async def test_without_a_publisher_no_session_is_linked(installed) -> None:
     installed()
-    publisher = get_channel_publisher()
-    assert isinstance(publisher, NoopChannelPublisher)
-    assert await publisher.is_linked(ROLE, SESSION_ID) is False
+    assert get_channel_publisher() is None
+    assert await is_channel_linked(ROLE, SESSION_ID) is False
+    # Unreachable from a run, but still never fails the host.
     assert await publish_updates(ROLE, [TURN_FINISHED]) == [None]
 
 
@@ -207,12 +206,11 @@ async def test_a_hanging_provider_is_cut_off_at_the_budget(
 @pytest.mark.parametrize(
     ("publisher", "expected"),
     [
-        (NoopChannelPublisher(), False),
         (_RecordingPublisher(), True),
         (_RecordingPublisher(error=RuntimeError("down")), False),
         (_HangingPublisher(), False),
     ],
-    ids=["noop", "linked", "publisher-error", "publisher-timeout"],
+    ids=["linked", "publisher-error", "publisher-timeout"],
 )
 async def test_is_channel_linked(
     installed,
