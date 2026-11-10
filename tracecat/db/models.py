@@ -4699,6 +4699,94 @@ class AgentChannelToken(WorkspaceModel):
     )
 
 
+class AgentChannelBot(TimestampMixin, Base):
+    """One installed provider app (a Slack bot), targeting one agent preset."""
+
+    __tablename__ = "agent_channel_bot"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_tenant_id", "provider_app_id"),
+        # Target of the thread link's composite key: a link never crosses workspaces.
+        UniqueConstraint("id", "workspace_id"),
+        CheckConstraint("provider IN ('slack')", name="provider"),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'disconnected', 'needs_reconnect')",
+            name="status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[Literal["slack"]] = mapped_column(String, nullable=False)
+    status: Mapped[Literal["active", "paused", "disconnected", "needs_reconnect"]] = (
+        mapped_column(String, nullable=False, server_default="active")
+    )
+    provider_tenant_id: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="Install team; null until installed (legacy token copies, reserved bots)",
+    )
+    provider_enterprise_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    provider_app_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, doc="Inbound events from another app are rejected"
+    )
+    provider_bot_user_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, doc="The bot's own user, so its posts are dropped"
+    )
+    granted_scopes: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, server_default="{}"
+    )
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    encrypted_credentials: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, doc="DB-encrypted provider credentials document"
+    )
+
+
+class AgentChannelThread(TimestampMixin, Base):
+    """A session's link to one provider thread; one session per thread per bot."""
+
+    __tablename__ = "agent_channel_thread"
+    __table_args__ = (
+        UniqueConstraint("bot_id", "thread_key"),
+        ForeignKeyConstraint(
+            ["bot_id", "workspace_id"],
+            ["agent_channel_bot.id", "agent_channel_bot.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        # Deferred so a link can claim its thread before its session is inserted.
+        ForeignKeyConstraint(
+            ["session_id", "workspace_id"],
+            ["agent_session.id", "agent_session.workspace_id"],
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
+
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    thread: Mapped[dict[str, JsonValue]] = mapped_column(
+        JSONB, nullable=False, doc="Provider thread address; thread_key is its key"
+    )
+    thread_key: Mapped[str] = mapped_column(String, nullable=False)
+    sync_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+
+
 class AgentFolder(WorkspaceModel):
     """Folder for organizing agent presets.
 
