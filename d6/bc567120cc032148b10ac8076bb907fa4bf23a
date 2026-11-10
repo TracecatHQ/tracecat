@@ -1,0 +1,38 @@
+deployments/fargate/modules/ecs/tests/alb_logging.tftest.hcl
+  s_28b5e1d0991a70::t_99b857e0e9616a 1-52,54-76,78-121
+  s_28b5e1d0991a70::t_c541b1864e2edc 53,77
+deployments/fargate/main.tf
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 2,27-28,31-37
+deployments/fargate/modules/ecs/waf-handoff.tf
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 1-49
+deployments/fargate/variables.tf
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 1061-1069,1074-1075
+deployments/fargate/modules/ecs/main.tf
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 2
+deployments/fargate/outputs.tf
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 199-203
+deployments/fargate/modules/ecs/outputs.tf
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 176-180
+deployments/fargate/modules/ecs/variables.tf
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 1107-1115,1120-1121
+deployments/fargate/modules/ecs/alb.tf
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 13,22,30-36
+deployments/fargate/README.md
+  s_28b5e1d0991a70::t_ea4fcf0eb5f40a 185-213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d6bc567120cc032148b10ac8076bb907fa4bf23a",
+  "prompts": {},
+  "sessions": {
+    "s_28b5e1d0991a70": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c773-bf8e-79c3-b123-586e18d5970c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
