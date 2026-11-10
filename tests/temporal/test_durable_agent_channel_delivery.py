@@ -77,14 +77,14 @@ def _create_session_activity(linked: bool) -> Callable[..., Any]:
     @activity.defn(name="create_session_activity")
     async def create_session(input: CreateSessionInput) -> CreateSessionResult:
         return CreateSessionResult(
-            session_id=input.session_id, success=True, channel_thread_linked=linked
+            session_id=input.session_id, success=True, has_linked_thread=linked
         )
 
     return create_session
 
 
 def _deliver_activity(recorder: Recorder, *, fail: bool = False) -> Callable[..., Any]:
-    @activity.defn(name="deliver_channel_notice")
+    @activity.defn(name="deliver_thread_notice")
     async def deliver(input: DeliverChannelNoticeInput) -> ChannelNoticeResult:
         notice = input.notice
         recorder.order.append(f"deliver:{notice.kind}")
@@ -263,7 +263,7 @@ async def test_turn_finished_is_delivered_before_the_session_is_released(
     assert recorder.order == ["deliver:turn_finished", "finalize_turn"]
     # The workflow id token doubles as the run id.
     assert recorder.notices == [TurnFinished(session_id=session_id, run_id=session_id)]
-    assert DurableAgentWorkflowPatch.CHANNEL_DELIVERY in await recorded_patch_ids(
+    assert DurableAgentWorkflowPatch.THREAD_DELIVERY in await recorded_patch_ids(
         temporal_client, history
     )
     await replay_durable_agent_workflow_history(temporal_client, history)
@@ -335,7 +335,7 @@ async def test_history_without_the_patch_never_schedules_delivery(
             "patched",
             lambda patch_id: (
                 False
-                if patch_id == DurableAgentWorkflowPatch.CHANNEL_DELIVERY
+                if patch_id == DurableAgentWorkflowPatch.THREAD_DELIVERY
                 else patched(patch_id)
             ),
         )
@@ -348,7 +348,7 @@ async def test_history_without_the_patch_never_schedules_delivery(
         )
 
     assert recorder.order == ["finalize_turn"]
-    assert DurableAgentWorkflowPatch.CHANNEL_DELIVERY not in await recorded_patch_ids(
+    assert DurableAgentWorkflowPatch.THREAD_DELIVERY not in await recorded_patch_ids(
         temporal_client, history
     )
     # Current code replays the marker-less history without scheduling delivery.

@@ -19,7 +19,7 @@ from tracecat.agent.delivery import (
     NoopChannelDeliveryPort,
     TurnFinished,
     approval_batch_id,
-    deliver_channel_notice,
+    deliver_thread_notice,
     get_channel_delivery_port,
     linked_thread_hint,
 )
@@ -114,7 +114,7 @@ async def test_noop_port_is_the_default(installed) -> None:
     assert isinstance(port, NoopChannelDeliveryPort)
     assert await port.has_linked_thread(ROLE, SESSION_ID) is False
 
-    result = await deliver_channel_notice(
+    result = await deliver_thread_notice(
         DeliverChannelNoticeInput(role=ROLE, notice=TURN_FINISHED)
     )
     assert result == ChannelNoticeResult(ref=None)
@@ -125,7 +125,7 @@ async def test_installed_port_receives_the_notice(installed) -> None:
     port = _RecordingPort()
     installed(_EntryPoint("example", lambda: port))
 
-    result = await deliver_channel_notice(
+    result = await deliver_thread_notice(
         DeliverChannelNoticeInput(role=ROLE, notice=TURN_FINISHED)
     )
 
@@ -139,7 +139,7 @@ async def test_retry_after_becomes_the_next_retry_delay(installed) -> None:
     installed(_EntryPoint("example", lambda: port))
 
     with pytest.raises(ApplicationError) as exc_info:
-        await deliver_channel_notice(
+        await deliver_thread_notice(
             DeliverChannelNoticeInput(role=ROLE, notice=TURN_FINISHED)
         )
 
@@ -154,7 +154,7 @@ async def test_multiple_ports_fail_delivery_without_retries(installed) -> None:
         get_channel_delivery_port()
 
     with pytest.raises(ApplicationError) as exc_info:
-        await deliver_channel_notice(
+        await deliver_thread_notice(
             DeliverChannelNoticeInput(role=ROLE, notice=TURN_FINISHED)
         )
 

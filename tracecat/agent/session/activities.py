@@ -68,7 +68,7 @@ class CreateSessionResult(BaseModel):
     session_id: uuid.UUID
     success: bool
     error: str | None = None
-    channel_thread_linked: bool = False
+    has_linked_thread: bool = False
 
 
 class PendingToolResult(BaseModel):
@@ -292,7 +292,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
         linked = await linked_thread_hint(input.role, input.session_id)
         return CreateSessionResult(
-            session_id=input.session_id, success=True, channel_thread_linked=linked
+            session_id=input.session_id, success=True, has_linked_thread=linked
         )
 
     except ApplicationError:

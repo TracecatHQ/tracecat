@@ -26,7 +26,7 @@ from tracecat.contexts import ctx_role
 from tracecat.core.schemas import Variant
 from tracecat.logger import logger
 
-CHANNEL_DELIVERY_ENTRY_POINT_GROUP = "tracecat.agent_channel_delivery"
+CHANNEL_DELIVERY_ENTRY_POINT_GROUP = "tracecat.agent_thread_delivery"
 
 # Five attempts, exponential from 2 s, 60 s in total; then the caller moves on.
 CHANNEL_DELIVERY_RETRY_POLICY = RetryPolicy(
@@ -171,7 +171,7 @@ async def linked_thread_hint(role: Role, session_id: uuid.UUID) -> bool:
 
 
 @activity.defn
-async def deliver_channel_notice(
+async def deliver_thread_notice(
     input: DeliverChannelNoticeInput,
 ) -> ChannelNoticeResult:
     """Forward a notice to the installed delivery port."""

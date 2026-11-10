@@ -25,7 +25,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
     from tracecat import config
-    from tracecat.agent.delivery import deliver_channel_notice
+    from tracecat.agent.delivery import deliver_thread_notice
     from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_config_activity,
@@ -109,7 +109,7 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(resolve_custom_model_provider_config_activity)
     activities.append(persist_stdio_mcp_connection_activity)
     activities.extend(get_session_activities())
-    activities.append(deliver_channel_notice)
+    activities.append(deliver_thread_notice)
     activities.append(complete_comment_agent_invocation_activity)
     activities.append(fail_comment_agent_invocation_activity)
     activities.append(prepare_comment_agent_invocation_activity)

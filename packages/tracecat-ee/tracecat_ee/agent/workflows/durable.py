@@ -153,7 +153,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.approvals.service import ApprovalManager
     from tracecat_ee.agent.context import AgentContext
     from tracecat_ee.agent.types import AgentWorkflowID
-    from tracecat_ee.agent.workflows.channel import ChannelNotifier
+    from tracecat_ee.agent.workflows.channel import ThreadRun
 
 
 ROOT_AGENT_SCOPE = "root"
@@ -542,7 +542,7 @@ class DurableAgentWorkflow:
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
-        self.channel = ChannelNotifier(role=self.role, session_id=self.session_id)
+        self.thread = ThreadRun(role=self.role, session_id=self.session_id)
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
@@ -1022,7 +1022,7 @@ class DurableAgentWorkflow:
         ).session_id
         # Deliver before releasing the session so the reply posts before the
         # next turn starts; a failed delivery still releases it.
-        await self.channel.turn_finished()
+        await self.thread.turn_finished()
         try:
             result: FinalizeTurnResult | None = await workflow.execute_activity(
                 finalize_turn_activity,
@@ -1163,6 +1163,56 @@ class DurableAgentWorkflow:
                 active_stream_id=str(active_stream_id),
                 error=str(emit_error),
             )
+
+    async def _pause_for_approval(self, result: AgentExecutorResult) -> None:
+        """Persist the requests, close the UI segment, then open the thread card."""
+        logger.info("Agent waiting for approval", session_id=self.session_id)
+        if result.approval_items:
+            request_metadata = {
+                item.id: item.metadata
+                for item in result.approval_items
+                if item.metadata
+            }
+            # Persist approval requests to DB (atomic with chat messages)
+            await self.approvals.prepare(
+                result.approval_items,
+                request_metadata=request_metadata,
+            )
+        await self._emit_approval_pause_done()
+        await self.thread.open_card(result.approval_items)
+
+    async def _resolve_approvals(
+        self, result: AgentExecutorResult, info: workflow.Info
+    ) -> AgentOutput | None:
+        """Record the decisions and close the thread card; output only if cancelled."""
+        cancelled_while_waiting = self._cancel_requested
+        if cancelled_while_waiting:
+            logger.info(
+                "Agent turn cancelled while waiting for approval",
+                session_id=self.session_id,
+                reason=self._cancel_reason,
+            )
+            self.approvals.set(
+                {
+                    item.id: ToolDenied(message="Cancelled while waiting for approval")
+                    for item in result.approval_items or []
+                }
+            )
+        # Persist approval decisions to DB (atomic with chat messages)
+        await self.approvals.handle_decisions()
+        if not self._cancel_requested:
+            await self.thread.close_card()
+            return None
+        if not cancelled_while_waiting:
+            logger.info(
+                "Agent turn cancelled after approval decisions",
+                session_id=self.session_id,
+                reason=self._cancel_reason,
+            )
+        output = await self._cancelled_turn_output(result, info, emit_cancelled=True)
+        # Stop lands in the UI before a possibly slow thread update.
+        await self.thread.close_card()
+        return output
 
     async def _emit_approval_pause_done(self) -> None:
         """Close the approval-pause stream after approval rows are durable."""
@@ -1333,7 +1383,7 @@ class DurableAgentWorkflow:
             raise_application_error_from_classification(
                 agent_session_initialization_failed(retryable=True)
             )
-        self.channel.capture(create_result.channel_thread_linked, curr_run_id)
+        self.thread.link(create_result.has_linked_thread, curr_run_id)
 
         # Build internal tool context for builder assistant sessions
         internal_tool_context: InternalToolContext | None = None
@@ -1533,56 +1583,14 @@ class DurableAgentWorkflow:
                 )
 
             if result.approval_requested:
-                logger.info("Agent waiting for approval", session_id=self.session_id)
-                if result.approval_items:
-                    request_metadata = {
-                        item.id: item.metadata
-                        for item in result.approval_items
-                        if item.metadata
-                    }
-                    # Persist approval requests to DB (atomic with chat messages)
-                    await self.approvals.prepare(
-                        result.approval_items,
-                        request_metadata=request_metadata,
-                    )
-                await self._emit_approval_pause_done()
-                await self.channel.approval_pending(result.approval_items)
+                await self._pause_for_approval(result)
                 # Wait for either approval decisions or a user cancellation.
                 await workflow.wait_condition(
                     lambda: self.approvals.is_ready() or self._cancel_requested
                 )
                 resumed_at = workflow.now()
-                cancelled_while_waiting = self._cancel_requested
-                if cancelled_while_waiting:
-                    logger.info(
-                        "Agent turn cancelled while waiting for approval",
-                        session_id=self.session_id,
-                        reason=self._cancel_reason,
-                    )
-                    self.approvals.set(
-                        {
-                            item.id: ToolDenied(
-                                message="Cancelled while waiting for approval"
-                            )
-                            for item in result.approval_items or []
-                        }
-                    )
-                # Persist approval decisions to DB (atomic with chat messages)
-                await self.approvals.handle_decisions()
-                if self._cancel_requested:
-                    if not cancelled_while_waiting:
-                        logger.info(
-                            "Agent turn cancelled after approval decisions",
-                            session_id=self.session_id,
-                            reason=self._cancel_reason,
-                        )
-                    output = await self._cancelled_turn_output(
-                        result, info, emit_cancelled=True
-                    )
-                    # Stop lands in the UI before a possibly slow channel update.
-                    await self.channel.approval_decided()
+                if (output := await self._resolve_approvals(result, info)) is not None:
                     return output
-                await self.channel.approval_decided()
 
                 # Approval waits are unbounded. Tokens are turn-scoped, so resumed
                 # user-MCP tool execution and the continuation need fresh tokens.
