@@ -29,6 +29,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.backends.schemas import (
         WorkflowCancelRequest as WorkflowCancelRequest,
     )
+    from tracecat.agent.channel_publisher import (
+        RunUpdate,
+        TurnFinished,
+        publish_budget,
+    )
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
         MCPToolDefinition,
@@ -36,7 +41,6 @@ with workflow.unsafe.imports_passed_through():
         SandboxSubagentConfig,
     )
     from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
-    from tracecat.agent.delivery import delivery_budget
     from tracecat.agent.error_policy import (
         agent_executor_timed_out,
         agent_executor_unclassified,
@@ -154,7 +158,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.approvals.service import ApprovalManager
     from tracecat_ee.agent.context import AgentContext
     from tracecat_ee.agent.types import AgentWorkflowID
-    from tracecat_ee.agent.workflows.channel import ThreadRun
 
 
 ROOT_AGENT_SCOPE = "root"
@@ -543,7 +546,8 @@ class DurableAgentWorkflow:
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
-        self.thread = ThreadRun(session_id=self.session_id)
+        # Set when the session is linked to a channel: the run publishes updates to it.
+        self.channel_run_id: uuid.UUID | None = None
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
@@ -1021,7 +1025,13 @@ class DurableAgentWorkflow:
         run_id = AgentWorkflowID.from_workflow_id(
             workflow.info().workflow_id
         ).session_id
-        notices = self.thread.turn_finished()
+        updates: list[RunUpdate] = []
+        if self.channel_run_id is not None:
+            # A cancelled approval wait left its decision for here, after Stop.
+            updates = [
+                *self.approvals.take_unpublished_decision(),
+                TurnFinished(session_id=self.session_id, run_id=self.channel_run_id),
+            ]
         try:
             result: FinalizeTurnResult | None = await workflow.execute_activity(
                 finalize_turn_activity,
@@ -1031,14 +1041,14 @@ class DurableAgentWorkflow:
                     run_id=run_id,
                     active_stream_id=active_stream_id,
                     emit_terminal_done=emit_terminal_done,
-                    thread_notices=notices,
+                    channel_updates=updates,
                 ),
                 # Preserve the two former 10-second operation budgets when DB
                 # cleanup and Redis completion run inside one activity.
                 start_to_close_timeout=timedelta(
                     seconds=20 if emit_terminal_done else 10
                 )
-                + delivery_budget(notices),
+                + publish_budget(updates),
                 # Retry-safe: pointer cleanup is compare-and-clear by run_id,
                 # clients tolerate a duplicate END, and delivery is idempotent.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
@@ -1166,7 +1176,7 @@ class DurableAgentWorkflow:
             )
 
     async def _pause_for_approval(self, result: AgentExecutorResult) -> None:
-        """Persist the requests and post the thread card, then close the UI segment."""
+        """Persist and publish the requests, then close the UI segment."""
         logger.info("Agent waiting for approval", session_id=self.session_id)
         if result.approval_items:
             request_metadata = {
@@ -1175,18 +1185,17 @@ class DurableAgentWorkflow:
                 if item.metadata
             }
             # Persist approval requests to DB (atomic with chat messages)
-            ref = await self.approvals.prepare(
+            await self.approvals.prepare(
                 result.approval_items,
                 request_metadata=request_metadata,
-                thread_notices=self.thread.open_card(result.approval_items),
+                publish_to=self.channel_run_id,
             )
-            self.thread.card_posted(ref)
         await self._emit_approval_pause_done()
 
     async def _resolve_approvals(
         self, result: AgentExecutorResult, info: workflow.Info
     ) -> AgentOutput | None:
-        """Record the decisions and close the thread card; output only if cancelled."""
+        """Record and publish the decisions; output only if cancelled."""
         if self._cancel_requested:
             logger.info(
                 "Agent turn cancelled while waiting for approval",
@@ -1199,11 +1208,11 @@ class DurableAgentWorkflow:
                     for item in result.approval_items or []
                 }
             )
-            # Finalize closes the card, so Stop reaches the UI first.
-            await self.approvals.handle_decisions()
+            # Finalize publishes the decision, so Stop reaches the UI first.
+            await self.approvals.handle_decisions(publish=False)
             return await self._cancelled_turn_output(result, info, emit_cancelled=True)
         # Persist approval decisions to DB (atomic with chat messages)
-        await self.approvals.handle_decisions(thread_notices=self.thread.close_card())
+        await self.approvals.handle_decisions()
         if self._cancel_requested:
             logger.info(
                 "Agent turn cancelled after approval decisions",
@@ -1382,8 +1391,8 @@ class DurableAgentWorkflow:
             raise_application_error_from_classification(
                 agent_session_initialization_failed(retryable=True)
             )
-        if create_result.has_linked_thread:
-            self.thread.link(curr_run_id)
+        if create_result.channel_linked:
+            self.channel_run_id = curr_run_id
 
         # Build internal tool context for builder assistant sessions
         internal_tool_context: InternalToolContext | None = None

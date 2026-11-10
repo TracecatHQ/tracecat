@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from tracecat.agent import delivery
-from tracecat.agent.delivery import TurnFinished
+from tracecat.agent import channel_publisher
+from tracecat.agent.channel_publisher import TurnFinished
 from tracecat.agent.session.activities import (
     FinalizeTurnInput,
     PendingToolResult,
@@ -73,7 +73,7 @@ async def test_finalize_turn_activity_bridges_workflow_versions(
 
 
 @pytest.mark.anyio
-async def test_finalize_turn_delivers_before_the_release_even_when_delivery_fails(
+async def test_finalize_turn_publishes_before_the_release_even_when_publishing_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     order: list[str] = []
@@ -86,13 +86,15 @@ async def test_finalize_turn_delivers_before_the_release_even_when_delivery_fail
         MagicMock(return_value=ctx),
     )
 
-    class _DownPort:
-        async def deliver(self, role: Role, notice: TurnFinished) -> str | None:
-            del role, notice
-            order.append("deliver")
+    class _DownPublisher:
+        async def publish(self, role: Role, update: TurnFinished) -> str | None:
+            del role, update
+            order.append("publish")
             raise ApplicationError("channel gone", non_retryable=True)
 
-    monkeypatch.setattr(delivery, "get_channel_delivery_port", lambda: _DownPort())
+    monkeypatch.setattr(
+        channel_publisher, "get_channel_publisher", lambda: _DownPublisher()
+    )
     session_id, run_id = uuid.uuid4(), uuid.uuid4()
     role = Role(
         type="service", workspace_id=uuid.uuid4(), service_id="tracecat-service"
@@ -104,11 +106,11 @@ async def test_finalize_turn_delivers_before_the_release_even_when_delivery_fail
             session_id=session_id,
             run_id=run_id,
             emit_terminal_done=True,
-            thread_notices=[TurnFinished(session_id=session_id, run_id=run_id)],
+            channel_updates=[TurnFinished(session_id=session_id, run_id=run_id)],
         )
     )
 
-    assert order == ["deliver", "release"]
+    assert order == ["publish", "release"]
     assert result is not None and result.terminal_done_emitted is True
 
 

@@ -1,4 +1,4 @@
-"""DurableAgentWorkflow thread notices: which lifecycle activity delivers each."""
+"""DurableAgentWorkflow channel updates: which lifecycle activity publishes each."""
 
 import asyncio
 import uuid
@@ -34,14 +34,14 @@ from tests.temporal.test_durable_agent_workflow import (
     create_mock_run_agent_activity,
     replay_durable_agent_workflow_history,
 )
-from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.delivery import (
+from tracecat.agent.channel_publisher import (
     ApprovalDecided,
     ApprovalPending,
-    ChannelNotice,
+    RunUpdate,
     TurnFinished,
     approval_batch_id,
 )
+from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.session.activities import (
@@ -64,21 +64,21 @@ TOOL_CALL_ID = "call-1"
 
 
 class Recorder:
-    """Each lifecycle activity in order, with the notices it was handed."""
+    """Each lifecycle activity in order, with the updates it was handed."""
 
     def __init__(self) -> None:
-        self.steps: list[tuple[str, list[ChannelNotice]]] = []
+        self.steps: list[tuple[str, list[RunUpdate]]] = []
         self.approval_pending = asyncio.Event()
 
-    def record(self, step: str, notices: list[ChannelNotice] | None = None) -> None:
-        self.steps.append((step, notices or []))
+    def record(self, step: str, updates: list[RunUpdate] | None = None) -> None:
+        self.steps.append((step, updates or []))
 
 
 def _create_session_activity(linked: bool) -> Callable[..., Any]:
     @activity.defn(name="create_session_activity")
     async def create_session(input: CreateSessionInput) -> CreateSessionResult:
         return CreateSessionResult(
-            session_id=input.session_id, success=True, has_linked_thread=linked
+            session_id=input.session_id, success=True, channel_linked=linked
         )
 
     return create_session
@@ -87,22 +87,22 @@ def _create_session_activity(linked: bool) -> Callable[..., Any]:
 def _finalize_activity(recorder: Recorder) -> Callable[..., Any]:
     @activity.defn(name="finalize_turn_activity")
     async def finalize(input: FinalizeTurnInput) -> FinalizeTurnResult:
-        recorder.record("finalize_turn", input.thread_notices)
+        recorder.record("finalize_turn", input.channel_updates)
         return FinalizeTurnResult(terminal_done_emitted=True)
 
     return finalize
 
 
 def _record_requests_activity(
-    recorder: Recorder, card_ref: str | None
+    recorder: Recorder, pending_ref: str | None
 ) -> Callable[..., Any]:
     @activity.defn(name="record_approval_requests")
     async def record_requests(
         input: PersistApprovalsActivityInputs,
     ) -> str | None:
-        recorder.record("record_approval_requests", input.thread_notices)
+        recorder.record("record_approval_requests", input.channel_updates)
         recorder.approval_pending.set()
-        return card_ref
+        return pending_ref
 
     return record_requests
 
@@ -110,7 +110,7 @@ def _record_requests_activity(
 def _apply_decisions_activity(recorder: Recorder) -> Callable[..., Any]:
     @activity.defn(name="apply_approval_decisions")
     async def apply_decisions(input: ApplyApprovalResultsActivityInputs) -> None:
-        recorder.record("apply_approval_decisions", input.thread_notices)
+        recorder.record("apply_approval_decisions", input.channel_updates)
 
     return apply_decisions
 
@@ -129,7 +129,7 @@ def _activities(
     executor: Callable[[int, AgentExecutorInput], AgentExecutorResult],
     *,
     linked: bool = True,
-    card_ref: str | None = "card-1",
+    pending_ref: str | None = "msg-1",
 ) -> list[Callable[..., Any]]:
     return [
         _create_session_activity(linked),
@@ -141,7 +141,7 @@ def _activities(
         create_mock_reconcile_tool_results_activity(),
         create_mock_emit_session_done_activity(),
         _finalize_activity(recorder),
-        _record_requests_activity(recorder, card_ref),
+        _record_requests_activity(recorder, pending_ref),
         _apply_decisions_activity(recorder),
         _emit_cancelled_activity(recorder),
     ]
@@ -220,11 +220,11 @@ async def _run_to_completion(
 @pytest.mark.anyio
 @pytest.mark.integration
 @pytest.mark.parametrize("linked", [True, False])
-async def test_finalize_delivers_turn_finished_before_the_release(
+async def test_finalize_publishes_turn_finished_before_the_release(
     svc_role: Role, temporal_client: Client, agent_worker_factory, linked: bool
 ) -> None:
     session_id = uuid.uuid4()
-    queue = f"test-channel-delivery-{session_id}"
+    queue = f"test-channel-updates-{session_id}"
     recorder = Recorder()
 
     history = await _run_to_completion(
@@ -248,25 +248,25 @@ async def test_finalize_delivers_turn_finished_before_the_release(
 @pytest.mark.anyio
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    ("cancel", "card_ref"),
-    [(False, "card-1"), (True, "card-1"), (False, None)],
+    ("cancel", "pending_ref"),
+    [(False, "msg-1"), (True, "msg-1"), (False, None)],
     ids=["decided", "cancelled", "no-ref"],
 )
-async def test_approval_notices_ride_the_approval_activities(
+async def test_approval_updates_ride_the_approval_activities(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     cancel: bool,
-    card_ref: str | None,
+    pending_ref: str | None,
 ) -> None:
     session_id = uuid.uuid4()
-    queue = f"test-channel-delivery-{session_id}"
+    queue = f"test-channel-updates-{session_id}"
     recorder = Recorder()
     worker = agent_worker_factory(
         temporal_client,
         task_queue=queue,
         custom_activities=_activities(
-            recorder, _asks_for_approval_once, card_ref=card_ref
+            recorder, _asks_for_approval_once, pending_ref=pending_ref
         ),
     )
 
@@ -294,13 +294,13 @@ async def test_approval_notices_ride_the_approval_activities(
     pending = ApprovalPending(
         session_id=session_id, run_id=session_id, batch_id=batch_id
     )
-    # Without a ref the extension finds the card by batch id.
+    # Without a ref the publisher finds the message by batch id.
     decided = ApprovalDecided(
-        session_id=session_id, batch_id=batch_id, previous_ref=card_ref
+        session_id=session_id, batch_id=batch_id, pending_ref=pending_ref
     )
     finished = TurnFinished(session_id=session_id, run_id=session_id)
     if cancel:
-        # Stop reaches the UI first; finalize closes the card the wait left open.
+        # Stop reaches the UI first; finalize publishes the decision the wait skipped.
         expected = [
             ("record_approval_requests", [pending]),
             ("apply_approval_decisions", []),
