@@ -2464,6 +2464,44 @@ def test_login_option_never_echoes_its_value(
     assert "synthetic-secret" not in err
 
 
+def test_password_setup_refuses_new_logins_without_passwords(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--login password must not create migrator or app without a password."""
+    suffix = _suffix()
+    database = _fresh_database(suffix)
+    try:
+        monkeypatch.setattr(
+            config, "TRACECAT__DB_ADMIN_URI", _url("postgres", "postgres", database)
+        )
+        monkeypatch.setattr(config, "TRACECAT__DB_SSLMODE", "disable")
+        monkeypatch.delenv("TRACECAT__DB_URI", raising=False)
+        monkeypatch.delenv("TRACECAT__DB_MIGRATOR_URI", raising=False)
+        monkeypatch.setattr(config, "TRACECAT__DB_NAME", None)
+        monkeypatch.setattr(config, "TRACECAT__DB_MIGRATOR_PASSWORD", PASSWORD)
+        monkeypatch.setattr(config, "TRACECAT__DB_APP_PASSWORD", None)
+        with psycopg.connect(_url("postgres", "postgres", database)) as conn:
+            missing = roles_module._missing_new_passwords(
+                conn, LoginPasswords.from_config(), _test_roles(suffix)
+            )
+        assert missing == ["TRACECAT__DB_APP_PASSWORD"]
+        assert main(["upgrade", "--login", "password"]) == 1
+        assert "TRACECAT__DB_APP_PASSWORD empty" in capsys.readouterr().err
+    finally:
+        _drop_all(database, [])
+
+
+def test_migrator_cannot_write_the_stamp(install: MigrateInstall) -> None:
+    """migrator acts as tracecat_owner but can't set or clear its comment."""
+    roles = install.roles
+    owner = quote_ident(roles.owner)
+    with psycopg.connect(install.url(roles.migrator), autocommit=True) as conn:
+        assert conn.execute("SELECT current_user").fetchone() == (roles.owner,)
+        for value in ("'tracecat role setup 99'", "NULL"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                _run(conn, f"COMMENT ON ROLE {owner} IS {value}")
+
+
 def test_status_ignores_operators_planted_on_the_search_path(
     install: MigrateInstall,
 ) -> None:

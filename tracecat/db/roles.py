@@ -1891,6 +1891,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
 
+def _missing_new_passwords(
+    conn: psycopg.Connection,
+    passwords: LoginPasswords,
+    roles: RoleNames = DEFAULT_ROLES,
+) -> list[str]:
+    """Password variables that are empty for ``migrator``/``app`` roles that
+    don't exist yet: ``--login password`` would create them without one.
+
+    A rerun on existing roles may leave their passwords unchanged.
+    ``agent_runtime`` is optional (nothing logs in as it yet).
+    """
+    missing: list[str] = []
+    for name, password, variable in (
+        (roles.migrator, passwords.migrator, "TRACECAT__DB_MIGRATOR_PASSWORD"),
+        (roles.app, passwords.app, "TRACECAT__DB_APP_PASSWORD"),
+    ):
+        exists = conn.execute(
+            "SELECT pg_catalog.to_regrole(%(r)s) IS NOT NULL", {"r": quote_ident(name)}
+        ).fetchone()
+        if not password and exists == (False,):
+            missing.append(variable)
+    return missing
+
+
 def _login_method(value: str) -> LoginMethod:
     """``--login`` parser that never echoes the value.
 
@@ -1968,6 +1992,15 @@ def _main(argv: Sequence[str] | None) -> int:
     writes = args.command == "upgrade" or not args.sql
     if writes and (code := _check_targets()) != 0:
         return code
+    if writes and login is LoginMethod.PASSWORD:
+        with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
+            if missing := _missing_new_passwords(conn, LoginPasswords.from_config()):
+                print(
+                    f"error: {', '.join(missing)} empty: role setup would create a "
+                    "login role without a password.",
+                    file=sys.stderr,
+                )
+                return 1
     if args.command == "upgrade":
         with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
             result = run_upgrade(
