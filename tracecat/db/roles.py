@@ -1902,15 +1902,18 @@ def _missing_new_passwords(
     A rerun on existing roles may leave their passwords unchanged.
     ``agent_runtime`` is optional (nothing logs in as it yet).
     """
+    # The variable names and the password values stay apart, so nothing that
+    # gets printed is derived from a password.
+    unset = {roles.migrator: not passwords.migrator, roles.app: not passwords.app}
     missing: list[str] = []
-    for name, password, variable in (
-        (roles.migrator, passwords.migrator, "TRACECAT__DB_MIGRATOR_PASSWORD"),
-        (roles.app, passwords.app, "TRACECAT__DB_APP_PASSWORD"),
+    for name, variable in (
+        (roles.migrator, "TRACECAT__DB_MIGRATOR_PASSWORD"),
+        (roles.app, "TRACECAT__DB_APP_PASSWORD"),
     ):
         exists = conn.execute(
             "SELECT pg_catalog.to_regrole(%(r)s) IS NOT NULL", {"r": quote_ident(name)}
         ).fetchone()
-        if not password and exists == (False,):
+        if unset[name] and exists == (False,):
             missing.append(variable)
     return missing
 
