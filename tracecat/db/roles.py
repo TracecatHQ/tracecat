@@ -32,14 +32,17 @@ refuses (and rolls back) any state where the admin or a keyring would be in
 Roles are cluster-wide, so the bootstrap refuses to run when a Tracecat role
 already has privileges on another database: one Tracecat install per cluster.
 
-Run as an admin (a superuser, or a ``CREATEROLE`` role such as the RDS master)::
+Role setup is provisioning, run by a person (or Compose) as an admin (a
+superuser, or a ``CREATEROLE`` role such as the RDS master), before deploying
+a release that needs it::
 
     TRACECAT__DB_ADMIN_URI=postgresql://admin:...@host/db \\
     TRACECAT__DB_MIGRATOR_PASSWORD=... TRACECAT__DB_APP_PASSWORD=... \\
-        python -m tracecat.db.roles bootstrap --login password
+        tracecat db roles upgrade --login password
 
-``--sql`` prints the same statements, without passwords, for databases where
-the command can't run.
+``--sql`` (``bootstrap``) prints the statements, without passwords, for
+databases where the command can't run. ``status`` compares the database's
+:data:`ROLE_SETUP_VERSION` stamp with this release's.
 
 ``upgrade`` moves an existing install onto the topology: it runs the bootstrap,
 then hands ``public`` objects owned by the old login (``--from``, default the
@@ -47,22 +50,28 @@ admin) to ``tracecat_owner`` and dynamic schemas to ``app_owner``, one object
 or schema per transaction with a short lock timeout, so a busy install keeps
 running. It never grants the admin membership in a login role.
 
-``migrate`` is the migrations container's entrypoint. ``TRACECAT__DB_ROLE_LOGIN``
-turns role setup on: it runs ``upgrade`` with ``TRACECAT__DB_ADMIN_URI`` and
-then ``alembic upgrade head`` as ``migrator``. With neither set it runs
-``alembic`` as the configured user, as before; with only one set it stops.
+The bootstrap has two parts. The admin-level part (:func:`admin_statements`)
+needs the admin and bumps :data:`ROLE_SETUP_VERSION` when it changes. The
+owner-level part (:func:`owner_statements`) grants on existing objects, which
+the owner keyring can do itself.
+
+``migrate`` is the migrations container's entrypoint and never logs in as the
+admin: it stops while the stamp is behind, runs ``alembic upgrade head`` as
+``migrator``, then the owner-level part. A database without role setup
+migrates as its single configured user, as before.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Generator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import ModuleType
 
 import psycopg
 from alembic.config import Config as AlembicConfig
@@ -71,8 +80,8 @@ from alembic.script.revision import RevisionError
 from sqlalchemy import URL, Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from alembic import command as alembic_command
 from tracecat import config
-from tracecat.db.iam.types import TOKEN_SSLMODES
 
 DYNAMIC_OWNER_ENV_VAR = "TRACECAT__DB_DYNAMIC_OWNER_ROLE"
 
@@ -412,6 +421,37 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
     )
 
 
+ROLE_SETUP_VERSION = 1
+"""Version of the admin-level role setup (:func:`admin_statements`).
+
+``bootstrap`` and ``upgrade`` stamp it on the owner keyring; ``migrate`` stops
+while the database's stamp is older than this release's. Bump it only when
+the admin-level part changes: a role, a membership, a login method, an
+extension, default privileges or the dynamic-table RLS guard. Owner-level
+grants (:func:`owner_statements`) never bump it: ``migrate`` applies them as
+``migrator`` on every run, so they need no operator step.
+"""
+
+_STAMP_PREFIX = "tracecat role setup "
+"""The stamp is the owner keyring's comment: ``tracecat role setup <version>``.
+
+A role comment, not a table: every login can read it, only an admin can write
+it (``migrator`` acts as the keyring but holds no ADMIN option on it), and it
+lives outside ``public``, where the upgrade and alembic would see a table.
+Roles are cluster-wide, which matches the one-install-per-cluster rule.
+"""
+
+_PINNED_SESSION = [
+    # Resolve every function and operator from pg_catalog: a database owner
+    # can set a database-wide search_path and plant public.format() or an
+    # operator that would run as the admin. Everything in public is qualified.
+    # standard_conforming_strings too: quote_literal only doubles quotes, so a
+    # database-level "off" would let a crafted role name escape a literal.
+    "SET LOCAL search_path = pg_catalog, pg_temp;",
+    "SET LOCAL standard_conforming_strings = on;",
+]
+
+
 def bootstrap_statements(
     login: LoginMethod, roles: RoleNames = DEFAULT_ROLES
 ) -> list[str]:
@@ -424,21 +464,36 @@ def bootstrap_statements(
         roles: Role names.
 
     Returns:
-        SQL statements to run in one transaction as the admin.
+        SQL statements to run in one transaction as the admin: the
+        admin-level part, then the owner-level grants on objects that exist.
+    """
+    return [
+        *_PINNED_SESSION,
+        *admin_statements(login, roles),
+        *owner_statements(roles),
+    ]
+
+
+def admin_statements(login: LoginMethod, roles: RoleNames = DEFAULT_ROLES) -> list[str]:
+    """The part of the bootstrap that needs an admin.
+
+    Roles, memberships, login method, database and schema grants,
+    extensions, default privileges, the safety checks and the version stamp.
+    Changing any of it means bumping :data:`ROLE_SETUP_VERSION`.
+
+    Args:
+        login: How the login roles authenticate.
+        roles: Role names.
+
+    Returns:
+        SQL statements, for a transaction that already pinned the session
+        (:data:`_PINNED_SESSION`).
     """
     q = quote_ident
     owner, dyn, ro = q(roles.owner), q(roles.dynamic_owner), q(roles.readonly)
     migrator, app, runtime = q(roles.migrator), q(roles.app), q(roles.agent_runtime)
 
-    # Resolve every function and operator from pg_catalog: a database owner
-    # can set a database-wide search_path and plant public.format() or an
-    # operator that would run as the admin. Everything in public is qualified.
-    # standard_conforming_strings too: quote_literal only doubles quotes, so a
-    # database-level "off" would let a crafted role name escape a literal.
-    statements: list[str] = [
-        "SET LOCAL search_path = pg_catalog, pg_temp;",
-        "SET LOCAL standard_conforming_strings = on;",
-    ]
+    statements: list[str] = []
     for keyring in roles.keyrings:
         statements += _create_role(keyring, login=False)
     for name in roles.logins:
@@ -481,9 +536,35 @@ def bootstrap_statements(
         _create_extension("pg_trgm"),
     ]
 
-    # Objects that already exist (reruns, upgrades). On a fresh database
-    # these are no-ops and the default privileges below cover new objects.
+    default = f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public GRANT"
     statements += [
+        f"{default} SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app};",
+        f"{default} USAGE, SELECT, UPDATE ON SEQUENCES TO {app};",
+        _verify(login, roles),
+        f"COMMENT ON ROLE {owner} IS {quote_literal(_STAMP_PREFIX + str(ROLE_SETUP_VERSION))};",
+    ]
+    return statements
+
+
+def owner_statements(roles: RoleNames = DEFAULT_ROLES) -> list[str]:
+    """Grants on objects that exist, which the owner keyring can make itself.
+
+    The bootstrap runs them as the admin (reruns, upgrades), and ``migrate``
+    runs them as ``migrator`` after alembic, for what the migrations created.
+    New grants here need no :data:`ROLE_SETUP_VERSION` bump, but may only
+    name objects in ``public`` (owned by the keyring) and roles that every
+    stamped database has.
+
+    Args:
+        roles: Role names.
+
+    Returns:
+        SQL statements, for a transaction that already pinned the session
+        (:data:`_PINNED_SESSION`).
+    """
+    q = quote_ident
+    app, ro = q(roles.app), q(roles.readonly)
+    return [
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {app};",
         # Only migrations write the version table: app setting it could skip
         # every later revision or wedge them all.
@@ -510,14 +591,6 @@ def bootstrap_statements(
             "  END IF;"
         ),
     ]
-
-    default = f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public GRANT"
-    statements += [
-        f"{default} SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app};",
-        f"{default} USAGE, SELECT, UPDATE ON SEQUENCES TO {app};",
-        _verify(login, roles),
-    ]
-    return statements
 
 
 @dataclass(frozen=True, slots=True)
@@ -635,6 +708,31 @@ WHERE f.oid = pg_catalog.to_regprocedure(%(function)s)
 """
 
 
+def _rls_guard_params(guard: ModuleType) -> dict[str, str]:
+    return {
+        "ddl_trigger": guard._previous.DDL_TRIGGER,
+        "drop_trigger": guard._previous.DROP_TRIGGER,
+        "function": guard.GUARD_FUNCTION,
+    }
+
+
+def _rls_guard_firing(conn: psycopg.Connection) -> bool | None:
+    """Whether the dynamic-table RLS guard fires; ``None`` without its revision.
+
+    Any login can read this. A firing guard with an outdated body counts as
+    firing; the bootstrap updates the body.
+    """
+    if not os.path.exists(ALEMBIC_INI):
+        return None
+    script = ScriptDirectory.from_config(AlembicConfig(ALEMBIC_INI))
+    if (revision := script.get_revision(RLS_GUARD_REVISION)) is None:
+        return None
+    state = conn.execute(
+        RLS_GUARD_STATE_SQL, _rls_guard_params(revision.module)
+    ).fetchone()
+    return state is not None and bool(state[2])
+
+
 def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | None:
     """Install, update or repair the dynamic-table RLS guard.
 
@@ -661,13 +759,8 @@ def _install_rls_guard(conn: psycopg.Connection, cur: psycopg.Cursor) -> str | N
     if (revision := script.get_revision(RLS_GUARD_REVISION)) is None:
         return None
     guard = revision.module
-    params = {
-        "ddl_trigger": guard._previous.DDL_TRIGGER,
-        "drop_trigger": guard._previous.DROP_TRIGGER,
-        "function": guard.GUARD_FUNCTION,
-    }
     body = guard._GUARD_FUNCTION_SQL.split("$guard$")[1]
-    state = cur.execute(RLS_GUARD_STATE_SQL, params).fetchone()
+    state = cur.execute(RLS_GUARD_STATE_SQL, _rls_guard_params(guard)).fetchone()
     firing = state is not None and state[2]
     if firing and state is not None:
         current_body, owned = state[0], state[1]
@@ -742,290 +835,293 @@ def _print_upgrade(result: UpgradeResult) -> None:
         print(f"still to move: {_printable(label)}", file=sys.stderr)
 
 
-def _alembic_upgrade(db_uri: str | None) -> int:
-    """Run ``alembic upgrade head``, as ``db_uri`` when given."""
-    env = os.environ.copy()
-    if db_uri is not None:
-        # alembic/env.py prefers TRACECAT__DB_URI over the user/password settings.
-        env["TRACECAT__DB_URI"] = db_uri
-        # The URI carries this login's credential (migrator's token); the app's
-        # token mode refuses any TRACECAT__DB_URI and doesn't apply here.
-        env.pop("TRACECAT__DB_AUTH_MODE", None)
-    cmd = [sys.executable, "-m", "alembic", "upgrade", "head"]
-    return subprocess.run(cmd, env=env, check=False).returncode
+MIGRATE_ROLES_ATTRIBUTE = "tracecat.db.roles"
+"""Alembic ``Config.attributes`` key: the role names :func:`migrate` hands to
+``alembic/env.py``. Absent for plain ``alembic`` runs, which skip the checks."""
 
-
-def _effective_database(url: URL) -> str | None:
-    """The database libpq connects to: ?dbname=, the path, PGDATABASE, the user."""
-    dbname = url.query.get("dbname")
-    if isinstance(dbname, str) and dbname:
-        return dbname
-    return url.database or os.environ.get("PGDATABASE") or url.username
-
-
-def _login_uri(user: str, password: str) -> str:
-    """The admin URI's database with another login, for SQLAlchemy (alembic)."""
-    admin = make_url(_admin_conninfo())
-    # libpq reads user/password/dbname from the query too, and those win. The
-    # database is pinned: with none named, libpq would default to the new user.
-    url = admin.difference_update_query(["user", "password", "dbname"]).set(
-        drivername="postgresql+psycopg",
-        username=user,
-        password=password,
-        database=_effective_database(admin),
-    )
-    return url.render_as_string(hide_password=False)
-
-
-_SINGLE_USER_HINT = (
-    "clear both TRACECAT__DB_ROLE_LOGIN and TRACECAT__DB_ADMIN_URI to keep a "
-    "single database user"
+UPGRADE_HINT = (
+    "run `tracecat db roles upgrade` as the database admin first, then rerun the deploy"
 )
 
 
-def migrate(
-    roles: RoleNames = DEFAULT_ROLES, *, lock_timeout: str = "5s", retries: int = 3
-) -> int:
-    """Entrypoint of the migrations container.
+class RoleSetupError(RuntimeError):
+    """``migrate`` can't run: role setup is behind, or the login is wrong."""
 
-    1. Neither ``TRACECAT__DB_ROLE_LOGIN`` nor ``TRACECAT__DB_ADMIN_URI``:
-       run alembic as the configured database user, exactly as before.
-    2. Only one of them: exit 1 before changing anything. The login method is
-       the switch and the admin URI only a credential, so a leftover or
-       missing one never silently changes which user runs the migrations.
-    3. Both: run ``upgrade`` as the admin (bootstrap included; a quick no-op
-       once done), then alembic as ``migrator``, then ``upgrade`` again for
-       what the migrations created.
-    4. Exit 0 only when role setup finished: a refused safety check, a lock
-       that outlasts the retries (before or after alembic), or an IAM-lockout
-       abort stops with exit 1. Finished transfers stay committed and the
-       next run continues, so a held lock can delay a deploy but never moves
-       migrations off ``migrator``.
-       With role setup on, the ``migrator`` credential (and, with passwords,
-       ``app``'s) is required: without it, exit 1 before changing anything.
+    def __init__(self, message: str, hint: str) -> None:
+        super().__init__(message)
+        self.hint = hint
 
-    With ``TRACECAT__DB_ROLE_LOGIN=aws_iam`` (or ``azure_entra``),
-    ``TRACECAT__DB_MIGRATOR_PASSWORD`` must carry the token minted for
-    ``migrator`` at job start; a stale static password fails alembic loudly.
+
+# The topology is set up in this database when the owner keyring holds CREATE
+# on public, which only the bootstrap grants (roles are cluster-wide, so the
+# role alone could belong to another database's install).
+ROLE_SETUP_STATE_SQL = """
+SELECT r.oid IS NOT NULL AND EXISTS (
+         SELECT FROM pg_catalog.pg_namespace n, pg_catalog.aclexplode(n.nspacl) a
+         WHERE n.nspname = 'public' AND a.grantee = r.oid AND a.privilege_type = 'CREATE'),
+       r.oid IS NOT NULL,
+       pg_catalog.shobj_description(r.oid, 'pg_authid'),
+       current_user
+FROM (SELECT pg_catalog.to_regrole(%(owner)s)::pg_catalog.oid) AS r(oid)
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class RoleSetupState:
+    """What a database has of the role setup, as any login can read it."""
+
+    installed: bool
+    """The topology is set up in this database."""
+    roles_exist: bool
+    """The owner keyring exists in the cluster, for this database or another."""
+    version: int | None
+    """The stamp's version; ``None`` when there is none."""
+    current_user: str
+
+    @property
+    def behind(self) -> bool:
+        return self.version is None or self.version < ROLE_SETUP_VERSION
+
+
+def _stamp_version(comment: str | None) -> int | None:
+    if comment is None or not comment.startswith(_STAMP_PREFIX):
+        return None
+    version = comment.removeprefix(_STAMP_PREFIX)
+    return int(version) if version.isdigit() else None
+
+
+def read_role_setup(
+    conn: psycopg.Connection, roles: RoleNames = DEFAULT_ROLES
+) -> RoleSetupState:
+    """Read whether this database has the role setup, and its version."""
+    row = conn.execute(
+        ROLE_SETUP_STATE_SQL, {"owner": quote_ident(roles.owner)}
+    ).fetchone()
+    if row is None:
+        raise AssertionError("unreachable: the query returns one row")
+    installed, roles_exist, comment, current = row
+    return RoleSetupState(
+        bool(installed), bool(roles_exist), _stamp_version(comment), current
+    )
+
+
+def _driver_connection(connection: Connection) -> psycopg.Connection:
+    """The psycopg connection under alembic's: same login and transaction."""
+    raw = connection.connection.driver_connection
+    if not isinstance(raw, psycopg.Connection):
+        raise TypeError("migrate needs the psycopg driver (postgresql+psycopg://)")
+    return raw
+
+
+def check_role_setup(connection: Connection, roles: RoleNames) -> bool:
+    """Before the migrations: stop unless this release can migrate this database.
+
+    Runs on alembic's connection, inside its transaction, as the login the
+    deployment gave the migrations.
+
+    Args:
+        connection: Alembic's migration connection.
+        roles: Role names.
 
     Returns:
-        Alembic's exit code, or 1 if role setup refused or didn't finish.
-    """
-    login_setting = config.TRACECAT__DB_ROLE_LOGIN
-    admin_uri = config.TRACECAT__DB_ADMIN_URI
-    if not login_setting and not admin_uri:
-        print(
-            "TRACECAT__DB_ROLE_LOGIN is empty: skipping role setup; running "
-            "migrations as the configured database user.",
-            file=sys.stderr,
-        )
-        return _alembic_upgrade(None)
-    if not admin_uri:
-        print(
-            "error: TRACECAT__DB_ROLE_LOGIN is set, but TRACECAT__DB_ADMIN_URI "
-            "is empty, so role setup can't run.",
-            file=sys.stderr,
-        )
-        print(
-            "hint: set TRACECAT__DB_ADMIN_URI to an admin connection for the "
-            f"app's database, or {_SINGLE_USER_HINT}.",
-            file=sys.stderr,
-        )
-        return 1
-    if not login_setting:
-        print(
-            "error: TRACECAT__DB_ADMIN_URI is set, but TRACECAT__DB_ROLE_LOGIN "
-            "is empty, so role setup is off.",
-            file=sys.stderr,
-        )
-        print(
-            "hint: set TRACECAT__DB_ROLE_LOGIN to password, aws_iam or "
-            f"azure_entra to set up database roles, or {_SINGLE_USER_HINT}.",
-            file=sys.stderr,
-        )
-        return 1
-    try:
-        login = LoginMethod(login_setting)
-    except ValueError:
-        # Don't echo the value: a credential pasted into the wrong variable
-        # would end up in the deploy logs.
-        print(
-            "error: TRACECAT__DB_ROLE_LOGIN has an unknown value; expected "
-            "password, aws_iam or azure_entra.",
-            file=sys.stderr,
-        )
-        return 1
-
-    # _admin_conninfo fills in TRACECAT__DB_SSLMODE when the URI names none.
-    admin_sslmode = make_url(_admin_conninfo()).query.get("sslmode")
-    if login is not LoginMethod.PASSWORD and admin_sslmode not in TOKEN_SSLMODES:
-        # migrator's token goes to the admin URI's host with its sslmode.
-        print(
-            "error: TRACECAT__DB_ROLE_LOGIN logs migrator in with a token, which "
-            "must not travel in plaintext: give TRACECAT__DB_ADMIN_URI sslmode "
-            "require, verify-ca or verify-full.",
-            file=sys.stderr,
-        )
-        return 1
-
-    passwords = (
-        LoginPasswords.from_config()
-        if login is LoginMethod.PASSWORD
-        else LoginPasswords()
-    )
-    # Role setup without these would leave a passwordless login, or run the
-    # migrations as the admin.
-    migrator_password = config.TRACECAT__DB_MIGRATOR_PASSWORD
-    missing: list[str] = []
-    if not migrator_password:
-        missing.append("TRACECAT__DB_MIGRATOR_PASSWORD")
-    if login is LoginMethod.PASSWORD and not passwords.app:
-        missing.append("TRACECAT__DB_APP_PASSWORD")
-    if not migrator_password or missing:
-        print(
-            "error: TRACECAT__DB_ROLE_LOGIN turns role setup on, but these are "
-            "empty: "
-            f"{', '.join(missing)} (with IAM, the migrator variable carries the "
-            "token minted at job start).",
-            file=sys.stderr,
-        )
-        print(f"hint: set it, or {_SINGLE_USER_HINT}.", file=sys.stderr)
-        return 1
-    if (code := _check_targets()) != 0:
-        return code
-    if (code := _setup_roles(login, passwords, roles, lock_timeout, retries)) != 0:
-        return code
-    db_uri = _login_uri(roles.migrator, migrator_password)
-    if (code := _alembic_upgrade(db_uri)) != 0:
-        return code
-    # Again after the migrations: grants that need the migrated objects (app's
-    # DML on tables the admin created, REFERENCES on "case", readonly's hidden
-    # columns, alembic_version read-only) and dynamic schemas that revisions
-    # create. Until these commit the app may be denied, so they gate success.
-    return _setup_roles(login, LoginPasswords(), roles, lock_timeout, retries)
-
-
-def _check_targets() -> int:
-    """Stop if the admin URI names another database than the app's.
-
-    Migrations and role setup run on the admin URI's database. Database names
-    don't alias within one server, so a different name stops the run. Hosts
-    do (localhost and postgres_db, or the app through PgDog), so a different
-    host only warns.
-    """
-    admin = make_url(_admin_conninfo())
-    admin_db = _effective_database(admin)
-    if not (app_uri := os.environ.get("TRACECAT__DB_URI")):
-        # Token modes name the app's database with TRACECAT__DB_NAME only.
-        if (app_name := config.TRACECAT__DB_NAME) and admin_db != app_name:
-            print(
-                f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
-                f"but TRACECAT__DB_NAME is {_printable(app_name)}.",
-                file=sys.stderr,
-            )
-            print(
-                "hint: point TRACECAT__DB_ADMIN_URI at the app's database, or "
-                f"{_SINGLE_USER_HINT}.",
-                file=sys.stderr,
-            )
-            return 1
-        return 0
-    app = make_url(app_uri)
-    app_db = _effective_database(app)
-    if admin_db != app_db:
-        print(
-            f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
-            f"but TRACECAT__DB_URI names {_printable(str(app_db))}.",
-            file=sys.stderr,
-        )
-        print(
-            "hint: point TRACECAT__DB_ADMIN_URI at the app's database, or "
-            f"{_SINGLE_USER_HINT}.",
-            file=sys.stderr,
-        )
-        return 1
-    if (admin.host, admin.port or 5432) != (app.host, app.port or 5432):
-        print(
-            f"warning: migrations run on {_printable(str(admin.host))} "
-            f"(TRACECAT__DB_ADMIN_URI), but TRACECAT__DB_URI names "
-            f"{_printable(str(app.host))}. If those are different servers, point "
-            "TRACECAT__DB_ADMIN_URI at the app's server.",
-            file=sys.stderr,
-        )
-    return 0
-
-
-def _setup_roles(
-    login: LoginMethod,
-    passwords: LoginPasswords,
-    roles: RoleNames,
-    lock_timeout: str,
-    retries: int,
-) -> int:
-    """``upgrade`` as the admin: 0 once complete, 1 (reported) otherwise."""
-    try:
-        result = _upgrade_or_report(
-            login, passwords, roles, lock_timeout=lock_timeout, retries=retries
-        )
-    except psycopg.errors.RaiseException as exc:
-        return _refused(exc)
-    if result is None:
-        # Nothing committed: on a first run app may not exist yet, so the
-        # services pointed at it couldn't log in.
-        print("error: rerun the deploy once the lock is released.", file=sys.stderr)
-        return 1
-    _print_upgrade(result)
-    if not result.complete:
-        print(
-            "error: role setup isn't complete yet (see above). Rerun the deploy "
-            "once the lock is released; finished transfers are kept.",
-            file=sys.stderr,
-        )
-        return 1
-    return 0
-
-
-def _refused(exc: psycopg.errors.RaiseException) -> int:
-    """A safety check refused: fail the deploy rather than run migrations anyway."""
-    diag = exc.diag
-    message = diag.message_primary or str(exc)
-    print(f"error: role setup refused: {_printable(message)}", file=sys.stderr)
-    if diag.message_hint:
-        print(f"hint: {_printable(diag.message_hint)}", file=sys.stderr)
-    print(
-        f"hint: fix the state above, or {_SINGLE_USER_HINT}.",
-        file=sys.stderr,
-    )
-    return 1
-
-
-def _upgrade_or_report(
-    login: LoginMethod,
-    passwords: LoginPasswords,
-    roles: RoleNames,
-    *,
-    lock_timeout: str,
-    retries: int,
-) -> UpgradeResult | None:
-    """``run_upgrade`` as the admin; ``None`` if the bootstrap kept timing out.
+        Whether the database uses the role topology. ``False`` for a
+        single-user install (no role setup in this database): the migrations
+        then run as the configured user and the owner-level pass is skipped.
 
     Raises:
-        psycopg.errors.RaiseException: A safety check refused (nothing committed).
+        RoleSetupError: The roles exist but belong to another database, the
+            stamp is missing or older than
+            :data:`ROLE_SETUP_VERSION`, the login doesn't act as the owner
+            keyring (it isn't ``migrator``), ``public`` objects still
+            belong to another role, or a role other than ``migrator`` and
+            the admin can act as the owner keyring.
     """
+    conn = _driver_connection(connection)
+    state = read_role_setup(conn, roles)
+    if not state.installed and state.roles_exist:
+        # One install per cluster (the bootstrap enforces it): the roles were
+        # set up for another database, so the migrations or the role setup
+        # point at the wrong one.
+        raise RoleSetupError(
+            f"the Tracecat roles exist on this server ({roles.owner}), but this "
+            "database isn't set up with them: role setup ran on another database",
+            "point TRACECAT__DB_ADMIN_URI and the migrations' login at the same "
+            "database, then rerun `tracecat db roles upgrade`",
+        )
+    if not state.installed:
+        print(
+            "No Tracecat role setup in this database: running migrations as the "
+            "configured database user.",
+            file=sys.stderr,
+        )
+        return False
+    if state.behind:
+        found = "none" if state.version is None else f"version {state.version}"
+        raise RoleSetupError(
+            f"database role setup is behind: the database has {found}, this "
+            f"release needs version {ROLE_SETUP_VERSION}",
+            UPGRADE_HINT,
+        )
+    if state.current_user != roles.owner:
+        raise RoleSetupError(
+            f"migrations must log in as {roles.migrator}, which acts as "
+            f"{roles.owner}; this login acts as {_printable(state.current_user)}",
+            f"give the migrations {roles.migrator}'s login (TRACECAT__DB_USER and "
+            "TRACECAT__DB_PASS, or TRACECAT__DB_URI)",
+        )
+    if unmoved := _unmoved_public(conn, [], roles):
+        first = unmoved[0]
+        raise RoleSetupError(
+            f"{len(unmoved)} public objects don't belong to {roles.owner} yet, e.g. "
+            f"{_printable(first.label)} (owner {_printable(first.owner)})",
+            UPGRADE_HINT,
+        )
+    # The bootstrap's owner-keyring checks, on every deploy: they read only
+    # the catalogs, so drift (app granted the owner keyring, say) stops the
+    # deploy even between role setup runs.
     try:
-        with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
-            return run_upgrade(
-                conn,
-                login,
-                passwords,
-                roles,
-                lock_timeout=lock_timeout,
-                retries=retries,
-            )
-    except psycopg.errors.LockNotAvailable:
-        # Transient: another transaction holds a catalog row. Nothing committed.
-        print("role setup timed out on a lock; nothing changed.", file=sys.stderr)
-        return None
+        conn.execute(_do(_owner_reach_body(roles).rstrip("\n")).encode())
+    except psycopg.errors.RaiseException as exc:
+        diag = exc.diag
+        raise RoleSetupError(
+            f"role setup refused: {_printable(diag.message_primary or str(exc))}",
+            _printable(diag.message_hint or UPGRADE_HINT),
+        ) from exc
+    return True
+
+
+def apply_owner_grants(connection: Connection, roles: RoleNames) -> None:
+    """After the migrations: the owner-level pass, as ``migrator``.
+
+    Grants on what the migrations created (:func:`owner_statements`), and
+    dynamic schemas they created handed to the dynamic owner keyring with
+    FORCE RLS. Runs at the end of alembic's transaction, so a failure fails
+    the deploy and rolls back the revisions applied since their last commit
+    (revisions with an autocommit block commit early). The ``app`` login
+    already has DML on new tables through default privileges; a rerun
+    applies the rest.
+
+    Raises:
+        RoleSetupError: A grant or transfer was refused or timed out.
+    """
+    conn = _driver_connection(connection)
+    try:
+        for statement in (
+            *_PINNED_SESSION,
+            "SET LOCAL lock_timeout = '5s';",
+            *owner_statements(roles),
+        ):
+            # Built from quoted identifiers and literals, never from input.
+            conn.execute(statement.encode())
+        for schema in _dynamic_schemas(conn, roles):
+            for statement in _dynamic_statements(conn, schema, roles):
+                conn.execute(statement.encode())
+    except psycopg.errors.LockNotAvailable as exc:
+        raise RoleSetupError(
+            f"owner-level grants timed out on a lock: {_printable(str(exc).strip())}",
+            "rerun the deploy once the lock is released",
+        ) from exc
+    except psycopg.errors.InsufficientPrivilege as exc:
+        raise RoleSetupError(
+            f"owner-level grants were refused: {_printable(str(exc).strip())}",
+            UPGRADE_HINT,
+        ) from exc
+    except psycopg.errors.RaiseException as exc:
+        diag = exc.diag
+        raise RoleSetupError(
+            f"owner-level grants refused: {_printable(diag.message_primary or str(exc))}",
+            _printable(diag.message_hint or UPGRADE_HINT),
+        ) from exc
+    if _rls_guard_firing(conn) is False:
+        print(
+            "warning: the dynamic-table RLS guard isn't installed. Run `tracecat db "
+            "roles upgrade` as the database admin (a superuser or rds_superuser) "
+            "to install it.",
+            file=sys.stderr,
+        )
+
+
+@contextmanager
+def migrate_role_checks(
+    connection: Connection, attributes: Mapping[str, object]
+) -> Generator[None]:
+    """Wrap ``context.run_migrations()`` in ``alembic/env.py``.
+
+    With :func:`migrate`'s role names in the alembic config's attributes:
+    :func:`check_role_setup` before the migrations, and
+    :func:`apply_owner_grants` after them when the database uses the
+    topology. Without them (a plain ``alembic`` run), it does nothing.
+    """
+    if MIGRATE_ROLES_ATTRIBUTE not in attributes:
+        yield
+        return
+    roles = attributes[MIGRATE_ROLES_ATTRIBUTE]
+    if not isinstance(roles, RoleNames):
+        # E.g. a second copy of this module (python -m): fail, don't skip.
+        raise TypeError(
+            f"{MIGRATE_ROLES_ATTRIBUTE} must be a tracecat.db.roles.RoleNames, "
+            f"got {type(roles).__module__}.{type(roles).__qualname__}"
+        )
+    owner_pass = check_role_setup(connection, roles)
+    yield
+    if owner_pass:
+        apply_owner_grants(connection, roles)
+
+
+def migrate(roles: RoleNames = DEFAULT_ROLES) -> int:
+    """Entrypoint of the migrations container: alembic as ``migrator``.
+
+    Logs in as the configured database user (``TRACECAT__DB_URI``, or
+    ``TRACECAT__DB_USER`` and ``TRACECAT__DB_PASS``), the same as
+    ``alembic upgrade head``, and never as an admin. Alembic runs in this
+    process with the role names in its config, so ``alembic/env.py`` checks
+    role setup (:func:`check_role_setup`) and applies the owner-level grants
+    (:func:`apply_owner_grants`) on its own connection.
+
+    A database without role setup (single user) migrates as that user.
+
+    Returns:
+        0 on success, 1 when role setup stops the migrations.
+    """
+    cfg = AlembicConfig(ALEMBIC_INI)
+    cfg.attributes[MIGRATE_ROLES_ATTRIBUTE] = roles
+    try:
+        alembic_command.upgrade(cfg, "head")
+    except RoleSetupError as exc:
+        print(f"error: {_printable(str(exc))}", file=sys.stderr)
+        print(f"hint: {exc.hint}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def status(conn: psycopg.Connection, roles: RoleNames = DEFAULT_ROLES) -> int:
+    """Print the database's role setup against this release's.
+
+    Returns:
+        0 when ``migrate`` from this release can run, 1 when role setup is
+        missing or behind, or ``public`` objects still need ``upgrade``.
+    """
+    # Runs as the admin: resolve every operator and function from pg_catalog,
+    # as the bootstrap does (an earlier search_path entry could plant one).
+    for statement in _PINNED_SESSION:
+        conn.execute(statement.encode())
+    state = read_role_setup(conn, roles)
+    if not state.installed:
+        print(f"role setup: not set up (this release: {ROLE_SETUP_VERSION})")
+        print(f"hint: {UPGRADE_HINT}", file=sys.stderr)
+        return 1
+    found = "none" if state.version is None else str(state.version)
+    verdict = "behind" if state.behind else "current"
+    print(f"role setup: database {found}, this release {ROLE_SETUP_VERSION}: {verdict}")
+    unmoved = _unmoved_public(conn, [], roles)
+    print(f"public objects not owned by {roles.owner}: {len(unmoved)}")
+    guard = _rls_guard_firing(conn)
+    if guard is not None:
+        print(f"dynamic-table RLS guard: {'installed' if guard else 'not installed'}")
+    if state.behind or unmoved:
+        print(f"hint: {UPGRADE_HINT}", file=sys.stderr)
+        return 1
+    return 0
 
 
 MIGRATION_SEARCH_PATH = "public"
@@ -1052,6 +1148,67 @@ def pin_migration_search_path(connection: Connection) -> None:
             "THEN 'public, ibm_extension' ELSE 'public' END, false)"
         )
     )
+
+
+def _effective_database(url: URL) -> str | None:
+    """The database libpq connects to: ?dbname=, the path, PGDATABASE, the user."""
+    dbname = url.query.get("dbname")
+    if isinstance(dbname, str) and dbname:
+        return dbname
+    return url.database or os.environ.get("PGDATABASE") or url.username
+
+
+def _check_targets() -> int:
+    """Before changing anything: stop if the admin URI names another database
+    than this environment's own database settings.
+
+    Role setup runs on the admin URI's database. When the same environment
+    also names the app's or the migrations' database (``TRACECAT__DB_URI``,
+    else ``TRACECAT__DB_NAME``, and Compose's ``TRACECAT__DB_MIGRATOR_URI``),
+    a different name means role setup or the migrations would land on the
+    wrong database. Database names don't alias within one server, so a
+    different name stops the run. Hosts do (localhost and postgres_db, or a
+    pooler), so a different host only warns.
+    """
+    admin = make_url(_admin_conninfo())
+    admin_db = _effective_database(admin)
+    hint = (
+        "hint: point TRACECAT__DB_ADMIN_URI at the same database as the "
+        "migrations and the app."
+    )
+    others = {
+        name: uri
+        for name in ("TRACECAT__DB_URI", "TRACECAT__DB_MIGRATOR_URI")
+        if (uri := os.environ.get(name))
+    }
+    if "TRACECAT__DB_URI" not in others:
+        if (other_name := config.TRACECAT__DB_NAME) and admin_db != other_name:
+            print(
+                f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
+                f"but TRACECAT__DB_NAME is {_printable(other_name)}.",
+                file=sys.stderr,
+            )
+            print(hint, file=sys.stderr)
+            return 1
+    for name, uri in others.items():
+        other = make_url(uri)
+        if admin_db != (other_db := _effective_database(other)):
+            print(
+                f"error: TRACECAT__DB_ADMIN_URI names database {_printable(str(admin_db))}, "
+                f"but {name} names {_printable(str(other_db))}.",
+                file=sys.stderr,
+            )
+            print(hint, file=sys.stderr)
+            return 1
+        if (admin.host, admin.port or 5432) != (other.host, other.port or 5432):
+            print(
+                f"warning: role setup runs on {_printable(str(admin.host))} "
+                f"(TRACECAT__DB_ADMIN_URI), but {name} names "
+                f"{_printable(str(other.host))}. If those are different servers, "
+                "point both at the database's server.",
+                file=sys.stderr,
+            )
+    return 0
 
 
 def _printable(text: str) -> str:
@@ -1727,18 +1884,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         if diag and diag.message_hint:
             print(f"hint: {_printable(diag.message_hint)}", file=sys.stderr)
         return 1
+    except psycopg.OperationalError as exc:
+        # libpq's message names the host and user, never the password; the
+        # traceback's locals would hold the whole connection string.
+        print(f"error: {_printable(str(exc).strip())}", file=sys.stderr)
+        return 1
+
+
+def _creates_login_without_password(
+    conn: psycopg.Connection,
+    passwords: LoginPasswords,
+    roles: RoleNames = DEFAULT_ROLES,
+) -> bool:
+    """Whether ``--login password`` would create ``migrator`` or ``app``
+    without a password (the role doesn't exist yet and its password is unset).
+
+    A rerun on existing roles may leave their passwords unchanged.
+    ``agent_runtime`` is optional (nothing logs in as it yet).
+    """
+    for name, password in (
+        (roles.migrator, passwords.migrator),
+        (roles.app, passwords.app),
+    ):
+        exists = conn.execute(
+            "SELECT pg_catalog.to_regrole(%(r)s) IS NOT NULL", {"r": quote_ident(name)}
+        ).fetchone()
+        if not password and exists == (False,):
+            return True
+    return False
+
+
+def _login_method(value: str) -> LoginMethod:
+    """``--login`` parser that never echoes the value.
+
+    Compose passes ``TRACECAT__DB_ROLE_LOGIN`` here; a credential pasted into
+    that variable must not land in the deploy logs, which argparse's own
+    "invalid value" message would do.
+    """
+    # Check membership instead of catching LoginMethod's ValueError: that
+    # exception would carry the value along as the new error's __context__.
+    if value not in {method.value for method in LoginMethod}:
+        raise argparse.ArgumentTypeError(f"expected one of {', '.join(LoginMethod)}")
+    return LoginMethod(value)
 
 
 def _main(argv: Sequence[str] | None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m tracecat.db.roles")
+    parser = argparse.ArgumentParser(
+        prog="tracecat db roles",
+        description="Database role setup. Every command but migrate logs in "
+        "with TRACECAT__DB_ADMIN_URI. Also runs as python -m tracecat.db.roles.",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     bootstrap = commands.add_parser(
         "bootstrap", help="Create or repair the Tracecat roles and grants."
     )
     bootstrap.add_argument(
         "--login",
-        type=LoginMethod,
-        choices=list(LoginMethod),
+        type=_login_method,
+        metavar="{" + ",".join(LoginMethod) + "}",
         default=LoginMethod.PASSWORD,
         help="How the login roles authenticate (default: password).",
     )
@@ -1753,8 +1956,8 @@ def _main(argv: Sequence[str] | None) -> int:
     )
     upgrade.add_argument(
         "--login",
-        type=LoginMethod,
-        choices=list(LoginMethod),
+        type=_login_method,
+        metavar="{" + ",".join(LoginMethod) + "}",
         default=LoginMethod.PASSWORD,
         help="How the login roles authenticate (default: password).",
     )
@@ -1767,15 +1970,37 @@ def _main(argv: Sequence[str] | None) -> int:
         "default: the admin).",
     )
     commands.add_parser(
+        "status",
+        help="Compare the database's role setup with this release's; exit 1 "
+        "when it is behind.",
+    )
+    commands.add_parser(
         "migrate",
-        help="Migrations entrypoint: role setup as the admin (when configured), "
-        "then alembic upgrade head as migrator.",
+        help="Migrations entrypoint: alembic upgrade head as the configured "
+        "user (migrator), then owner-level grants. Never logs in as the admin.",
     )
     args = parser.parse_args(argv)
     if args.command == "migrate":
         return migrate()
+    if args.command == "status":
+        with psycopg.connect(_admin_conninfo()) as conn:
+            return status(conn)
 
     login: LoginMethod = args.login
+    # --sql (bootstrap only) prints and connects nowhere.
+    writes = args.command == "upgrade" or not args.sql
+    if writes and (code := _check_targets()) != 0:
+        return code
+    if writes and login is LoginMethod.PASSWORD:
+        with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
+            if _creates_login_without_password(conn, LoginPasswords.from_config()):
+                print(
+                    "error: role setup would create migrator or app without a "
+                    "password: set TRACECAT__DB_MIGRATOR_PASSWORD and "
+                    "TRACECAT__DB_APP_PASSWORD.",
+                    file=sys.stderr,
+                )
+                return 1
     if args.command == "upgrade":
         with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
             result = run_upgrade(
@@ -1870,4 +2095,9 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # `python -m` runs this file as __main__, a second copy of the module:
+    # alembic/env.py imports tracecat.db.roles, whose RoleNames isn't this
+    # copy's, so migrate's checks would be skipped. Run the imported module.
+    import tracecat.db.roles as roles_module
+
+    raise SystemExit(roles_module.main())

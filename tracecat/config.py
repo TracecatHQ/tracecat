@@ -463,17 +463,13 @@ if not isinstance(TRACECAT__DB_AUTH, DbPasswordAuth):
         )
 
 TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
-"""Admin connection for ``python -m tracecat.db.roles`` only.
+"""Admin connection for ``tracecat db roles`` (``bootstrap``, ``upgrade``,
+``status``) only.
 
 A superuser or a ``CREATEROLE`` role such as the RDS master. Never give it to
-app components. In the migrations entrypoint (``tracecat.db.roles migrate``)
-it is only a credential: ``TRACECAT__DB_ROLE_LOGIN`` turns role setup on.
+app components. ``tracecat db roles migrate`` logs in as ``migrator`` and
+doesn't read it (Compose's migrations service has it for its role setup step).
 """
-TRACECAT__DB_ROLE_LOGIN = os.environ.get("TRACECAT__DB_ROLE_LOGIN") or None
-"""Turns database role setup on in the migrations entrypoint
-(``tracecat.db.roles migrate``) and says how the login roles authenticate:
-``password``, ``aws_iam`` or ``azure_entra``. Empty (the default) keeps a single
-database user. Requires ``TRACECAT__DB_ADMIN_URI``."""
 TRACECAT__DB_MIGRATOR_PASSWORD = (
     os.environ.get("TRACECAT__DB_MIGRATOR_PASSWORD") or None
 )

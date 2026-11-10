@@ -463,29 +463,6 @@ def test_valid_token_config_imports() -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("sslmode", ["disable", "allow", "prefer"])
-def test_role_setup_refuses_to_send_migrators_token_in_plaintext(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    sslmode: str,
-) -> None:
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__DB_ADMIN_URI",
-        f"postgresql://admin:pw@db.example:5432/tracecat?sslmode={sslmode}",
-    )
-    monkeypatch.setattr(config, "TRACECAT__DB_ROLE_LOGIN", "aws_iam")
-    monkeypatch.setattr(config, "TRACECAT__DB_MIGRATOR_PASSWORD", "token")
-
-    def refuse(*args: Any, **kwargs: Any) -> int:
-        raise AssertionError("role setup must not start")
-
-    monkeypatch.setattr(db_roles, "_check_targets", refuse)
-
-    assert db_roles.migrate() == 1
-    assert "must not travel in plaintext" in capsys.readouterr().err
-
-
 def test_role_setup_checks_the_admin_database_against_db_name(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -541,24 +518,6 @@ def test_alembic_uri_keeps_role_names_with_spaces() -> None:
     assert result.stdout.strip().splitlines()[-1] == repr(
         ("service identity", "p w+d", "require")
     )
-
-
-def test_alembic_with_an_explicit_uri_drops_the_token_mode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Role setup runs alembic as migrator with its token in the URI."""
-    seen: dict[str, str] = {}
-
-    def run(cmd: list[str], *, env: dict[str, str], check: bool) -> Any:
-        seen.update(env)
-        return subprocess.CompletedProcess(cmd, 0)
-
-    monkeypatch.setenv("TRACECAT__DB_AUTH_MODE", "aws_iam")
-    monkeypatch.setattr(db_roles.subprocess, "run", run)
-
-    assert db_roles._alembic_upgrade("postgresql+psycopg://migrator:tok@db/x") == 0
-    assert seen["TRACECAT__DB_URI"] == "postgresql+psycopg://migrator:tok@db/x"
-    assert "TRACECAT__DB_AUTH_MODE" not in seen
 
 
 @pytest.mark.parametrize(

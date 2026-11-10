@@ -1,0 +1,142 @@
+---
+title: Database roles
+description: Run Tracecat on separate PostgreSQL roles, set them up with `tracecat db roles`, and keep the admin login out of your deployment.
+---
+
+By default Tracecat uses one PostgreSQL user for everything. With database roles, each part of Tracecat logs in as its own role, and the admin login (a superuser, or a `CREATEROLE` user such as the RDS master) stays with the person who manages the database.
+
+| Role | Logs in | Used by |
+| --- | --- | --- |
+| `app` | Yes | Every Tracecat service |
+| `migrator` | Yes | Database migrations. It acts as `tracecat_owner`, so new tables belong to that role. |
+| `agent_runtime` | Yes | Reserved for the agent runtime |
+| `tracecat_owner` | No | Owns the tables in `public` |
+| `app_owner` | No | Owns the workspace table schemas (`tables_*`, `custom_fields_*`) |
+| `tracecat_readonly` | No | Read access for people, without credential columns |
+
+Setting up roles is provisioning: you run it as the admin, once per install and again before a release that changes roles. Migrations then run as `migrator` and never need the admin: once the roles are set up, the migrations container refuses any other login.
+
+## Set up roles
+
+Run `tracecat db roles upgrade` as the admin, from the Tracecat image of the release you are about to deploy. It creates the roles, grants their access, and moves an existing install's objects to `tracecat_owner` and `app_owner`. It is safe to rerun.
+
+```bash
+docker run --rm -i \
+  -e TRACECAT__DB_ADMIN_URI \
+  -e TRACECAT__DB_MIGRATOR_PASSWORD \
+  -e TRACECAT__DB_APP_PASSWORD \
+  -e TRACECAT__DB_SSLMODE=verify-full \
+  -e PGSSLROOTCERT=/certs/ca.pem \
+  -v "$PWD/ca.pem:/certs/ca.pem:ro" \
+  ghcr.io/tracecathq/tracecat:<version> \
+  tracecat db roles upgrade --login password
+```
+
+- `TRACECAT__DB_ADMIN_URI`: the admin's connection URI for the Tracecat database, for example `postgresql://postgres:<password>@db.example.com:5432/tracecat`.
+- `ca.pem`: the CA bundle that signed the database's certificate, so `verify-full` can check it (for RDS, the [global bundle](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem)).
+- `--login`: how `app`, `migrator` and `agent_runtime` log in. `password` sets the passwords from `TRACECAT__DB_MIGRATOR_PASSWORD` and `TRACECAT__DB_APP_PASSWORD` (and `TRACECAT__DB_AGENT_RUNTIME_PASSWORD` if set). `aws_iam` grants `rds_iam` instead, so the roles log in with IAM tokens; leave the password variables unset. `azure_entra` expects you to create `migrator`, `app` and `agent_runtime` first, each mapped to the identity that logs in as it with `pgaadauth_create_principal_with_oid` (see [Database IAM login](/self-hosting/database-iam)); leave the password variables unset.
+
+Then give each part its login:
+
+1. Point the migrations at `migrator`: `TRACECAT__DB_USER=migrator` and `TRACECAT__DB_PASS`, or `TRACECAT__DB_URI`.
+2. Point every other service at `app`.
+3. Deploy.
+
+On a new install, run `tracecat db roles upgrade` once more after the first deploy. It installs the guard that keeps row-level security on workspace tables, which needs the migrated schema and a superuser (`rds_superuser` on RDS). Until then, each migration run logs `the dynamic-table RLS guard isn't installed`.
+
+If the admin can't run commands against the database (no `CREATEROLE`, or a locked-down managed service), print the SQL and run it yourself:
+
+```bash
+tracecat db roles bootstrap --login password --sql
+```
+
+## Before each release
+
+Release notes say when a release changes database roles. Check before you deploy:
+
+```bash
+tracecat db roles status
+```
+
+```text
+role setup: database 1, this release 2: behind
+public objects not owned by tracecat_owner: 0
+dynamic-table RLS guard: installed
+```
+
+`status` exits with `1` when the database is behind. Run `tracecat db roles upgrade` from the new release's image, then deploy. If you deploy first, migrations stop before changing anything:
+
+```text
+error: database role setup is behind: the database has version 1, this release needs version 2
+hint: run `tracecat db roles upgrade` as the database admin first, then rerun the deploy
+```
+
+Releases that only add tables don't need this step: the migrations grant `app` and `tracecat_readonly` access to new tables themselves.
+
+## By deployment type
+
+### Docker Compose
+
+Compose sets up roles for you, because the `postgres` superuser's password is already in `.env`. Set these in `.env`, then restart:
+
+```bash
+TRACECAT__DB_ROLE_LOGIN=password
+TRACECAT__DB_ADMIN_URI=postgresql://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres
+TRACECAT__DB_MIGRATOR_PASSWORD=<letters and digits>
+TRACECAT__DB_APP_PASSWORD=<letters and digits>
+TRACECAT__DB_MIGRATOR_URI=postgresql+psycopg://migrator:${TRACECAT__DB_MIGRATOR_PASSWORD}@postgres_db:5432/postgres
+```
+
+On each start, the `migrations` container runs `tracecat db roles upgrade` as the admin, the migrations as `migrator`, then `upgrade` again (it installs the RLS guard once the schema exists). Until you change `TRACECAT__DB_URI`, the services keep logging in as the admin. Once the roles exist, move them to `app` with `TRACECAT__DB_URI=postgresql+psycopg://app:${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres`, and keep the variables above set: the next start needs them for role setup.
+
+### Kubernetes
+
+Run `tracecat db roles upgrade` yourself, from a machine or a one-off pod that can reach the database, with the admin's credentials. Don't store the admin's credentials in the cluster. Then give the chart's migrations Job the `migrator` login (`migrations.migrator` in the chart's values, with a password Secret or `aws_iam`) and the services the `app` login (`externalPostgres.auth.appSecret`).
+
+### AWS Fargate
+
+The Fargate stack runs Tracecat as one database user. Database roles aren't available there yet.
+
+## Personal read-only access
+
+Give people their own login and the `tracecat_readonly` role. As the admin:
+
+On RDS, with IAM login:
+
+```sql
+CREATE ROLE alice LOGIN;
+GRANT rds_iam TO alice;
+GRANT tracecat_readonly TO alice;
+```
+
+Elsewhere, with a password:
+
+```sql
+CREATE ROLE alice LOGIN;
+GRANT tracecat_readonly TO alice;
+```
+
+Then set her password in psql with `\password alice`, which hashes it on the client so the plaintext never reaches the server.
+
+`tracecat_readonly` can read every workspace's data in `public` except credential columns such as tokens and password hashes. Row-level security still applies to it on workspace-scoped tables, so a session sees their rows only after it opts in: run `SET app.rls_bypass = 'on';` first (or `SET app.current_workspace_id = '<workspace-id>';` for one workspace). Tables without a policy, such as organization-wide ones like `user`, are readable without it. The role stays read-only either way.
+
+## Break-glass access
+
+The admin login keeps full access: it is a member of `tracecat_owner` (or a superuser). Use it only for repairs, then rotate its password. Don't hand it to a Tracecat service or the migrations.
+
+## Roll back
+
+To return to a single database user, point every service and the migrations back at the admin login, then run this as the admin in the Tracecat database (replace `<admin>` with its name):
+
+```sql
+REASSIGN OWNED BY tracecat_owner, app_owner TO <admin>;
+DROP OWNED BY tracecat_owner;
+DROP OWNED BY app_owner;
+DROP OWNED BY tracecat_readonly;
+DROP OWNED BY migrator;
+DROP OWNED BY app;
+DROP OWNED BY agent_runtime;
+DROP ROLE app, agent_runtime, migrator, tracecat_readonly, tracecat_owner, app_owner;
+```
+
+`REASSIGN OWNED` gives the tables back to the admin. Each `DROP OWNED` then only removes that role's grants and default privileges; run them one role at a time, since one statement for several roles fails on their shared default privileges. `DROP ROLE` removes the roles, including people's `tracecat_readonly` membership.
