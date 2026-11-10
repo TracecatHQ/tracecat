@@ -666,6 +666,28 @@ def test_swif_row_discovers_oauth_and_takes_regional_server_uri() -> None:
     assert endpoint.secret is False
 
 
+def test_devin_row_uses_api_key_headers() -> None:
+    """Devin's OAuth server has no DCR, so the row connects with an API key."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "devin-mcp", include_private=True
+    )
+    assert entry is not None
+    assert entry.name == "Devin"
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_custom"
+    assert spec.server_uri == "https://mcp.devin.ai/mcp"
+    creds = {credential.key: credential for credential in spec.credentials}
+    assert set(creds) == {"Authorization", "X-Org-Id"}
+    assert creds["Authorization"].target == "http_header"
+    assert creds["Authorization"].required is True
+    assert creds["Authorization"].secret is True
+    assert creds["X-Org-Id"].target == "http_header"
+    assert creds["X-Org-Id"].required is False
+    assert creds["X-Org-Id"].secret is False
+
+
 def test_google_workspace_rows_pin_offline_consent_authorize_params() -> None:
     """Gmail, Drive and Calendar share the SecOps missing-refresh-token bug."""
     _clear_catalog_cache()

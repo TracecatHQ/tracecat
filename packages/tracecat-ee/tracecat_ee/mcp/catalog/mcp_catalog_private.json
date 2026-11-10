@@ -2747,6 +2747,45 @@
           ]
         }
       }
+    },
+    {
+      "slug": "devin-mcp",
+      "docs": "https://docs.devin.ai/work-with-devin/devin-mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": "https://mcp.devin.ai/mcp",
+        "credentials": [
+          {
+            "key": "Authorization",
+            "label": "Devin API key (Authorization header)",
+            "description": "Devin API key sent as the Authorization header in the form 'Bearer cog_<key>'. Provision a service user under Settings > Devin API > Service users to get a cog_ key. Legacy apk_ keys only work for the repository documentation tools.",
+            "required": true,
+            "secret": true,
+            "target": "http_header",
+            "placeholder": "Bearer cog_..."
+          },
+          {
+            "key": "X-Org-Id",
+            "label": "Devin organization ID",
+            "description": "Organization the tools act on, sent as the X-Org-Id header. Required for enterprise service user keys and personal access tokens; leave blank for org-scoped service user keys. Find it at the top of Settings > Devin API.",
+            "required": false,
+            "secret": false,
+            "target": "http_header",
+            "placeholder": "org-..."
+          }
+        ],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Cognition hosts the first-party Devin MCP server at https://mcp.devin.ai/mcp over streamable HTTP (a legacy SSE transport is also served at /sse). Unauthenticated POSTs return 401 with WWW-Authenticate pointing at /.well-known/oauth-protected-resource/mcp, which lists https://api.devin.ai as the authorization server and the devin scope. That authorization server advertises authorization_code with PKCE and client ID metadata documents but no registration_endpoint, so Tracecat's DCR-based OAuth connect cannot register a client; the documented path for third-party clients is a Devin API key sent as Authorization: Bearer <key>. cog_ service user keys scoped to an organization resolve the org automatically; enterprise service user keys and personal access tokens also need the X-Org-Id header. Legacy apk_ keys only work with the wiki tools. Tools cover repository docs and Q&A (read_wiki_structure, read_wiki_contents, ask_question, list_available_repos), sessions (devin_session_create/search/interact/events/gather), playbooks, knowledge, schedules and integrations.",
+          "sources": [
+            "https://docs.devin.ai/work-with-devin/devin-mcp",
+            "https://mcp.devin.ai/.well-known/oauth-protected-resource/mcp",
+            "https://api.devin.ai/.well-known/oauth-authorization-server"
+          ]
+        }
+      }
     }
   ]
 }
