@@ -24,18 +24,22 @@ What it does, as one user in one organization:
    with the RLS bypass, to another workspace, and to no context.
 5. Optionally scans service logs for RLS error signatures (`--logs`).
 
-Writes `results.json`, `summary.md` and raw evidence to `--out`, prints one
-PASS/FAIL line per check, and exits 1 on any FAIL. With `--baseline`, a check
-that passed in the baseline and fails now, or a GET route that returned data
-in the baseline and returns none now, is reported as a regression.
+Writes `results.json`, `summary.md` and raw evidence to `--out` and prints
+one PASS/FAIL line per check. Exits 0 when every check ran and passed, 1 on
+any FAIL, 2 when nothing failed but a check was skipped (for example
+`--sql skip`). With `--baseline`, a check that passed in the baseline and
+fails or is skipped now, or a GET route that returned data in the baseline
+and returns none now, is reported as a regression.
 
 Never prints credentials. Request and response bodies are saved with
-credential fields redacted.
+credential fields and capability-URL secrets redacted; raw log lines are
+saved only with `--keep-log-lines`. Webhooks are left offline, the channel
+token is deleted and the isolation service account is disabled after use.
 
 Usage:
-    uv run --no-project --with httpx python scripts/rls_sweep.py \
+    uv run --no-project --with httpx==0.28.1 python scripts/rls_sweep.py \
         --target staging --out reports/off
-    uv run --no-project --with httpx python scripts/rls_sweep.py \
+    uv run --no-project --with httpx==0.28.1 python scripts/rls_sweep.py \
         --target staging --out reports/enforce --baseline reports/off
 
 Targets:
@@ -56,6 +60,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -73,8 +78,10 @@ import httpx
 FINAL_RUN_STATES = ("COMPLETED", "FAILED", "TERMINATED", "CANCELED", "TIMED_OUT")
 DENIED = (401, 403, 404)
 SECRET_VALUE = "synthetic-not-a-secret"
-SLACK_SIGNING_SECRET = "synthetic-signing-secret-for-rls-sweep"
 REDACT_KEYS = {
+    "endpoint_url",
+    "public_token",
+    "url",
     "access_token",
     "api_key",
     "cookie",
@@ -128,6 +135,19 @@ def now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# Capability URLs carry their credential in the path.
+CAPABILITY_PATHS = re.compile(
+    r"(/webhooks/[^/\s\"']+/)[^/\s\"'?]+|(/channels/[a-z_-]+/)[^/\s\"'?]+"
+)
+
+
+def scrub(text: str) -> str:
+    """Mask the credential segment of webhook and channel capability URLs."""
+    return CAPABILITY_PATHS.sub(
+        lambda m: (m.group(1) or m.group(2)) + "[REDACTED]", text
+    )
+
+
 def redact(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -136,6 +156,8 @@ def redact(value: Any) -> Any:
         }
     if isinstance(value, list):
         return [redact(v) for v in value]
+    if isinstance(value, str):
+        return scrub(value)
     return value
 
 
@@ -167,6 +189,7 @@ class Target:
     password: str
     sql: str | None
     logs: str | None
+    keep_log_lines: bool
     model: dict[str, str]
     catalog_id: str | None
     harness: dict[str, str]
@@ -251,7 +274,7 @@ class Api:
         if ok is not None:
             expect(
                 r.status_code in ok,
-                f"{method} {path}: HTTP {r.status_code} {str(value)[:300]}",
+                scrub(f"{method} {path}: HTTP {r.status_code} {redact(value)}")[:400],
             )
         return r
 
@@ -535,13 +558,24 @@ def wait_run(
     raise CheckFailed(f"no finished run within {timeout:.0f}s")
 
 
-def for_workflow(workflow_id: str, since: str) -> Callable[[dict[str, Any]], bool]:
+def parse_time(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def for_workflow(
+    workflow_id: str, since: str, trigger_type: str
+) -> Callable[[dict[str, Any]], bool]:
+    """Match a run of `workflow_id` with `trigger_type` that started after `since`."""
     key = workflow_id.replace("-", "")[-12:]
+    after = parse_time(since)
 
     def match(x: dict[str, Any]) -> bool:
-        started = str(x.get("start_time") or "")
-        return key in json.dumps(x).replace("-", "") and (
-            not started or started >= since[:19]
+        started = x.get("start_time")
+        return (
+            key in json.dumps(x).replace("-", "")
+            and x.get("trigger_type") == trigger_type
+            and started is not None
+            and parse_time(str(started)) >= after
         )
 
     return match
@@ -565,9 +599,9 @@ def run_result(api: Api, exec_id: str) -> Any:
 
 
 def run_completed(
-    api: Api, workflow_id: str, since: str, timeout: float = 180
+    api: Api, workflow_id: str, since: str, trigger_type: str, timeout: float = 180
 ) -> dict[str, Any]:
-    done = wait_run(api, for_workflow(workflow_id, since), timeout)
+    done = wait_run(api, for_workflow(workflow_id, since, trigger_type), timeout)
     expect(done["status"] == "COMPLETED", f"run {done['id']} {done['status']}")
     return done
 
@@ -709,14 +743,19 @@ def check_webhook(run: Run, api: Api) -> Any:
         r.status_code in (200, 201, 202),
         f"webhook POST HTTP {r.status_code} {r.text[:200]}",
     )
-    done = run_completed(api, s["echo"], since)
-    return {"run": done["id"], "trigger_type": done.get("trigger_type"), "_path": path}
+    try:
+        done = run_completed(api, s["echo"], since, "webhook")
+    finally:
+        # The URL's secret is the webhook's only credential; don't leave it live.
+        api.call("PATCH", base, body={"status": "offline"}, ok=None)
+    return {"run": done["id"], "trigger_type": done.get("trigger_type")}
 
 
 def check_webhook_api_key(run: Run, api: Api) -> Any:
     s = run.seeds
     api.workspace_id = s["workspace_a"]
     base = f"/api/workflows/{s['echo']}/webhook"
+    api.call("PATCH", base, body={"status": "online"})
     key = api.json("POST", f"{base}/api-key")["api_key"]
     hook = api.json("GET", base)
     path = urlparse(hook["url"]).path
@@ -739,7 +778,7 @@ def check_webhook_api_key(run: Run, api: Api) -> Any:
         expect(
             r.status_code in (200, 201, 202), f"webhook with key HTTP {r.status_code}"
         )
-        done = run_completed(api, s["echo"], since)
+        done = run_completed(api, s["echo"], since, "webhook")
         # Revocation is a tenant-scoped write; a silent no-op would leave the key valid.
         api.call("POST", f"{base}/api-key/revoke")
         revoked = httpx.post(
@@ -755,8 +794,9 @@ def check_webhook_api_key(run: Run, api: Api) -> Any:
     finally:
         del key
         # A revoked key keeps rejecting key-less requests; delete it so the
-        # plain webhook check still works on the next run.
+        # plain webhook check still works on the next run, then take it offline.
         api.call("DELETE", f"{base}/api-key", ok=None)
+        api.call("PATCH", base, body={"status": "offline"}, ok=None)
     return {
         "without_key": missing.status_code,
         "with_key": r.status_code,
@@ -780,7 +820,7 @@ def check_schedule(run: Run, api: Api) -> Any:
         },
     )
     try:
-        done = run_completed(api, s["echo"], since, timeout=150)
+        done = run_completed(api, s["echo"], since, "scheduled", timeout=150)
     finally:
         api.call("DELETE", f"/api/schedules/{sched['id']}", ok=None)
     return {
@@ -825,13 +865,14 @@ def check_case_trigger(run: Run, api: Api) -> Any:
             bool(field_values) and field_values[0].get("value") == "set-by-sweep",
             f"case field read back {field_values}",
         )
-        done = run_completed(api, s["trigger"], since)
+        done = run_completed(api, s["trigger"], since, "case")
     finally:
         api.call("POST", path, body={**body, "status": "offline"}, ok=None)
     return {"case": cid, "run": done["id"], "trigger_type": done.get("trigger_type")}
 
 
 def check_case_search(run: Run, api: Api) -> Any:
+    """Synchronous case search. It does not exercise background search indexing."""
     s = run.seeds
     api.workspace_id = s["workspace_a"]
     hits = items_of(
@@ -910,6 +951,20 @@ def stream_turn(api: Api, session_id: str, text: str, label: str) -> dict[str, A
     return summary
 
 
+def find_catalog_id(api: Api) -> str:
+    """Return the org catalog row for the target's model."""
+    model = api.run.target.model
+    catalog = api.json(
+        "GET",
+        "/api/organization/agent-catalog",
+        ws=None,
+        params={"provider": model["provider"], "limit": 100},
+    )
+    rows = [r for r in items_of(catalog) or [] if r.get("model_name") == model["name"]]
+    expect(bool(rows), f"no org catalog row for {model['provider']}/{model['name']}")
+    return rows[0]["id"]
+
+
 def check_agent_turn(run: Run, api: Api) -> Any:
     s, t = run.seeds, run.target
     api.workspace_id = s["workspace_a"]
@@ -934,8 +989,7 @@ def check_agent_turn(run: Run, api: Api) -> Any:
             "skills": [],
             "agents": {"subagents": []},
         }
-        if t.catalog_id:
-            body["catalog_id"] = t.catalog_id
+        body["catalog_id"] = t.catalog_id or find_catalog_id(api)
         preset = api.json("POST", "/api/agent/presets", body=body)
     s["preset"] = preset["id"]
     session = api.json(
@@ -986,26 +1040,34 @@ def check_chat(run: Run, api: Api, kind: str) -> Any:
 
 
 def check_channel(run: Run, api: Api) -> Any:
-    """The public Slack endpoint resolves its token without a user (bypass) and runs as the workspace."""
+    """Signed Slack events reach the public endpoint and resolve their token.
+
+    Covers the synchronous path: token lookup without a user, signature check,
+    `url_verification` and the `event_callback` acknowledgement. The background
+    processing that follows is covered only by the `logs` check, since the
+    synthetic bot token cannot complete a Slack reply.
+    """
     s = run.seeds
     api.workspace_id = s["workspace_a"]
     if "preset" not in s:
         raise CheckFailed("needs the agent preset from agent_turn")
-    tokens = items_of(api.json("GET", "/api/agent/channels/tokens")) or []
-    token = next((x for x in tokens if x.get("agent_preset_id") == s["preset"]), None)
-    if token is None:
-        token = api.json(
-            "POST",
-            "/api/agent/channels/tokens",
-            body={
-                "agent_preset_id": s["preset"],
-                "channel_type": "slack",
-                "config": {
-                    "slack_bot_token": "xoxb-synthetic",
-                    "slack_signing_secret": SLACK_SIGNING_SECRET,
-                },
+    # Tokens from earlier runs carry signing secrets this run doesn't know.
+    for old in items_of(api.json("GET", "/api/agent/channels/tokens")) or []:
+        if old.get("agent_preset_id") == s["preset"]:
+            api.call("DELETE", f"/api/agent/channels/tokens/{old['id']}", ok=None)
+    signing_secret = secrets.token_hex(32)
+    token = api.json(
+        "POST",
+        "/api/agent/channels/tokens",
+        body={
+            "agent_preset_id": s["preset"],
+            "channel_type": "slack",
+            "config": {
+                "slack_bot_token": "xoxb-synthetic",
+                "slack_signing_secret": signing_secret,
             },
-        )
+        },
+    )
     path = urlparse(token["endpoint_url"]).path
     url = run.target.origin + (path if path.startswith("/api") else "/api" + path)
 
@@ -1015,7 +1077,7 @@ def check_channel(run: Run, api: Api) -> Any:
         sig = (
             "v0="
             + hmac.new(
-                SLACK_SIGNING_SECRET.encode(),
+                signing_secret.encode(),
                 f"v0:{ts}:".encode() + raw,
                 hashlib.sha256,
             ).hexdigest()
@@ -1031,6 +1093,13 @@ def check_channel(run: Run, api: Api) -> Any:
             },
         )
 
+    try:
+        return _channel_events(signed)
+    finally:
+        api.call("DELETE", f"/api/agent/channels/tokens/{token['id']}", ok=None)
+
+
+def _channel_events(signed: Callable[[dict[str, Any]], httpx.Response]) -> Any:
     verify = signed(
         {"type": "url_verification", "challenge": "rls-sweep-challenge", "token": "x"}
     )
@@ -1063,7 +1132,14 @@ def check_channel(run: Run, api: Api) -> Any:
 def check_isolation(run: Run, api: Api) -> Any:
     """A key bound to workspace A must see none of B's objects."""
     s = run.seeds
-    a, b = s["workspace_a"], s["workspace_b"]
+    a = s["workspace_a"]
+    sa_base = f"/api/workspaces/{a}/service-accounts"
+    # Earlier runs' probe accounts: disable any still enabled.
+    for old in items_of(api.json("GET", sa_base, ws=None)) or []:
+        if old.get("name", "").startswith(f"{run.tag}-a-only-") and not old.get(
+            "disabled_at"
+        ):
+            api.call("POST", f"{sa_base}/{old['id']}/disable", ws=None, ok=None)
     scopes = api.json("GET", f"/api/workspaces/{a}/service-accounts/scopes", ws=None)
     wanted = {"case:read", "table:read", "workflow:read", "secret:read"}
     sa = api.json(
@@ -1080,6 +1156,33 @@ def check_isolation(run: Run, api: Api) -> Any:
         run, headers={"Authorization": f"Bearer {sa['issued_api_key']['raw_key']}"}
     )
     del sa["issued_api_key"]
+    sa_id = sa["service_account"]["id"]
+    try:
+        results = _isolation_probes(run, key_api)
+    finally:
+        api.call("POST", f"{sa_base}/{sa_id}/disable", ws=None, ok=None)
+    disabled = key_api.call("GET", f"/api/cases/{s['a_case']}", ws=a, ok=None)
+    key_api.client.close()
+    results.append(
+        {
+            "check": "disabled account's key rejected",
+            "status": disabled.status_code,
+            "leaked": [],
+            "result": "PASS" if disabled.status_code in DENIED else "FAIL",
+        }
+    )
+    (run.out / "evidence" / "isolation.json").write_text(json.dumps(results, indent=2))
+    failed = [x for x in results if x["result"] == "FAIL"]
+    expect(
+        not failed,
+        f"{len(failed)}/{len(results)} isolation probes failed: {failed[:3]}",
+    )
+    return {"probes": len(results), "passed": len(results) - len(failed)}
+
+
+def _isolation_probes(run: Run, key_api: Api) -> list[dict[str, Any]]:
+    s = run.seeds
+    a, b = s["workspace_a"], s["workspace_b"]
     results: list[dict[str, Any]] = []
 
     def probe(
@@ -1129,13 +1232,7 @@ def check_isolation(run: Run, api: Api) -> Any:
             DENIED,
             b_ids + markers,
         )
-    (run.out / "evidence" / "isolation.json").write_text(json.dumps(results, indent=2))
-    failed = [x for x in results if x["result"] == "FAIL"]
-    expect(
-        not failed,
-        f"{len(failed)}/{len(results)} isolation probes failed: {failed[:3]}",
-    )
-    return {"probes": len(results), "passed": len(results) - len(failed)}
+    return results
 
 
 # --------------------------------------------------------------------------- #
@@ -1241,6 +1338,8 @@ with engine.connect() as c:
     tenant = set(t.ALL_TENANT_RLS_TABLES)
     ws_tables = sorted(n for n, has_ws, _ in cols if n in tenant and has_ws)
     org_tables = sorted(n for n, has_ws, has_org in cols if n in tenant and has_org and not has_ws)
+    # Tables that inherit tenancy through a parent row (no tenant column of their own).
+    parent_tables = sorted(n for n, has_ws, has_org in cols if n in tenant and not has_ws and not has_org)
     dyn = []
     for w in (A, B):
         short = WorkspaceUUID.new(w).short()
@@ -1306,10 +1405,27 @@ with engine.connect() as c:
         for view in ("foreign_org", "none"):
             if org_views[view][n]:
                 findings.append({"table": n, "issue": f"{view} sees org rows", "count": org_views[view][n]})
+    def all_rows(bypass, org_id, ws_id):
+        res = {}
+        with c.begin():
+            ctx(c, bypass=bypass, org=org_id, ws=ws_id)
+            for n in parent_tables:
+                res[n] = c.execute(text(f'SELECT count(*) FROM "{n}"')).scalar_one()
+        return res
+
+    parent_views = {"bypass": all_rows("on", "", ""), "own_a": all_rows("off", org, A),
+                    "none": all_rows("off", "", ""),
+                    "foreign": all_rows("off", str(uuid.uuid4()), str(uuid.uuid4()))}
+    out["parent_tenanted"] = parent_views
+    for n in parent_tables:
+        for view in ("none", "foreign"):
+            if parent_views[view][n]:
+                findings.append({"table": n, "issue": f"{view} context sees rows", "count": parent_views[view][n]})
     for d in dyn:
         if not (d["rls"] and d["force"]):
             findings.append({"table": f'{d["schema"]}.{d["table"]}', "issue": "dynamic table without RLS+FORCE"})
-    out["tables_checked"] = {"workspace": len(ws_tables), "org": len(org_tables), "dynamic": len(dyn)}
+    out["tables_checked"] = {"workspace": len(ws_tables), "org": len(org_tables),
+                             "parent_tenanted": len(parent_tables), "dynamic": len(dyn)}
     out["findings"] = findings
 engine.dispose()
 print(json.dumps(out, default=str))
@@ -1373,44 +1489,57 @@ def check_sql(run: Run) -> Any:
 
 
 def check_logs(run: Run) -> Any:
+    """Scan service logs since the run started for RLS error signatures.
+
+    Saves only the matched signature per hit unless `--keep-log-lines` is set:
+    raw lines can carry tenant data.
+    """
     spec = run.target.logs
     assert spec is not None
     kind, _, where = spec.partition(":")
-    hits: dict[str, list[str]] = {}
+    commands: dict[str, list[str]]
     if kind == "kubectl":
-        for deploy in STAGING_DEPLOYMENTS:
-            proc = subprocess.run(
-                [
-                    "kubectl",
-                    "-n",
-                    where or "tracecat",
-                    "logs",
-                    f"deploy/{deploy}",
-                    "--all-containers",
-                    f"--since-time={run.started}",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            hits[deploy] = [
-                ln for ln in proc.stdout.splitlines() if LOG_SIGNATURES.search(ln)
+        commands = {
+            deploy: [
+                "kubectl",
+                "-n",
+                where or "tracecat",
+                "logs",
+                f"deploy/{deploy}",
+                "--all-containers",
+                f"--since-time={run.started}",
             ]
+            for deploy in STAGING_DEPLOYMENTS
+        }
     elif kind == "docker":
-        for svc in LOCAL_SERVICES:
-            proc = subprocess.run(
-                ["docker", "logs", "--since", run.started, f"{where}-{svc}-1"],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            text_out = proc.stdout + proc.stderr
-            hits[svc] = [
-                ln for ln in text_out.splitlines() if LOG_SIGNATURES.search(ln)
-            ]
+        commands = {
+            svc: ["docker", "logs", "--since", run.started, f"{where}-{svc}-1"]
+            for svc in LOCAL_SERVICES
+        }
     else:
         raise ValueError(f"unknown --logs {spec!r}")
-    (run.out / "evidence" / "log-hits.json").write_text(json.dumps(hits, indent=2))
+    hits: dict[str, list[dict[str, str]]] = {}
+    unreadable: dict[str, str] = {}
+    for name, cmd in commands.items():
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if proc.returncode != 0:
+            # An empty scan of logs we couldn't read is not a clean result.
+            unreadable[name] = scrub(proc.stderr.strip())[-200:]
+            continue
+        # docker writes container stderr to its own stderr.
+        lines = (proc.stdout + (proc.stderr if kind == "docker" else "")).splitlines()
+        hits[name] = [
+            {
+                "signature": m.group(0),
+                **({"line": scrub(ln)[:1000]} if run.target.keep_log_lines else {}),
+            }
+            for ln in lines
+            if (m := LOG_SIGNATURES.search(ln))
+        ]
+    (run.out / "evidence" / "log-hits.json").write_text(
+        json.dumps({"hits": hits, "unreadable": unreadable}, indent=2)
+    )
+    expect(not unreadable, f"could not read logs for {sorted(unreadable)}")
     bad = {k: len(v) for k, v in hits.items() if v}
     expect(not bad, f"RLS signatures in logs: {bad}")
     return {"services": len(hits)}
@@ -1448,7 +1577,11 @@ CHECKS: list[tuple[str, str, str]] = [
         "H6 case-trigger dispatch",
         "case field read back; case_created trigger run COMPLETED",
     ),
-    ("case_search", "H7 search", "case search finds the seeded case"),
+    (
+        "case_search",
+        "case search (synchronous; background indexing not covered)",
+        "case search finds the seeded case",
+    ),
     (
         "agent_turn",
         "H13/H23 agent turn",
@@ -1458,7 +1591,7 @@ CHECKS: list[tuple[str, str, str]] = [
     ("chat_case", "H13 case chat", "turn finishes with no errors"),
     (
         "channel",
-        "H1 public channel endpoint",
+        "H1 public channel endpoint (sync path; background via logs)",
         "signed url_verification 200 + challenge; event_callback 200",
     ),
     (
@@ -1552,8 +1685,10 @@ def diff_baseline(
     regressions: list[dict[str, Any]] = []
     before = {c["name"]: c["result"] for c in base["checks"]}
     for c in run.checks:
-        if before.get(c.name) == "PASS" and c.result == "FAIL":
-            regressions.append({"kind": "check", "name": c.name, "error": c.error})
+        if before.get(c.name) == "PASS" and c.result in ("FAIL", "SKIP"):
+            regressions.append(
+                {"kind": "check", "name": c.name, "now": c.result, "error": c.error}
+            )
     for path, b in base.get("get_sweep", {}).items():
         now_row = gets.get(path)
         if now_row is None or b.get("status") is None:
@@ -1577,7 +1712,7 @@ def diff_baseline(
             CheckResult(
                 name="baseline_diff",
                 surface="regression vs baseline",
-                expected="nothing that passed or returned data in the baseline fails or is empty now",
+                expected="nothing that passed or returned data in the baseline fails, is skipped or is empty now",
                 result="FAIL",
                 observed=regressions,
             )
@@ -1696,8 +1831,8 @@ def build_target(args: argparse.Namespace) -> Target:
                 "name": args.model or "claude-sonnet-5-5",
                 "provider": args.provider or "anthropic",
             },
-            # Org catalog row for claude-sonnet-5-5 in the staging QA org.
-            catalog_id=args.catalog_id or "46d55b1e-27b9-47e0-bb09-36d2bed89c72",
+            catalog_id=args.catalog_id,
+            keep_log_lines=args.keep_log_lines,
             harness={"backend_id": "ee", "harness_type": "pi_durable"}
             if args.harness == "auto"
             else json.loads(args.harness),
@@ -1714,6 +1849,7 @@ def build_target(args: argparse.Namespace) -> Target:
             "provider": args.provider or "openai",
         },
         catalog_id=args.catalog_id,
+        keep_log_lines=args.keep_log_lines,
         harness={} if args.harness == "auto" else json.loads(args.harness),
     )
 
@@ -1751,7 +1887,17 @@ def main() -> int:
     )
     p.add_argument("--only", help="Comma-separated check names (plus get_sweep)")
     p.add_argument("--skip", default="", help="Comma-separated check names to skip")
+    p.add_argument(
+        "--keep-log-lines",
+        action="store_true",
+        help="Save matching raw log lines (they can carry tenant data)",
+    )
     args = p.parse_args()
+    known = {name for name, _, _ in CHECKS} | {"get_sweep"}
+    only = set(args.only.split(",")) if args.only else None
+    skip = set(filter(None, args.skip.split(",")))
+    if unknown := ((only or set()) | skip) - known:
+        p.error(f"unknown check names {sorted(unknown)}; known: {sorted(known)}")
 
     args.out.mkdir(parents=True, exist_ok=True)
     run = Run(target=build_target(args), tag=args.tag, out=args.out)
@@ -1770,12 +1916,7 @@ def main() -> int:
             f"seeded A={run.seeds['workspace_a']} B={run.seeds['workspace_b']}",
             flush=True,
         )
-        gets = run_checks(
-            run,
-            api,
-            set(args.only.split(",")) if args.only else None,
-            set(filter(None, args.skip.split(","))),
-        )
+        gets = run_checks(run, api, only, skip)
         if args.baseline:
             regressions = diff_baseline(run, gets, args.baseline)
     except Exception as e:  # noqa: BLE001 - login/seed failure is itself a FAIL
@@ -1796,10 +1937,14 @@ def main() -> int:
         write_outputs(run, gets, regressions)
         api.client.close()
     failed = [c.name for c in run.checks if c.result == "FAIL"]
+    skipped = [c.name for c in run.checks if c.result == "SKIP"]
+    verdict = "FAIL" if failed else "INCOMPLETE" if skipped else "PASS"
     print(
-        f"{'FAIL' if failed else 'PASS'}: {len(failed)} failed {failed}; summary {run.out / 'summary.md'}"
+        f"{verdict}: {len(failed)} failed {failed}, {len(skipped)} skipped {skipped}; "
+        f"summary {run.out / 'summary.md'}"
     )
-    return 1 if failed else 0
+    # A run that skipped a check is not evidence that the surface works.
+    return 1 if failed else 2 if skipped else 0
 
 
 if __name__ == "__main__":
