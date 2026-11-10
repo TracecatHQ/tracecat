@@ -14,6 +14,7 @@ from temporalio import activity, workflow
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.delivery import ChannelNotice, deliver_notices, delivery_budget
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
 from tracecat.agent.types import (
@@ -345,7 +346,9 @@ class ApprovalManager:
         approvals: list[ToolCallContent],
         *,
         request_metadata: dict[str, dict[str, Any]] | None = None,
-    ) -> None:
+        thread_notices: Sequence[ChannelNotice] = (),
+    ) -> str | None:
+        """Persist the requests, then deliver the notices; return the card's ref."""
         self._approvals.clear()
         self._decision_metadata_by_tool_call_id.clear()
         self._status = ApprovalManagerStatus.IDLE
@@ -363,15 +366,17 @@ class ApprovalManager:
             )
             for approval in approvals
         ]
+        notices = list(thread_notices)
         # Persist the approval state (and chat messages atomically for chat namespace)
-        await workflow.execute_activity(
+        return await workflow.execute_activity(
             ApprovalManager.record_approval_requests,
             arg=PersistApprovalsActivityInputs(
                 role=self.role,
                 session_id=self.session_id,
                 approvals=approval_payloads,
+                thread_notices=notices,
             ),
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(seconds=30) + delivery_budget(notices),
         )
 
     def get(self) -> DeferredToolResults | None:
@@ -428,7 +433,9 @@ class ApprovalManager:
                     f"cannot be None. Please provide a valid approval decision."
                 )
 
-    async def handle_decisions(self) -> None:
+    async def handle_decisions(
+        self, *, thread_notices: Sequence[ChannelNotice] = ()
+    ) -> None:
         decisions: list[ApprovalDecisionPayload] = []
 
         for tool_call_id, result in self._approvals.items():
@@ -470,14 +477,16 @@ class ApprovalManager:
                 )
             )
         if decisions:
+            notices = list(thread_notices)
             await workflow.execute_activity(
                 ApprovalManager.apply_approval_decisions,
                 arg=ApplyApprovalResultsActivityInputs(
                     role=self.role,
                     session_id=self.session_id,
                     decisions=decisions,
+                    thread_notices=notices,
                 ),
-                start_to_close_timeout=timedelta(seconds=30),
+                start_to_close_timeout=timedelta(seconds=30) + delivery_budget(notices),
             )
         self._approved_by_by_tool_call_id.clear()
         self._decision_metadata_by_tool_call_id.clear()
@@ -558,13 +567,17 @@ class ApprovalManager:
             )
             await service.session.execute(stmt)
             await service.session.commit()
+        await deliver_notices(input.role, input.thread_notices)
 
     @staticmethod
     @activity.defn
     async def record_approval_requests(
         input: PersistApprovalsActivityInputs,
-    ) -> None:
+    ) -> str | None:
         """Persist pending approval records for deferred tool calls.
+
+        Returns the posted card's ref; None when nothing was delivered, which
+        workflow code from before delivery also decodes.
 
         Handles business logic:
         - Upserts approvals (updates existing or creates new)
@@ -572,7 +585,7 @@ class ApprovalManager:
         """
 
         if not input.approvals:
-            return
+            return None
 
         async with ApprovalService.with_session(role=input.role) as service:
             for payload in input.approvals:
@@ -646,3 +659,5 @@ class ApprovalManager:
                 run_id=owner.curr_run_id,
                 stream_id=owner.active_stream_id,
             )
+        refs = await deliver_notices(input.role, input.thread_notices)
+        return refs[0] if refs else None

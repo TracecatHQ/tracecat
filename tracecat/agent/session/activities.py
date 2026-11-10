@@ -16,7 +16,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
-from tracecat.agent.delivery import linked_thread_hint
+from tracecat.agent.delivery import ChannelNotice, deliver_notices, linked_thread_hint
 from tracecat.agent.error_policy import invalid_agent_configuration
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
@@ -496,6 +496,8 @@ class FinalizeTurnInput(BaseModel):
     # set emit_terminal_done=True and pass their captured per-turn stream ID.
     active_stream_id: uuid.UUID | None = None
     emit_terminal_done: bool = False
+    # Delivered before the release, so the reply posts before the next turn starts.
+    thread_notices: list[ChannelNotice] = Field(default_factory=list)
 
 
 class FinalizeTurnResult(BaseModel):
@@ -517,6 +519,7 @@ async def finalize_turn_activity(
     result and use their temporary stream-emission fallback.
     """
     ctx_role.set(input.role)
+    await deliver_notices(input.role, input.thread_notices)
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
             if input.emit_terminal_done:

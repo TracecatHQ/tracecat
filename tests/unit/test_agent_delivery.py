@@ -1,4 +1,4 @@
-"""Tests for the channel delivery contract, port resolution, and activity."""
+"""Tests for the channel delivery contract, port resolution, and in-activity delivery."""
 
 import asyncio
 import uuid
@@ -14,15 +14,14 @@ from tracecat.agent.delivery import (
     ApprovalPending,
     ChannelDeliveryRetryAfter,
     ChannelNotice,
-    ChannelNoticeResult,
-    DeliverChannelNoticeInput,
     NoopChannelDeliveryPort,
     TurnFinished,
     approval_batch_id,
-    deliver_thread_notice,
+    deliver_notices,
     get_channel_delivery_port,
     linked_thread_hint,
 )
+from tracecat.agent.session.activities import FinalizeTurnInput
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import PydanticPayloadConverter
 
@@ -57,6 +56,7 @@ class _RecordingPort:
     def __init__(self, *, error: Exception | None = None) -> None:
         self.error = error
         self.notices: list[ChannelNotice] = []
+        self.attempts = 0
 
     async def has_linked_thread(self, role: Role, session_id: uuid.UUID) -> bool:
         del role, session_id
@@ -66,6 +66,7 @@ class _RecordingPort:
 
     async def deliver(self, role: Role, notice: ChannelNotice) -> str | None:
         del role
+        self.attempts += 1
         if self.error is not None:
             raise self.error
         self.notices.append(notice)
@@ -93,11 +94,13 @@ def installed(monkeypatch: pytest.MonkeyPatch):
 )
 def test_notice_round_trip_decodes_with_alias_hint(notice: ChannelNotice) -> None:
     converter = PydanticPayloadConverter()
-    request = DeliverChannelNoticeInput(role=ROLE, notice=notice)
-    hint: Any = DeliverChannelNoticeInput
+    request = FinalizeTurnInput(
+        role=ROLE, session_id=SESSION_ID, run_id=RUN_ID, thread_notices=[notice]
+    )
+    hint: Any = FinalizeTurnInput
     [decoded] = converter.from_payloads(converter.to_payloads([request]), [hint])
     assert decoded == request
-    assert type(decoded.notice) is type(notice)
+    assert type(decoded.thread_notices[0]) is type(notice)
 
 
 def test_approval_batch_id_ignores_tool_call_order() -> None:
@@ -107,64 +110,95 @@ def test_approval_batch_id_ignores_tool_call_order() -> None:
     assert first != approval_batch_id(uuid.uuid4(), ["call-a", "call-b"])
 
 
+@pytest.fixture
+def no_backoff(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record retry delays instead of sleeping them."""
+    delays: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(delivery.asyncio, "sleep", sleep)
+    return delays
+
+
 @pytest.mark.anyio
 async def test_noop_port_is_the_default(installed) -> None:
     installed()
     port = get_channel_delivery_port()
     assert isinstance(port, NoopChannelDeliveryPort)
     assert await port.has_linked_thread(ROLE, SESSION_ID) is False
-
-    result = await deliver_thread_notice(
-        DeliverChannelNoticeInput(role=ROLE, notice=TURN_FINISHED)
-    )
-    assert result == ChannelNoticeResult(ref=None)
+    assert await deliver_notices(ROLE, [TURN_FINISHED]) == [None]
 
 
 @pytest.mark.anyio
-async def test_installed_port_receives_the_notice(installed) -> None:
+async def test_installed_port_receives_the_notices_in_order(installed) -> None:
     port = _RecordingPort()
     installed(_EntryPoint("example", lambda: port))
 
-    result = await deliver_thread_notice(
-        DeliverChannelNoticeInput(role=ROLE, notice=TURN_FINISHED)
-    )
+    refs = await deliver_notices(ROLE, NOTICES[:2])
 
-    assert result == ChannelNoticeResult(ref="ts-1")
-    assert port.notices == [TURN_FINISHED]
+    assert refs == ["ts-1", "ts-1"]
+    assert port.notices == NOTICES[:2]
 
 
 @pytest.mark.anyio
-async def test_retry_after_becomes_the_next_retry_delay(installed) -> None:
-    port = _RecordingPort(error=ChannelDeliveryRetryAfter(timedelta(seconds=7)))
+@pytest.mark.parametrize(
+    ("error", "attempts", "delays"),
+    [
+        (RuntimeError("down"), 3, [2, 4]),
+        (ChannelDeliveryRetryAfter(timedelta(seconds=7)), 3, [7, 7]),
+        (ApplicationError("gone", non_retryable=True), 1, []),
+    ],
+    ids=["transient", "retry-after", "definitive"],
+)
+async def test_a_failed_delivery_retries_then_gives_up_quietly(
+    installed,
+    no_backoff: list[float],
+    error: Exception,
+    attempts: int,
+    delays: list[float],
+) -> None:
+    port = _RecordingPort(error=error)
     installed(_EntryPoint("example", lambda: port))
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await deliver_thread_notice(
-            DeliverChannelNoticeInput(role=ROLE, notice=TURN_FINISHED)
-        )
+    # The next notice still goes out after one gives up.
+    assert await deliver_notices(ROLE, [TURN_FINISHED, TURN_FINISHED]) == [None, None]
 
-    assert exc_info.value.next_retry_delay == timedelta(seconds=7)
-    assert exc_info.value.non_retryable is False
+    assert port.attempts == 2 * attempts
+    assert no_backoff == delays * 2
 
 
 @pytest.mark.anyio
-async def test_multiple_ports_fail_delivery_without_retries(installed) -> None:
+async def test_a_broken_install_never_fails_the_host(installed) -> None:
     installed(_EntryPoint("a", _RecordingPort), _EntryPoint("b", _RecordingPort))
     with pytest.raises(RuntimeError, match="a, b"):
         get_channel_delivery_port()
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await deliver_thread_notice(
-            DeliverChannelNoticeInput(role=ROLE, notice=TURN_FINISHED)
-        )
-
-    assert exc_info.value.non_retryable is True
+    assert await deliver_notices(ROLE, [TURN_FINISHED]) == [None]
 
 
 class _HangingPort(_RecordingPort):
     async def has_linked_thread(self, role: Role, session_id: uuid.UUID) -> bool:
         await asyncio.Event().wait()
         return True
+
+    async def deliver(self, role: Role, notice: ChannelNotice) -> str | None:
+        await asyncio.Event().wait()
+        return "ts-1"
+
+
+@pytest.mark.anyio
+async def test_a_hanging_provider_is_cut_off_at_the_budget(
+    installed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installed(_EntryPoint("example", _HangingPort))
+    monkeypatch.setattr(delivery, "THREAD_DELIVERY_BUDGET", timedelta(milliseconds=50))
+
+    async with asyncio.timeout(1):
+        refs = await deliver_notices(ROLE, [TURN_FINISHED, TURN_FINISHED])
+
+    assert refs == [None, None]
 
 
 @pytest.mark.anyio

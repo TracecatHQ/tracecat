@@ -1,42 +1,35 @@
-"""Channel delivery: notices, the delivery port, and its activity.
+"""Channel delivery: notices, the delivery port, and in-activity delivery.
 
-Agent workflows send a thin notice of what happened, by id. An installed
-channel extension reads the turn through open-source services, then renders
-and sends it. Notices are stored in Temporal history: evolve additively with
-defaults, and roll a new field out to workers before workflows send it, since
-unknown fields stay rejected.
+Agent workflows hand a thin notice of what happened, by id, to the lifecycle
+activity that makes it true; that activity delivers it after its own writes.
+An installed channel extension reads the turn through open-source services,
+then renders and sends it. Notices are stored in Temporal history: evolve
+additively with defaults, and roll a new field out to workers before workflows
+send it, since unknown fields stay rejected.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Sequence
 from datetime import timedelta
 from functools import lru_cache
 from importlib.metadata import entry_points
 from typing import Annotated, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
-from temporalio import activity
-from temporalio.common import RetryPolicy
+from pydantic import ConfigDict, Field
 from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_role
 from tracecat.core.schemas import Variant
 from tracecat.logger import logger
 
 CHANNEL_DELIVERY_ENTRY_POINT_GROUP = "tracecat.agent_thread_delivery"
 
-# Five attempts, exponential from 2 s, 60 s in total; then the caller moves on.
-CHANNEL_DELIVERY_RETRY_POLICY = RetryPolicy(
-    initial_interval=timedelta(seconds=2),
-    backoff_coefficient=2.0,
-    maximum_attempts=5,
-)
-CHANNEL_DELIVERY_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=60)
-# Provider request timeouts must stay below this so attempts never overlap.
-CHANNEL_DELIVERY_START_TO_CLOSE_TIMEOUT = timedelta(seconds=20)
+# Per notice, retries included; a host activity's start_to_close grows by this.
+THREAD_DELIVERY_BUDGET = timedelta(seconds=20)
+_DELIVERY_ATTEMPTS = 3
 # Bounded well inside create_session_activity's 30 s budget.
 LINKED_THREAD_HINT_TIMEOUT_SECONDS = 5
 
@@ -86,21 +79,6 @@ ChannelNotice = Annotated[
 ]
 
 
-class DeliverChannelNoticeInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    role: Role
-    notice: ChannelNotice
-
-
-class ChannelNoticeResult(BaseModel):
-    # Decoded in workflow code: a newer worker's extra field must not wedge it.
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    # Opaque provider message id; None when nothing was posted.
-    ref: str | None = None
-
-
 class ChannelDeliveryRetryAfter(Exception):
     """Raised by a port when the provider asks the caller to wait."""
 
@@ -115,6 +93,7 @@ class ChannelDeliveryPort(Protocol):
     Raise ``ChannelDeliveryRetryAfter`` to honor a provider's Retry-After, and
     a non-retryable ``ApplicationError`` for a definitive rejection. The
     constructor runs once on the worker loop; methods must not block it.
+    Delivery must be idempotent per notice: a retried host activity resends.
     """
 
     async def has_linked_thread(self, role: Role, session_id: uuid.UUID) -> bool:
@@ -170,27 +149,39 @@ async def linked_thread_hint(role: Role, session_id: uuid.UUID) -> bool:
         return False
 
 
-@activity.defn
-async def deliver_thread_notice(
-    input: DeliverChannelNoticeInput,
-) -> ChannelNoticeResult:
-    """Forward a notice to the installed delivery port."""
-    ctx_role.set(input.role)
+def delivery_budget(notices: Sequence[ChannelNotice]) -> timedelta:
+    """What delivering these notices adds to a host activity's start_to_close."""
+    return THREAD_DELIVERY_BUDGET * len(notices)
+
+
+async def deliver_notices(
+    role: Role, notices: Sequence[ChannelNotice]
+) -> list[str | None]:
+    """Deliver in order, after the host's own writes; never fails the host."""
+    return [await _deliver(role, notice) for notice in notices]
+
+
+async def _deliver(role: Role, notice: ChannelNotice) -> str | None:
     try:
-        port = get_channel_delivery_port()
+        async with asyncio.timeout(THREAD_DELIVERY_BUDGET.total_seconds()):
+            port = get_channel_delivery_port()
+            for attempt in range(1, _DELIVERY_ATTEMPTS + 1):
+                try:
+                    return await port.deliver(role, notice)
+                except Exception as e:
+                    definitive = isinstance(e, ApplicationError) and e.non_retryable
+                    if definitive or attempt == _DELIVERY_ATTEMPTS:
+                        raise
+                    await asyncio.sleep(
+                        e.retry_after.total_seconds()
+                        if isinstance(e, ChannelDeliveryRetryAfter)
+                        else 2**attempt
+                    )
     except Exception as e:
-        # A broken install fails the same way on every attempt.
-        raise ApplicationError(
-            f"Channel delivery port unavailable: {e}",
-            type="ChannelDeliveryPortUnavailable",
-            non_retryable=True,
-        ) from e
-    try:
-        ref = await port.deliver(input.role, input.notice)
-    except ChannelDeliveryRetryAfter as e:
-        raise ApplicationError(
-            str(e),
-            type=ChannelDeliveryRetryAfter.__name__,
-            next_retry_delay=e.retry_after,
-        ) from e
-    return ChannelNoticeResult(ref=ref)
+        logger.warning(
+            "Failed to deliver thread notice",
+            session_id=str(notice.session_id),
+            notice=notice.kind,
+            error=repr(e),
+        )
+    return None

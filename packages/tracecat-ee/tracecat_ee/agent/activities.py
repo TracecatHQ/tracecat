@@ -22,6 +22,7 @@ from tracecat.agent.common.types import (
     is_http_mcp_server,
     is_stdio_mcp_server,
 )
+from tracecat.agent.delivery import ChannelNotice
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
     agent_tool_build_failure,
@@ -151,6 +152,8 @@ class PersistApprovalsActivityInputs(BaseModel):
     role: Role
     session_id: uuid.UUID
     approvals: list[ToolApprovalPayload]
+    # Delivered once the requests are durable; the card reads them.
+    thread_notices: list[ChannelNotice] = Field(default_factory=list)
 
 
 class ApprovalDecisionPayload(BaseModel):
@@ -168,6 +171,8 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
     # Unique by tool_call_id: handle_decisions builds these from a dict, and the
     # persistence upsert cannot carry one conflict key twice.
     decisions: list[ApprovalDecisionPayload]
+    # Delivered once the decisions are durable.
+    thread_notices: list[ChannelNotice] = Field(default_factory=list)
 
 
 class EmitSessionErrorInputs(BaseModel):
