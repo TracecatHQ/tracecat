@@ -26,11 +26,14 @@ docker run --rm -i \
   -e TRACECAT__DB_MIGRATOR_PASSWORD \
   -e TRACECAT__DB_APP_PASSWORD \
   -e TRACECAT__DB_SSLMODE=verify-full \
+  -e PGSSLROOTCERT=/certs/ca.pem \
+  -v "$PWD/ca.pem:/certs/ca.pem:ro" \
   ghcr.io/tracecathq/tracecat:<version> \
   tracecat db roles upgrade --login password
 ```
 
 - `TRACECAT__DB_ADMIN_URI`: the admin's connection URI for the Tracecat database, for example `postgresql://postgres:<password>@db.example.com:5432/tracecat`.
+- `ca.pem`: the CA bundle that signed the database's certificate, so `verify-full` can check it (for RDS, the [global bundle](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem)).
 - `--login`: how `app`, `migrator` and `agent_runtime` log in. `password` sets the passwords from `TRACECAT__DB_MIGRATOR_PASSWORD` and `TRACECAT__DB_APP_PASSWORD` (and `TRACECAT__DB_AGENT_RUNTIME_PASSWORD` if set). `aws_iam` grants `rds_iam` instead, so the roles log in with IAM tokens; leave the password variables unset. `azure_entra` expects you to create `migrator`, `app` and `agent_runtime` first, each mapped to the identity that logs in as it with `pgaadauth_create_principal_with_oid` (see [Database IAM login](/self-hosting/database-iam)); leave the password variables unset.
 
 Then give each part its login:
