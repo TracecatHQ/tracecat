@@ -77,11 +77,14 @@ import httpx
 
 FINAL_RUN_STATES = ("COMPLETED", "FAILED", "TERMINATED", "CANCELED", "TIMED_OUT")
 DENIED = (401, 403, 404)
-# Every object this script creates carries this in its description; it only
-# mutates name-matched objects that carry it too.
+# Every object this script creates carries this in its description, and it
+# reuses or mutates a name-matched object only if that object carries it too.
+# This stops accidental collisions, not deliberate ones: descriptions are
+# user-writable. Workspaces have no description and are matched by name alone.
 OWNER_MARKER = "RLS sweep"
 SECRET_VALUE = "synthetic-not-a-secret"
 REDACT_KEYS = {
+    "values",
     "endpoint_url",
     "public_token",
     "url",
@@ -808,8 +811,10 @@ def check_webhook_api_key(run: Run, api: Api) -> Any:
         del key
         # A revoked key keeps rejecting key-less requests; delete it so the
         # plain webhook check still works on the next run, then take it offline.
-        api.call("DELETE", f"{base}/api-key", ok=None)
-        webhook_offline(api, base)
+        try:
+            api.call("DELETE", f"{base}/api-key", ok=None)
+        finally:
+            webhook_offline(api, base)
     return {
         "without_key": missing.status_code,
         "with_key": r.status_code,
@@ -835,7 +840,8 @@ def check_schedule(run: Run, api: Api) -> Any:
     try:
         done = run_completed(api, s["echo"], since, "scheduled", timeout=150)
     finally:
-        api.call("DELETE", f"/api/schedules/{sched['id']}", ok=None)
+        # A leftover schedule keeps firing every minute: fail if it can't be removed.
+        api.call("DELETE", f"/api/schedules/{sched['id']}", ok=(200, 204))
     return {
         "schedule": sched["id"],
         "run": done["id"],
@@ -880,7 +886,7 @@ def check_case_trigger(run: Run, api: Api) -> Any:
         )
         done = run_completed(api, s["trigger"], since, "case")
     finally:
-        api.call("POST", path, body={**body, "status": "offline"}, ok=None)
+        api.call("POST", path, body={**body, "status": "offline"}, ok=(200, 201, 204))
     return {"case": cid, "run": done["id"], "trigger_type": done.get("trigger_type")}
 
 
@@ -902,9 +908,17 @@ def check_case_search(run: Run, api: Api) -> Any:
     return {"hits": len(hits or [])}
 
 
-def stream_turn(api: Api, session_id: str, text: str, label: str) -> dict[str, Any]:
+def stream_turn(
+    api: Api,
+    session_id: str,
+    text: str,
+    label: str,
+    *,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Stream one turn (or an approval continuation when `body` is given)."""
     t = api.run.target
-    body = {
+    body = body or {
         "kind": "vercel",
         "model": t.model["name"],
         "model_provider": t.model["provider"],
@@ -914,6 +928,7 @@ def stream_turn(api: Api, session_id: str, text: str, label: str) -> dict[str, A
             "parts": [{"type": "text", "text": text}],
         },
     }
+    approvals: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     done = False
     started = time.monotonic()
@@ -933,6 +948,16 @@ def stream_turn(api: Api, session_id: str, text: str, label: str) -> dict[str, A
             elif line.startswith("data: "):
                 data = json.loads(line[6:])
                 kind = str(data.get("type", ""))
+                if kind == "data-approval-request" and isinstance(
+                    data.get("data"), list
+                ):
+                    approvals.extend(
+                        {
+                            "tool_call_id": a.get("tool_call_id"),
+                            "tool": a.get("tool_name"),
+                        }
+                        for a in data["data"]
+                    )
                 if kind.startswith("tool-") or kind in (
                     "error",
                     "finish",
@@ -942,10 +967,12 @@ def stream_turn(api: Api, session_id: str, text: str, label: str) -> dict[str, A
                         {
                             "type": kind,
                             "tool": data.get("toolName"),
+                            "call": data.get("toolCallId"),
                             "delta": data.get("delta"),
                             "error": data.get("errorText"),
                         }
                     )
+    names = {e["call"]: e["tool"] for e in events if e["call"] and e["tool"]}
     (api.run.out / "evidence" / f"{label}-stream.json").write_text(
         json.dumps(events, indent=2)
     )
@@ -959,6 +986,15 @@ def stream_turn(api: Api, session_id: str, text: str, label: str) -> dict[str, A
         "reply": "".join(e["delta"] or "" for e in events if e["type"] == "text-delta")[
             :200
         ],
+        "approvals": approvals,
+        # Output events carry only the call id; name them from the input events.
+        "outputs": sorted(
+            {
+                names.get(e["call"], "?")
+                for e in events
+                if e["type"] == "tool-output-available"
+            }
+        ),
     }
     expect(done and not summary["errors"], f"{label}: turn failed {summary['errors']}")
     return summary
@@ -1029,10 +1065,85 @@ def check_agent_turn(run: Run, api: Api) -> Any:
         "agent-turn",
     )
     expect(
-        any(kind == "tool-output-available" for kind, _ in out["tools"]),
-        "no tool output",
+        "core.transform.reshape" in out["outputs"],
+        f"core.transform.reshape produced no output: {out['outputs']}",
     )
     return {"session": session["id"], **out}
+
+
+def check_approval(run: Run, api: Api) -> Any:
+    """A tool that needs approval pauses the turn; approving it resumes the run."""
+    s, t = run.seeds, run.target
+    api.workspace_id = s["workspace_a"]
+    slug = f"{run.tag}-approval-agent"
+    presets = items_of(api.json("GET", "/api/agent/presets")) or []
+    preset = next((p for p in presets if p.get("slug") == slug), None)
+    if preset is None:
+        preset = api.json(
+            "POST",
+            "/api/agent/presets",
+            body={
+                "name": slug,
+                "slug": slug,
+                "description": "RLS sweep probe (approval); safe to delete.",
+                "model_name": t.model["name"],
+                "model_provider": t.model["provider"],
+                "catalog_id": t.catalog_id or find_catalog_id(api),
+                "instructions": "Use the actual tools. Keep prose short.",
+                "use_in_chat": True,
+                "enable_thinking": False,
+                "enable_internet_access": False,
+                "retries": 3,
+                "actions": ["core.transform.reshape"],
+                "namespaces": [],
+                "tool_approvals": {"core.transform.reshape": True},
+                "skills": [],
+                "agents": {"subagents": []},
+            },
+        )
+    expect(
+        OWNER_MARKER in (preset.get("description") or ""),
+        f"preset {slug!r} exists but was not created by this script",
+    )
+    session = api.json(
+        "POST",
+        "/api/agent/sessions",
+        body={
+            "title": f"{run.tag} approval {run.stamp}",
+            "entity_type": "agent_preset",
+            "entity_id": preset["id"],
+            "agent_preset_id": preset["id"],
+            **t.harness,
+        },
+    )
+    paused = stream_turn(
+        api,
+        session["id"],
+        f'Call core.transform.reshape once with value {{"qa": "{run.tag}"}}. '
+        "Do not call any other tool.",
+        "approval-request",
+    )
+    expect(bool(paused["approvals"]), "turn did not pause for approval")
+    expect(
+        "core.transform.reshape" not in paused["outputs"],
+        f"tool ran before it was approved: outputs {paused['outputs']}",
+    )
+    decisions = [
+        {"tool_call_id": a["tool_call_id"], "action": "approve"}
+        for a in paused["approvals"]
+    ]
+    resumed = stream_turn(
+        api,
+        session["id"],
+        "",
+        "approval-continue",
+        body={"kind": "continue", "source": "inbox", "decisions": decisions},
+    )
+    expect(
+        "core.transform.reshape" in resumed["outputs"],
+        f"approved tool produced no output after the run resumed: {resumed['outputs']}",
+    )
+    return {"session": session["id"], "approved": len(decisions), **resumed}
 
 
 def check_chat(run: Run, api: Api, kind: str) -> Any:
@@ -1114,7 +1225,7 @@ def check_channel(run: Run, api: Api) -> Any:
     try:
         return _channel_events(signed)
     finally:
-        api.call("DELETE", f"/api/agent/channels/tokens/{token['id']}", ok=None)
+        api.call("DELETE", f"/api/agent/channels/tokens/{token['id']}", ok=(200, 204))
 
 
 def _channel_events(signed: Callable[[dict[str, Any]], httpx.Response]) -> Any:
@@ -1147,13 +1258,28 @@ def _channel_events(signed: Callable[[dict[str, Any]], httpx.Response]) -> Any:
     return {"url_verification": verify.status_code, "event_callback": event.status_code}
 
 
+def list_all(api: Api, path: str) -> list[dict[str, Any]]:
+    """Follow cursor pagination for an org-level list route."""
+    out: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        params: dict[str, Any] = {"limit": 100}
+        if cursor:
+            params["cursor"] = cursor
+        page = api.json("GET", path, ws=None, params=params)
+        out.extend(items_of(page) or [])
+        cursor = page.get("next_cursor") if isinstance(page, dict) else None
+        if not cursor:
+            return out
+
+
 def check_isolation(run: Run, api: Api) -> Any:
     """A key bound to workspace A must see none of B's objects."""
     s = run.seeds
     a = s["workspace_a"]
     sa_base = f"/api/workspaces/{a}/service-accounts"
     # Earlier runs' probe accounts: disable any still enabled.
-    for old in items_of(api.json("GET", sa_base, ws=None)) or []:
+    for old in list_all(api, sa_base):
         if (
             old.get("name", "").startswith(f"{run.tag}-a-only-")
             and OWNER_MARKER in (old.get("description") or "")
@@ -1162,6 +1288,12 @@ def check_isolation(run: Run, api: Api) -> Any:
             api.call("POST", f"{sa_base}/{old['id']}/disable", ws=None, ok=None)
     scopes = api.json("GET", f"/api/workspaces/{a}/service-accounts/scopes", ws=None)
     wanted = {"case:read", "table:read", "workflow:read", "secret:read"}
+    scope_ids = [x["id"] for x in scopes["items"] if x["name"] in wanted]
+    # A missing scope would turn every probe for that object type into a vacuous 403.
+    expect(
+        len(scope_ids) == len(wanted),
+        f"found {len(scope_ids)}/{len(wanted)} read scopes",
+    )
     sa = api.json(
         "POST",
         f"/api/workspaces/{a}/service-accounts",
@@ -1169,7 +1301,7 @@ def check_isolation(run: Run, api: Api) -> Any:
         body={
             "name": f"{run.tag}-a-only-{run.stamp}",
             "description": "RLS sweep isolation probe: workspace A only",
-            "scope_ids": [x["id"] for x in scopes["items"] if x["name"] in wanted],
+            "scope_ids": scope_ids,
         },
     )
     key_api = Api(
@@ -1220,7 +1352,15 @@ def _isolation_probes(run: Run, key_api: Api) -> list[dict[str, Any]]:
         )
 
     markers = [SECRET_VALUE, "b-row"]
-    probe("A case readable (control)", f"/api/cases/{s['a_case']}", a, (200,), [])
+    # Positive controls: the key can read each object type in its own workspace.
+    controls = {
+        "case": f"/api/cases/{s['a_case']}",
+        "table": f"/api/tables/{s['a_table_id']}",
+        "workflow": f"/api/workflows/{s['probe']}",
+        "secret": f"/api/secrets/{s['a_secret_name']}",
+    }
+    for name, path in controls.items():
+        probe(f"A {name} readable (control)", path, a, (200,), [])
     targets = {
         "case": f"/api/cases/{s['b_case']}",
         "table": f"/api/tables/{s['b_table_id']}",
@@ -1417,7 +1557,8 @@ with engine.connect() as c:
                 findings.append({"table": n, "workspace": owner, "issue": "no context sees rows",
                                  "count": views["none"][n]})
             # Org-optional tables admit org-only sessions by design; pure workspace tables must not.
-            if n in pure_ws and views["org_only"][n]:
+            # Dynamic tables ("schema.table") carry workspace policies too.
+            if (n in pure_ws or "." in n) and views["org_only"][n]:
                 findings.append({"table": n, "workspace": owner, "issue": "org-only context sees workspace rows",
                                  "count": views["org_only"][n]})
     org_views = {"bypass": org_counts("on", ""), "own": org_counts("off", org),
@@ -1645,6 +1786,11 @@ CHECKS: list[tuple[str, str, str]] = [
         "H13/H23 agent turn",
         "turn finishes with a tool-output event and no errors",
     ),
+    (
+        "approval",
+        "H12 approval pause + resume",
+        "tool needing approval pauses the turn; approving resumes it and the tool runs",
+    ),
     ("chat_workspace", "H13 workspace chat", "turn finishes with no errors"),
     ("chat_case", "H13 case chat", "turn finishes with no errors"),
     (
@@ -1680,6 +1826,7 @@ def run_checks(
         "case_trigger": lambda: check_case_trigger(run, api),
         "case_search": lambda: check_case_search(run, api),
         "agent_turn": lambda: check_agent_turn(run, api),
+        "approval": lambda: check_approval(run, api),
         "chat_workspace": lambda: check_chat(run, api, "copilot"),
         "chat_case": lambda: check_chat(run, api, "case"),
         "channel": lambda: check_channel(run, api),
