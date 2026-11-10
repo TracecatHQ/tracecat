@@ -2759,20 +2759,11 @@
           {
             "key": "Authorization",
             "label": "Devin API key (Authorization header)",
-            "description": "Devin API key sent as the Authorization header in the form 'Bearer cog_<key>'. Provision a service user under Settings > Devin API > Service users to get a cog_ key. Legacy apk_ keys only work for the repository documentation tools.",
+            "description": "Devin API key sent as the Authorization header in the form 'Bearer cog_<key>'. Provision a service user under Settings > Devin API > Service users to get a cog_ key. Enterprise service user keys and personal access tokens also need an X-Org-Id header with your Devin organization ID. Legacy apk_ keys only work for the repository documentation tools.",
             "required": true,
             "secret": true,
             "target": "http_header",
             "placeholder": "Bearer cog_..."
-          },
-          {
-            "key": "X-Org-Id",
-            "label": "Devin organization ID",
-            "description": "Organization the tools act on, sent as the X-Org-Id header. Required for enterprise service user keys and personal access tokens; leave blank for org-scoped service user keys. Find it at the top of Settings > Devin API.",
-            "required": false,
-            "secret": false,
-            "target": "http_header",
-            "placeholder": "org-..."
           }
         ],
         "_research": {

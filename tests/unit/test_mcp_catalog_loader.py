@@ -678,14 +678,12 @@ def test_devin_row_uses_api_key_headers() -> None:
     assert spec is not None
     assert spec.kind == "http_custom"
     assert spec.server_uri == "https://mcp.devin.ai/mcp"
-    creds = {credential.key: credential for credential in spec.credentials}
-    assert set(creds) == {"Authorization", "X-Org-Id"}
-    assert creds["Authorization"].target == "http_header"
-    assert creds["Authorization"].required is True
-    assert creds["Authorization"].secret is True
-    assert creds["X-Org-Id"].target == "http_header"
-    assert creds["X-Org-Id"].required is False
-    assert creds["X-Org-Id"].secret is False
+    [credential] = spec.credentials
+    assert credential.key == "Authorization"
+    assert credential.target == "http_header"
+    assert credential.required is True
+    assert credential.secret is True
+    assert credential.placeholder == "Bearer cog_..."
 
 
 def test_google_workspace_rows_pin_offline_consent_authorize_params() -> None:
