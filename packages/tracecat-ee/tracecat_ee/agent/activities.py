@@ -13,6 +13,7 @@ from pydantic import (
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.channel_publisher import RunUpdate
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
@@ -151,6 +152,8 @@ class PersistApprovalsActivityInputs(BaseModel):
     role: Role
     session_id: uuid.UUID
     approvals: list[ToolApprovalPayload]
+    # Published once the requests are durable; the publisher reads them.
+    channel_updates: list[RunUpdate] = Field(default_factory=list)
 
 
 class ApprovalDecisionPayload(BaseModel):
@@ -168,6 +171,8 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
     # Unique by tool_call_id: handle_decisions builds these from a dict, and the
     # persistence upsert cannot carry one conflict key twice.
     decisions: list[ApprovalDecisionPayload]
+    # Published once the decisions are durable.
+    channel_updates: list[RunUpdate] = Field(default_factory=list)
 
 
 class EmitSessionErrorInputs(BaseModel):

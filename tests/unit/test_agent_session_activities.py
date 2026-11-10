@@ -4,7 +4,10 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
+from tracecat.agent import channel_publisher
+from tracecat.agent.channel_publisher import TurnFinished
 from tracecat.agent.session.activities import (
     FinalizeTurnInput,
     PendingToolResult,
@@ -67,6 +70,48 @@ async def test_finalize_turn_activity_bridges_workflow_versions(
         assert result is None
         service.clear_turn_pointers.assert_awaited_once_with(session_id, run_id)
         service.finalize_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_finalize_turn_publishes_before_the_release_even_when_publishing_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order: list[str] = []
+    service = AsyncMock()
+    service.finalize_turn.side_effect = lambda *_, **__: order.append("release")
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = service
+    monkeypatch.setattr(
+        "tracecat.agent.session.activities.AgentSessionService.with_session",
+        MagicMock(return_value=ctx),
+    )
+
+    class _DownPublisher:
+        async def publish(self, role: Role, update: TurnFinished) -> str | None:
+            del role, update
+            order.append("publish")
+            raise ApplicationError("channel gone", non_retryable=True)
+
+    monkeypatch.setattr(
+        channel_publisher, "get_channel_publisher", lambda: _DownPublisher()
+    )
+    session_id, run_id = uuid.uuid4(), uuid.uuid4()
+    role = Role(
+        type="service", workspace_id=uuid.uuid4(), service_id="tracecat-service"
+    )
+
+    result = await finalize_turn_activity(
+        FinalizeTurnInput(
+            role=role,
+            session_id=session_id,
+            run_id=run_id,
+            emit_terminal_done=True,
+            channel_updates=[TurnFinished(session_id=session_id, run_id=run_id)],
+        )
+    )
+
+    assert order == ["publish", "release"]
+    assert result is not None and result.terminal_done_emitted is True
 
 
 @pytest.mark.anyio

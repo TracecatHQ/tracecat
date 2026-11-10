@@ -288,8 +288,9 @@ class TestRecordApprovalRequestsActivity:
             approvals=approvals,
         )
 
-        # Execute the activity logic directly
-        await ApprovalManager.record_approval_requests(input_data)
+        # Execute the activity logic directly. With nothing to publish it
+        # returns None, which workflow code from before publishing still decodes.
+        assert await ApprovalManager.record_approval_requests(input_data) is None
 
         # Verify records were created
         async with ApprovalService.with_session(role=svc_role) as service:

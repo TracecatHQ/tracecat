@@ -29,6 +29,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.backends.schemas import (
         WorkflowCancelRequest as WorkflowCancelRequest,
     )
+    from tracecat.agent.channel_publisher import (
+        RunUpdate,
+        TurnFinished,
+        publish_budget,
+    )
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
         MCPToolDefinition,
@@ -548,6 +553,8 @@ class DurableAgentWorkflow:
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
+        # Set when the session is linked to a channel: the run publishes updates to it.
+        self.channel_run_id: uuid.UUID | None = None
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
@@ -1039,6 +1046,13 @@ class DurableAgentWorkflow:
         run_id = AgentWorkflowID.from_workflow_id(
             workflow.info().workflow_id
         ).session_id
+        updates: list[RunUpdate] = []
+        if self.channel_run_id is not None:
+            # Closes an approval message the turn left open (a cancelled wait).
+            updates = [
+                *self.approvals.take_unpublished_decision(),
+                TurnFinished(session_id=self.session_id, run_id=self.channel_run_id),
+            ]
         try:
             result: FinalizeTurnResult | None = await workflow.execute_activity(
                 finalize_turn_activity,
@@ -1048,14 +1062,16 @@ class DurableAgentWorkflow:
                     run_id=run_id,
                     active_stream_id=active_stream_id,
                     emit_terminal_done=emit_terminal_done,
+                    channel_updates=updates,
                 ),
                 # Preserve the two former 10-second operation budgets when DB
                 # cleanup and Redis completion run inside one activity.
                 start_to_close_timeout=timedelta(
                     seconds=20 if emit_terminal_done else 10
-                ),
+                )
+                + publish_budget(updates),
                 # Retry-safe: pointer cleanup is compare-and-clear by run_id,
-                # and clients tolerate an ambiguous duplicate END.
+                # clients tolerate a duplicate END, and publishing is idempotent.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         except ActivityError as exc:
@@ -1179,6 +1195,53 @@ class DurableAgentWorkflow:
                 active_stream_id=str(active_stream_id),
                 error=str(emit_error),
             )
+
+    async def _pause_for_approval(self, result: AgentExecutorResult) -> None:
+        """Persist and publish the requests, then close the UI segment."""
+        logger.info("Agent waiting for approval", session_id=self.session_id)
+        if result.approval_items:
+            request_metadata = {
+                item.id: item.metadata
+                for item in result.approval_items
+                if item.metadata
+            }
+            # Persist approval requests to DB (atomic with chat messages)
+            await self.approvals.prepare(
+                result.approval_items,
+                request_metadata=request_metadata,
+                publish_to=self.channel_run_id,
+            )
+        await self._emit_approval_pause_done()
+
+    async def _resolve_approvals(
+        self, result: AgentExecutorResult, info: workflow.Info
+    ) -> AgentOutput | None:
+        """Record and publish the decisions; output only if cancelled."""
+        if self._cancel_requested:
+            logger.info(
+                "Agent turn cancelled while waiting for approval",
+                session_id=self.session_id,
+                reason=self._cancel_reason,
+            )
+            self.approvals.set(
+                {
+                    item.id: ToolDenied(message="Cancelled while waiting for approval")
+                    for item in result.approval_items or []
+                }
+            )
+            # Finalize publishes the decision, so Stop reaches the UI first.
+            await self.approvals.handle_decisions(publish=False)
+            return await self._cancelled_turn_output(result, info, emit_cancelled=True)
+        # Persist approval decisions to DB (atomic with chat messages)
+        await self.approvals.handle_decisions()
+        if self._cancel_requested:
+            logger.info(
+                "Agent turn cancelled after approval decisions",
+                session_id=self.session_id,
+                reason=self._cancel_reason,
+            )
+            return await self._cancelled_turn_output(result, info, emit_cancelled=True)
+        return None
 
     async def _emit_approval_pause_done(self) -> None:
         """Close the approval-pause stream after approval rows are durable."""
@@ -1349,6 +1412,8 @@ class DurableAgentWorkflow:
             raise_application_error_from_classification(
                 agent_session_initialization_failed(retryable=True)
             )
+        if create_result.channel_linked:
+            self.channel_run_id = curr_run_id
 
         # Build internal tool context for builder assistant sessions
         internal_tool_context: InternalToolContext | None = None
@@ -1548,53 +1613,14 @@ class DurableAgentWorkflow:
                 )
 
             if result.approval_requested:
-                logger.info("Agent waiting for approval", session_id=self.session_id)
-                if result.approval_items:
-                    request_metadata = {
-                        item.id: item.metadata
-                        for item in result.approval_items
-                        if item.metadata
-                    }
-                    # Persist approval requests to DB (atomic with chat messages)
-                    await self.approvals.prepare(
-                        result.approval_items,
-                        request_metadata=request_metadata,
-                    )
-                await self._emit_approval_pause_done()
+                await self._pause_for_approval(result)
                 # Wait for either approval decisions or a user cancellation.
                 await workflow.wait_condition(
                     lambda: self.approvals.is_ready() or self._cancel_requested
                 )
                 resumed_at = workflow.now()
-                if self._cancel_requested:
-                    logger.info(
-                        "Agent turn cancelled while waiting for approval",
-                        session_id=self.session_id,
-                        reason=self._cancel_reason,
-                    )
-                    self.approvals.set(
-                        {
-                            item.id: ToolDenied(
-                                message="Cancelled while waiting for approval"
-                            )
-                            for item in result.approval_items or []
-                        }
-                    )
-                    await self.approvals.handle_decisions()
-                    return await self._cancelled_turn_output(
-                        result, info, emit_cancelled=True
-                    )
-                # Persist approval decisions to DB (atomic with chat messages)
-                await self.approvals.handle_decisions()
-                if self._cancel_requested:
-                    logger.info(
-                        "Agent turn cancelled after approval decisions",
-                        session_id=self.session_id,
-                        reason=self._cancel_reason,
-                    )
-                    return await self._cancelled_turn_output(
-                        result, info, emit_cancelled=True
-                    )
+                if (output := await self._resolve_approvals(result, info)) is not None:
+                    return output
 
                 # Approval waits are unbounded. Tokens are turn-scoped, so resumed
                 # user-MCP tool execution and the continuation need fresh tokens.

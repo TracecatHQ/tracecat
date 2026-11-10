@@ -13,6 +13,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.channel_publisher import (
+    ApprovalDecided,
+    ApprovalPending,
+    RunUpdate,
+    approval_batch_id,
+    publish_budget,
+    publish_updates,
+)
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
@@ -293,6 +301,8 @@ class ApprovalManager:
             raise RuntimeError("Agent context is not set")
         self.session_id = agent_ctx.session_id
         self._expected_tool_calls: dict[str, ToolCallContent] = {}
+        # Edits the pending approval message once the batch is decided.
+        self._unpublished_decision: ApprovalDecided | None = None
 
     @classmethod
     def get_activities(cls) -> list[Callable[..., Any]]:
@@ -345,7 +355,9 @@ class ApprovalManager:
         approvals: list[ToolCallContent],
         *,
         request_metadata: dict[str, dict[str, Any]] | None = None,
+        publish_to: uuid.UUID | None = None,
     ) -> None:
+        """Persist the requests, then post them to the run's linked channel, if any."""
         self._approvals.clear()
         self._decision_metadata_by_tool_call_id.clear()
         self._status = ApprovalManagerStatus.IDLE
@@ -363,16 +375,41 @@ class ApprovalManager:
             )
             for approval in approvals
         ]
+        pending = (
+            ApprovalPending(
+                session_id=self.session_id,
+                run_id=publish_to,
+                batch_id=approval_batch_id(publish_to, [item.id for item in approvals]),
+            )
+            if publish_to is not None
+            else None
+        )
+        updates: list[RunUpdate] = [pending] if pending is not None else []
         # Persist the approval state (and chat messages atomically for chat namespace)
-        await workflow.execute_activity(
+        pending_ref = await workflow.execute_activity(
             ApprovalManager.record_approval_requests,
             arg=PersistApprovalsActivityInputs(
                 role=self.role,
                 session_id=self.session_id,
                 approvals=approval_payloads,
+                channel_updates=updates,
             ),
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(seconds=30) + publish_budget(updates),
         )
+        self._unpublished_decision = (
+            ApprovalDecided(
+                session_id=self.session_id,
+                batch_id=pending.batch_id,
+                pending_ref=pending_ref,
+            )
+            if pending is not None
+            else None
+        )
+
+    def take_unpublished_decision(self) -> list[RunUpdate]:
+        """The update closing the open approval message, once; empty when none is open."""
+        decided, self._unpublished_decision = self._unpublished_decision, None
+        return [decided] if decided is not None else []
 
     def get(self) -> DeferredToolResults | None:
         if not self._approvals:
@@ -428,7 +465,8 @@ class ApprovalManager:
                     f"cannot be None. Please provide a valid approval decision."
                 )
 
-    async def handle_decisions(self) -> None:
+    async def handle_decisions(self, *, publish: bool = True) -> None:
+        """Record the decisions; ``publish=False`` keeps the message open for later."""
         decisions: list[ApprovalDecisionPayload] = []
 
         for tool_call_id, result in self._approvals.items():
@@ -470,15 +508,21 @@ class ApprovalManager:
                 )
             )
         if decisions:
+            decided = self._unpublished_decision
+            updates: list[RunUpdate] = [decided] if publish and decided else []
             await workflow.execute_activity(
                 ApprovalManager.apply_approval_decisions,
                 arg=ApplyApprovalResultsActivityInputs(
                     role=self.role,
                     session_id=self.session_id,
                     decisions=decisions,
+                    channel_updates=updates,
                 ),
-                start_to_close_timeout=timedelta(seconds=30),
+                start_to_close_timeout=timedelta(seconds=30) + publish_budget(updates),
             )
+            # Cleared only once published, so a failed apply still closes it at finalize.
+            if updates:
+                self._unpublished_decision = None
         self._approved_by_by_tool_call_id.clear()
         self._decision_metadata_by_tool_call_id.clear()
 
@@ -558,13 +602,17 @@ class ApprovalManager:
             )
             await service.session.execute(stmt)
             await service.session.commit()
+        await publish_updates(input.role, input.channel_updates)
 
     @staticmethod
     @activity.defn
     async def record_approval_requests(
         input: PersistApprovalsActivityInputs,
-    ) -> None:
+    ) -> str | None:
         """Persist pending approval records for deferred tool calls.
+
+        Returns the posted approval message's ref; None when nothing was
+        published, which workflow code from before publishing also decodes.
 
         Handles business logic:
         - Upserts approvals (updates existing or creates new)
@@ -572,7 +620,7 @@ class ApprovalManager:
         """
 
         if not input.approvals:
-            return
+            return None
 
         async with ApprovalService.with_session(role=input.role) as service:
             for payload in input.approvals:
@@ -646,3 +694,6 @@ class ApprovalManager:
                 run_id=owner.curr_run_id,
                 stream_id=owner.active_stream_id,
             )
+        refs = await publish_updates(input.role, input.channel_updates)
+        # At most one update: the batch's ApprovalPending.
+        return refs[0] if refs else None
