@@ -119,3 +119,283 @@ run "invalid_bucket_is_rejected" {
 
   expect_failures = [var.alb_log_bucket_name]
 }
+
+run "reject_adjacent_dots" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "example..alb-logs"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_ipv4_address" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "192.0.2.1"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_reserved_xn_prefix" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "xn--example-logs"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_reserved_sthree_prefix" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "sthree-example-logs"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_reserved_demo_prefix" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "amzn-s3-demo-example-logs"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_reserved_s3alias_suffix" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "example-s3alias"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_reserved_ol_s3_suffix" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "example--ol-s3"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_reserved_mrap_suffix" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "example.mrap"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_reserved_x_s3_suffix" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "example--x-s3"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_reserved_table_s3_suffix" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "example--table-s3"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_too_short" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "ab"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_too_long" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_leading_dot" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = ".example-alb-logs"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "reject_trailing_hyphen" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    alb_log_bucket_name = "example-alb-logs-"
+  }
+
+  expect_failures = [var.alb_log_bucket_name]
+}
+
+run "accept_dotted_name" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    enable_alb_logging  = true
+    alb_log_bucket_name = "example.alb-logs"
+  }
+
+  assert {
+    condition = (
+      aws_alb.this.access_logs[0].bucket == "example.alb-logs" &&
+      aws_alb.this.connection_logs[0].bucket == "example.alb-logs"
+    )
+    error_message = "Valid S3 destination names must remain usable for both ALB log streams."
+  }
+}
+
+run "accept_numeric_dotted_non_ip" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    enable_alb_logging  = true
+    alb_log_bucket_name = "999.999.999.999"
+  }
+
+  assert {
+    condition = (
+      aws_alb.this.access_logs[0].bucket == "999.999.999.999" &&
+      aws_alb.this.connection_logs[0].bucket == "999.999.999.999"
+    )
+    error_message = "Valid S3 destination names must remain usable for both ALB log streams."
+  }
+}
+
+run "accept_incomplete_numeric_dotted_name" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    enable_alb_logging  = true
+    alb_log_bucket_name = "1.2.3"
+  }
+
+  assert {
+    condition = (
+      aws_alb.this.access_logs[0].bucket == "1.2.3" &&
+      aws_alb.this.connection_logs[0].bucket == "1.2.3"
+    )
+    error_message = "Valid S3 destination names must remain usable for both ALB log streams."
+  }
+}
+
+run "accept_account_regional_namespace" {
+  command = plan
+
+  plan_options {
+    target = [aws_alb.this]
+  }
+
+  variables {
+    enable_alb_logging  = true
+    alb_log_bucket_name = "example-123456789012-us-east-1-an"
+  }
+
+  assert {
+    condition = (
+      aws_alb.this.access_logs[0].bucket == "example-123456789012-us-east-1-an" &&
+      aws_alb.this.connection_logs[0].bucket == "example-123456789012-us-east-1-an"
+    )
+    error_message = "Valid S3 destination names must remain usable for both ALB log streams."
+  }
+}

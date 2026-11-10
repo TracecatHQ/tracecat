@@ -1117,7 +1117,17 @@ variable "alb_log_bucket_name" {
   default     = null
 
   validation {
-    condition     = var.alb_log_bucket_name == null ? true : can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.alb_log_bucket_name))
-    error_message = "alb_log_bucket_name must be a valid-length lowercase S3 bucket name."
+    condition = var.alb_log_bucket_name == null ? true : alltrue([
+      can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.alb_log_bucket_name)),
+      !can(regex("\\.\\.", var.alb_log_bucket_name)),
+      !can(cidrnetmask("${var.alb_log_bucket_name}/32")),
+      !anytrue([
+        for prefix in ["xn--", "sthree-", "amzn-s3-demo-"] : startswith(var.alb_log_bucket_name, prefix)
+      ]),
+      !anytrue([
+        for suffix in ["-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3"] : endswith(var.alb_log_bucket_name, suffix)
+      ]),
+    ])
+    error_message = "alb_log_bucket_name must follow S3 bucket naming rules, including reserved prefixes and suffixes."
   }
 }
