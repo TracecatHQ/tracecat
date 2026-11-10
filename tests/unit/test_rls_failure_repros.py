@@ -15,6 +15,7 @@ from tracecat.agent.channels.router import (
     _resolve_service_role_for_workspace,
     handle_channel_event,
 )
+from tracecat.agent.channels.sinks.session import _build_external_channel_sink
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
@@ -45,6 +46,8 @@ from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.search.indexing_workflow import index_search_collection
 from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
+from tracecat.tiers.activities import get_tier_limits_activity
+from tracecat.tiers.permits import TierPermitService
 from tracecat.webhooks.dependencies import validate_incoming_webhook
 from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
@@ -443,6 +446,9 @@ def test_registry_sync_startup_uses_bypass_session_manager() -> None:
         CaseDurationSyncConsumer._process_backfill_job,
         _resolve_service_role_for_workspace,
         index_search_collection,
+        get_tier_limits_activity,
+        TierPermitService.get_effective_limits_for_org,
+        _build_external_channel_sink,
     ],
 )
 def test_tenant_scoped_system_code_uses_tenant_session(
