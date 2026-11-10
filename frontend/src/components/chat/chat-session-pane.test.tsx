@@ -992,7 +992,8 @@ const RESOLVED: UIMessage[] = [
 
 /** The session as the server returns it. */
 function serverChat(
-  messages: UIMessage[]
+  messages: UIMessage[],
+  overrides: Partial<AgentSessionsGetSessionVercelResponse> = {}
 ): AgentSessionsGetSessionVercelResponse {
   return {
     id: SESSION_ID,
@@ -1010,6 +1011,7 @@ function serverChat(
     created_at: "2026-09-25T00:00:00Z",
     updated_at: "2026-09-25T00:00:00Z",
     messages,
+    ...overrides,
   } as AgentSessionsGetSessionVercelResponse
 }
 
@@ -1093,6 +1095,23 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     for (const submit of screen.getAllByRole("button", { name: "Submit" })) {
       expect(submit).toBeDisabled()
     }
+  })
+
+  it("lets a member decide a read-only channel session's approvals", async () => {
+    const channel = { is_readonly: true, can_decide_approvals: true }
+    mockUseVercelChatResult.messages = [PROMPT, ...STORED_PAUSED]
+    fetchSession.mockResolvedValue(
+      serverChat([PROMPT, ...STORED_PAUSED], channel)
+    )
+    renderServerBackedPane()
+    const first = within(await screen.findByTestId("approval-card-first"))
+
+    expect(first.getByRole("button", { name: "Approve" })).toBeEnabled()
+    expect(
+      screen.queryByText(
+        "Approval submission is not available in this context."
+      )
+    ).not.toBeInTheDocument()
   })
 
   it("does not submit a stale decision for an approval decided elsewhere", async () => {

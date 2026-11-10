@@ -2,7 +2,11 @@
 
 from tracecat.agent.backends.registry import agent_backend_available, find_agent_backend
 from tracecat.agent.session.schemas import AgentSessionCapabilities, AgentSessionRead
-from tracecat.agent.session.types import AgentSessionEntity, is_session_readonly
+from tracecat.agent.session.types import (
+    AgentSessionEntity,
+    is_ownerless_channel_session,
+    is_session_readonly,
+)
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.projection import validate_artifacts
 from tracecat.auth.types import Role
@@ -15,15 +19,20 @@ def build_session_read(
     """Project persisted session data and live backend state for an actor."""
     available = agent_backend_available(session.backend_id, session.harness_type)
     backend = find_agent_backend(session.backend_id) if available else None
+    blocked = readonly or session.spawned_by_session_id is not None or not available
+    not_owner = is_session_readonly(role, session.created_by)
     return AgentSessionRead(
         id=session.id,
         workspace_id=session.workspace_id,
         title=session.title,
         created_by=session.created_by,
-        is_readonly=readonly
-        or session.spawned_by_session_id is not None
-        or is_session_readonly(role, session.created_by)
-        or not available,
+        is_readonly=blocked or not_owner,
+        # Anyone in the channel can decide; workspace members may too.
+        can_decide_approvals=not blocked
+        and (
+            not not_owner
+            or is_ownerless_channel_session(session.entity_type, session.created_by)
+        ),
         backend_id=session.backend_id,
         capabilities=AgentSessionCapabilities(
             steering=backend is not None and backend.steering,

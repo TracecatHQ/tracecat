@@ -44,6 +44,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     TurnLifecycle,
+    is_ownerless_channel_session,
     is_session_readonly,
 )
 from tracecat.agent.session.views import build_session_read
@@ -607,7 +608,14 @@ async def send_message(
                 session_id=session_id,
                 request=request,
             )
-            _require_session_write_access(role, agent_session)
+            # Workspace members may decide approvals on a channel's session.
+            if not (
+                isinstance(request, ContinueRunRequest)
+                and is_ownerless_channel_session(
+                    agent_session.entity_type, agent_session.created_by
+                )
+            ):
+                _require_session_write_access(role, agent_session)
             _require_builder_edit_access(role, agent_session.entity_type)
             await _require_workspace_chat_entitlement_for_session_tree(
                 svc=svc,
