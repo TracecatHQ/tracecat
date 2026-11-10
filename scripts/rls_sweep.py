@@ -690,6 +690,8 @@ def check_webhook(run: Run, api: Api) -> Any:
         api.call("POST", base, body={"status": "online", "methods": ["POST"]})
     else:
         api.call("PATCH", base, body={"status": "online"})
+    # Setup: an interrupted earlier run can leave an API key on this webhook.
+    api.call("DELETE", f"{base}/api-key", ok=None)
     hook = api.json("GET", base)
     path = urlparse(hook["url"]).path
     path = path if path.startswith("/api") else "/api" + path
@@ -734,16 +736,31 @@ def check_webhook_api_key(run: Run, api: Api) -> Any:
             headers={"x-tracecat-api-key": key},
             timeout=60,
         )
-        del key
         expect(
             r.status_code in (200, 201, 202), f"webhook with key HTTP {r.status_code}"
         )
         done = run_completed(api, s["echo"], since)
+        # Revocation is a tenant-scoped write; a silent no-op would leave the key valid.
+        api.call("POST", f"{base}/api-key/revoke")
+        revoked = httpx.post(
+            run.target.origin + path,
+            json={"qa": "revoked"},
+            headers={"x-tracecat-api-key": key},
+            timeout=60,
+        )
+        expect(
+            revoked.status_code in DENIED,
+            f"webhook with revoked key HTTP {revoked.status_code}",
+        )
     finally:
-        api.call("POST", f"{base}/api-key/revoke", ok=None)
+        del key
+        # A revoked key keeps rejecting key-less requests; delete it so the
+        # plain webhook check still works on the next run.
+        api.call("DELETE", f"{base}/api-key", ok=None)
     return {
         "without_key": missing.status_code,
         "with_key": r.status_code,
+        "revoked_key": revoked.status_code,
         "run": done["id"],
     }
 
@@ -1679,7 +1696,8 @@ def build_target(args: argparse.Namespace) -> Target:
                 "name": args.model or "claude-sonnet-5-5",
                 "provider": args.provider or "anthropic",
             },
-            catalog_id=args.catalog_id,
+            # Org catalog row for claude-sonnet-5-5 in the staging QA org.
+            catalog_id=args.catalog_id or "46d55b1e-27b9-47e0-bb09-36d2bed89c72",
             harness={"backend_id": "ee", "harness_type": "pi_durable"}
             if args.harness == "auto"
             else json.loads(args.harness),
