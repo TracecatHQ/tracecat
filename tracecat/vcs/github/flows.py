@@ -12,6 +12,30 @@ from tracecat.logger import logger
 from tracecat.vcs.github.app import GitHubAppService
 
 
+def installation_redirect_url(
+    *, slug: str | None, owner_login: str | None, owner_type: str | None
+) -> str:
+    """Return where to send the user after GitHub creates the app.
+
+    Organization-owned apps go to the organization's installations page.
+    Apps owned by a personal account go to the app's install page, because
+    GitHub has no organization settings page for a user.
+
+    Args:
+        slug: The new app's slug, from the manifest conversion response.
+        owner_login: The login of the account that owns the app.
+        owner_type: GitHub's owner type, ``"Organization"`` or ``"User"``.
+
+    Returns:
+        The GitHub URL to redirect to.
+    """
+    if not slug:
+        return "https://github.com/settings/apps"
+    if owner_login and owner_type == "Organization":
+        return f"https://github.com/organizations/{owner_login}/settings/installations"
+    return f"https://github.com/apps/{slug}/installations/new"
+
+
 async def handle_manifest_conversion(
     session: AsyncDBSession,
     role: Role,
@@ -69,16 +93,13 @@ async def handle_manifest_conversion(
             slug=slug,
         )
 
-        # Redirect to GitHub installation page
-        if slug:
-            # Include organization in the installation URL for proper scoping
-            org_name = data.get("owner", {}).get("login")
-            if org_name:
-                redirect_url = f"https://github.com/organizations/{org_name}/settings/installations"
-            else:
-                redirect_url = f"https://github.com/apps/{slug}/installations/new"
-        else:
-            redirect_url = "https://github.com/settings/apps"
+        owner = data.get("owner") or {}
+        redirect_url = installation_redirect_url(
+            slug=slug,
+            owner_login=owner.get("login"),
+            owner_type=owner.get("type"),
+        )
+        if not slug:
             logger.warning("No slug returned, redirecting to apps settings")
 
         return RedirectResponse(status_code=status.HTTP_302_FOUND, url=redirect_url)

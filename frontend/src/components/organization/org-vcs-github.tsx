@@ -48,10 +48,29 @@ import {
   useGitHubAppManifest,
 } from "@/lib/hooks"
 
+/**
+ * Build the GitHub page that creates an app from a manifest.
+ *
+ * GitHub serves organization-owned apps under
+ * `/organizations/<org>/settings/apps/new` and apps owned by the signed-in
+ * user under `/settings/apps/new`. A blank organization name means the user's
+ * personal account.
+ */
+export function getGitHubAppManifestUrl(
+  githubHost: string,
+  organizationName: string
+): string {
+  const org = organizationName.trim()
+  const path = org
+    ? `/organizations/${encodeURIComponent(org)}/settings/apps/new`
+    : "/settings/apps/new"
+  return new URL(path, githubHost).toString()
+}
+
 const gitHubAppFormSchema = z.object({
   organizationName: z
     .string()
-    .min(1, "Organization name is required")
+    .trim()
     .max(100, "Organization name must be less than 100 characters"),
   githubHost: z
     .string()
@@ -258,7 +277,7 @@ function GitHubConnectionDialog({
   const form = useForm<GitHubAppFormData>({
     resolver: zodResolver(gitHubAppFormSchema),
     defaultValues: {
-      organizationName: "My Organization",
+      organizationName: "",
       githubHost: "https://github.com",
     },
   })
@@ -291,11 +310,10 @@ function GitHubConnectionDialog({
     formEl.method = "POST"
     formEl.target = "_blank"
 
-    const targetUrl = new URL(
-      `/organizations/${encodeURIComponent(data.organizationName)}/settings/apps/new`,
-      data.githubHost
+    formEl.action = getGitHubAppManifestUrl(
+      data.githubHost,
+      data.organizationName
     )
-    formEl.action = targetUrl.toString()
 
     const manifestInput = document.createElement("input")
     manifestInput.type = "hidden"
@@ -303,7 +321,7 @@ function GitHubConnectionDialog({
     manifestInput.setAttribute("value", JSON.stringify(manifest.manifest))
     formEl.appendChild(manifestInput)
 
-    if (data.githubHost !== "https://github.com") {
+    if (data.organizationName && data.githubHost !== "https://github.com") {
       const orgInput = document.createElement("input")
       orgInput.type = "hidden"
       orgInput.name = "organization"
@@ -352,8 +370,12 @@ function GitHubConnectionDialog({
                       <FormItem className="space-y-2">
                         <FormLabel>Organization name</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="My Organization" />
+                          <Input {...field} placeholder="my-org" />
                         </FormControl>
+                        <p className="text-xs text-muted-foreground">
+                          The GitHub organization that will own the app. Leave
+                          blank to create it on your personal account.
+                        </p>
                         <FormMessage />
                       </FormItem>
                     )}
