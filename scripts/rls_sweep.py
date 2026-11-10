@@ -842,22 +842,30 @@ def check_webhook_api_key(run: Run, api: Api) -> Any:
 def check_schedule(run: Run, api: Api) -> Any:
     s = run.seeds
     api.workspace_id = s["workspace_a"]
+
+    def remove_echo_schedules() -> None:
+        # A leftover schedule keeps firing every minute: fail if one can't be removed.
+        # Listing by workflow also catches one whose create response was lost.
+        found = api.json("GET", "/api/schedules", params={"workflow_id": s["echo"]})
+        for old in items_of(found) or []:
+            api.call("DELETE", f"/api/schedules/{old['id']}", ok=(200, 204))
+
+    remove_echo_schedules()
     since = now()
-    sched = api.json(
-        "POST",
-        "/api/schedules",
-        body={
-            "workflow_id": s["echo"],
-            "every": "PT1M",
-            "status": "online",
-            "inputs": {"qa": "schedule"},
-        },
-    )
     try:
+        sched = api.json(
+            "POST",
+            "/api/schedules",
+            body={
+                "workflow_id": s["echo"],
+                "every": "PT1M",
+                "status": "online",
+                "inputs": {"qa": "schedule"},
+            },
+        )
         done = run_completed(api, s["echo"], since, "scheduled", timeout=150)
     finally:
-        # A leftover schedule keeps firing every minute: fail if it can't be removed.
-        api.call("DELETE", f"/api/schedules/{sched['id']}", ok=(200, 204))
+        remove_echo_schedules()
     return {
         "schedule": sched["id"],
         "run": done["id"],
@@ -870,9 +878,9 @@ def check_case_trigger(run: Run, api: Api) -> Any:
     api.workspace_id = s["workspace_a"]
     path = f"/api/workflows/{s['trigger']}/case-trigger"
     body = {"status": "online", "event_types": ["case_created"], "tag_filters": []}
-    api.call("POST", path, body=body)
     since = now()
     try:
+        api.call("POST", path, body=body)
         api.call(
             "POST",
             "/api/cases",
@@ -1957,7 +1965,8 @@ def run_checks(
         server_errors = sorted(
             p
             for p, v in gets.items()
-            if v.get("status") == 500 or v.get("status") is None
+            # 501/503 are deliberate (unimplemented / unconfigured routes).
+            if v.get("status") in (500, 502, 504, None)
         )
         print(
             f"{'FAIL' if server_errors else 'PASS':4} get_sweep        {len(gets)} routes, 5xx: {server_errors}"
