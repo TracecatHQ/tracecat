@@ -77,6 +77,9 @@ import httpx
 
 FINAL_RUN_STATES = ("COMPLETED", "FAILED", "TERMINATED", "CANCELED", "TIMED_OUT")
 DENIED = (401, 403, 404)
+# Every object this script creates carries this in its description; it only
+# mutates name-matched objects that carry it too.
+OWNER_MARKER = "RLS sweep"
 SECRET_VALUE = "synthetic-not-a-secret"
 REDACT_KEYS = {
     "endpoint_url",
@@ -186,7 +189,7 @@ class Target:
     name: str
     origin: str
     email: str
-    password: str
+    password: str = field(repr=False)
     sql: str | None
     logs: str | None
     keep_log_lines: bool
@@ -334,6 +337,10 @@ def find_or_create_workflow(
     listing = api.json("GET", "/api/workflows", params={"limit": 200})
     for wf in items_of(listing) or []:
         if wf.get("title") == title:
+            expect(
+                OWNER_MARKER in (wf.get("description") or ""),
+                f"workflow {title!r} exists but was not created by this script",
+            )
             return wf["id"]
     raw = workflow_definition(title, actions, returns)
     wf = api.json(
@@ -715,39 +722,44 @@ def check_manual_run(run: Run, api: Api) -> Any:
     return {"exec_id": exec_id, "status": done["status"], "result": result}
 
 
+def webhook_offline(api: Api, base: str) -> None:
+    """Take the webhook offline; its URL secret is its only credential."""
+    r = api.call("PATCH", base, body={"status": "offline"}, ok=None)
+    expect(
+        r.status_code == 200,
+        f"could not take the webhook offline: HTTP {r.status_code}",
+    )
+
+
 def check_webhook(run: Run, api: Api) -> Any:
     s = run.seeds
     api.workspace_id = s["workspace_a"]
     base = f"/api/workflows/{s['echo']}/webhook"
-    hook = api.call("GET", base, ok=None)
-    if hook.status_code == 404:
-        api.call("POST", base, body={"status": "online", "methods": ["POST"]})
-    else:
-        api.call("PATCH", base, body={"status": "online"})
-    # Setup: an interrupted earlier run can leave an API key on this webhook.
-    api.call("DELETE", f"{base}/api-key", ok=None)
-    hook = api.json("GET", base)
-    path = urlparse(hook["url"]).path
-    path = path if path.startswith("/api") else "/api" + path
-    since = now()
-    r = httpx.post(run.target.origin + path, json={"qa": run.tag}, timeout=60)
-    run.http_log.append(
-        {
-            "at": now(),
-            "method": "POST",
-            "path": "<webhook url>",
-            "status": r.status_code,
-        }
-    )
-    expect(
-        r.status_code in (200, 201, 202),
-        f"webhook POST HTTP {r.status_code} {r.text[:200]}",
-    )
     try:
+        hook = api.call("GET", base, ok=None)
+        if hook.status_code == 404:
+            api.call("POST", base, body={"status": "online", "methods": ["POST"]})
+        else:
+            api.call("PATCH", base, body={"status": "online"})
+        # Setup: an interrupted earlier run can leave an API key on this webhook.
+        api.call("DELETE", f"{base}/api-key", ok=None)
+        hook = api.json("GET", base)
+        path = urlparse(hook["url"]).path
+        path = path if path.startswith("/api") else "/api" + path
+        since = now()
+        r = httpx.post(run.target.origin + path, json={"qa": run.tag}, timeout=60)
+        run.http_log.append(
+            {
+                "at": now(),
+                "method": "POST",
+                "path": "<webhook url>",
+                "status": r.status_code,
+            }
+        )
+        expect(r.status_code in (200, 201, 202), f"webhook POST HTTP {r.status_code}")
         done = run_completed(api, s["echo"], since, "webhook")
     finally:
-        # The URL's secret is the webhook's only credential; don't leave it live.
-        api.call("PATCH", base, body={"status": "offline"}, ok=None)
+        webhook_offline(api, base)
     return {"run": done["id"], "trigger_type": done.get("trigger_type")}
 
 
@@ -755,12 +767,13 @@ def check_webhook_api_key(run: Run, api: Api) -> Any:
     s = run.seeds
     api.workspace_id = s["workspace_a"]
     base = f"/api/workflows/{s['echo']}/webhook"
-    api.call("PATCH", base, body={"status": "online"})
-    key = api.json("POST", f"{base}/api-key")["api_key"]
-    hook = api.json("GET", base)
-    path = urlparse(hook["url"]).path
-    path = path if path.startswith("/api") else "/api" + path
+    key = ""
     try:
+        api.call("PATCH", base, body={"status": "online"})
+        key = api.json("POST", f"{base}/api-key")["api_key"]
+        hook = api.json("GET", base)
+        path = urlparse(hook["url"]).path
+        path = path if path.startswith("/api") else "/api" + path
         missing = httpx.post(
             run.target.origin + path, json={"qa": "no-key"}, timeout=60
         )
@@ -796,7 +809,7 @@ def check_webhook_api_key(run: Run, api: Api) -> Any:
         # A revoked key keeps rejecting key-less requests; delete it so the
         # plain webhook check still works on the next run, then take it offline.
         api.call("DELETE", f"{base}/api-key", ok=None)
-        api.call("PATCH", base, body={"status": "offline"}, ok=None)
+        webhook_offline(api, base)
     return {
         "without_key": missing.status_code,
         "with_key": r.status_code,
@@ -971,6 +984,11 @@ def check_agent_turn(run: Run, api: Api) -> Any:
     slug = f"{run.tag}-agent"
     presets = items_of(api.json("GET", "/api/agent/presets")) or []
     preset = next((p for p in presets if p.get("slug") == slug), None)
+    if preset is not None:
+        expect(
+            OWNER_MARKER in (preset.get("description") or ""),
+            f"preset {slug!r} exists but was not created by this script",
+        )
     if preset is None:
         body: dict[str, Any] = {
             "name": slug,
@@ -1044,8 +1062,8 @@ def check_channel(run: Run, api: Api) -> Any:
 
     Covers the synchronous path: token lookup without a user, signature check,
     `url_verification` and the `event_callback` acknowledgement. The background
-    processing that follows is covered only by the `logs` check, since the
-    synthetic bot token cannot complete a Slack reply.
+    processing that follows is NOT covered: with a synthetic bot token it stops
+    at Slack's API before resolving the session.
     """
     s = run.seeds
     api.workspace_id = s["workspace_a"]
@@ -1105,7 +1123,7 @@ def _channel_events(signed: Callable[[dict[str, Any]], httpx.Response]) -> Any:
     )
     expect(
         verify.status_code == 200 and "rls-sweep-challenge" in verify.text,
-        f"url_verification HTTP {verify.status_code} {verify.text[:200]}",
+        f"url_verification HTTP {verify.status_code}",
     )
     ts = str(int(time.time()))
     event = signed(
@@ -1124,7 +1142,7 @@ def _channel_events(signed: Callable[[dict[str, Any]], httpx.Response]) -> Any:
     )
     expect(
         event.status_code == 200,
-        f"event_callback HTTP {event.status_code} {event.text[:200]}",
+        f"event_callback HTTP {event.status_code}",
     )
     return {"url_verification": verify.status_code, "event_callback": event.status_code}
 
@@ -1136,8 +1154,10 @@ def check_isolation(run: Run, api: Api) -> Any:
     sa_base = f"/api/workspaces/{a}/service-accounts"
     # Earlier runs' probe accounts: disable any still enabled.
     for old in items_of(api.json("GET", sa_base, ws=None)) or []:
-        if old.get("name", "").startswith(f"{run.tag}-a-only-") and not old.get(
-            "disabled_at"
+        if (
+            old.get("name", "").startswith(f"{run.tag}-a-only-")
+            and OWNER_MARKER in (old.get("description") or "")
+            and not old.get("disabled_at")
         ):
             api.call("POST", f"{sa_base}/{old['id']}/disable", ws=None, ok=None)
     scopes = api.json("GET", f"/api/workspaces/{a}/service-accounts/scopes", ws=None)
@@ -1376,6 +1396,7 @@ with engine.connect() as c:
         return res
 
     findings = []
+    pure_ws = t.WORKSPACE_POLICY_TABLES | t.SPECIAL_WORKSPACE_POLICY_TABLES
     for owner, other in ((A, B), (B, A)):
         views = {
             "bypass": counts("on", "", "", owner),
@@ -1395,6 +1416,10 @@ with engine.connect() as c:
             if views["none"][n]:
                 findings.append({"table": n, "workspace": owner, "issue": "no context sees rows",
                                  "count": views["none"][n]})
+            # Org-optional tables admit org-only sessions by design; pure workspace tables must not.
+            if n in pure_ws and views["org_only"][n]:
+                findings.append({"table": n, "workspace": owner, "issue": "org-only context sees workspace rows",
+                                 "count": views["org_only"][n]})
     org_views = {"bypass": org_counts("on", ""), "own": org_counts("off", org),
                  "foreign_org": org_counts("off", str(uuid.uuid4())), "none": org_counts("off", "")}
     out["organization"] = org_views
@@ -1405,22 +1430,54 @@ with engine.connect() as c:
         for view in ("foreign_org", "none"):
             if org_views[view][n]:
                 findings.append({"table": n, "issue": f"{view} sees org rows", "count": org_views[view][n]})
-    def all_rows(bypass, org_id, ws_id):
+    # Child tables with no tenant column of their own -> (foreign key, parent table).
+    PARENTS = {
+        "service_account_api_key": ("service_account_id", "service_account"),
+        "service_account_scope": ("service_account_id", "service_account"),
+        "agent_tag_link": ("tag_id", "agent_tag"),
+        "skill_tag_link": ("tag_id", "skill_tag"),
+    }
+    unmapped = [n for n in parent_tables if n not in PARENTS]
+    for n in unmapped:
+        findings.append({"table": n, "issue": "parent-tenanted table not covered by the probe"})
+
+    def child_counts(bypass, org_id, ws_id, parent_ids):
         res = {}
         with c.begin():
             ctx(c, bypass=bypass, org=org_id, ws=ws_id)
             for n in parent_tables:
-                res[n] = c.execute(text(f'SELECT count(*) FROM "{n}"')).scalar_one()
+                if n in PARENTS:
+                    fk = PARENTS[n][0]
+                    ids = parent_ids[n]
+                    res[n] = c.execute(text(f'SELECT count(*) FROM "{n}" WHERE "{fk}" = ANY(CAST(:ids AS uuid[]))'),
+                                       {"ids": ids}).scalar_one() if ids else 0
         return res
 
-    parent_views = {"bypass": all_rows("on", "", ""), "own_a": all_rows("off", org, A),
-                    "none": all_rows("off", "", ""),
-                    "foreign": all_rows("off", str(uuid.uuid4()), str(uuid.uuid4()))}
-    out["parent_tenanted"] = parent_views
-    for n in parent_tables:
-        for view in ("none", "foreign"):
-            if parent_views[view][n]:
-                findings.append({"table": n, "issue": f"{view} context sees rows", "count": parent_views[view][n]})
+    parent_out = {}
+    for owner, other in ((A, B), (B, A)):
+        # Parent ids come from a bypass read, so each view below tests only the child table's policy.
+        with c.begin():
+            ctx(c, bypass="on")
+            parent_ids = {n: [str(x) for x in c.execute(text(
+                f'SELECT id FROM "{PARENTS[n][1]}" WHERE workspace_id = CAST(:w AS uuid)'), {"w": owner}).scalars()]
+                for n in parent_tables if n in PARENTS}
+        views = {
+            "bypass": child_counts("on", "", "", parent_ids),
+            "own": child_counts("off", org, owner, parent_ids),
+            "other_workspace": child_counts("off", org, other, parent_ids),
+            "none": child_counts("off", "", "", parent_ids),
+            "foreign_org": child_counts("off", str(uuid.uuid4()), str(uuid.uuid4()), parent_ids),
+        }
+        parent_out[f"workspace_{'a' if owner == A else 'b'}"] = views
+        for n, total in views["bypass"].items():
+            if views["own"][n] != total:
+                findings.append({"table": n, "workspace": owner, "issue": "own workspace sees fewer rows than bypass",
+                                 "bypass": total, "own": views["own"][n]})
+            for view in ("other_workspace", "none", "foreign_org"):
+                if views[view][n]:
+                    findings.append({"table": n, "workspace": owner, "issue": f"{view} sees rows",
+                                     "count": views[view][n]})
+    out["parent_tenanted"] = parent_out
     for d in dyn:
         if not (d["rls"] and d["force"]):
             findings.append({"table": f'{d["schema"]}.{d["table"]}', "issue": "dynamic table without RLS+FORCE"})
@@ -1507,6 +1564,7 @@ def check_logs(run: Run) -> Any:
                 "logs",
                 f"deploy/{deploy}",
                 "--all-containers",
+                "--all-pods=true",
                 f"--since-time={run.started}",
             ]
             for deploy in STAGING_DEPLOYMENTS
@@ -1591,7 +1649,7 @@ CHECKS: list[tuple[str, str, str]] = [
     ("chat_case", "H13 case chat", "turn finishes with no errors"),
     (
         "channel",
-        "H1 public channel endpoint (sync path; background via logs)",
+        "H1 public channel endpoint (sync path only; background not covered)",
         "signed url_verification 200 + challenge; event_callback 200",
     ),
     (
@@ -1647,9 +1705,9 @@ def run_checks(
             result.result = "PASS"
         except Exception as e:  # noqa: BLE001 - every check is recorded and the run continues
             result.result = "FAIL"
-            result.error = f"{type(e).__name__}: {e}"[:1000]
+            result.error = scrub(f"{type(e).__name__}: {e}")[:1000]
             (run.out / "evidence" / f"{name}-traceback.txt").write_text(
-                traceback.format_exc()
+                scrub(traceback.format_exc())
             )
         result.seconds = round(time.monotonic() - t0, 1)
         print(
@@ -1659,7 +1717,15 @@ def run_checks(
             flush=True,
         )
     gets: dict[str, Any] = {}
-    if (not only or "get_sweep" in only) and "get_sweep" not in skip:
+    if (only and "get_sweep" not in only) or "get_sweep" in skip:
+        run.checks.append(
+            CheckResult(
+                name="get_sweep",
+                surface="H14 every parameter-free GET route",
+                expected="no 500; vs baseline: no 2xx→error, no data→empty",
+            )
+        )
+    else:
         gets = sweep_gets(run, api)
         # 501/503 are deliberate (unimplemented / unconfigured); 500 is a crash.
         server_errors = sorted(p for p, v in gets.items() if v.get("status") == 500)
@@ -1926,13 +1992,13 @@ def main() -> int:
                 surface="login + seed",
                 expected="login and seed succeed",
                 result="FAIL",
-                error=f"{type(e).__name__}: {e}"[:1000],
+                error=scrub(f"{type(e).__name__}: {e}")[:1000],
             )
         )
         (run.out / "evidence" / "setup-traceback.txt").write_text(
-            traceback.format_exc()
+            scrub(traceback.format_exc())
         )
-        print(f"FAIL setup {type(e).__name__}: {e}"[:400])
+        print(scrub(f"FAIL setup {type(e).__name__}: {e}")[:400])
     finally:
         write_outputs(run, gets, regressions)
         api.client.close()
