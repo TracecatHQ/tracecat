@@ -1,0 +1,29 @@
+deployments/fargate/README.md
+  s_28b5e1d0991a70::t_a7ea166386cb71 184-205
+deployments/fargate/main.tf
+  s_28b5e1d0991a70::t_ce86f8dc1d901b 27-28
+deployments/fargate/modules/ecs/alb.tf
+  s_28b5e1d0991a70::t_3d6410ed94f037 12-29
+deployments/fargate/modules/ecs/edge-logging.tf
+  s_28b5e1d0991a70::t_1346a8356afd68 1-16
+deployments/fargate/modules/ecs/variables.tf
+  s_28b5e1d0991a70::t_81deb021823a2c 1130-1140
+deployments/fargate/variables.tf
+  s_28b5e1d0991a70::t_1272b538d60107 1078-1088
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7e0cbc16ae8f9371db13114a8cd1be29e5bf281e",
+  "prompts": {},
+  "sessions": {
+    "s_28b5e1d0991a70": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c773-bf8e-79c3-b123-586e18d5970c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
