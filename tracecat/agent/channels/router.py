@@ -88,7 +88,7 @@ def _sanitize_return_url(return_url: str) -> str:
 
 async def _resolve_service_role_for_workspace(*, workspace_id: uuid.UUID) -> Role:
     # Public channel requests carry no role, and the workspace's org decides
-    # the role, so this lookup runs in a session scoped to that workspace.
+    # the role, so this lookup uses that workspace's tenant context under enforce.
     async with get_async_session_tenant_context_manager(
         workspace_id=workspace_id
     ) as session:

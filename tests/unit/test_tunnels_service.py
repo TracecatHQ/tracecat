@@ -1,4 +1,3 @@
-import uuid
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock
 
@@ -409,11 +408,12 @@ async def test_route_to_missing_named_tunnel_has_actionable_error(
     from tracecat_ee.tunnels import routing
 
     @asynccontextmanager
-    async def _session(*, workspace_id: uuid.UUID):
-        assert workspace_id == service.workspace_id
+    async def _session():
         yield session
 
-    monkeypatch.setattr(routing, "get_async_session_tenant_context_manager", _session)
+    monkeypatch.setattr(
+        routing, "get_async_session_bypass_rls_context_manager", _session
+    )
     monkeypatch.setattr(routing, "is_org_entitled", AsyncMock(return_value=True))
 
     with pytest.raises(

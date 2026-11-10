@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import Request
-from tracecat_ee.tunnels.routing import resolve_tunnel_target
 
 from tracecat.agent.channels.router import (
     _resolve_service_role_for_workspace,
@@ -444,7 +443,6 @@ def test_registry_sync_startup_uses_bypass_session_manager() -> None:
         CaseDurationSyncConsumer._process_backfill_job,
         _resolve_service_role_for_workspace,
         index_search_collection,
-        resolve_tunnel_target,
     ],
 )
 def test_tenant_scoped_system_code_uses_tenant_session(

@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from tracecat import config
 from tracecat.auth.secrets import get_db_encryption_key
-from tracecat.db.engine import get_async_session_tenant_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import WorkspaceTunnel
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import RunActionInput
@@ -130,17 +130,14 @@ async def resolve_tunnel_target(
     """Check the tunnel can be used now and resolve its gateway.
 
     Look the tunnel up by exactly one of ``name`` or ``tunnel_id``. The lookup
-    is filtered by workspace explicitly and runs in a session scoped to that
-    workspace, because callers such as the executor have no workspace role.
-    Errors never fall back to direct egress.
+    is filtered by workspace explicitly; callers such as the executor have no
+    workspace role for RLS. Errors never fall back to direct egress.
     """
     if (name is None) == (tunnel_id is None):
         raise ValueError("Pass exactly one of name or tunnel_id")
     if not kubernetes_enabled():
         raise TunnelRouteError(TUNNELS_REQUIRE_KUBERNETES)
-    async with get_async_session_tenant_context_manager(
-        workspace_id=workspace_id
-    ) as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         if not await is_org_entitled(session, organization_id, Entitlement.TUNNELS):
             raise TunnelRouteError("Tunnels are not available on your current plan")
         stmt = select(WorkspaceTunnel).where(
