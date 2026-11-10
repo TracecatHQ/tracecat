@@ -2112,38 +2112,38 @@ class AgentSessionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         request: ContinueRunRequest,
     ) -> ChatResponse | None:
-        """Record web approval decisions, then deliver them to the waiting run.
+        """Record web approval decisions, then submit them to the waiting run.
 
         Returns None when a later submission already moved the run past these
-        decisions. A matching replay of the current set redelivers it and
-        returns its stream, so a retry after a lost delivery recovers.
+        decisions. A matching replay of the current set resubmits it and
+        returns its stream, so a retry after a lost submission recovers.
 
         Raises:
             TracecatNotFoundError: If no active session exists.
             TracecatConflictError: If a decision contradicts a recorded one.
             ValueError: If the decisions do not match the session's approvals.
         """
-        applied = await ApprovalSubmissionService(
+        submission = await ApprovalSubmissionService(
             self.session, role=self.role
-        ).record_and_apply(
+        ).record_and_submit(
             session_id=session_id,
             expected_batch_id=None,
             decisions=self._continuation_decisions(request),
             approved_by=await self._existing_user_id(self.role.user_id),
         )
-        if applied.outcome == "moved_past":
+        if submission.outcome == "noop":
             logger.info(
                 "Ignoring approval continuation the run already moved past",
                 session_id=str(session_id),
-                run_id=str(applied.run_id),
+                run_id=str(submission.run_id),
                 source=request.source,
             )
             return None
         return ChatResponse(
             stream_url=f"/api/agent/sessions/{session_id}/stream",
             chat_id=session_id,
-            active_stream_id=applied.stream_id,
-            curr_run_id=applied.run_id,
+            active_stream_id=submission.stream_id,
+            curr_run_id=submission.run_id,
         )
 
     async def decide(
@@ -2155,7 +2155,7 @@ class AgentSessionService(BaseWorkspaceService):
         source: str,
         approved_by: uuid.UUID | None = None,
     ) -> DecisionResult:
-        """Record one approval click and deliver it to the waiting run.
+        """Record one approval click and submit it to the waiting run.
 
         ``batch_id`` is the paused run's ``approval_batch_id``, so a click from
         an earlier pause does not match. ``source`` names the surface clicked.
@@ -2165,13 +2165,13 @@ class AgentSessionService(BaseWorkspaceService):
         Raises:
             AgentControlRejected: If the run refused the decision. It is
                 reverted unless a newer decision set already built on it.
-            AgentControlUncertain: If delivery is unknown; retrying the click is
+            AgentControlUncertain: If the submission's fate is unknown; retrying the click is
                 safe.
         """
         try:
-            applied = await ApprovalSubmissionService(
+            submission = await ApprovalSubmissionService(
                 self.session, role=self.role
-            ).record_and_apply(
+            ).record_and_submit(
                 session_id=session_id,
                 expected_batch_id=batch_id,
                 decisions={
@@ -2188,9 +2188,9 @@ class AgentSessionService(BaseWorkspaceService):
                 reason="not_valid", tool_call_id=decision.tool_call_id
             )
         return DecisionRecorded(
-            pending_tool_call_ids=applied.pending_tool_call_ids,
-            resumed=RunRef(run_id=applied.run_id, stream_id=applied.stream_id)
-            if applied.outcome == "resumed"
+            pending_tool_call_ids=submission.pending_tool_call_ids,
+            resumed=RunRef(run_id=submission.run_id, stream_id=submission.stream_id)
+            if submission.outcome == "resumed"
             else None,
         )
 

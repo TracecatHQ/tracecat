@@ -1,4 +1,4 @@
-"""Record approval decisions on their rows, then deliver them to the waiting run."""
+"""Record approval decisions on their rows, then submit them to the waiting run."""
 
 from __future__ import annotations
 
@@ -58,42 +58,40 @@ class _LockedBatch:
     rows: list[Approval]
 
 
-type _Disposition = Literal["fresh", "redeliver", "moved_past"]
-"""``fresh`` recorded a decision; ``redeliver`` replays the current set;
-``moved_past`` replays a set the run already left behind."""
-
-
 @dataclass(frozen=True, slots=True)
-class _RecordedDecisions:
-    """A committed decision set, ready to deliver to the waiting run."""
+class _RecordedDecisionSet:
+    """A committed decision set, ready to submit to the waiting run."""
 
     run_id: uuid.UUID
     backend: AgentBackend[Any, Any]
-    disposition: _Disposition
+    # A repeat of a set the run already moved past: submitting it is a no-op.
+    outdated: bool
     stream_id: uuid.UUID
     previous_stream_id: uuid.UUID | None
-    recorded: list[str]
+    newly_recorded_tool_call_ids: list[str]
     batch_tool_call_ids: list[str]
     pending_tool_call_ids: list[str]
     submission: WorkflowApprovalSubmission
 
 
 @dataclass(frozen=True, slots=True)
-class AppliedDecisions:
-    """What one submission recorded and delivered to the waiting run."""
+class ApprovalSubmissionResult:
+    """What one submission recorded and submitted to the waiting run."""
 
     run_id: uuid.UUID
     # The stream carrying the run's output for this caller to follow.
     stream_id: uuid.UUID
     pending_tool_call_ids: list[str]
-    # ``resumed``: this delivery resumed the run and owns announcing it.
-    outcome: Literal["moved_past", "delivered", "resumed"]
+    # ``noop``: the set was outdated and not submitted; ``submitted``: the run
+    # took the set but this call didn't resume it; ``resumed``: this call
+    # resumed the run and owns announcing it.
+    outcome: Literal["noop", "submitted", "resumed"]
 
 
 def _approval_continuation_stream_id(
     run_id: uuid.UUID, tool_call_ids: Sequence[str]
 ) -> uuid.UUID:
-    """Name the continuation that delivers a run's recorded decisions.
+    """Name the continuation that submits a run's recorded decisions.
 
     Every submitter of the same recorded set derives the same stream, and so
     the same Temporal update id: a retry or replay is applied at most once.
@@ -102,7 +100,7 @@ def _approval_continuation_stream_id(
 
 
 class ApprovalSubmissionService(BaseWorkspaceService):
-    """Records approval decisions and delivers them to the run waiting on them."""
+    """Records approval decisions and submits them to the run waiting on them."""
 
     service_name = "approval-submission"
 
@@ -203,7 +201,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         expected_batch_id: uuid.UUID | None,
         decisions: Mapping[str, SubmittedDecision],
         approved_by: uuid.UUID | None,
-    ) -> _RecordedDecisions:
+    ) -> _RecordedDecisionSet:
         """Record pending decisions and install their continuation, in one commit."""
         try:
             batch = await self._lock_decided_batch(
@@ -212,12 +210,12 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 decisions=decisions,
             )
             by_id = {row.tool_call_id: row for row in batch.rows}
-            recorded = [
+            newly_recorded = [
                 tool_call_id
                 for tool_call_id in decisions
                 if by_id[tool_call_id].status is ApprovalStatus.PENDING
             ]
-            for tool_call_id in recorded:
+            for tool_call_id in newly_recorded:
                 record_decision(
                     by_id[tool_call_id],
                     decisions[tool_call_id],
@@ -230,9 +228,8 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 batch.run_id, [row.tool_call_id for row in decided]
             )
             previous_stream_id = batch.agent_session.active_stream_id
-            disposition: _Disposition
-            if recorded:
-                disposition = "fresh"
+            outdated = False
+            if newly_recorded:
                 await self._install_approval_continuation(
                     batch.agent_session, stream_id=stream_id
                 )
@@ -240,9 +237,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 session_id, [by_id[tool_call_id] for tool_call_id in decisions]
             ):
                 # A later decision or batch already moved the run past this set.
-                disposition = "moved_past"
-            else:
-                disposition = "redeliver"
+                outdated = True
             await self.session.commit()
         except (
             TracecatNotFoundError,
@@ -258,13 +253,13 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             await self.session.rollback()
             raise
 
-        return _RecordedDecisions(
+        return _RecordedDecisionSet(
             run_id=batch.run_id,
             backend=batch.backend,
-            disposition=disposition,
+            outdated=outdated,
             stream_id=stream_id,
             previous_stream_id=previous_stream_id,
-            recorded=recorded,
+            newly_recorded_tool_call_ids=newly_recorded,
             batch_tool_call_ids=[row.tool_call_id for row in batch.rows],
             pending_tool_call_ids=[
                 row.tool_call_id
@@ -304,20 +299,20 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             )
         )
 
-    async def record_and_apply(
+    async def record_and_submit(
         self,
         *,
         session_id: uuid.UUID,
         expected_batch_id: uuid.UUID | None,
         decisions: Mapping[str, SubmittedDecision],
         approved_by: uuid.UUID | None,
-    ) -> AppliedDecisions:
-        """Record decisions on their approval rows, then deliver them to the run.
+    ) -> ApprovalSubmissionResult:
+        """Record decisions on their approval rows, then submit them to the run.
 
         The rows are the record: a decision commits before the run sees it.
-        Delivery carries every recorded decision of the batch under an update
-        id derived from that set, so Temporal applies it once and a matching
-        replay retries a lost delivery. Locking the session row orders
+        A submission carries every recorded decision of the batch under an
+        update id derived from that set, so Temporal applies it once and a
+        matching replay retries a lost submission. Locking the session row orders
         concurrent submitters, so one winner holds per tool call.
 
         Raises:
@@ -331,71 +326,71 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             AgentControlUncertain: If the outcome is unknown; retry the same
                 decisions.
         """
-        recorded = await self._record_decisions(
+        decision_set = await self._record_decisions(
             session_id=session_id,
             expected_batch_id=expected_batch_id,
             decisions=decisions,
             approved_by=approved_by,
         )
-        if recorded.disposition == "moved_past":
-            return AppliedDecisions(
-                run_id=recorded.run_id,
-                stream_id=recorded.stream_id,
-                pending_tool_call_ids=recorded.pending_tool_call_ids,
-                outcome="moved_past",
+        if decision_set.outdated:
+            return ApprovalSubmissionResult(
+                run_id=decision_set.run_id,
+                stream_id=decision_set.stream_id,
+                pending_tool_call_ids=decision_set.pending_tool_call_ids,
+                outcome="noop",
             )
 
         logger.info(
-            "Delivering recorded approval decisions",
+            "Submitting recorded approval decisions",
             session_id=str(session_id),
-            run_id=str(recorded.run_id),
-            recorded=recorded.recorded,
-            delivered=sorted(recorded.submission.approvals),
+            run_id=str(decision_set.run_id),
+            newly_recorded=decision_set.newly_recorded_tool_call_ids,
+            submitted=sorted(decision_set.submission.approvals),
         )
         try:
-            resumed = await recorded.backend.submit_approvals(
-                recorded.run_id, recorded.submission
+            resumed = await decision_set.backend.submit_approvals(
+                decision_set.run_id, decision_set.submission
             )
         except AgentControlRejected:
-            if recorded.disposition == "fresh":
+            if decision_set.newly_recorded_tool_call_ids:
                 await self._revert_rejected_decisions(
                     session_id=session_id,
-                    run_id=recorded.run_id,
-                    stream_id=recorded.stream_id,
-                    previous_stream_id=recorded.previous_stream_id,
-                    tool_call_ids=recorded.recorded,
+                    run_id=decision_set.run_id,
+                    stream_id=decision_set.stream_id,
+                    previous_stream_id=decision_set.previous_stream_id,
+                    tool_call_ids=decision_set.newly_recorded_tool_call_ids,
                 )
             raise
 
-        return await self._announce_delivered_decisions(
+        return await self._announce_submitted_decisions(
             session_id=session_id,
-            recorded=recorded,
+            decision_set=decision_set,
             resumed=resumed,
             tool_call_ids=list(decisions),
         )
 
-    async def _announce_delivered_decisions(
+    async def _announce_submitted_decisions(
         self,
         *,
         session_id: uuid.UUID,
-        recorded: _RecordedDecisions,
+        decision_set: _RecordedDecisionSet,
         resumed: bool,
         tool_call_ids: Sequence[str],
-    ) -> AppliedDecisions:
+    ) -> ApprovalSubmissionResult:
         """Close a paused segment and tell open tabs which stream the run is on.
 
-        Idempotent, so a replay that redelivers also finishes what a lost
+        Idempotent, so a replay that resubmits also finishes what a lost
         attempt left open. Holding the session row keeps a newer continuation
         from committing between the check and the feed event.
         """
-        stream_id = recorded.stream_id
+        stream_id = decision_set.stream_id
         try:
             current_stream_id = await self.session.scalar(
                 select(AgentSession.active_stream_id)
                 .where(
                     AgentSession.id == session_id,
                     AgentSession.workspace_id == self.workspace_id,
-                    AgentSession.curr_run_id == recorded.run_id,
+                    AgentSession.curr_run_id == decision_set.run_id,
                 )
                 .with_for_update(key_share=True)
             )
@@ -419,7 +414,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                     type=SessionFeedEventType.RUN_RESUMED
                     if resumed
                     else SessionFeedEventType.RUN_PAUSED,
-                    run_id=recorded.run_id,
+                    run_id=decision_set.run_id,
                     stream_id=stream_id,
                 )
             pending = (
@@ -428,7 +423,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                     .where(
                         Approval.workspace_id == self.workspace_id,
                         Approval.session_id == session_id,
-                        Approval.tool_call_id.in_(recorded.batch_tool_call_ids),
+                        Approval.tool_call_id.in_(decision_set.batch_tool_call_ids),
                         Approval.status == ApprovalStatus.PENDING,
                     )
                     .order_by(Approval.tool_call_id)
@@ -438,11 +433,11 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         except BaseException:
             await self.session.rollback()
             raise
-        return AppliedDecisions(
-            run_id=recorded.run_id,
+        return ApprovalSubmissionResult(
+            run_id=decision_set.run_id,
             stream_id=newer_stream_id or stream_id,
             pending_tool_call_ids=list(pending),
-            outcome="resumed" if resumed and not superseded else "delivered",
+            outcome="resumed" if resumed and not superseded else "submitted",
         )
 
     async def _approval_stream_items(
@@ -516,14 +511,14 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         """Point the session at the continuation stream; the caller commits.
 
         The marker lands before the pointer commits, so reconnects can wait on
-        the stream while the decisions are delivered.
+        the stream while the decisions are submitted.
         """
         stream = await AgentStream.new(
             session_id=agent_session.id,
             workspace_id=self.workspace_id,
             stream_id=stream_id,
         )
-        # A rejected delivery of the same set may have left this stream closed.
+        # A rejected submission of the same set may have left this stream closed.
         await stream.clear_buffer()
         await stream.mark_approval_continuation(
             submission_key=str(stream_id),
