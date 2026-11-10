@@ -589,6 +589,9 @@ OIDC_CLIENT_ID = (
 OIDC_CLIENT_SECRET = (
     os.environ.get("OIDC_CLIENT_SECRET") or os.environ.get("OAUTH_CLIENT_SECRET") or ""
 )
+OIDC_CLIENT_SECRET__ARN = os.environ.get("OIDC_CLIENT_SECRET__ARN")
+"""AWS Secrets Manager ARN holding the OIDC client secret as plain text. Takes
+precedence over ``OIDC_CLIENT_SECRET``. Only the API service reads it."""
 OIDC_SCOPES = tuple(
     scope
     for scope in (
