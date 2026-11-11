@@ -15,7 +15,7 @@ import GenerateSecrets from "/snippets/generate-secrets.mdx";
 
 ## Prerequisites
 
-- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
+- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli) 1.7 or later
 - AWS credentials configured for your target account and role
 - A public [Route53 hosted zone](https://aws.amazon.com/route53/) (domain and hosted zone ID)
 - `openssl` and AWS CLI (if using the helper secret script)
@@ -90,6 +90,8 @@ Once deployed, access your instance at:
 
 To update an existing Tracecat deployment on Fargate:
 
+If your stack includes the legacy bundled WAF, follow [WAF (legacy)](#waf-legacy) when upgrading.
+
 1. Pull the latest Fargate stack from the Tracecat repository to ensure you have the most recent infrastructure changes.
 2. Change the `TF_VAR_tracecat_image_tag` variable to the desired image tag compatible with the stack, or remove the variable to default to the latest image tag.
 3. Run `terraform apply` to apply the updates.
@@ -103,6 +105,15 @@ export TF_VAR_tracecat_image_tag=1.1.0
 
 terraform apply
 ```
+
+## WAF (legacy)
+
+<Info>
+  Manage AWS WAF separately through CloudFormation or your own security tooling.
+  Get the ALB ARN with `terraform output -raw alb_arn`, then use your security tooling to associate a `REGIONAL` web ACL in the ALB's AWS account and region.
+  Existing deployments keep their WAF when upgrading with Terraform 1.7+ and the bundled `waf-handoff.tf`.
+  See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145) for migration, manual setup, and troubleshooting.
+</Info>
 
 ## Database login
 
@@ -141,6 +152,10 @@ With the Deny off, every workspace user can assume any role in that account whos
 ## FAQ
 
 <AccordionGroup>
+  <Accordion title="Will updating the Fargate stack delete my existing WAF?">
+    A normal apply with the bundled handoff file forgets the legacy WAF state entries while preserving the live ACL and ALB association; no manual `terraform state rm` is required. Remove the retired WAF inputs and follow the [upgrade and error-recovery instructions](https://github.com/TracecatHQ/tracecat/pull/4145) before applying.
+  </Accordion>
+
   <Accordion title="Is untrusted code execution safe on Fargate?">
     Fargate does not support the permissions model required by `nsjail`. Tracecat uses a fallback executor without `nsjail` isolation on Fargate.
     If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), [deploy Tracecat on Kubernetes](/self-hosting/kubernetes), where `nsjail` is enabled by default.

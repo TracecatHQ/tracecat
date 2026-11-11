@@ -197,20 +197,14 @@ ALB logs can contain sensitive URLs and client metadata. Delivery is best effort
 and is separate from CloudTrail management API auditing. Target health-check
 logging is a separate diagnostic feature.
 
-### WAF ownership
+### WAF ownership (legacy)
 
-This application stack creates no WAF resources. Manage protection in a separate
-security stack or with customer-owned tooling, using the `alb_arn` output to
-associate a regional web ACL. The security stack also owns WAF rules, request
-redaction, and WAF event logging independently of the ALB logging switch.
-
-Upgrading an existing deployment requires Terraform 1.7 or later. The module's
-`waf-handoff.tf` declarations remove the former ACL, three regex pattern sets,
-association, and any logging configuration from Terraform state without deleting
-them. Existing protection remains attached; arrange an explicit ownership
-handoff, such as CloudFormation resource import, before changing those resources.
-Do not replace these declarations with an ordinary resource deletion or a destroy
-plan. New deployments need a separately provisioned WAF if protection is required.
+Manage AWS WAF separately through CloudFormation or your own security tooling,
+using the `alb_arn` output. With Terraform 1.7+, the bundled `waf-handoff.tf`
+forgets legacy WAF state entries while preserving the live protection.
+Keep that migration file in the shared module for users upgrading from older releases.
+See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145)
+for migration, manual setup, and troubleshooting.
 
 ## Workload IAM permissions boundary
 
