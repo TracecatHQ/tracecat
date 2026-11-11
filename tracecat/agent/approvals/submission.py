@@ -15,12 +15,17 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.approvals.decisions import (
-    SubmittedDecision,
     decision_matches_row,
     decision_outcome,
     record_decision,
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.types import (
+    ApprovalAlreadyApplied,
+    ApprovalDelivered,
+    ApprovalSubmissionResult,
+    SubmittedDecision,
+)
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import get_agent_backend
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
@@ -100,27 +105,6 @@ class _SubmissionAttempt:
             or None,
             new_stream_id=self.stream_id,
         )
-
-
-@dataclass(frozen=True, slots=True)
-class ApprovalAlreadyApplied:
-    """The run already had these decisions; there is no new stream to watch."""
-
-    run_id: uuid.UUID
-    pending_tool_call_ids: list[str]
-
-
-@dataclass(frozen=True, slots=True)
-class ApprovalDelivered:
-    """The run took the decisions; ``stream_id`` carries its output."""
-
-    run_id: uuid.UUID
-    stream_id: uuid.UUID
-    pending_tool_call_ids: list[str]
-    resumed: bool
-
-
-type ApprovalSubmissionResult = ApprovalAlreadyApplied | ApprovalDelivered
 
 
 def _approval_continuation_stream_id(

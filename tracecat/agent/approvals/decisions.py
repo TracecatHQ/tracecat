@@ -11,6 +11,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import (
     BooleanApprovalDecision,
     PersistedApprovalDecision,
+    SubmittedDecision,
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
@@ -25,25 +26,16 @@ if TYPE_CHECKING:
 DEFAULT_DENY_MESSAGE = "Tool denied by user"
 
 
-@dataclass(frozen=True, slots=True)
-class SubmittedDecision:
-    """One decision as a caller submitted it, before it is recorded."""
-
-    result: ApprovalResult
-    # Persisted with the decision; always has ``source``. Not part of its outcome.
-    metadata: dict[str, Any]
-
-    @classmethod
-    def of(cls, decision: ApprovalDecision, *, source: str) -> SubmittedDecision:
-        """Map a clicked decision onto what the run receives, stamped with its source."""
-        return cls(
-            result=approval_result(
-                decision.action,
-                reason=decision.reason,
-                override_args=decision.override_args,
-            ),
-            metadata={**(decision.metadata or {}), "source": source},
-        )
+def submitted_decision(decision: ApprovalDecision, *, source: str) -> SubmittedDecision:
+    """Map a clicked decision onto what the run receives, stamped with its source."""
+    return SubmittedDecision(
+        result=approval_result(
+            decision.action,
+            reason=decision.reason,
+            override_args=decision.override_args,
+        ),
+        metadata={**(decision.metadata or {}), "source": source},
+    )
 
 
 @dataclass(frozen=True, slots=True)

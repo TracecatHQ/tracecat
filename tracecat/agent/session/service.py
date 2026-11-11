@@ -30,16 +30,17 @@ from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.artifacts.projection as artifact_projection
 from tracecat.agent.adapter.vercel import is_text_ui_part
-from tracecat.agent.approvals.decisions import (
-    SubmittedDecision,
-)
+from tracecat.agent.approvals.decisions import submitted_decision
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.submission import (
-    ApprovalAlreadyApplied,
     ApprovalDecisionInvalidError,
-    ApprovalDelivered,
     ApprovalNoLongerActiveError,
     ApprovalSubmissionService,
+)
+from tracecat.agent.approvals.types import (
+    ApprovalAlreadyApplied,
+    ApprovalDelivered,
+    SubmittedDecision,
 )
 from tracecat.agent.backends.access import (
     require_backend_entitlement,
@@ -2111,7 +2112,7 @@ class AgentSessionService(BaseWorkspaceService):
             )
 
         return {
-            decision.tool_call_id: SubmittedDecision.of(decision, source=request.source)
+            decision.tool_call_id: submitted_decision(decision, source=request.source)
             for decision in request.decisions
         }
 
@@ -2182,7 +2183,7 @@ class AgentSessionService(BaseWorkspaceService):
                 session_id=session_id,
                 expected_batch_id=batch_id,
                 decisions={
-                    decision.tool_call_id: SubmittedDecision.of(decision, source=source)
+                    decision.tool_call_id: submitted_decision(decision, source=source)
                 },
                 approved_by=await self._existing_user_id(approved_by),
             )

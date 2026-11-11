@@ -178,8 +178,11 @@ async def test_delete_approval_keeps_records_a_live_run_still_waits_on(
                 if isinstance(error, AgentControlUncertain)
                 else type(error)
             )
-            with pytest.raises(expected):
+            with pytest.raises(expected) as exc_info:
                 await call
+            if isinstance(error, AgentControlUncertain):
+                assert isinstance(exc_info.value, HTTPException)
+                assert exc_info.value.status_code == 503
         else:
             await call
 
