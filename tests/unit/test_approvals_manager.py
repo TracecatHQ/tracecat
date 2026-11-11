@@ -928,6 +928,16 @@ class TestApplyApprovalDecisionsUpsert:
         test_user: User,
     ) -> None:
         """A deduplicated retry recorded its own approver; the run's first stands."""
+        retrier = User(
+            id=uuid.uuid4(),
+            email=f"retrier-{uuid.uuid4()}@example.com",
+            hashed_password="test_password",
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+        )
+        session.add(retrier)
+        await session.commit()
         service = ApprovalService(session=session, role=svc_role)
         approval = await service.create_approval(
             ApprovalCreate(
@@ -942,6 +952,7 @@ class TestApplyApprovalDecisionsUpsert:
             ApprovalUpdate(
                 status=ApprovalStatus.APPROVED,
                 decision={"value": True, "metadata": {"source": "web"}},
+                approved_by=retrier.id,
             ),
         )
         recorded_at = approval.approved_at
@@ -966,6 +977,45 @@ class TestApplyApprovalDecisionsUpsert:
         assert approval.approved_by == test_user.id
         assert approval.decision == {"value": True, "metadata": {"source": "channel"}}
         assert approval.approved_at == recorded_at
+
+    async def test_apply_approval_never_restores_a_deleted_approver(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+        test_user: User,
+    ) -> None:
+        service = ApprovalService(session=session, role=svc_role)
+        approval = await service.create_approval(
+            ApprovalCreate(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_deleted_actor",
+                tool_name="tool_1",
+                tool_call_args={},
+            )
+        )
+        approval = await service.update_approval(
+            approval,
+            ApprovalUpdate(status=ApprovalStatus.APPROVED, approved_by=test_user.id),
+        )
+
+        await ApprovalManager.apply_approval_decisions(
+            ApplyApprovalResultsActivityInputs(
+                role=svc_role,
+                session_id=mock_agent_session.id,
+                decisions=[
+                    ApprovalDecisionPayload(
+                        tool_call_id="call_deleted_actor",
+                        approved=True,
+                        decision=True,
+                        approved_by=uuid.uuid4(),
+                    )
+                ],
+            )
+        )
+
+        await session.refresh(approval)
+        assert approval.approved_by == test_user.id
 
     async def test_apply_approval_sets_updated_at_on_conflict(
         self,

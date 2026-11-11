@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import and_, case, func, null, or_, select
+from sqlalchemy import and_, case, exists, func, literal_column, null, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
 
@@ -630,14 +630,18 @@ class ApprovalManager:
                     "updated_at": func.now(),
                 },
                 # The run holds the accepted decision's approver; the API's record
-                # of a deduplicated retry may name the retrier instead.
+                # of a deduplicated retry may name the retrier instead. Never
+                # restore a deleted user or replace an anonymized approver.
                 where=or_(
                     Approval.status == ApprovalStatus.PENDING,
                     Approval.status != stmt.excluded.status,
                     and_(
-                        stmt.excluded.approved_by.is_not(None),
-                        Approval.approved_by.is_distinct_from(
-                            stmt.excluded.approved_by
+                        Approval.approved_by.is_not(None),
+                        Approval.approved_by != stmt.excluded.approved_by,
+                        # Literal: a column of excluded would add it as a FROM.
+                        exists().where(
+                            User.__table__.c.id
+                            == literal_column("excluded.approved_by")
                         ),
                     ),
                 ),
