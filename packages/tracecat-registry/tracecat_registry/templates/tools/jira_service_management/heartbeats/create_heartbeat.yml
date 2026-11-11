@@ -1,0 +1,76 @@
+type: action
+definition:
+  title: Create heartbeat
+  description: >-
+    Create a heartbeat monitor for a team. When the heartbeat stops receiving
+    pings within its interval, Jira Service Management raises an alert.
+    Heartbeat names must be unique within the team.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-heartbeats/#api-v1-teams-teamid-heartbeats-post
+  namespace: tools.jira_service_management
+  name: create_heartbeat
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    team_id:
+      type: str
+      description: Identifier of the team that owns the heartbeat.
+    name:
+      type: str
+      description: Unique name of the heartbeat within the team.
+    interval:
+      type: int
+      description: Number of interval units before the heartbeat expires and an alert is raised.
+    interval_unit:
+      type: str
+      description: Unit of the interval. One of "minutes", "hours", or "days".
+    description:
+      type: str | None
+      description: Detailed description of the heartbeat.
+      default: null
+    enabled:
+      type: bool | None
+      description: Whether the heartbeat is active. Defaults to true when omitted.
+      default: null
+    alert_message:
+      type: str | None
+      description: Message of the alert raised when the heartbeat expires.
+      default: null
+    alert_tags:
+      type: list[str] | None
+      description: Tags applied to the alert raised when the heartbeat expires.
+      default: null
+    alert_priority:
+      type: str | None
+      description: Priority (P1, P2, P3, P4, P5) of the alert raised when the heartbeat expires.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.transform.reshape
+      args:
+        value:
+          name: ${{ inputs.name }}
+          interval: ${{ inputs.interval }}
+          intervalUnit: ${{ inputs.interval_unit }}
+          description: ${{ inputs.description }}
+          enabled: ${{ inputs.enabled }}
+          alertMessage: ${{ inputs.alert_message }}
+          alertTags: ${{ inputs.alert_tags }}
+          alertPriority: ${{ inputs.alert_priority }}
+    - ref: create_heartbeat
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/teams/${{ inputs.team_id }}/heartbeats
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_heartbeat.result.data }}

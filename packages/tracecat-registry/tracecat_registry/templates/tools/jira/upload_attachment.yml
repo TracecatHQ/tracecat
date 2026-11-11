@@ -7,8 +7,13 @@ definition:
   namespace: tools.jira
   name: upload_attachment
   secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
     - name: jira
       keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
   expects:
     base64_content:
       type: str
@@ -24,18 +29,21 @@ definition:
       description: Jira issue key or ID to upload the attachment to (e.g., "PROJ-123").
     base_url:
       type: str | None
-      description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
+      description: >-
+        Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian
+        OAuth, use https://api.atlassian.com/ex/jira/{cloudId}.
       default: null
   steps:
+    - ref: resolve_auth
+      action: tools.jira.resolve_auth_type
+      args: {}
     - ref: upload_attachment
       action: core.http_request
       args:
         url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issue/${{ inputs.ticket }}/attachments
         method: POST
-        auth:
-          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
-          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if steps.resolve_auth.result == "oauth" else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.jira.JIRA_USEREMAIL, SECRETS.jira.JIRA_API_TOKEN))) }}
           X-Atlassian-Token: nocheck
         files:
           file:

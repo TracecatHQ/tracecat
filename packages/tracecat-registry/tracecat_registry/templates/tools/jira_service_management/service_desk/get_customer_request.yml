@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Get customer request by id or key
+  description: >-
+    Get a customer service request from Jira Service Management by its ID or key.
+    Returns the full details of the request including status, reporter, and request field values.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-get
+  namespace: tools.jira_service_management
+  name: get_customer_request
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    issue_id_or_key:
+      type: str
+      description: ID or key of the customer request (e.g. SD-123).
+    expand:
+      type: list[str] | None
+      description: >-
+        List of properties to expand in the response. Valid values include
+        participant, status, sla, requestType, serviceDesk, attachment,
+        action, comment, and comment.renderedBody.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+  steps:
+    - ref: build_params
+      action: core.transform.reshape
+      args:
+        value:
+          expand: ${{ FN.join(inputs.expand, ",") if inputs.expand else None }}
+    - ref: get_customer_request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/request/${{ inputs.issue_id_or_key }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+          X-ExperimentalApi: opt-in
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.get_customer_request.result.data }}

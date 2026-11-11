@@ -347,11 +347,11 @@ class Repository:
             author=defn.author,
             deprecated=defn.deprecated,
             secrets=defn.secrets,
+            # Always build a concrete model: a bare `BaseModel` cannot validate,
+            # so a template without inputs could not be called as a step.
             args_cls=create_expectation_model(
                 expectation, defn.action.replace(".", "__")
-            )
-            if expectation
-            else BaseModel,
+            ),
             args_docs={
                 key: schema.description or "-" for key, schema in expectation.items()
             },

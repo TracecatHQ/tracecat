@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Get next on-call participants
+  description: >-
+    Retrieve who is on-call in the next rotation period for a schedule,
+    optionally relative to a specific point in time.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-schedule-on-calls/#api-rest-v1-schedules-scheduleid-next-on-calls-get
+  namespace: tools.jira_service_management
+  name: get_next_on_calls
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    schedule_id:
+      type: str
+      description: Identifier of the schedule.
+    date:
+      type: str | None
+      description: >-
+        Point in time (ISO 8601) to query the next on-call responders relative to.
+        Defaults to the current time when omitted.
+      default: null
+    flat:
+      type: bool | None
+      description: >-
+        When true, returns a flattened list of on-call user IDs.
+        When false, returns detailed participant objects.
+      default: null
+  steps:
+    - ref: get_next_on_calls
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/schedules/${{ inputs.schedule_id }}/next-on-calls
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          date: ${{ inputs.date }}
+          flat: ${{ inputs.flat }}
+  returns: ${{ steps.get_next_on_calls.result.data }}

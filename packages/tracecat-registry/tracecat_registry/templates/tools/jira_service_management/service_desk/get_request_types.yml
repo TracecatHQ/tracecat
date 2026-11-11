@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Get request types
+  description: >-
+    Get the request types for a service desk in Jira Service Management.
+    Use this to discover valid request type IDs for creating service requests.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-servicedesk/#api-rest-servicedeskapi-servicedesk-servicedeskid-requesttype-get
+  namespace: tools.jira_service_management
+  name: get_request_types
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    service_desk_id:
+      type: str
+      description: The ID of the service desk.
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    limit:
+      type: int
+      description: Maximum number of request types to return.
+      default: 50
+    start:
+      type: int
+      description: Starting index of the returned request types.
+      default: 0
+  steps:
+    - ref: get_request_types
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/servicedesk/${{ inputs.service_desk_id }}/requesttype
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+          X-ExperimentalApi: opt-in
+        params:
+          limit: ${{ inputs.limit }}
+          start: ${{ inputs.start }}
+  returns: ${{ steps.get_request_types.result.data.values }}
