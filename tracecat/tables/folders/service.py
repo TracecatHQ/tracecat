@@ -16,7 +16,11 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Table, TableFolder
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.managed_resources.guard import ensure_none_managed, ensure_unmanaged
+from tracecat.managed_resources.guard import (
+    ensure_none_managed,
+    ensure_unmanaged,
+    hold_for_customer_write,
+)
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -114,8 +118,11 @@ class TableFolderService(BaseWorkspaceService):
         """Refuse a change that moves managed tables under ``path``.
 
         A managed table's folder path is part of its spec, so renaming, moving
-        or deleting any folder above it edits the table.
+        or deleting any folder above it edits the table. The ownership lock is
+        taken before reading the subtree so a rollout can't move a managed
+        table into it between the read and the check.
         """
+        await hold_for_customer_write(self.session, self.workspace_id)
         folder_ids = select(TableFolder.id).where(
             TableFolder.workspace_id == self.workspace_id,
             TableFolder.path.startswith(path, autoescape=True),
