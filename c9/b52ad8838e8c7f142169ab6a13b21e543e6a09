@@ -1,0 +1,82 @@
+tests/unit/test_registry_repositories_service.py
+  s_e9730baf0dd1d5::t_37512539e0181b 18-21,24-25,185,205,237,257,286-379
+deployments/fargate/modules/ecs/alb.tf
+  s_e9730baf0dd1d5::t_37512539e0181b 12-36
+tests/unit/test_mcp_catalog_loader.py
+  s_e9730baf0dd1d5::t_37512539e0181b 669-688
+tests/unit/api/test_api_actor_roles.py
+  s_e9730baf0dd1d5::t_37512539e0181b 687-696
+tracecat/registry/repositories/router.py
+  s_e9730baf0dd1d5::t_37512539e0181b 24,46-49,143,188,244,316,347
+deployments/fargate/main.tf
+  s_e9730baf0dd1d5::t_37512539e0181b 2,32-38
+  s_e9730baf0dd1d5::t_4592216ee68534 28-29
+packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json
+  s_e9730baf0dd1d5::t_37512539e0181b 2750-2779
+deployments/fargate/modules/ecs/tests/alb_logging.tftest.hcl
+  s_e9730baf0dd1d5::t_37512539e0181b 1-401
+docs/manage-platform/service-accounts.mdx
+  s_e9730baf0dd1d5::t_37512539e0181b 31
+tests/unit/test_registry_sync_base_service.py
+  s_e9730baf0dd1d5::t_37512539e0181b 669-670,683,714-715,724
+tests/unit/test_secrets_service.py
+  s_e9730baf0dd1d5::t_37512539e0181b 1,24,612-682
+  s_e9730baf0dd1d5::t_986ddbfc704633 683
+deployments/fargate/modules/ecs/main.tf
+  s_e9730baf0dd1d5::t_37512539e0181b 2
+frontend/src/components/mcp-catalog-icons.tsx
+  s_e9730baf0dd1d5::t_37512539e0181b 82-85
+tests/unit/test_service_accounts_validation.py
+  s_e9730baf0dd1d5::t_37512539e0181b 114,132
+frontend/src/components/organization/org-registry-versions.tsx
+  s_e9730baf0dd1d5::t_37512539e0181b 18,371-380
+tracecat/service_accounts/constants.py
+  s_e9730baf0dd1d5::t_37512539e0181b 84-85
+tracecat/registry/repositories/service.py
+  s_e9730baf0dd1d5::t_37512539e0181b 11-12,16,31-46,167
+deployments/fargate/modules/ecs/variables.tf
+  s_e9730baf0dd1d5::t_37512539e0181b 1117-1142,1144
+  s_e9730baf0dd1d5::t_44bfcc58d02261 1143
+deployments/fargate/variables.tf
+  s_e9730baf0dd1d5::t_37512539e0181b 1071-1096,1098
+  s_e9730baf0dd1d5::t_90f550dc521d14 1097
+docs/custom-actions/custom-registry.mdx
+  s_e9730baf0dd1d5::t_37512539e0181b 73-87
+tracecat/registry/sync/base_service.py
+  s_e9730baf0dd1d5::t_37512539e0181b 698
+scripts/rls_sweep.py
+  s_e9730baf0dd1d5::t_37512539e0181b 1-2256
+deployments/fargate/outputs.tf
+  s_e9730baf0dd1d5::t_37512539e0181b 199-203
+deployments/fargate/README.md
+  s_e9730baf0dd1d5::t_c5e3078378a845 214
+  s_e9730baf0dd1d5::t_37512539e0181b 185-213
+tracecat/integrations/catalog/mcp_catalog.json
+  s_e9730baf0dd1d5::t_37512539e0181b 440-446
+deployments/fargate/modules/ecs/waf-handoff.tf
+  s_e9730baf0dd1d5::t_37512539e0181b 1-49
+deployments/fargate/modules/ecs/outputs.tf
+  s_e9730baf0dd1d5::t_37512539e0181b 176-180
+frontend/src/components/icons.test.tsx
+  s_e9730baf0dd1d5::t_37512539e0181b 245-250
+tracecat/secrets/service.py
+  s_e9730baf0dd1d5::t_37512539e0181b 17,65-71,588,601-614,618,620-625
+tests/unit/api/test_api_registry_repositories_commits.py
+  s_e9730baf0dd1d5::t_37512539e0181b 78-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c9b52ad8838e8c7f142169ab6a13b21e543e6a09",
+  "prompts": {},
+  "sessions": {
+    "s_e9730baf0dd1d5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c2b7-a40d-7cb0-a443-d045b64a4ce8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
