@@ -10,6 +10,7 @@ from tracecat.agent.session.types import (
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.projection import validate_artifacts
 from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 from tracecat.db.models import AgentSession
 
 
@@ -29,6 +30,8 @@ def build_session_read(
         is_readonly=blocked or not_owner,
         # Anyone in the channel can decide; workspace members may too.
         can_decide_approvals=not blocked
+        and role.scopes is not None
+        and has_scope(role.scopes, "agent:execute")
         and (
             not not_owner
             or is_ownerless_channel_session(session.entity_type, session.created_by)

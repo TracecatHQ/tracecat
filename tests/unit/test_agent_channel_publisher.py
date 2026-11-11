@@ -179,8 +179,11 @@ async def test_publish_all_reports_whether_every_update_went_out(
     assert await publish_all(ROLE, UPDATES[:2]) is True
     assert await publish_all(ROLE, []) is True
 
-    installed(_EntryPoint("example", lambda: _RecordingPublisher(error=RuntimeError())))
-    assert await publish_all(ROLE, [TURN_FINISHED]) is False
+    publisher = _RecordingPublisher(error=RuntimeError())
+    installed(_EntryPoint("example", lambda: publisher))
+    assert await publish_all(ROLE, [TURN_FINISHED, TURN_FINISHED]) is False
+    # A failed update does not stop the next one.
+    assert publisher.attempts == 6
 
 
 def test_approval_batch_id_tells_apart_ids_that_join_alike() -> None:

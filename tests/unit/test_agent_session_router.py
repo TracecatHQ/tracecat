@@ -2014,6 +2014,38 @@ def test_members_decide_approvals_only_on_ownerless_channel_sessions(
     assert read.can_decide_approvals is can_decide
 
 
+@pytest.mark.parametrize(
+    ("scopes", "can_decide"),
+    [
+        (frozenset({"agent:execute"}), True),
+        (frozenset({"agent:read"}), False),
+        (None, False),
+    ],
+)
+def test_deciding_approvals_needs_the_execute_scope(
+    scopes: frozenset[str] | None, can_decide: bool
+) -> None:
+    user_id = uuid.uuid4()
+    session_stub = _agent_session_stub(backend_id="external", created_by=user_id)
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=user_id,
+        workspace_id=session_stub.workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+    provider = DefaultBackend()
+    with (
+        patch.object(
+            registry, "get_agent_backends", return_value={"external": provider}
+        ),
+        patch.object(provider, "is_enabled", return_value=True),
+    ):
+        read = build_session_read(cast(Any, session_stub), role)
+    assert read.can_decide_approvals is can_decide
+
+
 class _TrackedSession:
     def __init__(self) -> None:
         self.closed = False

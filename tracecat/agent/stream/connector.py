@@ -167,7 +167,11 @@ class AgentStream:
     async def is_stalled_approval_continuation(self, *, older_than: float) -> bool:
         """Return whether the marker is this continuation's only entry, ``older_than`` seconds on."""
         entries = await self.client.xrange(self._stream_key, count=2)
-        if len(entries) != 1 or await self.approval_continuation_marker() is None:
+        if (
+            len(entries) != 1
+            or orjson.loads(entries[0][1][tokens.DATA_KEY]).get("kind")
+            != self.CONTINUATION_START_KIND
+        ):
             return False
         # Stream entry ids start with their append time in milliseconds.
         appended_ms = int(entries[0][0].split("-", 1)[0])

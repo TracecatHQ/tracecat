@@ -274,6 +274,8 @@ async def test_stream_resume_distinguishes_pause_from_rotated_continuation(
         state = await service.get_stream_resume_state(external_agent_session)
 
     assert state.has_live_stream is expected_live
+    # One read for the stall check, one for the continuation check.
+    assert stream_new.await_count == 2
     stream_new.assert_awaited_with(
         session_id=external_agent_session.id,
         workspace_id=svc_role.workspace_id,
@@ -1817,6 +1819,13 @@ async def test_approval_connection_failure_keeps_the_decision_and_allows_retry(
         await session.refresh(agent_session)
         continuation_stream_id = agent_session.active_stream_id
         assert continuation_stream_id != previous_stream_id
+        approval_status = await session.scalar(
+            select(Approval.status).where(
+                Approval.session_id == agent_session.id,
+                Approval.tool_call_id == "tool_call_123",
+            )
+        )
+        assert approval_status is ApprovalStatus.APPROVED
         result = await service.run_turn(agent_session.id, continuation)
     assert result is not None
     assert result.active_stream_id == continuation_stream_id
