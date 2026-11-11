@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
@@ -1140,6 +1140,76 @@ async def test_concurrent_creates_add_new_tags_in_any_order(svc_role: Role) -> N
                 delete(CaseTag).where(
                     CaseTag.workspace_id == svc_role.workspace_id,
                     CaseTag.ref.in_([alpha, beta]),
+                )
+            )
+            await session.commit()
+
+
+@pytest.mark.anyio
+async def test_tagged_create_waits_for_an_import_that_renames_its_tag(
+    svc_role: Role,
+) -> None:
+    """A create and an import that renames its tag, then alters case fields, both finish.
+
+    The create locks its tags before it writes a case fields row, so it waits
+    for the import's rename. Locking them only when linking, after the fields
+    row, made the import's `ALTER TABLE` and the create wait on each other.
+    """
+    assert svc_role.workspace_id is not None
+    suffix = uuid.uuid4().hex[:8]
+    column = f"probe_{suffix}"
+    case_ids: list[uuid.UUID] = []
+    async with get_async_session_bypass_rls_context_manager() as session:
+        cases = CasesService(session=session, role=svc_role)
+        tag = await cases.tags.create_tag(TagCreate(name=f"Renamed {suffix}"))
+        primer = await cases.create_case(_tagged_case_create("Primer"))
+        case_ids.append(primer.id)
+        tag_id, schema = tag.id, cases.fields.schema_name
+
+    async def create() -> None:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            case = await CasesService(session=session, role=svc_role).create_case(
+                _tagged_case_create("Tagged during import"), tags=[str(tag_id)]
+            )
+            case_ids.append(case.id)
+
+    async def lock_waits(session: AsyncSession) -> int:
+        result = await session.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+            )
+        )
+        # pg_stat_activity keeps one snapshot per transaction; end it to poll.
+        await session.rollback()
+        return int(result or 0)
+
+    try:
+        async with (
+            get_async_session_bypass_rls_context_manager() as importer,
+            get_async_session_bypass_rls_context_manager() as observer,
+        ):
+            await importer.execute(
+                update(CaseTag)
+                .where(CaseTag.id == tag_id)
+                .values(name=f"Renamed again {suffix}")
+            )
+            creating = asyncio.create_task(create())
+            async with asyncio.timeout(10):
+                while not await lock_waits(observer):
+                    await asyncio.sleep(0.05)
+            await importer.execute(
+                text(f'ALTER TABLE "{schema}".case_fields ADD COLUMN {column} TEXT')
+            )
+            await importer.commit()
+            await asyncio.wait_for(creating, timeout=10)
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await session.execute(delete(Case).where(Case.id.in_(case_ids)))
+            await session.execute(delete(CaseTag).where(CaseTag.id == tag_id))
+            await session.execute(
+                text(
+                    f'ALTER TABLE "{schema}".case_fields DROP COLUMN IF EXISTS {column}'
                 )
             )
             await session.commit()

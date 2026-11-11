@@ -355,16 +355,28 @@ class CaseTagsService(BaseWorkspaceService):
     async def resolve_tags(
         self, tag_identifiers: Sequence[str], *, create_if_missing: bool = False
     ) -> list[CaseTag]:
-        """Resolve several tags without committing, returned in the order given.
+        """Resolve and lock several tags without committing, in the order given.
 
         Missing tags are created in ref order. A caller that holds its new tag
         rows until a later commit then can't deadlock with another caller
         creating the same tags in a different order.
+
+        Every tag is then locked ``FOR KEY SHARE``, the lock linking it to a case
+        takes anyway. Taking it before the caller writes anything else means a
+        workspace import that renames the tag and then alters case fields waits
+        for the caller instead of deadlocking with it.
         """
         resolved: dict[str, CaseTag] = {}
         for identifier in sorted(set(tag_identifiers), key=lambda t: (slugify(t), t)):
             resolved[identifier] = await self.resolve_tag(
                 identifier, create_if_missing=create_if_missing
+            )
+        if resolved:
+            await self.session.execute(
+                select(CaseTag.id)
+                .where(CaseTag.id.in_({tag.id for tag in resolved.values()}))
+                .order_by(CaseTag.id)
+                .with_for_update(key_share=True)
             )
         return [resolved[identifier] for identifier in tag_identifiers]
 
