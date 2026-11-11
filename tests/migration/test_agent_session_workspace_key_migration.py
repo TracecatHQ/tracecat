@@ -18,7 +18,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.db.models import Base
 
 MIGRATION_REVISION = "ec392d96f2b0"
-PREVIOUS_REVISION = "4a17af960e05"
+PREVIOUS_REVISION = "4ea30f9ea491"
 CONSTRAINT = "uq_agent_session_id_workspace_id"
 
 
@@ -96,11 +96,30 @@ def test_upgrade_matches_the_model_retries_and_downgrades(db_url: str) -> None:
     try:
         assert _model_drift(engine)
         with engine.begin() as conn:
-            # A failed concurrent build leaves an index the retry must replace.
+            # Not this revision's index: the retry must replace it.
             conn.execute(text(f'CREATE INDEX "{CONSTRAINT}" ON agent_session (id)'))
         _alembic(db_url, "upgrade", MIGRATION_REVISION)
         assert _constraint(engine) == "UNIQUE (id, workspace_id)"
         assert _model_drift(engine) == []
+
+        # A retry after the index built but before the constraint keeps the index.
+        _alembic(db_url, "downgrade", PREVIOUS_REVISION)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    f'CREATE UNIQUE INDEX "{CONSTRAINT}"'
+                    " ON agent_session (id, workspace_id)"
+                )
+            )
+            built = conn.execute(
+                text("SELECT to_regclass(:name)::oid"), {"name": f"public.{CONSTRAINT}"}
+            ).scalar_one()
+        _alembic(db_url, "upgrade", MIGRATION_REVISION)
+        with engine.connect() as conn:
+            kept = conn.execute(
+                text("SELECT to_regclass(:name)::oid"), {"name": f"public.{CONSTRAINT}"}
+            ).scalar_one()
+        assert kept == built
 
         _alembic(db_url, "downgrade", PREVIOUS_REVISION)
         assert _constraint(engine) is None

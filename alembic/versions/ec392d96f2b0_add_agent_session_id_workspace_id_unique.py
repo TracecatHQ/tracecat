@@ -11,6 +11,8 @@ the new key cannot reject any existing or future row.
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -22,15 +24,39 @@ depends_on: str | Sequence[str] | None = None
 _CONSTRAINT = "uq_agent_session_id_workspace_id"
 
 
+_INDEX_DEF = (
+    f"CREATE UNIQUE INDEX {_CONSTRAINT} ON public.agent_session"
+    " USING btree (id, workspace_id)"
+)
+
+
+def _index_ready() -> bool | None:
+    """None when absent; False when invalid or not this revision's index."""
+    return (
+        op.get_bind()
+        .execute(
+            sa.text("""
+        SELECT i.indisvalid AND i.indisready AND pg_get_indexdef(i.indexrelid) = :def
+        FROM pg_index i
+        WHERE i.indexrelid = to_regclass(:name)
+    """),
+            {"name": f"public.{_CONSTRAINT}", "def": _INDEX_DEF},
+        )
+        .scalar_one_or_none()
+    )
+
+
 def upgrade() -> None:
     with op.get_context().autocommit_block():
-        # A failed concurrent build leaves an invalid index behind. Rebuild it
-        # so a retry never adopts a partial index.
-        op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{_CONSTRAINT}"')
-        op.execute(
-            f'CREATE UNIQUE INDEX CONCURRENTLY "{_CONSTRAINT}"'
-            " ON agent_session (id, workspace_id)"
-        )
+        ready = _index_ready()
+        # A retry keeps a built index; it rebuilds one a failed build left invalid.
+        if ready is False:
+            op.execute(f'DROP INDEX CONCURRENTLY "{_CONSTRAINT}"')
+        if not ready:
+            op.execute(
+                f'CREATE UNIQUE INDEX CONCURRENTLY "{_CONSTRAINT}"'
+                " ON agent_session (id, workspace_id)"
+            )
     # Attaching the built index is catalog-only but takes ACCESS EXCLUSIVE; fail
     # fast rather than queue session reads behind a long transaction.
     op.execute("SET LOCAL lock_timeout = '10s'")
