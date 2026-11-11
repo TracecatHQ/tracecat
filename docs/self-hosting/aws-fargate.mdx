@@ -109,7 +109,7 @@ terraform apply
 ## WAF (legacy)
 
 <Info>
-  Manage AWS WAF separately through CloudFormation or your own security tooling.
+  Manage AWS WAF rules, ALB associations, event logging, and monitoring through a separate CloudFormation stack or your own security tooling.
   Get the ALB ARN with `terraform output -raw alb_arn`, then use your security tooling to associate a `REGIONAL` web ACL in the ALB's AWS account and region.
   Existing deployments keep their WAF when upgrading with Terraform 1.7+ and the bundled `waf-handoff.tf`.
   See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145) for migration, manual setup, and troubleshooting.
