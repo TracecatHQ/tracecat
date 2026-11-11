@@ -108,10 +108,7 @@ class ChannelPublisher(Protocol):
         ...
 
     async def publish(self, role: Role, update: RunUpdate) -> str | None:
-        """Post the update and return the posted message's ref, if any.
-
-        ``ApprovalDecided`` can arrive twice for a batch; render it from current state.
-        """
+        """Post the update and return the posted message's ref, if any."""
         ...
 
 

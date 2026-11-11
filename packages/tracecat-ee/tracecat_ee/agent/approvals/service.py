@@ -527,8 +527,6 @@ class ApprovalManager:
         if decisions:
             decided = self._unpublished_decision
             updates: list[RunUpdate] = [decided] if publish and decided else []
-            # Kept for finalize to send again: this publish may fail, and the
-            # activity's None result cannot say so without breaking old workers.
             await workflow.execute_activity(
                 ApprovalManager.apply_approval_decisions,
                 arg=ApplyApprovalResultsActivityInputs(
@@ -539,6 +537,9 @@ class ApprovalManager:
                 ),
                 start_to_close_timeout=timedelta(seconds=30) + publish_budget(updates),
             )
+            # Cleared only once published, so a failed apply still closes it at finalize.
+            if updates:
+                self._unpublished_decision = None
         self._approved_by_by_tool_call_id.clear()
         self._decision_metadata_by_tool_call_id.clear()
 

@@ -279,7 +279,7 @@ class TestApprovalManager:
         decided = {d.tool_call_id: d.approved for d in payload.decisions}
         assert decided == {"call_123": False, "call_456": True}
 
-    async def test_handle_decisions_keeps_the_decision_for_finalize_to_resend(
+    async def test_handle_decisions_publishes_the_decision_once(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallContent],
@@ -299,8 +299,7 @@ class TestApprovalManager:
 
         assert execute_activity.await_args is not None
         assert execute_activity.await_args.kwargs["arg"].channel_updates == [decided]
-        # The apply's publish may have failed unseen; finalize sends it again.
-        assert approval_manager.take_unpublished_decision() == [decided]
+        assert approval_manager.take_unpublished_decision() == []
 
     def test_apply_approval_decisions_result_stays_none(self) -> None:
         # Workers before this result decode it as None; any other value fails replay.
