@@ -251,8 +251,9 @@ resource "aws_iam_policy" "temporal_secrets_access" {
 
 # API execution role
 resource "aws_iam_role" "api_execution" {
-  name               = "${var.iam_name_prefix}APIExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  name                 = "${var.iam_name_prefix}APIExecutionRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "api_execution_ecs_poll" {
@@ -278,8 +279,9 @@ resource "aws_iam_role_policy_attachment" "api_execution_smtp_password" {
 
 # Worker execution role
 resource "aws_iam_role" "worker_execution" {
-  name               = "${var.iam_name_prefix}WorkerExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  name                 = "${var.iam_name_prefix}WorkerExecutionRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "worker_execution_ecs_poll" {
@@ -294,8 +296,9 @@ resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
 
 # API and Worker task role
 resource "aws_iam_role" "api_worker_task" {
-  name               = "${var.iam_name_prefix}APIWorkerTaskRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  name                 = "${var.iam_name_prefix}APIWorkerTaskRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "api_worker_task_db_access" {
@@ -339,8 +342,9 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_temporal_payload_encr
 }
 
 resource "aws_iam_role" "executor_task" {
-  name               = "${var.iam_name_prefix}ExecutorTaskRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  name                 = "${var.iam_name_prefix}ExecutorTaskRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "executor_task_db_access" {
@@ -420,8 +424,9 @@ resource "aws_iam_role_policy_attachment" "executor_task_temporal_payload_encryp
 
 # UI execution role
 resource "aws_iam_role" "ui_execution" {
-  name               = "${var.iam_name_prefix}UIExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  name                 = "${var.iam_name_prefix}UIExecutionRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "ui_execution_ecs_poll" {
@@ -437,9 +442,10 @@ resource "aws_iam_role_policy_attachment" "ui_execution_secrets" {
 
 # Temporal execution role
 resource "aws_iam_role" "temporal_execution" {
-  count              = var.disable_temporal_autosetup ? 0 : 1
-  name               = "${var.iam_name_prefix}TemporalExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  count                = var.disable_temporal_autosetup ? 0 : 1
+  name                 = "${var.iam_name_prefix}TemporalExecutionRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "temporal_execution_ecs_poll" {
@@ -456,9 +462,10 @@ resource "aws_iam_role_policy_attachment" "temporal_execution_secrets" {
 
 # Temporal task role
 resource "aws_iam_role" "temporal_task" {
-  count              = var.disable_temporal_autosetup ? 0 : 1
-  name               = "${var.iam_name_prefix}TemporalTaskRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  count                = var.disable_temporal_autosetup ? 0 : 1
+  name                 = "${var.iam_name_prefix}TemporalTaskRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "temporal_task_db_access" {
@@ -484,9 +491,10 @@ resource "aws_iam_role_policy" "temporal_task_db_access" {
 
 # MCP execution role
 resource "aws_iam_role" "mcp_execution" {
-  count              = var.enable_mcp ? 1 : 0
-  name               = "${var.iam_name_prefix}MCPExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  count                = var.enable_mcp ? 1 : 0
+  name                 = "${var.iam_name_prefix}MCPExecutionRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "mcp_execution_ecs_poll" {
@@ -515,9 +523,10 @@ resource "aws_iam_role_policy_attachment" "mcp_execution_cloudwatch_logs" {
 
 # MCP task role
 resource "aws_iam_role" "mcp_task" {
-  count              = var.enable_mcp ? 1 : 0
-  name               = "${var.iam_name_prefix}MCPTaskRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  count                = var.enable_mcp ? 1 : 0
+  name                 = "${var.iam_name_prefix}MCPTaskRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "mcp_task_db_access" {
@@ -588,8 +597,9 @@ resource "aws_iam_role_policy_attachment" "mcp_task_temporal_payload_encryption_
 
 # LiteLLM execution role
 resource "aws_iam_role" "litellm_execution" {
-  name               = "${var.iam_name_prefix}LitellmExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  name                 = "${var.iam_name_prefix}LitellmExecutionRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "litellm_execution_ecs_poll" {
@@ -609,8 +619,9 @@ resource "aws_iam_role_policy_attachment" "litellm_execution_cloudwatch_logs" {
 
 # LiteLLM task role
 resource "aws_iam_role" "litellm_task" {
-  name               = "${var.iam_name_prefix}LitellmTaskRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  name                 = "${var.iam_name_prefix}LitellmTaskRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "litellm_task_db_access" {
@@ -657,8 +668,9 @@ resource "aws_iam_role_policy" "litellm_task_assume_role" {
 
 # Caddy execution role
 resource "aws_iam_role" "caddy_execution" {
-  name               = "${var.iam_name_prefix}CaddyExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  name                 = "${var.iam_name_prefix}CaddyExecutionRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "caddy_execution_ecs_poll" {
@@ -736,9 +748,10 @@ resource "aws_iam_policy" "temporal_ui_secrets_access" {
 }
 
 resource "aws_iam_role" "temporal_ui_execution" {
-  count              = var.disable_temporal_ui ? 0 : 1
-  name               = "${var.iam_name_prefix}TemporalUIExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  count                = var.disable_temporal_ui ? 0 : 1
+  name                 = "${var.iam_name_prefix}TemporalUIExecutionRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "temporal_ui_execution_ecs_poll" {
@@ -761,7 +774,8 @@ resource "aws_iam_role_policy_attachment" "temporal_ui_execution_secrets" {
 
 # Temporal UI task role (minimal permissions)
 resource "aws_iam_role" "temporal_ui_task" {
-  count              = var.disable_temporal_ui ? 0 : 1
-  name               = "${var.iam_name_prefix}TemporalUITaskRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  permissions_boundary = var.iam_role_permissions_boundary
+  count                = var.disable_temporal_ui ? 0 : 1
+  name                 = "${var.iam_name_prefix}TemporalUITaskRole"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
 }

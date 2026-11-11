@@ -1,3 +1,14 @@
+variable "iam_role_permissions_boundary" {
+  description = "IAM permissions boundary managed-policy ARN selected by the platform administrator and applied to every workload role created by this stack. Null preserves installs without a boundary."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.iam_role_permissions_boundary == null ? true : can(regex("^arn:[a-z0-9-]+:iam::(aws|[0-9]{12}):policy/.+$", var.iam_role_permissions_boundary))
+    error_message = "iam_role_permissions_boundary must be an IAM managed-policy ARN or null."
+  }
+}
+
 ## AWS provider variables
 
 variable "aws_region" {

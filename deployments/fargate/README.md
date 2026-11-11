@@ -211,3 +211,19 @@ them. Existing protection remains attached; arrange an explicit ownership
 handoff, such as CloudFormation resource import, before changing those resources.
 Do not replace these declarations with an ordinary resource deletion or a destroy
 plan. New deployments need a separately provisioned WAF if protection is required.
+
+## Workload IAM permissions boundary
+
+Set `iam_role_permissions_boundary` to the managed-policy ARN maintained by your
+platform administrator to apply one ceiling to every task and execution role,
+including optional services. For example:
+
+```hcl
+iam_role_permissions_boundary = "arn:aws:iam::123456789012:policy/WorkloadBoundary"
+```
+
+The default is `null` for installations without a boundary. Setting the input
+updates existing roles in place and preserves their names and ARNs. Review the
+full plan and reject any deletion or replacement before applying. Manage the boundary policy separately from this workload stack.
+Add service permissions to workload identity policies within that ceiling; keep
+the boundary ARN stable when extending its approved scopes.
