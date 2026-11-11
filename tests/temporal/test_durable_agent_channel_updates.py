@@ -308,10 +308,11 @@ async def test_approval_updates_ride_the_approval_activities(
             ("finalize_turn", [decided, finished]),
         ]
     else:
+        # Finalize sends the decision again in case the apply's publish failed.
         expected = [
             ("record_approval_requests", [pending]),
             ("apply_approval_decisions", [decided]),
-            ("finalize_turn", [finished]),
+            ("finalize_turn", [decided, finished]),
         ]
     assert recorder.steps == expected
     await replay_durable_agent_workflow_history(temporal_client, history)

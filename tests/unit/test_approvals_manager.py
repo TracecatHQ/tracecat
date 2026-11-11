@@ -1,6 +1,7 @@
 """Tests for ApprovalManager and Temporal activities."""
 
 import asyncio
+import typing
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -278,17 +279,10 @@ class TestApprovalManager:
         decided = {d.tool_call_id: d.approved for d in payload.decisions}
         assert decided == {"call_123": False, "call_456": True}
 
-    @pytest.mark.parametrize(
-        ("published", "kept"),
-        [(True, False), (False, True), (None, False)],
-        ids=["published", "publish-failed", "history-before-result"],
-    )
-    async def test_handle_decisions_keeps_an_unpublished_decision_for_finalize(
+    async def test_handle_decisions_keeps_the_decision_for_finalize_to_resend(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallContent],
-        published: bool | None,
-        kept: bool,
     ) -> None:
         approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
         approval_manager.set({"call_123": True, "call_456": True})
@@ -299,13 +293,19 @@ class TestApprovalManager:
 
         with patch(
             "tracecat_ee.agent.approvals.service.workflow.execute_activity",
-            AsyncMock(return_value=published),
-        ):
+            AsyncMock(return_value=None),
+        ) as execute_activity:
             await approval_manager.handle_decisions()
 
-        assert approval_manager.take_unpublished_decision() == (
-            [decided] if kept else []
-        )
+        assert execute_activity.await_args is not None
+        assert execute_activity.await_args.kwargs["arg"].channel_updates == [decided]
+        # The apply's publish may have failed unseen; finalize sends it again.
+        assert approval_manager.take_unpublished_decision() == [decided]
+
+    def test_apply_approval_decisions_result_stays_none(self) -> None:
+        # Workers before this result decode it as None; any other value fails replay.
+        hints = typing.get_type_hints(ApprovalManager.apply_approval_decisions)
+        assert hints["return"] is type(None)
 
 
 @pytest.mark.anyio

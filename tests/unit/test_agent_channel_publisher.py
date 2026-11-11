@@ -18,7 +18,6 @@ from tracecat.agent.channel_publisher import (
     approval_batch_id,
     get_channel_publisher,
     is_channel_linked,
-    publish_all,
     publish_updates,
 )
 from tracecat.agent.session.activities import FinalizeTurnInput
@@ -169,21 +168,6 @@ async def test_a_failed_publish_retries_then_gives_up_quietly(
 
     assert publisher.attempts == 2 * attempts
     assert no_backoff == delays * 2
-
-
-@pytest.mark.anyio
-async def test_publish_all_reports_whether_every_update_went_out(
-    installed, no_backoff: list[float]
-) -> None:
-    installed(_EntryPoint("example", _RecordingPublisher))
-    assert await publish_all(ROLE, UPDATES[:2]) is True
-    assert await publish_all(ROLE, []) is True
-
-    publisher = _RecordingPublisher(error=RuntimeError())
-    installed(_EntryPoint("example", lambda: publisher))
-    assert await publish_all(ROLE, [TURN_FINISHED, TURN_FINISHED]) is False
-    # A failed update does not stop the next one.
-    assert publisher.attempts == 6
 
 
 def test_approval_batch_id_tells_apart_ids_that_join_alike() -> None:

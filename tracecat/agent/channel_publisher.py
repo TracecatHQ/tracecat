@@ -14,7 +14,6 @@ import asyncio
 import json
 import uuid
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
 from datetime import timedelta
 from functools import lru_cache
 from importlib.metadata import entry_points
@@ -109,7 +108,10 @@ class ChannelPublisher(Protocol):
         ...
 
     async def publish(self, role: Role, update: RunUpdate) -> str | None:
-        """Post the update and return the posted message's ref, if any."""
+        """Post the update and return the posted message's ref, if any.
+
+        ``ApprovalDecided`` can arrive twice for a batch; render it from current state.
+        """
         ...
 
 
@@ -153,24 +155,10 @@ def publish_budget(updates: Sequence[RunUpdate]) -> timedelta:
 
 async def publish_updates(role: Role, updates: Sequence[RunUpdate]) -> list[str | None]:
     """Publish in order, after the host's own writes; never fails the host."""
-    return [(await _publish(role, update)).ref for update in updates]
+    return [await _publish(role, update) for update in updates]
 
 
-async def publish_all(role: Role, updates: Sequence[RunUpdate]) -> bool:
-    """Publish in order like ``publish_updates``; return whether every one went out."""
-    return all([(await _publish(role, update)).sent for update in updates])
-
-
-@dataclass(frozen=True, slots=True)
-class _PublishResult:
-    """Whether the update went out, and the posted message's ref (None when the
-    publisher returned none, even if sent)."""
-
-    sent: bool
-    ref: str | None
-
-
-async def _publish(role: Role, update: RunUpdate) -> _PublishResult:
+async def _publish(role: Role, update: RunUpdate) -> str | None:
     try:
         async with asyncio.timeout(PUBLISH_BUDGET.total_seconds()):
             publisher = get_channel_publisher()
@@ -179,9 +167,7 @@ async def _publish(role: Role, update: RunUpdate) -> _PublishResult:
                 raise RuntimeError("No channel publisher is installed")
             for attempt in range(1, _PUBLISH_ATTEMPTS + 1):
                 try:
-                    return _PublishResult(
-                        sent=True, ref=await publisher.publish(role, update)
-                    )
+                    return await publisher.publish(role, update)
                 except Exception as e:
                     definitive = isinstance(e, ApplicationError) and e.non_retryable
                     if definitive or attempt == _PUBLISH_ATTEMPTS:
@@ -198,4 +184,4 @@ async def _publish(role: Role, update: RunUpdate) -> _PublishResult:
             update=update.kind,
             error=repr(e),
         )
-    return _PublishResult(sent=False, ref=None)
+    return None
