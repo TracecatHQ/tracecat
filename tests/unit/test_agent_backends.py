@@ -1855,19 +1855,10 @@ async def test_backend_approval_errors_preserve_outcome_without_sdk_context(
 
 
 @pytest.mark.anyio
-async def test_approvals_unsent_for_a_connection_failure_are_uncertain():
-    # An identical submission shares the update id and may still land.
-    submission = WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
-    with patch(
-        "tracecat.agent.backends.base.get_temporal_client",
-        side_effect=RPCError("connection unavailable", RPCStatusCode.UNAVAILABLE, b""),
-    ):
-        with pytest.raises(AgentControlUncertain):
-            await DefaultBackend().submit_approvals(uuid4(), submission)
-
-
-@pytest.mark.anyio
-async def test_cancel_unsent_for_a_connection_failure_is_definitive():
+@pytest.mark.parametrize("control", ["submit_approvals", "cancel"])
+async def test_controls_unsent_for_a_connection_failure_are_uncertain(control: str):
+    # Controls use fixed update ids, so another attempt may still apply.
+    backend = DefaultBackend()
     with (
         patch("tracecat.agent.backends.base.signal_turn_cancel", AsyncMock()),
         patch(
@@ -1876,9 +1867,14 @@ async def test_cancel_unsent_for_a_connection_failure_is_definitive():
                 "connection unavailable", RPCStatusCode.UNAVAILABLE, b""
             ),
         ),
-        pytest.raises(AgentControlRejected),
+        pytest.raises(AgentControlUncertain),
     ):
-        await DefaultBackend().cancel(uuid4())
+        if control == "cancel":
+            await backend.cancel(uuid4())
+        else:
+            await backend.submit_approvals(
+                uuid4(), WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
+            )
 
 
 @pytest.mark.anyio
