@@ -352,6 +352,22 @@ class CaseTagsService(BaseWorkspaceService):
                 raise
             return await self._create_tag_if_missing(tag_identifier)
 
+    async def resolve_tags(
+        self, tag_identifiers: Sequence[str], *, create_if_missing: bool = False
+    ) -> list[CaseTag]:
+        """Resolve several tags without committing, returned in the order given.
+
+        Missing tags are created in ref order. A caller that holds its new tag
+        rows until a later commit then can't deadlock with another caller
+        creating the same tags in a different order.
+        """
+        resolved: dict[str, CaseTag] = {}
+        for identifier in sorted(set(tag_identifiers), key=lambda t: (slugify(t), t)):
+            resolved[identifier] = await self.resolve_tag(
+                identifier, create_if_missing=create_if_missing
+            )
+        return [resolved[identifier] for identifier in tag_identifiers]
+
     async def link_tag(self, case: Case, tag: CaseTag) -> bool:
         """Link a tag to a case and record a ``TAG_ADDED`` event without committing.
 

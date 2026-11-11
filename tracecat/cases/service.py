@@ -664,10 +664,9 @@ class CasesService(BaseWorkspaceService):
             await self.fields._ensure_schema_ready()
 
             # Resolve tags before writing the case so an unknown tag fails fast.
-            resolved_tags = [
-                await self.tags.resolve_tag(tag, create_if_missing=create_missing_tags)
-                for tag in tags
-            ]
+            resolved_tags = await self.tags.resolve_tags(
+                tags, create_if_missing=create_missing_tags
+            )
 
             parent = (
                 await self.hierarchy.lock_parent_for_new_sub_case(params.parent_id)

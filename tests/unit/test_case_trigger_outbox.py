@@ -1082,6 +1082,69 @@ async def test_overlapping_batches_start_each_run_once(
             await session.commit()
 
 
+@pytest.mark.anyio
+async def test_concurrent_creates_add_new_tags_in_any_order(svc_role: Role) -> None:
+    """Two creates adding the same new tags in opposite orders both succeed.
+
+    Each create holds its new tag rows until it commits. Both create them in
+    ref order, so neither holds a tag the other is waiting on. The hook lines
+    the creates up after their first new tag, which deadlocked when tags were
+    created in the order given.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    alpha, beta = f"alpha-{suffix}", f"beta-{suffix}"
+    case_ids: list[uuid.UUID] = []
+    # Set up the workspace's case fields schema before the concurrent creates.
+    async with get_async_session_bypass_rls_context_manager() as session:
+        primer = await CasesService(session=session, role=svc_role).create_case(
+            _tagged_case_create("Primer")
+        )
+        case_ids.append(primer.id)
+
+    arrived = [asyncio.Event(), asyncio.Event()]
+
+    async def create(index: int, tags: list[str]) -> list[str]:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            cases = CasesService(session=session, role=svc_role)
+            create_tag = cases.tags._create_tag_if_missing
+
+            async def lined_up_create_tag(name: str) -> CaseTag:
+                tag = await create_tag(name)
+                if not arrived[index].is_set():
+                    arrived[index].set()
+                    # The other create may be blocked on this tag, so don't wait forever.
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(arrived[1 - index].wait(), timeout=2)
+                return tag
+
+            with patch.object(
+                cases.tags, "_create_tag_if_missing", lined_up_create_tag
+            ):
+                case = await cases.create_case(
+                    _tagged_case_create(f"Concurrent {index}"),
+                    tags=tags,
+                    create_missing_tags=True,
+                )
+            case_ids.append(case.id)
+            return sorted(tag.ref for tag in case.tags)
+
+    try:
+        results = await asyncio.gather(
+            create(0, [alpha, beta]), create(1, [beta, alpha])
+        )
+        assert results == [[alpha, beta], [alpha, beta]]
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await session.execute(delete(Case).where(Case.id.in_(case_ids)))
+            await session.execute(
+                delete(CaseTag).where(
+                    CaseTag.workspace_id == svc_role.workspace_id,
+                    CaseTag.ref.in_([alpha, beta]),
+                )
+            )
+            await session.commit()
+
+
 def test_comment_workflow_exec_id_must_belong_to_the_workflow() -> None:
     workflow_id = uuid.uuid4()
     fields = {
