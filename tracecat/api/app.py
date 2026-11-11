@@ -459,17 +459,28 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": str(exc)},
         )
-    ser_errors = serialize_validation_errors(exc.errors())
+    errors = exc.errors()
+    try:
+        ser_errors = serialize_validation_errors(errors)
+        response = ORJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": ser_errors},
+        )
+    except (ValueError, TypeError, RecursionError):
+        # The rejected input is nested past the Python, pydantic-core or orjson
+        # depth limit. Drop it so the request is still rejected with a 422.
+        ser_errors = serialize_validation_errors(without_inputs(errors))
+        response = ORJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": ser_errors},
+        )
     logger.error(
         "API Model Validation error",
         method=request.method,
         path=request.url.path,
         errors=without_inputs(ser_errors),
     )
-    return ORJSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": ser_errors},
-    )
+    return response
 
 
 def fastapi_users_auth_exception_handler(request: Request, exc: Exception) -> Response:
