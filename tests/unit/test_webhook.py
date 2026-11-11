@@ -193,6 +193,48 @@ class TestValidateIncomingWebhook:
             ctx_role.reset(token)
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "incoming_secret",
+        [
+            pytest.param("wrong-secret", id="ascii"),
+            pytest.param("s\u00e9cret", id="non_ascii"),
+        ],
+    )
+    async def test_returns_unauthorized_when_secret_mismatch(
+        self, incoming_secret: str
+    ):
+        workflow_id = WorkflowUUID.new_uuid4()
+
+        request = MagicMock(spec=Request)
+        request.method = "POST"
+        request.headers = {}
+        request.client = None
+
+        webhook = MagicMock(spec=Webhook)
+        webhook.workflow_id = workflow_id
+        webhook.secret = "a" * 64
+
+        webhook_result = MagicMock()
+        webhook_result.scalar_one.return_value = webhook
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=webhook_result)
+
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__.return_value = mock_session
+        mock_session_cm.__aexit__.return_value = None
+
+        with patch(
+            "tracecat.webhooks.dependencies.get_async_session_bypass_rls_context_manager",
+            return_value=mock_session_cm,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await validate_incoming_webhook(workflow_id, incoming_secret, request)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Unauthorized webhook request"
+
+    @pytest.mark.anyio
     async def test_returns_unauthorized_when_workspace_missing(self):
         workflow_id = WorkflowUUID.new_uuid4()
         webhook_secret = "secret"
