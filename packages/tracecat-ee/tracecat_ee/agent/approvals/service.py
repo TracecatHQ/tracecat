@@ -323,15 +323,13 @@ class ApprovalManager:
         *,
         approved_by: uuid.UUID | None = None,
         decision_metadata: dict[str, dict[str, Any]] | None = None,
-    ) -> bool:
+    ) -> None:
         """Record approval decisions, accepting partial submissions.
 
         Parallel tool calls surface as individual approval cards that are
         decided one by one, so decisions are merged across submissions. The
         manager only becomes READY (resuming the run) once every expected
         tool call has a decision.
-
-        Returns whether the submission decided any tool call for the first time.
         """
         new_ids = approvals.keys() - self._approvals.keys()
         self._approvals.update(approvals)
@@ -352,7 +350,6 @@ class ApprovalManager:
                 decided=sorted(self._approvals.keys()),
                 awaiting=sorted(expected_ids - set(self._approvals.keys())),
             )
-        return bool(new_ids)
 
     async def wait(self) -> None:
         await workflow.wait_condition(lambda: self.is_ready())
@@ -480,6 +477,9 @@ class ApprovalManager:
                 raise ValueError(
                     f"Tool call {tool_call_id} was already decided differently"
                 )
+        # An update must decide something new: each one moves the run's stream.
+        if provided_ids <= self._approvals.keys():
+            raise ValueError("Every tool call in the response was already decided")
 
     async def handle_decisions(self, *, publish: bool = True) -> None:
         """Record the decisions; ``publish=False`` keeps the message open for later."""

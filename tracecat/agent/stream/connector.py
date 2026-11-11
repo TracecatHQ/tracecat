@@ -263,7 +263,7 @@ class AgentStream:
                     case {"kind": AgentStream.CONTINUATION_START_KIND}:
                         # Transport-only marker. It lets reconnect distinguish a
                         # newly rotated suffix from the closed approval-pause
-                        # stream while approval decisions are still committing.
+                        # stream while the run takes the approval decisions.
                         yield StreamKeepAlive()
                     case {"kind": AgentStream.SESSION_EVENT_KIND}:
                         # Child session event fanned into this (parent) stream.

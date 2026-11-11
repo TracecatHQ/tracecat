@@ -1275,17 +1275,11 @@ class DurableAgentWorkflow:
             if submission.new_stream_id
             else None,
         )
-        added = self.approvals.set(
+        self.approvals.set(
             submission.approvals,
             approved_by=submission.approved_by,
             decision_metadata=submission.decision_metadata,
         )
-        # The API resends every recorded decision of the batch; a late subset
-        # must not rotate the stream back to an older segment.
-        if not added and workflow.patched(
-            DurableAgentWorkflowPatch.APPROVAL_IGNORE_REPEATED_DECISIONS
-        ):
-            return self.approvals.is_ready()
         # This synchronous handler cannot resume mid-update, and new_stream_id is
         # the compatibility gate (pre-rotation updates omit it). Keep the pointer
         # mutation last so a failed ApprovalManager.set cannot partially rotate to

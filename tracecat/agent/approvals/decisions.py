@@ -28,8 +28,8 @@ type ApprovalDecisionMetadata = dict[str, Any]
 """Submission metadata persisted alongside a decision.
 
 Always carries ``source``; client-supplied keys are merged over it, so the
-value type stays open. ``decision_matches_persisted`` ignores this entirely
-so the same decision replayed from another surface is not a conflict.
+value type stays open. ``decision_outcome`` ignores this entirely so the
+same decision replayed from another surface is not a conflict.
 """
 
 
@@ -139,47 +139,19 @@ def record_decision(
     approval.approved_at = datetime.now(tz=UTC)
 
 
-def decision_matches_persisted(
-    result: ApprovalResult, persisted: PersistedApprovalDecision | None
-) -> bool:
-    """Return whether a resubmitted decision matches what was already stored.
-
-    Compares outcome and override args but not metadata, so the same decision
-    replayed from a different surface (Slack <-> inbox) is still a match.
-    """
-    if persisted is None:
-        return False
-
-    submitted = _approval_decision_fields(result, decision_metadata=None).decision
-    # A bare bool is the legacy shape; {"value": ...} is the same decision
-    # enriched with submission metadata, so the two must compare equal.
-    if isinstance(submitted, bool):
-        if isinstance(persisted, bool):
-            return submitted == persisted
-        return submitted == persisted.get("value")
-    if isinstance(persisted, bool):
-        return False
-    # Compare the outcome only. Metadata and the deny message are excluded:
-    # each surface supplies its own default reason, so including them would
-    # reject a replay of the same decision from a different surface.
-    return all(
-        submitted.get(key) == persisted.get(key) for key in ("kind", "override_args")
-    )
-
-
-def decision_outcome(result: ApprovalResult) -> list[Any]:
-    """Reduce a decision to what ``decision_matches_persisted`` compares, as JSON.
+def decision_outcome(result: ApprovalResult) -> tuple[Any, ...]:
+    """Reduce a decision to its outcome, as JSON-serializable values.
 
     Two decisions with the same outcome are the same decision, whichever
     surface sent them and whatever deny message it supplied.
     """
     match result:
         case bool(value):
-            return ["value", value]
+            return ("value", value)
         case ToolApproved(override_args=override_args):
-            return ["tool-approved", override_args]
+            return ("tool-approved", override_args)
         case ToolDenied():
-            return ["tool-denied"]
+            return ("tool-denied",)
         case _:
             raise ValueError(f"Unsupported approval result: {type(result)}")
 
@@ -190,7 +162,7 @@ def decision_matches_row(result: ApprovalResult, approval: Approval) -> bool:
         # Rows without a decision payload predate it: the status is the outcome.
         submitted = _approval_decision_fields(result, decision_metadata=None)
         return submitted.status is approval.status
-    return decision_matches_persisted(result, approval.decision)
+    return decision_outcome(result) == decision_outcome(recorded_result(approval))
 
 
 def recorded_result(approval: Approval) -> ApprovalResult:
@@ -211,12 +183,3 @@ def recorded_result(approval: Approval) -> ApprovalResult:
     if approval.status is ApprovalStatus.APPROVED:
         return True
     return ToolDenied(message=approval.reason or DEFAULT_DENY_MESSAGE)
-
-
-def recorded_metadata(approval: Approval) -> ApprovalDecisionMetadata | None:
-    """Return the submission metadata recorded with a row's decision."""
-    if isinstance(approval.decision, dict):
-        metadata = approval.decision.get("metadata")
-        if isinstance(metadata, dict):
-            return cast(ApprovalDecisionMetadata, metadata)
-    return None

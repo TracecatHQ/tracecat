@@ -177,6 +177,9 @@ class TestApprovalManager:
         )
         with pytest.raises(ValueError, match="already decided differently"):
             approval_manager.validate_responses({"call_123": True})
+        # Nothing new: the run must not move to the caller's stream.
+        with pytest.raises(ValueError, match="already decided"):
+            approval_manager.validate_responses({"call_123": ToolDenied(message="x")})
 
     async def test_is_ready(
         self,

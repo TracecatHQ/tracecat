@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import Mapping, Sequence
@@ -21,7 +22,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import get_agent_backend
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
-from tracecat.agent.backends.types import AgentControlRejected
+from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
 from tracecat.agent.channel_publisher import approval_batch_id
 from tracecat.agent.common.stream_types import (
     ApprovalStreamStatus,
@@ -39,6 +40,9 @@ from tracecat.exceptions import (
 )
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
+
+# Bounds how long a submission holds its connection and turn while the run answers.
+_SUBMIT_TIMEOUT_SECONDS = 10
 
 if TYPE_CHECKING:
     from tracecat_ee.agent.approvals.service import ApprovalResult
@@ -72,7 +76,6 @@ class _SubmissionAttempt:
     previous_stream_id: uuid.UUID | None
     decisions: dict[str, SubmittedDecision]
     batch_tool_call_ids: list[str]
-    submission: WorkflowApprovalSubmission
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +210,6 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         expected_batch_id: uuid.UUID | None,
         decisions: Mapping[str, SubmittedDecision],
-        approved_by: uuid.UUID | None,
     ) -> _SubmissionAttempt | ApprovalSubmissionResult:
         """Install the continuation for the undecided decisions, in one commit.
 
@@ -220,11 +222,6 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 decisions=decisions,
             )
             by_id = {row.tool_call_id: row for row in batch.rows}
-            pending_ids = [
-                row.tool_call_id
-                for row in batch.rows
-                if row.status is ApprovalStatus.PENDING
-            ]
             undecided = {
                 tool_call_id: decision
                 for tool_call_id, decision in decisions.items()
@@ -237,7 +234,11 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 return ApprovalSubmissionResult(
                     run_id=batch.run_id,
                     stream_id=previous_stream_id,
-                    pending_tool_call_ids=pending_ids,
+                    pending_tool_call_ids=[
+                        row.tool_call_id
+                        for row in batch.rows
+                        if row.status is ApprovalStatus.PENDING
+                    ],
                     outcome="noop",
                 )
             stream_id = _approval_continuation_stream_id(
@@ -273,20 +274,6 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             previous_stream_id=previous_stream_id,
             decisions=undecided,
             batch_tool_call_ids=[row.tool_call_id for row in batch.rows],
-            submission=WorkflowApprovalSubmission(
-                approvals={
-                    tool_call_id: decision.result
-                    for tool_call_id, decision in undecided.items()
-                },
-                approved_by=approved_by,
-                decision_metadata={
-                    tool_call_id: decision.metadata
-                    for tool_call_id, decision in undecided.items()
-                    if decision.metadata
-                }
-                or None,
-                new_stream_id=stream_id,
-            ),
         )
 
     async def submit_and_record(
@@ -322,10 +309,23 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             session_id=session_id,
             expected_batch_id=expected_batch_id,
             decisions=decisions,
-            approved_by=approved_by,
         )
         if isinstance(attempt, ApprovalSubmissionResult):
             return attempt
+        submission = WorkflowApprovalSubmission(
+            approvals={
+                tool_call_id: decision.result
+                for tool_call_id, decision in attempt.decisions.items()
+            },
+            approved_by=approved_by,
+            decision_metadata={
+                tool_call_id: decision.metadata
+                for tool_call_id, decision in attempt.decisions.items()
+                if decision.metadata
+            }
+            or None,
+            new_stream_id=attempt.stream_id,
+        )
 
         logger.info(
             "Submitting approval decisions",
@@ -340,9 +340,10 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 self.session,
                 derive_lock_key_from_parts("approval-submission", str(session_id)),
             )
-            resumed = await attempt.backend.submit_approvals(
-                attempt.run_id, attempt.submission
-            )
+            async with asyncio.timeout(_SUBMIT_TIMEOUT_SECONDS):
+                resumed = await attempt.backend.submit_approvals(
+                    attempt.run_id, submission
+                )
         except AgentControlRejected:
             await self.session.rollback()
             await self._restore_rejected_stream(
@@ -352,6 +353,10 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 previous_stream_id=attempt.previous_stream_id,
             )
             raise
+        except TimeoutError:
+            await self.session.rollback()
+            # The update may still land; it reuses this id on retry.
+            raise AgentControlUncertain("Approval submission timed out") from None
         except BaseException:
             await self.session.rollback()
             raise
@@ -485,7 +490,12 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         return ApprovalSubmissionResult(
             run_id=attempt.run_id,
             stream_id=newer_stream_id or stream_id,
-            pending_tool_call_ids=list(pending),
+            # The run has these even if recording them failed.
+            pending_tool_call_ids=[
+                tool_call_id
+                for tool_call_id in pending
+                if tool_call_id not in attempt.decisions
+            ],
             outcome="resumed" if resumed and not superseded else "submitted",
         )
 

@@ -1982,8 +1982,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         Approval-paused runs are still RUNNING in Temporal. A freshly rotated
         continuation is the exception: its marker is written before the stream ID
-        is committed, so reconnects can safely wait on it while decisions finish
-        committing.
+        is committed, so reconnects can safely wait on it while the run takes the
+        decisions.
         """
         if agent_session.active_stream_id is None:
             return False
@@ -2134,7 +2134,7 @@ class AgentSessionService(BaseWorkspaceService):
         )
         if submission.outcome == "noop":
             logger.info(
-                "Ignoring approval continuation the run already moved past",
+                "Ignoring approval continuation the run already has",
                 session_id=str(session_id),
                 run_id=str(submission.run_id),
                 source=request.source,
