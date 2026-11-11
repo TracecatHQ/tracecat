@@ -35,7 +35,9 @@ from tracecat.agent.approvals.decisions import (
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.submission import (
+    ApprovalAlreadyRecorded,
     ApprovalDecisionInvalidError,
+    ApprovalDelivered,
     ApprovalNoLongerActiveError,
     ApprovalSubmissionService,
 )
@@ -174,6 +176,8 @@ if TYPE_CHECKING:
     from tracecat.agent.executor.schemas import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
+# Past the submit timeout plus a queued turn, a marker-only continuation is lost.
+_UNANSWERED_CONTINUATION_SECONDS = 30
 AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
     {
         "action:*:execute",
@@ -1993,7 +1997,11 @@ class AgentSessionService(BaseWorkspaceService):
                 workspace_id=self.workspace_id,
                 stream_id=agent_session.active_stream_id,
             )
-            return await stream.is_open_approval_continuation()
+            # Past this, a marker-only stream means the click never reached the
+            # run; its cards are still pending, so the user can click again.
+            return await stream.is_open_approval_continuation(
+                unanswered_after=_UNANSWERED_CONTINUATION_SECONDS
+            )
         except Exception as exc:
             logger.warning(
                 "Failed to inspect approval continuation stream",
@@ -2121,18 +2129,25 @@ class AgentSessionService(BaseWorkspaceService):
 
         Raises:
             TracecatNotFoundError: If no active session exists.
-            TracecatConflictError: If a decision contradicts a recorded one.
+            TracecatConflictError: If a decision contradicts a recorded one, or
+                the run refused it.
             ValueError: If the decisions do not match the session's approvals.
         """
-        submission = await ApprovalSubmissionService(
-            self.session, role=self.role
-        ).submit_and_record(
-            session_id=session_id,
-            expected_batch_id=None,
-            decisions=self._continuation_decisions(request),
-            approved_by=await self._existing_user_id(self.role.user_id),
-        )
-        if submission.outcome == "noop":
+        try:
+            submission = await ApprovalSubmissionService(
+                self.session, role=self.role
+            ).submit_and_record(
+                session_id=session_id,
+                expected_batch_id=None,
+                decisions=self._continuation_decisions(request),
+                approved_by=await self._existing_user_id(self.role.user_id),
+            )
+        except AgentControlRejected as exc:
+            # The run refused it: decided differently first, or moved on.
+            raise TracecatConflictError(
+                "The run no longer accepts these approval decisions"
+            ) from exc
+        if isinstance(submission, ApprovalAlreadyRecorded):
             logger.info(
                 "Ignoring approval continuation the run already has",
                 session_id=str(session_id),
@@ -2194,7 +2209,7 @@ class AgentSessionService(BaseWorkspaceService):
         return DecisionRecorded(
             pending_tool_call_ids=submission.pending_tool_call_ids,
             resumed=RunRef(run_id=submission.run_id, stream_id=submission.stream_id)
-            if submission.outcome == "resumed" and submission.stream_id is not None
+            if isinstance(submission, ApprovalDelivered) and submission.resumed
             else None,
         )
 

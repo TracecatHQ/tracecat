@@ -11,7 +11,7 @@ from collections.abc import (
     Sequence,
 )
 from dataclasses import dataclass
-from time import monotonic
+from time import monotonic, time
 from typing import Any
 
 import orjson
@@ -153,16 +153,29 @@ class AgentStream:
             previous_stream_id=previous_stream_id,
         )
 
-    async def is_open_approval_continuation(self) -> bool:
-        """Return whether this is a marked continuation without a terminal frame."""
+    async def is_open_approval_continuation(
+        self, *, unanswered_after: float | None = None
+    ) -> bool:
+        """Return whether this is a marked continuation without a terminal frame.
+
+        With ``unanswered_after``, a continuation that still holds only its
+        marker that many seconds on is not open: its submission never landed.
+        """
         if await self.approval_continuation_marker() is None:
             return False
 
-        last_entries = await self.client.xrevrange(self._stream_key, count=1)
+        last_entries = await self.client.xrevrange(self._stream_key, count=2)
         if not last_entries:
             return False
-        last_data = orjson.loads(last_entries[0][1][tokens.DATA_KEY])
-        return last_data != {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}
+        last_id, last_fields = last_entries[0]
+        last_data = orjson.loads(last_fields[tokens.DATA_KEY])
+        if last_data == {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
+            return False
+        if unanswered_after is None or len(last_entries) > 1:
+            return True
+        # Stream entry ids start with their append time in milliseconds.
+        appended_ms = int(last_id.split("-", 1)[0])
+        return time() - appended_ms / 1000 <= unanswered_after
 
     async def finish_idle_segment(self) -> None:
         """Emit a non-terminal boundary for a paused live turn.

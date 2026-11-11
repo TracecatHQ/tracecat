@@ -23,7 +23,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.submission import _approval_continuation_stream_id
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
-from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
+from tracecat.agent.backends.types import AgentControlUncertain
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
@@ -1448,7 +1448,7 @@ async def test_approval_continuation_rejection_restores_the_stream_and_retry_reo
     with _mock_approval_continuation_dependencies(
         fake_redis, execute_update
     ) as publish:
-        with pytest.raises(AgentControlRejected):
+        with pytest.raises(TracecatConflictError):
             await service.run_turn(agent_session.id, continuation)
         # A refused decision is never recorded and tells no one.
         publish.assert_not_awaited()

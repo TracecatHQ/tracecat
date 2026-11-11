@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import TurnLifecycle
 from tracecat.agent.types import ToolApproved, ToolDenied
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
@@ -216,6 +217,16 @@ async def delete_approval(
             ContinueRunRequest(decisions=decisions, source="inbox"),
         )
         return
+    except TracecatConflictError:
+        # A live run refused the denial: it holds a decision these rows lack.
+        lifecycle = await session_service.get_turn_lifecycle(agent_session)
+        if lifecycle.lifecycle is TurnLifecycle.RUNNING:
+            raise
+        logger.warning(
+            "run_turn refused; deleting approval records directly",
+            session_id=str(session_id),
+            exc_info=True,
+        )
     except Exception:
         logger.warning(
             "run_turn failed; deleting approval records directly",
