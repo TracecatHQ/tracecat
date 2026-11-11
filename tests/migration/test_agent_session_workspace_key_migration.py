@@ -120,6 +120,7 @@ def test_upgrade_matches_the_model_retries_and_downgrades(db_url: str) -> None:
                 text("SELECT to_regclass(:name)::oid"), {"name": f"public.{CONSTRAINT}"}
             ).scalar_one()
         assert kept == built
+        assert _constraint(engine) == "UNIQUE (id, workspace_id)"
 
         _alembic(db_url, "downgrade", PREVIOUS_REVISION)
         assert _constraint(engine) is None
