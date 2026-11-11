@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import Table, TableColumn, TableFolder
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
@@ -260,8 +261,18 @@ class TableAdapter(DirectoryManifestAdapter):
             folder = await self._ensure_table_folder(
                 workspace_service, spec.folder_path
             )
-            table.folder_id = folder.id if folder is not None else None
-            workspace_service.session.add(table)
+            folder_id = folder.id if folder is not None else None
+            if table.folder_id != folder_id:
+                # A pull can adopt a managed table by name; its folder is
+                # part of the managed spec, so only a rollout may move it.
+                await ensure_unmanaged(
+                    workspace_service.session,
+                    workspace_id=workspace_service.workspace_id,
+                    resource_type=SyncResourceType.TABLE,
+                    local_id=table.id,
+                )
+                table.folder_id = folder_id
+                workspace_service.session.add(table)
 
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, table.id))

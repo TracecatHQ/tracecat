@@ -2,14 +2,20 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.managed_resources import mark_managed
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableFolder
+from tracecat.managed_resources.guard import (
+    ManagedResourceLockedError,
+    managed_write_bypass,
+)
 from tracecat.tables.enums import SqlType
 from tracecat.tables.folders.service import TableFolderService
 from tracecat.tables.schemas import TableColumnCreate, TableCreate
 from tracecat.tables.service import BaseTablesService
 from tracecat.workspace_sync.adapters.base import SyncMappingService
 from tracecat.workspace_sync.adapters.table import TableAdapter
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import TableResourceSpec, WorkspaceSpec
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -99,3 +105,49 @@ async def test_table_folder_path_round_trips_through_git_sync(
         )
     )
     assert folder_id is None
+
+
+@pytest.mark.anyio
+async def test_pull_cannot_move_a_managed_table(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """A customer pull adopts a table by name, but only a rollout may move a managed one."""
+    tables = BaseTablesService(session=session, role=svc_role)
+    sync = _SyncService(session=session, role=svc_role)
+    adapter = TableAdapter()
+    table = await tables.create_table(TableCreate(name="managed_sync_table"))
+    table_id = table.id
+    await mark_managed(session, svc_role, SyncResourceType.TABLE, table_id)
+    await session.commit()
+
+    moved = WorkspaceSpec(
+        tables={
+            "managed-src": TableResourceSpec(
+                id="managed-src", name="managed_sync_table", folder_path="/elsewhere/"
+            )
+        }
+    )
+    with pytest.raises(ManagedResourceLockedError):
+        await adapter.import_specs(sync, moved)
+    await session.rollback()
+
+    # An unchanged folder needs no write, so the pull still succeeds.
+    unchanged = WorkspaceSpec(
+        tables={
+            "managed-src": TableResourceSpec(
+                id="managed-src", name="managed_sync_table"
+            )
+        }
+    )
+    await adapter.import_specs(sync, unchanged)
+    await session.rollback()
+
+    with managed_write_bypass():
+        await adapter.import_specs(sync, moved)
+    await session.commit()
+    path = await session.scalar(
+        select(TableFolder.path)
+        .join(Table, Table.folder_id == TableFolder.id)
+        .where(Table.id == table_id)
+    )
+    assert path == "/elsewhere/"

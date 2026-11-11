@@ -15,6 +15,8 @@ from tracecat.tables.folders.schemas import (
     TableFolderDirectoryItem,
 )
 from tracecat.tables.folders.service import TableFolderService
+from tracecat.tables.schemas import TableCreate
+from tracecat.tables.service import TablesService
 from tracecat.workspace_sync.enums import SyncResourceType
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -167,19 +169,48 @@ async def test_delete_folder_never_deletes_tables(
 
 
 @pytest.mark.anyio
-async def test_managed_table_cannot_be_moved_or_unfoldered(
+async def test_managed_table_folder_cannot_change(
     folder_service: TableFolderService, svc_role: Role
 ) -> None:
-    """A managed table's folder comes from its spec, so customers can't change it."""
-    folder = await folder_service.create_folder(name="managed", parent_path="/")
-    table = _table(folder_service, "managed_table", folder_id=folder.id)
+    """A managed table's folder path is part of its spec, so customers can't change it.
+
+    That covers moving the table and renaming, moving or deleting any folder above it.
+    """
+    parent = await folder_service.create_folder(name="parent", parent_path="/")
+    child = await folder_service.create_folder(name="child", parent_path="/parent/")
+    other = await folder_service.create_folder(name="other", parent_path="/")
+    parent_id, child_id, other_id = parent.id, child.id, other.id
+    table = _table(folder_service, "managed_table", folder_id=child_id)
     folder_service.session.add(table)
     await folder_service.session.commit()
+    table_id = table.id
     await mark_managed(
-        folder_service.session, svc_role, SyncResourceType.TABLE, table.id
+        folder_service.session, svc_role, SyncResourceType.TABLE, table_id
     )
 
     with pytest.raises(ManagedResourceLockedError):
-        await folder_service.move_table(table.id, None)
+        await folder_service.move_table(table_id, None)
     with pytest.raises(ManagedResourceLockedError):
-        await folder_service.delete_folder(folder.id, recursive=True)
+        await folder_service.rename_folder(parent_id, "renamed")
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.move_folder(parent_id, other_id)
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.delete_folder(parent_id, recursive=True)
+
+    # Folders with no managed tables below them stay editable.
+    renamed = await folder_service.rename_folder(other_id, "renamed_other")
+    assert renamed.path == "/renamed_other/"
+
+
+@pytest.mark.anyio
+async def test_create_table_in_folder_commits_once(
+    folder_service: TableFolderService, svc_role: Role
+) -> None:
+    """Creating a table in a folder needs only table:create, not a later move."""
+    folder = await folder_service.create_folder(name="feeds", parent_path="/")
+    role = svc_role.model_copy(update={"scopes": frozenset({"table:create"})})
+    tables = TablesService(session=folder_service.session, role=role)
+
+    table = await tables.create_table(TableCreate(name="feed"), folder_id=folder.id)
+
+    assert table.folder_id == folder.id

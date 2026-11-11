@@ -110,6 +110,30 @@ class TableFolderService(BaseWorkspaceService):
                 code=TableFolderErrorCode.CONFLICT,
             ) from exc
 
+    async def _ensure_subtree_unmanaged(self, path: str) -> None:
+        """Refuse a change that moves managed tables under ``path``.
+
+        A managed table's folder path is part of its spec, so renaming, moving
+        or deleting any folder above it edits the table.
+        """
+        folder_ids = select(TableFolder.id).where(
+            TableFolder.workspace_id == self.workspace_id,
+            TableFolder.path.startswith(path, autoescape=True),
+        )
+        await ensure_none_managed(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.TABLE,
+            local_ids=list(
+                await self.session.scalars(
+                    select(Table.id).where(
+                        Table.workspace_id == self.workspace_id,
+                        Table.folder_id.in_(folder_ids),
+                    )
+                )
+            ),
+        )
+
     @require_scope("table:create")
     async def create_folder(
         self, name: str, parent_path: str = "/", commit: bool = True
@@ -360,6 +384,8 @@ class TableFolderService(BaseWorkspaceService):
                     code=TableFolderErrorCode.CONFLICT,
                 )
 
+        if new_path != old_path:
+            await self._ensure_subtree_unmanaged(old_path)
         folder.name = normalized_name
         folder.path = new_path
         self.session.add(folder)
@@ -419,6 +445,8 @@ class TableFolderService(BaseWorkspaceService):
                     code=TableFolderErrorCode.CONFLICT,
                 )
 
+        if new_path != old_path:
+            await self._ensure_subtree_unmanaged(old_path)
         folder.path = new_path
         self.session.add(folder)
 
@@ -459,21 +487,7 @@ class TableFolderService(BaseWorkspaceService):
                 TableFolder.workspace_id == self.workspace_id,
                 TableFolder.path.startswith(folder.path, autoescape=True),
             )
-            # Moving the subtree's tables to the root edits each one, so a
-            # managed table anywhere in it blocks the delete.
-            await ensure_none_managed(
-                self.session,
-                workspace_id=self.workspace_id,
-                resource_type=SyncResourceType.TABLE,
-                local_ids=list(
-                    await self.session.scalars(
-                        select(Table.id).where(
-                            Table.workspace_id == self.workspace_id,
-                            Table.folder_id.in_(folder_ids),
-                        )
-                    )
-                ),
-            )
+            await self._ensure_subtree_unmanaged(folder.path)
             await self.session.execute(
                 sa.update(Table)
                 .where(

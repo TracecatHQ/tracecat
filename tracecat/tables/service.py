@@ -709,7 +709,9 @@ class BaseTablesService(BaseWorkspaceService):
         )
 
     @audit_log(resource_type="table", action="create")
-    async def create_table(self, params: TableCreate) -> Table:
+    async def create_table(
+        self, params: TableCreate, *, folder_id: UUID | None = None
+    ) -> Table:
         """Create a new lookup table.
 
         Args:
@@ -773,7 +775,7 @@ class BaseTablesService(BaseWorkspaceService):
         await self._enable_workspace_rls_for_physical_table(conn, full_table_name)
 
         # Create metadata entry
-        table = Table(workspace_id=self.ws_uuid, name=table_name)
+        table = Table(workspace_id=self.ws_uuid, name=table_name, folder_id=folder_id)
         self.session.add(table)
         await self.session.flush()
 
@@ -2170,8 +2172,10 @@ class TablesService(BaseTablesService):
     """Transactional tables service."""
 
     @require_scope("table:create")
-    async def create_table(self, params: TableCreate) -> Table:
-        result = await super().create_table(params)
+    async def create_table(
+        self, params: TableCreate, *, folder_id: UUID | None = None
+    ) -> Table:
+        result = await super().create_table(params, folder_id=folder_id)
         await self.session.commit()
         await self.session.refresh(result)
         return result
