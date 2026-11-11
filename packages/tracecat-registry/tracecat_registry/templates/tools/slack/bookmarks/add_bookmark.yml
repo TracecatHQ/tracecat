@@ -3,7 +3,7 @@ definition:
   title: Add bookmark
   description: Add a bookmark to a Slack channel.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/bookmarks.add
+  doc_url: https://docs.slack.dev/reference/methods/bookmarks.add/
   namespace: tools.slack
   name: add_bookmark
   expects:
@@ -13,14 +13,9 @@ definition:
     title:
       type: str
       description: Title for the bookmark.
-    type:
-      type: str
-      description: Type of the bookmark (e.g. "link").
-      default: "link"
     link:
-      type: str | None
+      type: str
       description: URL to bookmark.
-      default: null
     emoji:
       type: str | None
       description: Emoji tag to apply to the bookmark.
@@ -33,7 +28,7 @@ definition:
         params:
           channel_id: ${{ inputs.channel_id }}
           title: ${{ inputs.title }}
-          type: ${{ inputs.type }}
+          type: link
           link: ${{ inputs.link }}
           emoji: ${{ inputs.emoji }}
   returns: ${{ steps.add_bookmark.result }}

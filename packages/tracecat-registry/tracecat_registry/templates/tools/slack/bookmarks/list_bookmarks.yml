@@ -3,7 +3,7 @@ definition:
   title: List bookmarks
   description: List bookmarks for a Slack channel.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/bookmarks.list
+  doc_url: https://docs.slack.dev/reference/methods/bookmarks.list/
   namespace: tools.slack
   name: list_bookmarks
   expects:
