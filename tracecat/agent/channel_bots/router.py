@@ -35,7 +35,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.logger import logger
-from tracecat.pagination import CursorPaginatedResponse, PageParams
+from tracecat.pagination import CursorPaginatedResponse, PageParams, PaginationError
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
@@ -71,6 +71,10 @@ async def _call[T](call: Awaitable[T]) -> T:
         return await call
     except TracecatNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PaginationError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=exc.detail or str(exc)
+        ) from exc
     except TracecatValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -178,7 +182,10 @@ def _same_app_or_default(return_url: str | None) -> str:
     default_url = config.TRACECAT__PUBLIC_APP_URL
     if return_url is None:
         return default_url
-    parsed = urlparse(return_url)
+    try:
+        parsed = urlparse(return_url)
+    except ValueError:
+        return default_url
     if (
         parsed.scheme not in {"http", "https"}
         or parsed.netloc != urlparse(default_url).netloc
@@ -198,16 +205,17 @@ async def handle_slack_bot_oauth_callback(
     callback = SlackBotOAuthCallback(
         state=state, code=code, error=error, error_description=error_description
     )
-    if (admin := get_channel_bot_admin()) is None:
-        return _redirect(
-            config.TRACECAT__PUBLIC_APP_URL,
-            ok=False,
-            message="Channel bots require Tracecat Enterprise",
-        )
     try:
+        if (admin := get_channel_bot_admin()) is None:
+            return _redirect(
+                config.TRACECAT__PUBLIC_APP_URL,
+                ok=False,
+                message="Channel bots require Tracecat Enterprise",
+            )
         outcome = await admin.complete_slack_oauth(callback)
     except Exception as exc:
-        logger.error("Slack bot OAuth callback failed", error=repr(exc))
+        # The error can carry the OAuth code or provider response.
+        logger.error("Slack bot OAuth callback failed", error_type=type(exc).__name__)
         return _redirect(
             config.TRACECAT__PUBLIC_APP_URL,
             ok=False,

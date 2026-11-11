@@ -38,7 +38,10 @@ class ChannelBotAdmin(Protocol):
         provider: ChannelBotProvider | None,
         page: PageParams,
     ) -> CursorPaginatedResponse[AgentChannelBotRead]:
-        """Raise ``PaginationError`` for a cursor from another query."""
+        """Return a page with ``has_more`` and ``has_previous`` set from its cursors.
+
+        Raise ``PaginationError`` for a malformed or foreign cursor.
+        """
         ...
 
     async def create_bot(

@@ -35,7 +35,12 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.pagination import CursorPaginatedResponse, PageParams
+from tracecat.pagination import (
+    CursorPaginatedResponse,
+    PageParams,
+    PaginationError,
+    PaginationErrorCode,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -197,6 +202,26 @@ async def test_provider_errors_map_to_http_errors(
     assert exc.value.detail == str(error)
 
 
+@pytest.mark.anyio
+async def test_a_bad_cursor_keeps_its_error_code() -> None:
+    admin = AsyncMock()
+    admin.list_bots.side_effect = PaginationError(
+        "stale", code=PaginationErrorCode.CURSOR_MISMATCH
+    )
+    with pytest.raises(HTTPException) as exc:
+        await unwrap(router_module.list_bots)(
+            role=role(),
+            session=AsyncMock(),
+            admin=admin,
+            agent_preset_id=None,
+            provider=None,
+            limit=5,
+            cursor="x",
+        )
+    assert exc.value.status_code == 400
+    assert exc.value.detail == {"code": "cursor_mismatch"}
+
+
 def query(location: str) -> dict[str, list[str]]:
     return parse_qs(urlparse(location).query)
 
@@ -226,7 +251,8 @@ async def test_callback_redirects_to_the_return_url_on_the_app_host(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "return_url", [None, "https://evil.example.net/x", "javascript:alert(1)"]
+    "return_url",
+    [None, "https://evil.example.net/x", "javascript:alert(1)", "http://[x"],
 )
 async def test_callback_never_redirects_off_the_app_host(
     monkeypatch: pytest.MonkeyPatch, return_url: str | None
@@ -273,6 +299,14 @@ async def test_callback_without_a_provider_or_with_a_failing_one_redirects_with_
         "slack_connect": ["error"],
         "slack_message": ["Slack OAuth callback failed"],
     }
+
+    provider_module.get_channel_bot_admin.cache_clear()
+    extensions.load_api_extensions.cache_clear()
+    install(monkeypatch, a=AdminExtension(admin), b=AdminExtension(admin))
+    response = await router_module.handle_slack_bot_oauth_callback(
+        state="s", code="c", error=None, error_description=None
+    )
+    assert query(response.headers["location"])["slack_connect"] == ["error"]
 
 
 def test_admin_routes_are_entitlement_gated_and_the_callback_is_public() -> None:
