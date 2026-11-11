@@ -44,11 +44,12 @@ from tracecat.managed_resources.include import (
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.workspace_sync.adapters import (
+    BUNDLED_RESOURCE_ADAPTERS,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.layout import ResourcePathIndex
+from tracecat.workspace_sync.layout import ResourcePathIndex, per_resource_paths
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     PackageRegistryRequirement,
@@ -115,10 +116,31 @@ def file_names_by_resource(
     Path planning keeps every readable path off other resources' id paths,
     so one id pattern can only ever name one resource.
 
+    A bundle file holds many resources, so each one in it is known by the
+    bundle path, its id path (``case_tags/<source id>.yml``), and the
+    readable path it had before bundling (``case_tags/<name>.yml``, or its
+    collision-suffixed form).
+
     The manifest and the include file belong to no resource and are skipped.
     """
     index = ResourcePathIndex(projection.paths)
     grouped: dict[PackageResourceKey, list[tuple[str, ...]]] = defaultdict(list)
+    for adapter in BUNDLED_RESOURCE_ADAPTERS:
+        specs = adapter.specs(projection.spec)
+        # Patterns written before bundling may name a resource's old file by
+        # id or by readable name. Readable names come from the same collision
+        # rules the per-resource planner used, so each still names one
+        # resource.
+        readable = per_resource_paths(adapter, specs)
+        for source_id in specs:
+            path = adapter.path_in(projection.paths, source_id)
+            if not adapter.is_bundle_file(path) or path not in projection.files:
+                continue
+            names = dict.fromkeys(
+                (path, adapter.legacy_id_path(source_id), readable[source_id])
+            )
+            key = PackageResourceKey(adapter.resource_type, source_id)
+            grouped[key].append(tuple(names))
     for path in sorted(projection.files):
         if path in (MANIFEST_FILENAME, PACKAGE_INCLUDE_FILENAME):
             continue

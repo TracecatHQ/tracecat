@@ -13,6 +13,7 @@ from tracecat_admin import __version__
 from tracecat_admin.commands import (
     admin,
     auth,
+    db,
     migrate,
     orgs,
     registry,
@@ -24,6 +25,9 @@ app = typer.Typer(
     name="tracecat",
     help="Tracecat Admin CLI - Platform operator tools for Tracecat.",
     no_args_is_help=True,
+    # Tracebacks must not print local variables: they hold database URIs,
+    # passwords and service keys.
+    pretty_exceptions_show_locals=False,
 )
 
 
@@ -64,6 +68,7 @@ app.add_typer(orgs.app, name="orgs", help="Organization management commands.")
 app.add_typer(registry.app, name="registry", help="Registry management commands.")
 app.add_typer(settings.app, name="settings", help="Platform settings commands.")
 app.add_typer(migrate.app, name="migrate", help="Database migration commands.")
+app.add_typer(db.app, name="db", help="Database role setup commands.")
 app.add_typer(tiers.app, name="tiers", help="Tier management commands.")
 
 

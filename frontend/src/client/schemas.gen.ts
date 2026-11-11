@@ -1487,6 +1487,19 @@ export const $AgentCatalogRead = {
       ],
       title: "Model Metadata",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -1496,6 +1509,7 @@ export const $AgentCatalogRead = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "AgentCatalogRead",
   description: "Single catalog model entry.",
@@ -4544,7 +4558,6 @@ export const $AgentSessionCreate = {
             type: "string",
           },
           type: "array",
-          maxItems: 50,
         },
         {
           type: "null",
@@ -5441,7 +5454,6 @@ export const $AgentSessionUpdate = {
             type: "string",
           },
           type: "array",
-          maxItems: 50,
         },
         {
           type: "null",
@@ -5562,6 +5574,11 @@ export const $AgentSettingsRead = {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
     },
+    agent_auto_migrate_retired_models: {
+      type: "boolean",
+      title: "Agent Auto Migrate Retired Models",
+      default: false,
+    },
   },
   type: "object",
   required: [
@@ -5614,6 +5631,13 @@ export const $AgentSettingsUpdate = {
       title: "Agent Case Chat Inject Content",
       description:
         "Whether to automatically inject case content into agent prompts when a case_id is available.",
+      default: false,
+    },
+    agent_auto_migrate_retired_models: {
+      type: "boolean",
+      title: "Agent Auto Migrate Retired Models",
+      description:
+        "Whether runs on a retired model move to its replacement when that model is enabled.",
       default: false,
     },
   },
@@ -25755,6 +25779,52 @@ export const $ModelCredentialUpdate = {
   required: ["credentials"],
   title: "ModelCredentialUpdate",
   description: "Model for updating model credentials.",
+} as const
+
+export const $ModelLifecycleRead = {
+  properties: {
+    deprecated_on: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated On",
+    },
+    retires_on: {
+      type: "string",
+      format: "date",
+      title: "Retires On",
+    },
+    replacement: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Replacement",
+      description: "Same-provider catalog model that retired runs move to.",
+    },
+    status: {
+      $ref: "#/components/schemas/ModelLifecycleStatus",
+    },
+  },
+  type: "object",
+  required: ["retires_on", "status"],
+  title: "ModelLifecycleRead",
+  description: "Provider deprecation of a platform model, as of the request.",
+} as const
+
+export const $ModelLifecycleStatus = {
+  type: "string",
+  enum: ["deprecated", "retired"],
 } as const
 
 export const $ModelSecretConfig = {
@@ -46469,6 +46539,19 @@ export const $WorkspaceAgentModelCandidate = {
       ],
       title: "Custom Provider Name",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -46478,6 +46561,7 @@ export const $WorkspaceAgentModelCandidate = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "WorkspaceAgentModelCandidate",
   description:
@@ -46601,6 +46685,19 @@ export const $WorkspaceAgentModelRead = {
       ],
       title: "Custom Provider Base Url",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -46610,6 +46707,7 @@ export const $WorkspaceAgentModelRead = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "WorkspaceAgentModelRead",
   description:

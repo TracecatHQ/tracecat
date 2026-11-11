@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import (
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from typing import Any, NamedTuple
 
 import yaml
@@ -17,6 +24,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
+    BUNDLED_RESOURCE_ADAPTERS,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     WORKFLOW_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
@@ -26,10 +34,21 @@ from tracecat.workspace_sync.adapters.base import (
     ResourceAdapter,
     VersionedSlug,
 )
+from tracecat.workspace_sync.adapters.bundled import (
+    BundledManifestAdapter,
+    BundleFormatError,
+    bundle_entry_id,
+)
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.exceptions import (
+    PushBundleUnreadableError,
+    PushNameConflictError,
+)
 from tracecat.workspace_sync.layout import (
     DEFAULT_ROOTS,
     ResourcePathIndex,
+    normalized_path_roots,
+    path_is_under_roots,
     plan_resource_paths,
 )
 from tracecat.workspace_sync.schemas import (
@@ -37,7 +56,6 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSpec,
     normalize_workflow_source_id,
 )
-from tracecat.workspace_sync.serialization import serialize_yaml_model
 from tracecat.workspace_sync.types import (
     ParsedWorkspaceFiles,
     PathsByType,
@@ -47,7 +65,6 @@ from tracecat.workspace_sync.types import (
 from tracecat.workspace_sync.workflow import (
     is_current_workflow_spec,
     parse_workflow_spec,
-    serialize_workflow_spec,
 )
 
 
@@ -64,8 +81,9 @@ def parse_workspace_spec_files(
     (``workflows/wf_abc/definition.yml``) parse the same way. A file without
     an ``id`` falls back to its folder or file name, as older files did.
 
-    Primary files are parsed first. Companion files, such as skill files, are
-    then attached to the resource whose folder they sit in.
+    Primary files are parsed first. Companion files, such as skill files and
+    workflow Python scripts, are then attached to the resource whose folder
+    they sit in.
     """
     diagnostics: list[PullDiagnostic] = []
     roots = manifest.resources
@@ -77,6 +95,24 @@ def parse_workspace_spec_files(
     paths: ResourcePathMap = {}
     companion_files: list[tuple[ResourceAdapter, str, str, str]] = []
 
+    # Bundles are recorded before per-resource files, so the newer format
+    # wins over a leftover per-resource copy of the same id.
+    for adapter in BUNDLED_RESOURCE_ADAPTERS:
+        path = adapter.bundle_path_in(roots)
+        if (content := files.get(path)) is None:
+            continue
+        for spec in _parse_bundle(adapter, path, content, diagnostics):
+            _record_resource(
+                adapter,
+                path=path,
+                spec=spec,
+                destination=specs_by_attr[adapter.spec_attr],
+                paths=paths,
+                diagnostics=diagnostics,
+            )
+
+    # Bundle files match no adapter's ``path_key_from_path``, so they are
+    # skipped here.
     for path, content in sorted(files.items()):
         if workflow_key := WORKFLOW_RESOURCE_ADAPTER.path_key_from_path(path, roots):
             workflow, diagnostic = parse_workflow_spec(
@@ -114,10 +150,13 @@ def parse_workspace_spec_files(
                         diagnostics=diagnostics,
                     )
                 break
-
-            if relpath := adapter.companion_relpath(path, roots):
-                companion_files.append((adapter, path, relpath, content))
-                break
+        else:
+            # Not a primary file: maybe a companion, such as a skill file or a
+            # workflow's Python script.
+            for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+                if relpath := adapter.companion_relpath(path, roots):
+                    companion_files.append((adapter, path, relpath, content))
+                    break
 
     index = ResourcePathIndex(paths)
     extra_files: dict[SyncResourceType, dict[tuple[str, str], str]] = defaultdict(dict)
@@ -128,7 +167,7 @@ def parse_workspace_spec_files(
         if owner is not None and owner.adapter is adapter:
             extra_files[adapter.resource_type][(owner.source_id, relpath)] = content
 
-    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+    for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         specs_by_attr[adapter.spec_attr] = adapter.attach_extra_files(
             specs_by_attr[adapter.spec_attr],
             extra_files.get(adapter.resource_type, {}),
@@ -152,6 +191,12 @@ def locate_resources(files: Mapping[str, str]) -> ResourceLocations:
     """
     locations: ResourceLocations = {}
     for path, content in sorted(files.items()):
+        if (bundled := _bundled_adapter_for(path)) is not None:
+            by_id = locations.setdefault(bundled.resource_type, {})
+            for entry in bundled.entries_or_empty(content):
+                if source_id := bundle_entry_id(entry):
+                    by_id.setdefault(source_id, []).append(path)
+            continue
         for adapter in WORKSPACE_RESOURCE_ADAPTERS:
             if (path_key := adapter.path_key_from_path(path, DEFAULT_ROOTS)) is None:
                 continue
@@ -184,8 +229,152 @@ def is_primary_resource_path(
     """
     return any(
         adapter.path_key_from_path(path, DEFAULT_ROOTS) is not None
+        or (isinstance(adapter, BundledManifestAdapter) and path == adapter.bundle_path)
         for adapter in adapters
     )
+
+
+def _bundled_adapter_for(path: str) -> BundledManifestAdapter | None:
+    """Return the bundled type whose bundle file ``path`` is, under default roots.
+
+    Pushes always write the default roots. Code reading a snapshot under
+    other roots looks up the paths that snapshot recorded instead.
+    """
+    for adapter in BUNDLED_RESOURCE_ADAPTERS:
+        if path == adapter.bundle_path:
+            return adapter
+    return None
+
+
+def merge_base_bundles(
+    files: Mapping[str, str],
+    base_files: Mapping[str, str],
+    *,
+    owned_roots: Sequence[str],
+    base_paths: Collection[str],
+) -> dict[str, str]:
+    """Keep the base tree's other bundled resources in the bundles a push writes.
+
+    A partial push writes only some resources of a bundled type, but the
+    bundle file holds all of them. Entries in the base bundle that the push
+    does not write are copied over, so pushing one tag never drops another.
+    A push that owns the bundle's folder, such as a full push, replaces the
+    bundle instead: resources it does not write are meant to be deleted.
+
+    Args:
+        files: What the push writes.
+        base_files: Text contents read from the base tree.
+        owned_roots: Roots the push deletes stale files under.
+        base_paths: Every file in the base tree, or empty when unknown. A
+            bundle listed here but missing from ``base_files`` could not be
+            read as text.
+
+    Raises:
+        PushBundleUnreadableError: The base bundle is not a valid bundle file,
+            so its other entries cannot be kept.
+        PushNameConflictError: A resource the push keeps has the same name as
+            a pushed one, such as a tag a teammate pushed that was never
+            pulled here.
+    """
+    merged = dict(files)
+    roots = normalized_path_roots(owned_roots)
+    for adapter in BUNDLED_RESOURCE_ADAPTERS:
+        path = adapter.bundle_path
+        pushed = files.get(path)
+        if pushed is None or path_is_under_roots(path, roots):
+            continue
+        base = base_files.get(path)
+        if base is None and path in base_paths:
+            raise PushBundleUnreadableError(path)
+        try:
+            base_entries = [] if base is None else adapter.load_bundle(base)
+        except BundleFormatError as e:
+            raise PushBundleUnreadableError(path) from e
+        pushed_entries = adapter.load_bundle(pushed)
+        pushed_ids = {bundle_entry_id(entry) for entry in pushed_entries}
+        kept = [
+            entry for entry in base_entries if bundle_entry_id(entry) not in pushed_ids
+        ]
+        if clashes := _name_clashes(adapter, pushed_entries, base_files):
+            raise PushNameConflictError(clashes)
+        if kept:
+            merged[path] = adapter.dump_bundle([*pushed_entries, *kept])
+    return merged
+
+
+def _name_clashes(
+    adapter: BundledManifestAdapter,
+    pushed_entries: list[Any],
+    base_files: Mapping[str, str],
+) -> list[str]:
+    """Return the resources a push keeps whose name a pushed resource takes.
+
+    The next pull would fail on the duplicate name. Separate files used to
+    conflict on path instead. The base tree's resources of this type are read
+    the way a pull reads them, so a bundle entry wins over a leftover file of
+    the same id. Each clash is labelled ``<path> (<name>)``.
+    """
+    pushed_ids = {bundle_entry_id(entry) for entry in pushed_entries}
+    taken = {adapter.entry_identity(entry) for entry in pushed_entries}
+    parsed = parse_workspace_spec_files(
+        {
+            path: content
+            for path, content in base_files.items()
+            if path_is_under_roots(path, (adapter.root,))
+        },
+        manifest=WorkspaceManifest(),
+    )
+    paths = parsed.paths.get(adapter.resource_type, {})
+    clashes = {
+        f"{paths[source_id]} ({'/'.join(identity)})"
+        for source_id, spec in adapter.specs(parsed.spec).items()
+        if source_id not in pushed_ids
+        and (identity := adapter.import_identity(spec)) is not None
+        and identity in taken
+    }
+    return sorted(clashes)
+
+
+def _parse_bundle(
+    adapter: BundledManifestAdapter,
+    path: str,
+    content: str,
+    diagnostics: list[PullDiagnostic],
+) -> list[BaseModel]:
+    """Parse every entry of a bundle file, recording a diagnostic per bad one."""
+    try:
+        entries = adapter.load_bundle(content)
+    except BundleFormatError as e:
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=path,
+                workflow_title=None,
+                error_type="parse",
+                message=str(e),
+                details={},
+            )
+        )
+        return []
+    specs: list[BaseModel] = []
+    for index, entry in enumerate(entries):
+        try:
+            specs.append(adapter.model.model_validate(entry))
+        except ValidationError as e:
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=path,
+                    workflow_title=_resource_title(
+                        entry if isinstance(entry, dict) else None
+                    ),
+                    error_type="validation",
+                    message=f"Validation error in entry {index}: {e}",
+                    details={
+                        "entry_index": index,
+                        "validation_errors": serializable_validation_errors(e.errors()),
+                    },
+                )
+            )
+    return specs
 
 
 def _declared_source_id(adapter: ResourceAdapter, content: str, *, default: str) -> str:
@@ -232,7 +421,8 @@ def _record_resource(
     """Store a parsed resource under its source id, rejecting duplicate ids.
 
     Two files with the same ``id`` would claim one resource. Files are visited
-    in path order, so the first one wins and the second gets a diagnostic.
+    bundles first, then in path order, so the first one wins and the second
+    gets a diagnostic.
     """
     source_id = _spec_id(spec)
     type_paths = paths.setdefault(adapter.resource_type, {})
@@ -269,23 +459,45 @@ def serialize_workspace_spec_files(
 ) -> dict[str, str]:
     """Serialize a workspace spec into its full set of repository files.
 
-    Writes the manifest, each workflow definition, and every non-workflow
-    resource's primary file plus companion files, returning a path-sorted map of
+    Writes the manifest, then every resource's primary file plus companion
+    files, such as workflow Python scripts, returning a path-sorted map of
     repository path to file content. Resources in ``paths`` are written there;
     the rest get readable paths from :func:`plan_resource_paths`.
     """
     planned = plan_resource_paths(spec, fixed=paths)
     files = {manifest_filename: manifest_serializer(manifest)}
-    for source_id, workflow_spec in sorted(spec.workflows.items()):
-        files[WORKFLOW_RESOURCE_ADAPTER.path_in(planned, source_id)] = (
-            serialize_workflow_spec(workflow_spec)
-        )
-    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+    for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+        if isinstance(adapter, BundledManifestAdapter):
+            files.update(_serialize_bundled(adapter, adapter.specs(spec), planned))
+            continue
         for source_id, resource_spec in sorted(adapter.specs(spec).items()):
             primary_path = adapter.path_in(planned, source_id)
-            files[primary_path] = serialize_yaml_model(resource_spec)
+            files[primary_path] = adapter.serialize_primary(resource_spec)
             files.update(adapter.serialize_extra_files(primary_path, resource_spec))
     return dict(sorted(files.items()))
+
+
+def _serialize_bundled(
+    adapter: BundledManifestAdapter,
+    specs: Mapping[str, BaseModel],
+    planned: PathsByType,
+) -> dict[str, str]:
+    """Serialize a bundled type: one bundle file, plus any per-resource files.
+
+    Per-resource files appear only when ``planned`` keeps paths read from a
+    repository written before bundling, such as in a pull preview.
+    """
+    files: dict[str, str] = {}
+    bundles: dict[str, list[BaseModel]] = defaultdict(list)
+    for source_id, resource_spec in sorted(specs.items()):
+        path = adapter.path_in(planned, source_id)
+        if adapter.is_bundle_file(path):
+            bundles[path].append(resource_spec)
+        else:
+            files[path] = adapter.serialize_primary(resource_spec)
+    for path, bundled in bundles.items():
+        files[path] = adapter.dump_bundle(map(adapter.bundle_entry, bundled))
+    return files
 
 
 def validate_workspace_dependencies(

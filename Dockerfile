@@ -13,11 +13,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/nsjail/nstun-bounded-memory.patch /tmp/nstun-bounded-memory.patch
+# Applies on top of nstun-bounded-memory.patch: flush the rest of a partial
+# host write via EPOLLOUT instead of waiting for more guest data.
+COPY docker/nsjail/nstun-partial-write-flush.patch /tmp/nstun-partial-write-flush.patch
 
 RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
     cd /tmp/nsjail && git checkout "${NSJAIL_COMMIT}" && \
     git apply --check /tmp/nstun-bounded-memory.patch && \
     git apply /tmp/nstun-bounded-memory.patch && \
+    git apply --check /tmp/nstun-partial-write-flush.patch && \
+    git apply /tmp/nstun-partial-write-flush.patch && \
     git submodule update --init --recursive && \
     make -j"$(nproc)" && \
     install -m 0755 nsjail /usr/local/bin/nsjail && \
@@ -323,12 +328,12 @@ USER apiuser
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-workspace --no-dev --no-editable
+    uv sync --frozen --no-install-workspace --no-dev --group admin --no-editable
 
 COPY --from=development-source --chown=apiuser:apiuser /source/ /app/
 COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /var/lib/tracecat/copilot-skills/
 
-RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync --locked --no-dev
+RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync --locked --no-dev --group admin
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/home/apiuser/.local"
@@ -360,7 +365,7 @@ COPY --from=development-registry-manifest --chown=apiuser:apiuser /app/.registry
 FROM development AS test
 
 # Install test dependencies
-RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync --frozen --group dev
+RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync --frozen --group dev --group admin
 
 CMD ["python", "-m", "pytest"]
 
@@ -392,7 +397,7 @@ USER apiuser
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-workspace --no-dev --no-editable
+    uv sync --frozen --no-install-workspace --no-dev --group admin --no-editable
 
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages /app/packages
@@ -401,7 +406,7 @@ COPY --chown=apiuser:apiuser ./pyproject.toml ./uv.lock ./.python-version ./READ
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
-    uv sync --locked --no-dev --no-editable
+    uv sync --locked --no-dev --group admin --no-editable
 
 ENV PATH="/app/.venv/bin:/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 

@@ -242,6 +242,12 @@ describe("Spur registry icon mappings", () => {
   })
 })
 
+describe("Devin MCP catalog icon", () => {
+  it("registers the Devin MCP catalog icon", () => {
+    expect(providerIcons.devin_mcp).toBeDefined()
+  })
+})
+
 describe("Swif registry icon mappings", () => {
   it.each(["tools.swif", "tools.swif.list_script_reports"])(
     "renders the Swif mark for %s",

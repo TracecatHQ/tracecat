@@ -42,6 +42,7 @@ def test_dsl_workflow_sets_role_during_workflow_initialization():
 @pytest.mark.anyio
 async def test_get_workspace_organization_id_activity_returns_match(monkeypatch):
     workspace_id = uuid.uuid4()
+    expected_workspace_id = workspace_id
     organization_id = uuid.uuid4()
 
     mock_session = AsyncMock()
@@ -50,11 +51,12 @@ async def test_get_workspace_organization_id_activity_returns_match(monkeypatch)
     mock_session.execute.return_value = mock_result
 
     @asynccontextmanager
-    async def fake_session_manager():
+    async def fake_session_manager(*, workspace_id: uuid.UUID):
+        assert workspace_id == expected_workspace_id
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workspaces.activities.get_async_session_bypass_rls_context_manager",
+        "tracecat.workspaces.activities.get_async_session_tenant_context_manager",
         fake_session_manager,
     )
 
@@ -68,6 +70,7 @@ async def test_get_workspace_organization_id_activity_raises_when_missing(
     monkeypatch,
 ):
     workspace_id = uuid.uuid4()
+    expected_workspace_id = workspace_id
 
     mock_session = AsyncMock()
     mock_result = MagicMock()
@@ -75,11 +78,12 @@ async def test_get_workspace_organization_id_activity_raises_when_missing(
     mock_session.execute.return_value = mock_result
 
     @asynccontextmanager
-    async def fake_session_manager():
+    async def fake_session_manager(*, workspace_id: uuid.UUID):
+        assert workspace_id == expected_workspace_id
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workspaces.activities.get_async_session_bypass_rls_context_manager",
+        "tracecat.workspaces.activities.get_async_session_tenant_context_manager",
         fake_session_manager,
     )
 
@@ -99,20 +103,22 @@ async def test_get_workspace_organization_id_activity_classifies_query_failure(
     monkeypatch,
 ):
     diagnostic = "database diagnostic must not enter history"
+    expected_workspace_id = uuid.uuid4()
     mock_session = AsyncMock()
     mock_session.execute.side_effect = RuntimeError(diagnostic)
 
     @asynccontextmanager
-    async def fake_session_manager():
+    async def fake_session_manager(*, workspace_id: uuid.UUID):
+        assert workspace_id == expected_workspace_id
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workspaces.activities.get_async_session_bypass_rls_context_manager",
+        "tracecat.workspaces.activities.get_async_session_tenant_context_manager",
         fake_session_manager,
     )
 
     with pytest.raises(ApplicationError) as exc_info:
-        await get_workspace_organization_id_activity(uuid.uuid4())
+        await get_workspace_organization_id_activity(expected_workspace_id)
 
     classification = extract_error_classification(exc_info.value)
     assert classification is not None

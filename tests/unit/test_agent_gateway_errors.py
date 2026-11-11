@@ -624,6 +624,10 @@ def _provider_outage(kind: str) -> Exception:
             return _mid_stream_wrap(
                 InternalServerError(detail, "synthetic-provider", "synthetic-model")
             )
+        case "reraised_read_error":
+            return httpx.ReadError(detail)
+        case "reraised_remote_protocol_error":
+            return httpx.RemoteProtocolError(detail)
         case _:
             raise AssertionError(kind)
 
@@ -639,6 +643,8 @@ def _provider_outage(kind: str) -> Exception:
         ("unavailable", 503),
         ("mid_stream", 503),
         ("mid_stream_internal", 500),
+        ("reraised_read_error", 502),
+        ("reraised_remote_protocol_error", 502),
     ],
 )
 async def test_provider_outage_is_typed_provider_unavailable(
@@ -668,13 +674,18 @@ async def test_provider_outage_is_typed_provider_unavailable(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "timeout",
+    [
+        Timeout("synthetic timeout", "synthetic-model", "synthetic-provider"),
+        httpx.ReadTimeout("synthetic timeout"),
+    ],
+)
 async def test_provider_timeout_is_not_relabelled_as_outage(
+    timeout: Exception,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    failure = await _anthropic_failure(
-        Timeout("synthetic timeout", "synthetic-model", "synthetic-provider"),
-        monkeypatch,
-    )
+    failure = await _anthropic_failure(timeout, monkeypatch)
 
     body = bytes(failure.body)
     assert b"tracecat_llm_provider_unavailable" not in body

@@ -24,7 +24,7 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.managed_resources.include import PACKAGE_INCLUDE_FILENAME
 from tracecat.secrets.enums import SecretSource
-from tracecat.sync import PullResult, PushStatus
+from tracecat.sync import PullResult, PushStatus, first_diff_per_resource
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.operations.catalog import catalog_target_state
 from tracecat.workspace_sync.operations.mappings import surviving_mapping_targets
@@ -453,8 +453,10 @@ class DurableSyncService(WorkspaceSyncService):
             return PreparedSync(
                 projection=projection,
                 preview=preview,
+                # Fingerprint local state only: the bundle entries the push
+                # keeps from the branch are guarded by ``compare_sha``.
                 workspace_fingerprint=await self.local_fingerprint(
-                    inputs, projection=projection
+                    inputs, projection=push.local_projection
                 ),
                 repository_fingerprint=repository_fingerprint,
                 compare_ref=fetched.compare_ref,
@@ -688,10 +690,9 @@ class DurableSyncService(WorkspaceSyncService):
                 snapshot,
                 sync_schedules=params.sync_schedules,
                 mapping_targets=projection.mapping_targets,
-                changed_resources={
-                    (diff.resource_type, diff.source_id)
-                    for diff in prepared.preview.resource_diffs or []
-                }
+                changed_resources=set(
+                    first_diff_per_resource(prepared.preview.resource_diffs or [])
+                )
                 | {("workflow", source_id) for source_id in snapshot.spec.workflows},
             )
             if not result.success:

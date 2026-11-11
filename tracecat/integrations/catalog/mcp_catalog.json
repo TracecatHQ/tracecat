@@ -437,6 +437,13 @@
       "description": "Search the web, research topics, and reason over live results with Perplexity",
       "category": "Productivity",
       "icon": "https://cdn.simpleicons.org/perplexity"
+    },
+    {
+      "slug": "devin-mcp",
+      "name": "Devin",
+      "description": "Start and manage Devin sessions, and ask questions about your repositories with Devin",
+      "category": "Productivity",
+      "icon": "https://devin.ai/favicon.svg"
     }
   ]
 }

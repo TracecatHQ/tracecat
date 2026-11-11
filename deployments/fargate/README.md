@@ -181,3 +181,45 @@ Keep the operation table and stored preview artifacts when rolling back. Let
 running lifecycle workflows finish on a worker that understands them before
 removing that worker version. After an import commits, the worker retries pending
 schedule and background updates automatically; it does not import those resources again.
+
+### ALB traffic logging
+
+ALB access and TLS connection logs are disabled by default. Enable them explicitly
+with `enable_alb_logging = true` and set `alb_log_bucket_name` to a bucket in the
+load balancer's AWS region. Supplying a bucket alone leaves logging disabled.
+The bucket must exist, use SSE-S3 encryption, and grant
+`logdelivery.elasticloadbalancing.amazonaws.com` permission to write under the
+source account's object prefixes before logging is enabled.
+
+Request records use `alb/access/`; TLS connection records use `alb/connection/`.
+Set `enable_alb_logging = false` to disable both streams on the next apply.
+ALB logs can contain sensitive URLs and client metadata. Delivery is best effort
+and is separate from CloudTrail management API auditing. Target health-check
+logging is a separate diagnostic feature.
+
+### WAF ownership (legacy)
+
+Manage AWS WAF rules, ALB associations, event logging, and monitoring through a
+separate CloudFormation stack or your own security tooling. Use the `alb_arn`
+output to associate a `REGIONAL` web ACL in the ALB's AWS account and region.
+With Terraform 1.7+, the bundled `waf-handoff.tf`
+forgets legacy WAF state entries while preserving the live protection.
+Keep that migration file in the shared module for users upgrading from older releases.
+See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145)
+for migration, manual setup, and troubleshooting.
+
+## Workload IAM permissions boundary
+
+Set `iam_role_permissions_boundary` to the managed-policy ARN maintained by your
+platform administrator to apply one ceiling to every task and execution role,
+including optional services. For example:
+
+```hcl
+iam_role_permissions_boundary = "arn:aws:iam::123456789012:policy/WorkloadBoundary"
+```
+
+The default is `null` for installations without a boundary. Setting the input
+updates existing roles in place and preserves their names and ARNs. Review the
+full plan and reject any deletion or replacement before applying. Manage the boundary policy separately from this workload stack.
+Add service permissions to workload identity policies within that ceiling; keep
+the boundary ARN stable when extending its approved scopes.

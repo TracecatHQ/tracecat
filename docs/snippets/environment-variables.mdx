@@ -31,10 +31,22 @@
 | `TRACECAT__POSTGRES_PASSWORD` | `postgres` | PostgreSQL password. Change this in production. |
 | `TRACECAT__DB_URI` | `postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres` | Full database connection URI. Override this when using an external database. |
 | `TRACECAT__DB_SSLMODE` | `disable` | PostgreSQL SSL mode. Set to `require` or `verify-full` for remote databases. |
-| `TRACECAT__DB_ROLE_LOGIN` | Empty | Turns database role setup on and sets how the login roles authenticate: `password`, `aws_iam` or `azure_entra`. With it set, the migrations container sets up the roles as `TRACECAT__DB_ADMIN_URI`, then runs migrations as `migrator`. Empty (the default) skips role setup and keeps a single database user. Setting only one of `TRACECAT__DB_ROLE_LOGIN` and `TRACECAT__DB_ADMIN_URI` stops the migrations container with an error. |
-| `TRACECAT__DB_ADMIN_URI` | Empty | Admin connection the migrations container uses for role setup and migrations. Required when `TRACECAT__DB_ROLE_LOGIN` is set. Point it at the same database as `TRACECAT__DB_URI`. |
-| `TRACECAT__DB_MIGRATOR_PASSWORD` | Empty | Password for the `migrator` role, or its IAM token with `aws_iam`/`azure_entra`. Required when `TRACECAT__DB_ROLE_LOGIN` is set. |
-| `TRACECAT__DB_APP_PASSWORD` | Empty | Password for the `app` role. Required when `TRACECAT__DB_ROLE_LOGIN` is `password`. To run the app as `app`, keep role setup on (`TRACECAT__DB_ROLE_LOGIN` and `TRACECAT__DB_ADMIN_URI` set; it creates `app`) and point `TRACECAT__DB_URI` at it, for example `postgresql+psycopg://app:${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres`. This shorthand doesn't URL-encode the password, so use a URI-safe password (letters and digits) or write `TRACECAT__DB_URI` out with the password percent-encoded. |
+| `TRACECAT__DB_USER` | | Database user. Used instead of `TRACECAT__DB_URI` together with `TRACECAT__DB_ENDPOINT`, `TRACECAT__DB_PORT` and `TRACECAT__DB_NAME`; required in the token modes. |
+| `TRACECAT__DB_ENDPOINT` | | Database host (in the token modes, the host the app connects to, such as PgDog). |
+| `TRACECAT__DB_PORT` | | Database port. |
+| `TRACECAT__DB_NAME` | | Database name. |
+| `TRACECAT__DB_PASS` | | Database password, with `TRACECAT__DB_USER`. Not allowed in the token modes. |
+| `TRACECAT__DB_AUTH_MODE` | `password` | How the app logs in to Postgres: `password` (`TRACECAT__DB_URI`, or `TRACECAT__DB_USER` with `TRACECAT__DB_PASS` or the AWS Secrets Manager ARN `TRACECAT__DB_PASS__ARN`), `aws_iam` (an RDS IAM token per login) or `azure_entra` (an Entra ID token per login). The token modes log in as `TRACECAT__DB_USER` to `TRACECAT__DB_ENDPOINT`, `TRACECAT__DB_PORT` and `TRACECAT__DB_NAME`, refuse to start with `TRACECAT__DB_PASS`, `TRACECAT__DB_PASS__ARN` or `TRACECAT__DB_URI` set, and need `TRACECAT__DB_SSLMODE` `require`, `verify-ca` or `verify-full`. The `tracecat-admin migrate` commands take a password URI only. See [Database IAM login](/self-hosting/database-iam). |
+| `TRACECAT__DB_AWS_IAM_HOST` | `TRACECAT__DB_ENDPOINT` | `aws_iam` only. RDS endpoint the token is signed for. Set it when the app connects through a pooler that passes the token on to RDS (PgDog with `auth_type = "external_token"`). |
+| `TRACECAT__DB_AWS_IAM_PORT` | `TRACECAT__DB_PORT` | `aws_iam` only. Port of `TRACECAT__DB_AWS_IAM_HOST`. |
+| `TRACECAT__DB_AWS_REGION` | `AWS_REGION`, then `AWS_DEFAULT_REGION` | `aws_iam` only. Region of the database. |
+| `TRACECAT__DB_AZURE_CLIENT_ID` | `AZURE_CLIENT_ID` | `azure_entra` only. Client ID of the managed or workload identity. `TRACECAT__DB_USER` is that identity's Postgres role name. |
+| `TRACECAT__DB_ROLE_LOGIN` | Empty | Docker Compose only. Set to `password` to set up [database roles](/self-hosting/database-roles) on each start: the `migrations` container runs `tracecat db roles upgrade --login password` as `TRACECAT__DB_ADMIN_URI`, then the migrations as `TRACECAT__DB_MIGRATOR_URI`, then `upgrade` again. Needs `TRACECAT__DB_ADMIN_URI`, `TRACECAT__DB_MIGRATOR_PASSWORD`, `TRACECAT__DB_APP_PASSWORD` and `TRACECAT__DB_MIGRATOR_URI`; keep them all set after moving the services to `app`. Empty (the default) keeps a single database user. |
+| `TRACECAT__DB_ADMIN_URI` | Empty | Admin connection for `tracecat db roles` (`upgrade`, `bootstrap`, `status`), for example `postgresql://postgres:<password>@postgres_db:5432/postgres`. Point it at the same database as `TRACECAT__DB_URI`. Only role setup uses it: the migrations and the services never do. |
+| `TRACECAT__DB_MIGRATOR_PASSWORD` | Empty | Password that `tracecat db roles upgrade --login password` sets on `migrator`. Use letters and digits. Password login only: with `aws_iam` or `azure_entra`, `migrator` logs in with its cloud token and role setup refuses a password. |
+| `TRACECAT__DB_APP_PASSWORD` | Empty | Password that `tracecat db roles upgrade --login password` sets on `app` (password login only). Use letters and digits. To run the services as `app`, point `TRACECAT__DB_URI` at it, for example `postgresql+psycopg://app:${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres`; keep `TRACECAT__DB_ROLE_LOGIN` and `TRACECAT__DB_ADMIN_URI` set so each start can run role setup. |
+| `TRACECAT__DB_MIGRATOR_URI` | Empty | Docker Compose only. The migrations' login once roles are set up: it must log in as `migrator`, for example `postgresql+psycopg://migrator:${TRACECAT__DB_MIGRATOR_PASSWORD}@postgres_db:5432/postgres`. Empty uses `TRACECAT__DB_URI`, which the migrations refuse once roles are set up unless it already logs in as `migrator`. |
+| `TRACECAT__RLS_MODE` | `off` | PostgreSQL row-level security mode for every Tracecat service: `off`, `shadow` or `enforce`. `off` and `shadow` run every session with the RLS bypass on. `enforce` scopes each tenant session to its tenant (platform admin and cross-tenant system sessions keep the bypass) and needs a login that can't skip RLS, such as `app`; services refuse to start otherwise. Any other value falls back to `off` with a warning. The bundled Compose files don't pass this variable to the services, so set it in each service's `environment` (for example in a Compose override file). See [Tenant isolation](/security/architecture#tenant-isolation). |
 
 ### Authentication
 
@@ -52,6 +64,7 @@
 | `OIDC_ISSUER` | | OIDC issuer URL (e.g. `https://accounts.google.com`). |
 | `OIDC_CLIENT_ID` | | OAuth client ID from your identity provider. |
 | `OIDC_CLIENT_SECRET` | | OAuth client secret from your identity provider. |
+| `OIDC_CREDENTIALS__ARN` | | AWS Secrets Manager ARN of a JSON secret with `clientId` and `clientSecret`. Takes precedence over `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`. |
 | `OIDC_SCOPES` | `openid profile email` | Space-separated OAuth scopes to request. |
 
 ### SAML

@@ -36,8 +36,10 @@ from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
 
 from tracecat import config
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
+from tracecat.agent.preset.activities import ResolveAgentConfigActivityInput
 from tracecat.agent.sandbox.llm_proxy import (
     LLMProxyError,
     LLMRoute,
@@ -56,6 +58,7 @@ from tracecat.agent.session.activities import (
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.tokens import mint_llm_token
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.common import RETRY_POLICIES
@@ -429,6 +432,33 @@ def _workflow_args(injection: FailureInjection) -> AgentWorkflowArgs:
     )
 
 
+def mock_resolve_agent_config_activity(
+    *,
+    replacement: ModelReplacement | None = None,
+    received: list[ResolveAgentConfigActivityInput] | None = None,
+    preset_config: AgentConfigPayload | None = None,
+) -> Callable[..., Any]:
+    """Stub config resolution: presets return a fixed config, inline configs echo."""
+
+    @activity.defn(name="resolve_agent_config_activity")
+    async def resolve_agent_config(
+        input: ResolveAgentConfigActivityInput,
+    ) -> AgentConfigPayload:
+        if received is not None:
+            received.append(input)
+        if isinstance(input.source, AgentConfigPayload):
+            config = input.source
+        elif preset_config is not None:
+            config = preset_config
+        else:
+            raise RuntimeError("Preset resolution is not stubbed")
+        if replacement is None:
+            return config
+        return config.model_copy(update=replacement.selection_update())
+
+    return resolve_agent_config
+
+
 def _activities(state: _HarnessState) -> list[Callable[..., Any]]:
     @activity.defn(name="load_session_activity")
     async def load_session(input: LoadSessionInput) -> LoadSessionResult:
@@ -516,6 +546,7 @@ def _activities(state: _HarnessState) -> list[Callable[..., Any]]:
         state.emitted_done.append(input)
 
     return [
+        mock_resolve_agent_config_activity(),
         load_session,
         create_session,
         build_agent_tool_definitions,

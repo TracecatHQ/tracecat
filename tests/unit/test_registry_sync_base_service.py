@@ -666,8 +666,8 @@ async def test_sync_via_temporal_git_requires_registry_ssh_key_before_workflow(
         "tracecat.dsl.client.get_temporal_client",
         mocker.AsyncMock(return_value=mock_client),
     )
-    get_org_secret_by_name = mocker.patch(
-        "tracecat.registry.sync.base_service.SecretsService.get_org_secret_by_name",
+    get_registry_ssh_key_secret = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_registry_ssh_key_secret",
         mocker.AsyncMock(side_effect=TracecatNotFoundError("missing")),
     )
     get_ssh_key = mocker.patch(
@@ -680,7 +680,7 @@ async def test_sync_via_temporal_git_requires_registry_ssh_key_before_workflow(
     with pytest.raises(RegistrySyncError, match=REGISTRY_GIT_SSH_KEY_SECRET_NAME):
         await sync_service._sync_via_temporal_workflow(repo, commit=False)
 
-    get_org_secret_by_name.assert_awaited_once_with(REGISTRY_GIT_SSH_KEY_SECRET_NAME)
+    get_registry_ssh_key_secret.assert_awaited_once_with()
     get_ssh_key.assert_not_awaited()
     get_temporal_client.assert_not_awaited()
     mock_client.execute_workflow.assert_not_awaited()
@@ -711,8 +711,8 @@ async def test_sync_via_temporal_git_preserves_unexpected_secret_check_error(
         "tracecat.dsl.client.get_temporal_client",
         mocker.AsyncMock(),
     )
-    get_org_secret_by_name = mocker.patch(
-        "tracecat.registry.sync.base_service.SecretsService.get_org_secret_by_name",
+    get_registry_ssh_key_secret = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_registry_ssh_key_secret",
         mocker.AsyncMock(side_effect=RuntimeError("database unavailable")),
     )
 
@@ -721,5 +721,5 @@ async def test_sync_via_temporal_git_preserves_unexpected_secret_check_error(
     with pytest.raises(RuntimeError, match="database unavailable"):
         await sync_service._sync_via_temporal_workflow(repo, commit=False)
 
-    get_org_secret_by_name.assert_awaited_once_with(REGISTRY_GIT_SSH_KEY_SECRET_NAME)
+    get_registry_ssh_key_secret.assert_awaited_once_with()
     get_temporal_client.assert_not_awaited()

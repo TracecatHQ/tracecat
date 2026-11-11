@@ -1,11 +1,14 @@
 """Generic interface to FalconPy Uber class."""
 
-from typing import Annotated, Any
+import base64
+from collections.abc import Iterator
+from typing import Annotated, Any, Protocol, cast
 
 from falconpy import APIHarnessV2
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, ctx, registry, secrets
+from tracecat_registry.config import TRACECAT__MAX_FILE_SIZE_BYTES
 
 crowdstrike_secret = RegistrySecret(
     name="crowdstrike",
@@ -18,6 +21,56 @@ crowdstrike_secret = RegistrySecret(
     - `CROWDSTRIKE_CLIENT_ID`
     - `CROWDSTRIKE_CLIENT_SECRET`
 """
+
+
+def _size_error() -> ValueError:
+    return ValueError(
+        "CrowdStrike file content exceeds maximum size limit of "
+        f"{TRACECAT__MAX_FILE_SIZE_BYTES // 1024 // 1024}MB"
+    )
+
+
+def _encode_bytes(content: bytes) -> dict[str, str]:
+    if len(content) > TRACECAT__MAX_FILE_SIZE_BYTES:
+        raise _size_error()
+    return {"content_base64": base64.b64encode(content).decode("ascii")}
+
+
+class _StreamingResponse(Protocol):
+    """The `requests.Response` FalconPy returns when `stream=True`."""
+
+    ok: bool
+    status_code: int
+    headers: Any
+    text: str
+
+    def json(self) -> Any: ...
+
+    def iter_content(self, chunk_size: int) -> Iterator[bytes]: ...
+
+    def close(self) -> None: ...
+
+
+def _read_stream(response: _StreamingResponse) -> dict[str, Any]:
+    try:
+        if not response.ok:
+            try:
+                body: Any = response.json()
+            except ValueError:
+                body = response.text
+            return {
+                "status_code": response.status_code,
+                "headers": dict(response.headers),
+                "body": body,
+            }
+        content = bytearray()
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            content.extend(chunk)
+            if len(content) > TRACECAT__MAX_FILE_SIZE_BYTES:
+                raise _size_error()
+    finally:
+        response.close()
+    return _encode_bytes(bytes(content))
 
 
 @registry.register(
@@ -53,6 +106,7 @@ async def call_command(
         Field(..., description="Extra keyword arguments to pass to the Falcon API"),
     ] = None,
 ) -> Any:
+    """Binary responses are returned as `{"content_base64": ...}`."""
     params = params or {}
     extra_kwargs = extra_kwargs or {}
 
@@ -70,4 +124,9 @@ async def call_command(
         member_cid=member_cid,
         **extra_kwargs,
     )
-    return falcon.command(operation_id, **params)
+    result = falcon.command(operation_id, **params)
+    if isinstance(result, bytes | bytearray):
+        return _encode_bytes(bytes(result))
+    if hasattr(result, "iter_content"):
+        return _read_stream(cast(_StreamingResponse, result))
+    return result

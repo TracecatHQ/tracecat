@@ -7,12 +7,19 @@ definition:
   namespace: tools.jira
   name: get_priority_schemes
   secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
     - name: jira
       keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
   expects:
     base_url:
       type: str | None
-      description: Jira tenant URL (e.g. https://your-domain.atlassian.net)
+      description: >-
+        Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian
+        OAuth, use https://api.atlassian.com/ex/jira/{cloudId}.
       default: null
     limit:
       type: int
@@ -24,9 +31,8 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/priorityscheme
         method: GET
-        auth:
-          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
-          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.jira.JIRA_USEREMAIL, SECRETS.jira.JIRA_API_TOKEN))) }}
         params:
           maxResults: ${{ inputs.limit }}
   returns: ${{ steps.get_priority_schemes.result.data.values }}

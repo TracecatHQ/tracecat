@@ -1,6 +1,7 @@
 import base64
 import contextlib
 import json
+import uuid
 from collections.abc import AsyncGenerator
 from contextvars import ContextVar
 from typing import Any, Literal, Protocol
@@ -8,8 +9,8 @@ from typing import Any, Literal, Protocol
 import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
-from sqlalchemy import event
-from sqlalchemy.engine import Result
+from sqlalchemy import event, text
+from sqlalchemy.engine import URL, Result
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -25,6 +26,8 @@ from tracecat.db.exceptions import (
     AuthPoolExhaustedError,
     DatabasePoolAcquisitionOrderError,
 )
+from tracecat.db.iam.tokens import build_token_provider
+from tracecat.db.iam.types import DbPasswordAuth, DbTokenProvider
 from tracecat.db.locks import (
     hold_pg_advisory_xact_lock,
     require_lock_holder_on_commit,
@@ -173,8 +176,28 @@ def get_connection_string(
 
 
 def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
+    """The database URI. In a token mode it has no password: pass
+    ``_connect_args`` to the engine, whose password callable signs one token
+    per login."""
+    if not isinstance(config.TRACECAT__DB_AUTH, DbPasswordAuth):
+        # tracecat.config checked these at import.
+        assert config.TRACECAT__DB_USER and config.TRACECAT__DB_ENDPOINT
+        assert config.TRACECAT__DB_PORT and config.TRACECAT__DB_NAME
+        # URL.create escapes the role name: Entra-mapped roles may contain
+        # characters such as ":" or "@".
+        uri = URL.create(
+            f"postgresql+{driver}",
+            username=config.TRACECAT__DB_USER,
+            host=config.TRACECAT__DB_ENDPOINT,
+            port=int(config.TRACECAT__DB_PORT),
+            database=config.TRACECAT__DB_NAME,
+            # asyncpg takes libpq's sslmode as its ssl parameter.
+            query={
+                "ssl" if driver == "asyncpg" else "sslmode": config.TRACECAT__DB_SSLMODE
+            },
+        ).render_as_string(hide_password=False)
     # Check if AWS environment
-    if config.TRACECAT__DB_PASS__ARN:
+    elif config.TRACECAT__DB_PASS__ARN:
         logger.info("Retrieving database password from AWS Secrets Manager...")
         try:
             session = boto3.session.Session()
@@ -284,6 +307,31 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
     return uri
 
 
+def _token_provider() -> DbTokenProvider | None:
+    """A new token provider in a token mode, else ``None``.
+
+    Each engine gets its own: an Entra credential is bound to the event loop it
+    first runs in.
+    """
+    if isinstance(auth := config.TRACECAT__DB_AUTH, DbPasswordAuth):
+        return None
+    assert config.TRACECAT__DB_USER  # checked at import
+    return build_token_provider(auth, config.TRACECAT__DB_USER)
+
+
+def _connect_args(application_name: str) -> dict[str, Any]:
+    """asyncpg ``connect()`` arguments for a pooled engine.
+
+    In a token mode, ``password`` is a token provider: asyncpg calls it for
+    each new connection, so pool growth and recycle log in with a valid token.
+    """
+    # Untyped: SQLAlchemy forwards these as asyncpg.connect() keyword arguments.
+    args: dict[str, Any] = {"server_settings": {"application_name": application_name}}
+    if (provider := _token_provider()) is not None:
+        args["password"] = provider
+    return args
+
+
 def _create_async_db_engine() -> AsyncEngine:
     # Postgres as default
     uri = _get_db_uri(driver="asyncpg")
@@ -297,9 +345,7 @@ def _create_async_db_engine() -> AsyncEngine:
         pool_use_lifo=True,  # Better for burst workloads
         # Attribute pooled connections to the originating service in
         # pg_stat_activity.
-        connect_args={
-            "server_settings": {"application_name": config.TRACECAT__SERVICE_NAME}
-        },
+        connect_args=_connect_args(config.TRACECAT__SERVICE_NAME),
     )
     event.listen(engine.sync_engine, "checkout", _guard_main_pool_checkout)
     return engine
@@ -322,11 +368,7 @@ def _create_async_auth_db_engine() -> AsyncEngine:
         pool_timeout=config.TRACECAT__DB_POOL_TIMEOUT,
         pool_pre_ping=True,
         pool_use_lifo=True,  # Better for burst workloads
-        connect_args={
-            "server_settings": {
-                "application_name": f"{config.TRACECAT__SERVICE_NAME}-auth"
-            }
-        },
+        connect_args=_connect_args(f"{config.TRACECAT__SERVICE_NAME}-auth"),
     )
 
 
@@ -342,12 +384,20 @@ async def verify_rls_enforceable_login() -> None:
     """
     if config.TRACECAT__RLS_MODE != config.RLSMode.ENFORCE:
         return
-    engine = create_async_engine(_get_db_uri(driver="asyncpg"), poolclass=NullPool)
+    # Its own provider, closed here: this may run in a throwaway event loop.
+    provider = _token_provider()
+    engine = create_async_engine(
+        _get_db_uri(driver="asyncpg"),
+        poolclass=NullPool,
+        connect_args={} if provider is None else {"password": provider},
+    )
     try:
         async with engine.connect() as conn:
             await assert_login_can_enforce_rls(conn)
     finally:
         await engine.dispose()
+        if provider is not None:
+            await provider.aclose()
 
 
 def get_async_engine() -> AsyncEngine:
@@ -477,6 +527,54 @@ async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, 
                 require_lock_holder_on_commit(session, holder, lock_key)
                 await _initialize_session_rls_context(session)
                 yield session
+
+
+_WORKSPACE_ORGANIZATION_SQL = text(
+    "SELECT organization_id FROM workspace WHERE id = :workspace_id"
+)
+
+
+@contextlib.asynccontextmanager
+async def get_async_session_tenant_context_manager(
+    *,
+    organization_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID | None = None,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Get a session scoped to a tenant the caller already knows.
+
+    For system code that acts for one tenant without a ``ctx_role``. Use it
+    instead of the bypass session so RLS keeps that code inside its tenant.
+    Under ``enforce`` it sets the tenant's context; for a workspace, it first
+    reads the workspace's organization (the workspace policy admits its own
+    row), so the pair always matches. In ``off`` and ``shadow`` it behaves like
+    ``get_async_session``.
+
+    Args:
+        organization_id: The tenant's organization, for org-scoped work.
+        workspace_id: The tenant's workspace, for workspace-scoped work.
+
+    Raises:
+        ValueError: Not exactly one ID was given.
+    """
+    if (organization_id is None) == (workspace_id is None):
+        # Both at once could pair one tenant's org with another's workspace.
+        raise ValueError(
+            "A tenant session needs exactly one of an organization or workspace ID"
+        )
+    _assert_main_pool_checkout_allowed()
+    async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
+        if config.TRACECAT__RLS_MODE != config.RLSMode.ENFORCE:
+            await _initialize_session_rls_context(session)
+        else:
+            if workspace_id is not None:
+                await set_rls_context(session, org_id=None, workspace_id=workspace_id)
+                organization_id = await session.scalar(
+                    _WORKSPACE_ORGANIZATION_SQL, {"workspace_id": workspace_id}
+                )
+            await set_rls_context(
+                session, org_id=organization_id, workspace_id=workspace_id
+            )
+        yield session
 
 
 def get_async_session_bypass_rls_context_manager() -> (

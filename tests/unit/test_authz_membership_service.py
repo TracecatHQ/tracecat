@@ -24,7 +24,6 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
-    LegacyMembership,
     Membership,
     Organization,
     OrganizationMembership,
@@ -170,7 +169,6 @@ async def test_delete_membership_removes_membership_and_assignment(
             assigned_by=actor_user.id,
         )
     )
-    session.add(LegacyMembership(user_id=member_user.id, workspace_id=workspace.id))
     await session.commit()
 
     await membership_service.delete_membership(
@@ -191,17 +189,8 @@ async def test_delete_membership_removes_membership_and_assignment(
         )
     )
 
-    legacy = await session.scalar(
-        select(LegacyMembership).where(
-            LegacyMembership.workspace_id == workspace.id,
-            LegacyMembership.user_id == member_user.id,
-        )
-    )
-
     assert membership is None
     assert assignment is None
-    # The legacy table is kept in step for older app versions.
-    assert legacy is None
 
 
 async def test_delete_membership_removes_orphan_assignment(
@@ -457,17 +446,6 @@ async def test_create_membership_allows_admin_inviter(
     ).scalar_one_or_none()
     assert membership is not None
 
-    # The legacy table is kept in step for older app versions.
-    legacy = (
-        await session.execute(
-            select(LegacyMembership).where(
-                LegacyMembership.user_id == member_user.id,
-                LegacyMembership.workspace_id == workspace.id,
-            )
-        )
-    ).scalar_one_or_none()
-    assert legacy is not None
-
 
 async def test_create_membership_allows_org_admin_inviter(
     session: AsyncSession,
@@ -633,7 +611,6 @@ async def test_delete_membership_rejects_when_group_grant_remains(
                 role_id=workspace_editor_role.id,
                 assigned_by=actor_user.id,
             ),
-            LegacyMembership(user_id=member_user.id, workspace_id=workspace.id),
         ]
     )
     if idp_managed:
@@ -672,15 +649,7 @@ async def test_delete_membership_rejects_when_group_grant_remains(
             UserRoleAssignment.user_id == member_user.id,
         )
     )
-    legacy = await session.scalar(
-        select(LegacyMembership).where(
-            LegacyMembership.workspace_id == workspace.id,
-            LegacyMembership.user_id == member_user.id,
-        )
-    )
-
     assert assignment is not None
-    assert legacy is not None
 
 
 @pytest.mark.parametrize("source", ["direct", "group", "direct_and_workspace_group"])

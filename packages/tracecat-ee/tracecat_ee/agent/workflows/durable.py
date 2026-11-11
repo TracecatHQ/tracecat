@@ -29,6 +29,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.backends.schemas import (
         WorkflowCancelRequest as WorkflowCancelRequest,
     )
+    from tracecat.agent.channel_publisher import (
+        RunUpdate,
+        TurnFinished,
+        publish_budget,
+    )
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
         MCPToolDefinition,
@@ -66,10 +71,13 @@ with workflow.unsafe.imports_passed_through():
         action_name_to_mcp_tool_name,
         normalize_mcp_tool_name,
     )
-    from tracecat.agent.parsers import try_parse_json
+    from tracecat.agent.parsers import resolve_agent_output
     from tracecat.agent.preset.activities import (
+        AgentPresetRef,
+        ResolveAgentConfigActivityInput,
         ResolveAgentPresetConfigActivityInput,
         ResolveAgentsConfigActivityInput,
+        resolve_agent_config_activity,
         resolve_agent_preset_config_activity,
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
@@ -114,7 +122,11 @@ with workflow.unsafe.imports_passed_through():
         apply_preset_overrides,
         clamp_agent_timeout_seconds,
     )
-    from tracecat.agent.workflow_config import agent_config_from_payload
+    from tracecat.agent.workflow_config import (
+        agent_config_from_payload,
+        agent_config_to_payload,
+    )
+    from tracecat.agent.workflow_schemas import AgentConfigPayload
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
@@ -490,16 +502,6 @@ class CompiledAgentRun(BaseModel):
         return [subagent.to_sandbox_subagent() for subagent in self.subagents]
 
 
-def _resolve_agent_output(
-    *,
-    output: Any,
-) -> Any:
-    """Resolve final agent output."""
-    if output is not None:
-        return try_parse_json(output) if isinstance(output, str) else output
-    return None
-
-
 def _use_per_turn_agent_bindings() -> bool:
     """Accept recorded activation histories without activating new turns yet.
 
@@ -551,6 +553,8 @@ class DurableAgentWorkflow:
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
+        # Set when the session is linked to a channel: the run publishes updates to it.
+        self.channel_run_id: uuid.UUID | None = None
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
@@ -640,37 +644,51 @@ class DurableAgentWorkflow:
             has_base_url=bool(cfg.base_url),
         )
 
-    async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
+    def _config_source(
+        self, args: AgentWorkflowArgs
+    ) -> AgentPresetRef | AgentConfigPayload:
         if args.agent_args.preset_slug:
-            activity_input = (
-                ResolveAgentPresetConfigActivityInput(
-                    role=self.role,
-                    preset_version_id=args.agent_preset_version_id,
-                )
-                if args.agent_preset_version_id is not None
-                else ResolveAgentPresetConfigActivityInput(
-                    role=self.role,
-                    preset_slug=args.agent_args.preset_slug,
-                    preset_version=args.agent_args.preset_version,
-                )
+            if args.agent_preset_version_id is not None:
+                return AgentPresetRef(preset_version_id=args.agent_preset_version_id)
+            return AgentPresetRef(
+                preset_slug=args.agent_args.preset_slug,
+                preset_version=args.agent_args.preset_version,
             )
-            preset_config_payload = await workflow.execute_activity(
+        if args.agent_args.config is not None:
+            return agent_config_to_payload(args.agent_args.config)
+        raise_application_error_from_classification(invalid_agent_configuration())
+
+    async def _resolve_config(
+        self, source: AgentPresetRef | AgentConfigPayload
+    ) -> AgentConfig:
+        if workflow.patched(DurableAgentWorkflowPatch.RESOLVE_AGENT_CONFIG):
+            # Local: runs on this worker, so a rolling deploy never misses it.
+            payload = await workflow.execute_local_activity(
+                resolve_agent_config_activity,
+                ResolveAgentConfigActivityInput(role=self.role, source=source),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_slow"],
+            )
+        elif isinstance(source, AgentPresetRef):
+            payload = await workflow.execute_activity(
                 resolve_agent_preset_config_activity,
-                activity_input,
+                ResolveAgentPresetConfigActivityInput(
+                    role=self.role, **source.model_dump()
+                ),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-            # When using a preset, the 'config' in args acts as an override layer
-            cfg = apply_preset_overrides(
-                agent_config_from_payload(preset_config_payload),
-                args.agent_args.config,
-            )
         else:
-            if args.agent_args.config is None:
-                raise_application_error_from_classification(
-                    invalid_agent_configuration()
-                )
-            cfg = args.agent_args.config
+            # Pre-patch histories ran inline configs as given.
+            payload = source
+        return agent_config_from_payload(payload)
+
+    async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
+        source = self._config_source(args)
+        cfg = await self._resolve_config(source)
+        if isinstance(source, AgentPresetRef):
+            # When using a preset, the 'config' in args acts as an override layer
+            cfg = apply_preset_overrides(cfg, args.agent_args.config)
 
         await self._apply_custom_model_provider_config(cfg)
         return cfg
@@ -1028,6 +1046,13 @@ class DurableAgentWorkflow:
         run_id = AgentWorkflowID.from_workflow_id(
             workflow.info().workflow_id
         ).session_id
+        updates: list[RunUpdate] = []
+        if self.channel_run_id is not None:
+            # Closes an approval message the turn left open (a cancelled wait).
+            updates = [
+                *self.approvals.take_unpublished_decision(),
+                TurnFinished(session_id=self.session_id, run_id=self.channel_run_id),
+            ]
         try:
             result: FinalizeTurnResult | None = await workflow.execute_activity(
                 finalize_turn_activity,
@@ -1037,14 +1062,16 @@ class DurableAgentWorkflow:
                     run_id=run_id,
                     active_stream_id=active_stream_id,
                     emit_terminal_done=emit_terminal_done,
+                    channel_updates=updates,
                 ),
                 # Preserve the two former 10-second operation budgets when DB
                 # cleanup and Redis completion run inside one activity.
                 start_to_close_timeout=timedelta(
                     seconds=20 if emit_terminal_done else 10
-                ),
+                )
+                + publish_budget(updates),
                 # Retry-safe: pointer cleanup is compare-and-clear by run_id,
-                # and clients tolerate an ambiguous duplicate END.
+                # clients tolerate a duplicate END, and publishing is idempotent.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         except ActivityError as exc:
@@ -1168,6 +1195,53 @@ class DurableAgentWorkflow:
                 active_stream_id=str(active_stream_id),
                 error=str(emit_error),
             )
+
+    async def _pause_for_approval(self, result: AgentExecutorResult) -> None:
+        """Persist and publish the requests, then close the UI segment."""
+        logger.info("Agent waiting for approval", session_id=self.session_id)
+        if result.approval_items:
+            request_metadata = {
+                item.id: item.metadata
+                for item in result.approval_items
+                if item.metadata
+            }
+            # Persist approval requests to DB (atomic with chat messages)
+            await self.approvals.prepare(
+                result.approval_items,
+                request_metadata=request_metadata,
+                publish_to=self.channel_run_id,
+            )
+        await self._emit_approval_pause_done()
+
+    async def _resolve_approvals(
+        self, result: AgentExecutorResult, info: workflow.Info
+    ) -> AgentOutput | None:
+        """Record and publish the decisions; output only if cancelled."""
+        if self._cancel_requested:
+            logger.info(
+                "Agent turn cancelled while waiting for approval",
+                session_id=self.session_id,
+                reason=self._cancel_reason,
+            )
+            self.approvals.set(
+                {
+                    item.id: ToolDenied(message="Cancelled while waiting for approval")
+                    for item in result.approval_items or []
+                }
+            )
+            # Finalize publishes the decision, so Stop reaches the UI first.
+            await self.approvals.handle_decisions(publish=False)
+            return await self._cancelled_turn_output(result, info, emit_cancelled=True)
+        # Persist approval decisions to DB (atomic with chat messages)
+        await self.approvals.handle_decisions()
+        if self._cancel_requested:
+            logger.info(
+                "Agent turn cancelled after approval decisions",
+                session_id=self.session_id,
+                reason=self._cancel_reason,
+            )
+            return await self._cancelled_turn_output(result, info, emit_cancelled=True)
+        return None
 
     async def _emit_approval_pause_done(self) -> None:
         """Close the approval-pause stream after approval rows are durable."""
@@ -1338,6 +1412,8 @@ class DurableAgentWorkflow:
             raise_application_error_from_classification(
                 agent_session_initialization_failed(retryable=True)
             )
+        if create_result.channel_linked:
+            self.channel_run_id = curr_run_id
 
         # Build internal tool context for builder assistant sessions
         internal_tool_context: InternalToolContext | None = None
@@ -1537,53 +1613,14 @@ class DurableAgentWorkflow:
                 )
 
             if result.approval_requested:
-                logger.info("Agent waiting for approval", session_id=self.session_id)
-                if result.approval_items:
-                    request_metadata = {
-                        item.id: item.metadata
-                        for item in result.approval_items
-                        if item.metadata
-                    }
-                    # Persist approval requests to DB (atomic with chat messages)
-                    await self.approvals.prepare(
-                        result.approval_items,
-                        request_metadata=request_metadata,
-                    )
-                await self._emit_approval_pause_done()
+                await self._pause_for_approval(result)
                 # Wait for either approval decisions or a user cancellation.
                 await workflow.wait_condition(
                     lambda: self.approvals.is_ready() or self._cancel_requested
                 )
                 resumed_at = workflow.now()
-                if self._cancel_requested:
-                    logger.info(
-                        "Agent turn cancelled while waiting for approval",
-                        session_id=self.session_id,
-                        reason=self._cancel_reason,
-                    )
-                    self.approvals.set(
-                        {
-                            item.id: ToolDenied(
-                                message="Cancelled while waiting for approval"
-                            )
-                            for item in result.approval_items or []
-                        }
-                    )
-                    await self.approvals.handle_decisions()
-                    return await self._cancelled_turn_output(
-                        result, info, emit_cancelled=True
-                    )
-                # Persist approval decisions to DB (atomic with chat messages)
-                await self.approvals.handle_decisions()
-                if self._cancel_requested:
-                    logger.info(
-                        "Agent turn cancelled after approval decisions",
-                        session_id=self.session_id,
-                        reason=self._cancel_reason,
-                    )
-                    return await self._cancelled_turn_output(
-                        result, info, emit_cancelled=True
-                    )
+                if (output := await self._resolve_approvals(result, info)) is not None:
+                    return output
 
                 # Approval waits are unbounded. Tokens are turn-scoped, so resumed
                 # user-MCP tool execution and the continuation need fresh tokens.
@@ -1730,9 +1767,7 @@ class DurableAgentWorkflow:
                 continue
 
             # Agent completed successfully
-            output = _resolve_agent_output(
-                output=result.output,
-            )
+            output = resolve_agent_output(result.output)
             message_history = await self._load_terminal_message_history(result)
             return AgentOutput(
                 output=output,

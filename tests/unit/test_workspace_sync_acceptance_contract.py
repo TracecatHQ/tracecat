@@ -1723,15 +1723,19 @@ async def test_selected_export_by_source_id_targets_mapped_resource_after_rename
         )
         # Only the selected tag (plus the synthesised manifest) is pushed; the
         # unmapped neighbor is never written.
-        # The file is named after the tag's current name.
-        selected_path = f"{CASE_TAG_ROOT}/QA-alert-selected-by-source-id.yml"
+        # Every tag lives in one bundle file.
+        selected_path = f"{CASE_TAG_ROOT}/_all.yml"
         assert set(selected_remote_files) == {MANIFEST_FILENAME, selected_path}
-        selected_spec = yaml.safe_load(selected_remote_files[selected_path])
-        # The exported file keeps the canonical source id while carrying the
+        bundled = yaml.safe_load(selected_remote_files[selected_path])["tags"]
+        # The exported entry keeps the canonical source id while carrying the
         # local name edit, confirming the row (not the ref) was resolved.
-        assert selected_spec["id"] == "qa-alert"
-        assert selected_spec["name"] == "QA alert selected by source id"
-        assert f"{CASE_TAG_ROOT}/qa-neighbor.yml" not in selected_remote_files
+        assert bundled == [
+            {
+                "id": "qa-alert",
+                "name": "QA alert selected by source id",
+                "color": "#D92D20",
+            }
+        ]
 
         # ==================================================================
         # PULL: destination materialises only the intended selected resource
@@ -1766,6 +1770,171 @@ async def test_selected_export_by_source_id_targets_mapped_resource_after_rename
         source_id="qa-alert",
         local_id=target_tag.id,
     )
+
+
+@pytest.mark.anyio
+async def test_case_tags_move_into_one_bundle_and_partial_pushes_keep_others(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A repository with one file per tag upgrades to one bundle file.
+
+    The source pulls a repository written before bundling, and a full push
+    rewrites its tags into ``case_tags/_all.yml``. A teammate then adds a tag
+    to that bundle. A partial push of one tag must keep the teammate's tag,
+    preview only its own change, and a fresh workspace must import both.
+    """
+    assert svc_role.workspace_id is not None
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-tag-bundle-qa.git"
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-tag-bundle-qa")
+    bundle_path = f"{CASE_TAG_ROOT}/_all.yml"
+    branch = "sync/tag-bundle"
+    fake_vcs = FakeVcsServer()
+    await _set_workspace_git_repo_url(
+        session, workspace_id=svc_role.workspace_id, repo_url=repo_url
+    )
+    target_role = await _create_workspace_role(
+        session,
+        source_role=svc_role,
+        workspace_name="target-tag-bundle-workspace",
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session, role=svc_role, transport_factory=fake_vcs.transport_factory
+    )
+    transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB, session=session, role=svc_role
+    )
+    seed = await transport.write_files(
+        url=git_url,
+        files=_expanded_full_git_tree(include_schedules=False),
+        message="Seed with one file per tag",
+        branch="seed/tags",
+        create_pr=False,
+    )
+    assert seed.sha is not None
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        # The old per-tag file still pulls.
+        pulled = await service.pull(options=PullOptions(commit_sha=seed.sha))
+        assert pulled.success is True, pulled.diagnostics
+
+        # A full push moves the tag into the bundle and deletes the old file.
+        full = await service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Full push", branch=branch, create_pr=False
+            )
+        )
+        assert full.commit.sha is not None
+        files = fake_vcs.repo_files(git_url, ref=full.commit.sha)
+        assert f"{CASE_TAG_ROOT}/qa-alert.yml" not in files
+        assert [tag["id"] for tag in yaml.safe_load(files[bundle_path])["tags"]] == [
+            "qa-alert"
+        ]
+
+        # A teammate adds a tag this workspace has never pulled.
+        bundle = yaml.safe_load(files[bundle_path])
+        bundle["tags"].append({"id": "teammate", "name": "Teammate tag"})
+        await transport.write_files(
+            url=git_url,
+            files={bundle_path: yaml.safe_dump(bundle, sort_keys=False)},
+            message="Teammate adds a tag",
+            branch=branch,
+            create_pr=False,
+        )
+
+        tag = await session.scalar(
+            select(CaseTag).where(
+                CaseTag.workspace_id == svc_role.workspace_id,
+                CaseTag.ref == "qa-alert",
+            )
+        )
+        assert tag is not None
+        tag.name = "QA alert v2"
+        session.add(tag)
+        await session.flush()
+        selection = [
+            ResourceRef(resource_type=SyncResourceType.CASE_TAG, source_id="qa-alert")
+        ]
+
+        # The preview lists only the tag that changed, not the whole bundle.
+        preview = await service.preview_export_workspace(
+            WorkspaceSyncExportPreviewRequest(resources=selection, compare_ref=branch)
+        )
+        assert [
+            (diff.source_id, diff.change_type, diff.source_path)
+            for diff in preview.resource_diffs
+        ] == [("qa-alert", "modified", bundle_path)]
+
+        partial = await service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Rename one tag",
+                branch=branch,
+                create_pr=False,
+                resources=selection,
+            )
+        )
+        assert partial.commit.sha is not None
+        tags = yaml.safe_load(
+            fake_vcs.repo_files(git_url, ref=partial.commit.sha)[bundle_path]
+        )["tags"]
+        assert tags == [
+            {"id": "qa-alert", "name": "QA alert v2", "color": "#D92D20"},
+            {"id": "teammate", "name": "Teammate tag"},
+        ]
+
+        # A fresh workspace imports both tags from the bundle.
+        target_service = WorkspaceSyncService(
+            session=session,
+            role=target_role,
+            transport_factory=fake_vcs.transport_factory,
+        )
+        target_pull = await target_service.pull(
+            options=PullOptions(commit_sha=partial.commit.sha)
+        )
+        assert target_pull.success is True, target_pull.diagnostics
+    target_names = set(
+        await session.scalars(
+            select(CaseTag.name).where(CaseTag.workspace_id == target_role.workspace_id)
+        )
+    )
+    assert target_names == {"QA alert v2", "Teammate tag"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("root", [f"{CASE_TAG_ROOT}/", "config/tags/"])
+async def test_pull_preview_diffs_bundled_tags_under_any_manifest_root(
+    session: AsyncSession,
+    svc_role: Role,
+    root: str,
+) -> None:
+    """A renamed tag shows in the pull preview wherever the manifest puts tags."""
+    session.add(
+        CaseTag(workspace_id=svc_role.workspace_id, ref="urgent", name="Urgent")
+    )
+    await session.flush()
+    manifest = WorkspaceManifest.model_validate({"resources": {"case_tags": root}})
+    bundle_path = f"{root}_all.yml"
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        {
+            MANIFEST_FILENAME: canonical_json_text(manifest),
+            bundle_path: _yaml(
+                {"version": 1, "tags": [{"id": "urgent", "name": "Urgent v2"}]}
+            ),
+        },
+        commit_sha="e" * 40,
+    )
+    assert diagnostics == []
+
+    diffs = await service._resource_diffs_for_pull(snapshot, sync_schedules=False)
+
+    assert [(diff.source_id, diff.change_type, diff.source_path) for diff in diffs] == [
+        ("urgent", "modified", bundle_path)
+    ]
 
 
 @pytest.mark.anyio
@@ -2502,12 +2671,6 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
     # the ``id`` inside the file keeps its original source id.
     expected = [
         (
-            f"{CASE_TAG_ROOT}/qa-alert.yml",
-            f"{CASE_TAG_ROOT}/QA-alert-renamed.yml",
-            "qa-alert",
-            {"name": "QA alert renamed"},
-        ),
-        (
             f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml",
             f"{CASE_DROPDOWN_ROOT}/QA-resolution-reason-renamed.yml",
             "qa_resolution_reason",
@@ -2562,6 +2725,12 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
         assert resource_spec["id"] == source_id
         for key, value in fields.items():
             assert resource_spec[key] == value
+    # Tags share one bundle file, so a renamed tag stays in it with its id.
+    assert f"{CASE_TAG_ROOT}/qa-alert.yml" not in projection.files
+    bundled_tags = yaml.safe_load(projection.files[f"{CASE_TAG_ROOT}/_all.yml"])
+    assert bundled_tags["tags"] == [
+        {"id": "qa-alert", "name": "QA alert renamed", "color": "#D92D20"}
+    ]
     # Skill companion files move with the skill folder.
     assert f"{SKILL_ROOT}/qa-enrichment-restored/files/SKILL.md" in projection.files
     assert not any(
@@ -8822,6 +8991,7 @@ def _expanded_selected_git_tree() -> dict[str, str]:
 
 
 def _expected_full_paths() -> set[str]:
+    """Paths a push writes for the seed tree; tags move into one bundle."""
     return {
         MANIFEST_FILENAME,
         f"{WORKFLOW_ROOT}/qa-root/definition.yml",
@@ -8833,7 +9003,7 @@ def _expected_full_paths() -> set[str]:
         f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md",
         f"{SKILL_ROOT}/qa-enrichment-skill/files/enrich.py",
         f"{TABLE_ROOT}/qa_indicators/table.yml",
-        f"{CASE_TAG_ROOT}/qa-alert.yml",
+        f"{CASE_TAG_ROOT}/_all.yml",
         f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml",
         f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml",
         f"{CASE_FIELD_ROOT}/qa_external_ref.yml",
