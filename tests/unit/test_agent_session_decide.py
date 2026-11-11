@@ -907,3 +907,34 @@ async def test_a_failed_record_still_reports_the_accepted_decision(
     row = await _row(session, agent_session, "tool_call_123")
     assert row.status is ApprovalStatus.APPROVED
     assert len(handle.received) == 1
+
+
+@pytest.mark.anyio
+async def test_a_crash_before_the_announcement_leaves_the_retry_to_announce(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """Rows commit with the announcement, so a retry is not mistaken for a repeat."""
+    agent_session = await _seed_batch(session, svc_role)
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), handle.execute_update
+    ) as publish:
+        publish.side_effect = [_ProcessCrash(), None]
+        with pytest.raises(_ProcessCrash):
+            await service.decide(**_click(agent_session))
+        await session.rollback()
+        await session.refresh(agent_session)
+        row = await _row(session, agent_session, "tool_call_123")
+        assert row.status is ApprovalStatus.PENDING
+
+        retried = await service.decide(**_click(agent_session))
+
+    assert retried == DecisionRecorded(
+        pending_tool_call_ids=["tool_call_456"], resumed=None
+    )
+    assert publish.await_count == 2
+    assert len(handle.received) == 1
+    row = await _row(session, agent_session, "tool_call_123")
+    assert row.status is ApprovalStatus.APPROVED

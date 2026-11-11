@@ -374,10 +374,11 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         attempt: _SubmissionAttempt,
         approved_by: uuid.UUID | None,
     ) -> None:
-        """Record the decisions the run accepted on their rows.
+        """Record the decisions the run accepted on their rows; the caller commits.
 
         Best effort: the run already holds the decisions and writes every row
-        at resume.
+        at resume. Committing with the announcement keeps a crash between them
+        from leaving decided rows that a retry would skip announcing.
         """
         decisions = attempt.decisions
         try:
@@ -399,7 +400,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 record_decision(
                     row, decisions[row.tool_call_id], approved_by=approved_by
                 )
-            await self.session.commit()
+            await self.session.flush()
         except SQLAlchemyError as exc:
             await self.session.rollback()
             logger.warning(

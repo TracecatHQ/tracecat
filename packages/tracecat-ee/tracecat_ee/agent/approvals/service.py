@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import func, null, or_, select
+from sqlalchemy import and_, case, func, null, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
 
@@ -332,13 +332,15 @@ class ApprovalManager:
         tool call has a decision.
         """
         new_ids = approvals.keys() - self._approvals.keys()
+        # Cancellation overwrites outcomes; provenance stays with the first decision.
         self._approvals.update(approvals)
-        # Deliveries resend earlier decisions; keep their original approver.
-        if approved_by is not None:
-            for tool_call_id in new_ids:
+        for tool_call_id in new_ids:
+            if approved_by is not None:
                 self._approved_by_by_tool_call_id[tool_call_id] = approved_by
-        if decision_metadata:
-            self._decision_metadata_by_tool_call_id.update(decision_metadata)
+            if decision_metadata and tool_call_id in decision_metadata:
+                self._decision_metadata_by_tool_call_id[tool_call_id] = (
+                    decision_metadata[tool_call_id]
+                )
 
         expected_ids = set(self._expected_tool_calls.keys())
         if expected_ids.issubset(self._approvals.keys()):
@@ -613,18 +615,31 @@ class ApprovalManager:
                     "status": stmt.excluded.status,
                     "reason": stmt.excluded.reason,
                     "approved_by": stmt.excluded.approved_by,
-                    "approved_at": stmt.excluded.approved_at,
+                    # Keep when the API recorded the same outcome.
+                    "approved_at": case(
+                        (
+                            Approval.status == stmt.excluded.status,
+                            Approval.approved_at,
+                        ),
+                        else_=stmt.excluded.approved_at,
+                    ),
                     "decision": func.coalesce(
                         stmt.excluded.decision, Approval.decision
                     ),
                     # onupdate does not fire for ON CONFLICT DO UPDATE.
                     "updated_at": func.now(),
                 },
-                # The API records each decision with its approver first; only a
-                # different outcome (cancellation) may replace it.
+                # The run holds the accepted decision's approver; the API's record
+                # of a deduplicated retry may name the retrier instead.
                 where=or_(
                     Approval.status == ApprovalStatus.PENDING,
                     Approval.status != stmt.excluded.status,
+                    and_(
+                        stmt.excluded.approved_by.is_not(None),
+                        Approval.approved_by.is_distinct_from(
+                            stmt.excluded.approved_by
+                        ),
+                    ),
                 ),
             )
             await service.session.execute(stmt)

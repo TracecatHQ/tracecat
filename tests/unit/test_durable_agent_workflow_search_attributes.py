@@ -24,6 +24,7 @@ from tracecat_ee.agent.workflows.durable import (
 )
 
 from tracecat import config
+from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
@@ -159,29 +160,29 @@ def test_workflow_rotates_stream_from_new_approval_update() -> None:
     assert workflow_instance.approvals.is_ready()
 
 
-def test_late_subset_of_recorded_decisions_keeps_the_newer_stream() -> None:
-    """Deliveries can arrive out of order; one adding nothing must not rotate back."""
+def test_an_update_deciding_nothing_new_is_refused_before_it_rotates() -> None:
+    """Every accepted update rotates the stream, so a repeat must not be accepted."""
     role = _user_role()
     workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
-    older_stream_id, newer_stream_id = uuid.uuid4(), uuid.uuid4()
+    workflow_instance.approvals._expected_tool_calls = {
+        tool_call_id: ToolCallContent(
+            id=tool_call_id, name="core.http_request", input={}
+        )
+        for tool_call_id in ("tool_call_123", "tool_call_456")
+    }
+    newer_stream_id = uuid.uuid4()
+    cast(Any, workflow_instance.set_approvals)(
+        WorkflowApprovalSubmission(
+            approvals={"tool_call_123": True}, new_stream_id=newer_stream_id
+        )
+    )
 
-    with patch(
-        "tracecat_ee.agent.workflows.durable.workflow.patched", return_value=True
-    ):
-        cast(Any, workflow_instance.set_approvals)(
+    with pytest.raises(ValueError, match="already decided"):
+        workflow_instance.validate_set_approvals(
             WorkflowApprovalSubmission(
-                approvals={"tool_call_123": True, "tool_call_456": True},
-                new_stream_id=newer_stream_id,
+                approvals={"tool_call_123": True}, new_stream_id=uuid.uuid4()
             )
         )
-        resumed = cast(Any, workflow_instance.set_approvals)(
-            WorkflowApprovalSubmission(
-                approvals={"tool_call_123": True},
-                new_stream_id=older_stream_id,
-            )
-        )
-
-    assert resumed is True
     assert workflow_instance.active_stream_id == newer_stream_id
 
 

@@ -920,6 +920,53 @@ class TestApplyApprovalDecisionsUpsert:
         assert approval.approved_by == test_user.id
         assert approval.decision == recorded
 
+    async def test_apply_approval_restores_the_run_approver_over_a_retrier(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+        test_user: User,
+    ) -> None:
+        """A deduplicated retry recorded its own approver; the run's first stands."""
+        service = ApprovalService(session=session, role=svc_role)
+        approval = await service.create_approval(
+            ApprovalCreate(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_retried",
+                tool_name="tool_1",
+                tool_call_args={},
+            )
+        )
+        approval = await service.update_approval(
+            approval,
+            ApprovalUpdate(
+                status=ApprovalStatus.APPROVED,
+                decision={"value": True, "metadata": {"source": "web"}},
+            ),
+        )
+        recorded_at = approval.approved_at
+
+        await ApprovalManager.apply_approval_decisions(
+            ApplyApprovalResultsActivityInputs(
+                role=svc_role,
+                session_id=mock_agent_session.id,
+                decisions=[
+                    ApprovalDecisionPayload(
+                        tool_call_id="call_retried",
+                        approved=True,
+                        decision=True,
+                        approved_by=test_user.id,
+                        decision_metadata={"source": "channel"},
+                    )
+                ],
+            )
+        )
+
+        await session.refresh(approval)
+        assert approval.approved_by == test_user.id
+        assert approval.decision == {"value": True, "metadata": {"source": "channel"}}
+        assert approval.approved_at == recorded_at
+
     async def test_apply_approval_sets_updated_at_on_conflict(
         self,
         session: AsyncSession,

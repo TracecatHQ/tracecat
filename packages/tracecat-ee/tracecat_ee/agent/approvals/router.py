@@ -220,7 +220,7 @@ async def delete_approval(
     except TracecatConflictError:
         # A live run refused the denial: it holds a decision these rows lack.
         lifecycle = await session_service.get_turn_lifecycle(agent_session)
-        if lifecycle.lifecycle is TurnLifecycle.RUNNING:
+        if lifecycle.lifecycle in (TurnLifecycle.RUNNING, TurnLifecycle.UNAVAILABLE):
             raise
         logger.warning(
             "run_turn refused; deleting approval records directly",
