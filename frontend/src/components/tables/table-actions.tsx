@@ -18,7 +18,7 @@ export function TableActions({
   onDeleteClick: (table: TableReadMinimal) => void
   onMoveClick?: (table: TableReadMinimal) => void
 }) {
-  // Managed tables cannot be deleted.
+  // Managed tables cannot be moved or deleted.
   const { isManaged } = useManagedResources()
   const isLocked = isManaged("table", table.id)
   return (
@@ -40,6 +40,7 @@ export function TableActions({
       {onMoveClick ? (
         <DropdownMenuItem
           className="text-xs"
+          disabled={isLocked}
           onClick={(e) => {
             e.stopPropagation()
             onMoveClick(table)

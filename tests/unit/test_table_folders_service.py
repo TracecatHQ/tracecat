@@ -5,14 +5,17 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.managed_resources import mark_managed
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableFolder
 from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
+from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.tables.folders.schemas import (
     TableDirectoryItem,
     TableFolderDirectoryItem,
 )
 from tracecat.tables.folders.service import TableFolderService
+from tracecat.workspace_sync.enums import SyncResourceType
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -161,3 +164,22 @@ async def test_delete_folder_never_deletes_tables(
     )
     assert folders.scalars().all() == []
     assert dict(tables.tuples().all()) == {"parent_table": None, "child_table": None}
+
+
+@pytest.mark.anyio
+async def test_managed_table_cannot_be_moved_or_unfoldered(
+    folder_service: TableFolderService, svc_role: Role
+) -> None:
+    """A managed table's folder comes from its spec, so customers can't change it."""
+    folder = await folder_service.create_folder(name="managed", parent_path="/")
+    table = _table(folder_service, "managed_table", folder_id=folder.id)
+    folder_service.session.add(table)
+    await folder_service.session.commit()
+    await mark_managed(
+        folder_service.session, svc_role, SyncResourceType.TABLE, table.id
+    )
+
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.move_table(table.id, None)
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.delete_folder(folder.id, recursive=True)

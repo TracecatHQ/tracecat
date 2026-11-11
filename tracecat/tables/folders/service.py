@@ -16,6 +16,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Table, TableFolder
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.managed_resources.guard import ensure_none_managed, ensure_unmanaged
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -27,6 +28,7 @@ from tracecat.tables.folders.schemas import (
     TableDirectoryItem,
     TableFolderDirectoryItem,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class TableFolderErrorCode(StrEnum):
@@ -297,6 +299,12 @@ class TableFolderService(BaseWorkspaceService):
         self, table_id: uuid.UUID, folder: TableFolder | None = None
     ) -> Table:
         """Move a table to a different folder."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.TABLE,
+            local_id=table_id,
+        )
         statement = select(Table).where(
             Table.workspace_id == self.workspace_id,
             Table.id == table_id,
@@ -450,6 +458,21 @@ class TableFolderService(BaseWorkspaceService):
             folder_ids = select(TableFolder.id).where(
                 TableFolder.workspace_id == self.workspace_id,
                 TableFolder.path.startswith(folder.path, autoescape=True),
+            )
+            # Moving the subtree's tables to the root edits each one, so a
+            # managed table anywhere in it blocks the delete.
+            await ensure_none_managed(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.TABLE,
+                local_ids=list(
+                    await self.session.scalars(
+                        select(Table.id).where(
+                            Table.workspace_id == self.workspace_id,
+                            Table.folder_id.in_(folder_ids),
+                        )
+                    )
+                ),
             )
             await self.session.execute(
                 sa.update(Table)
