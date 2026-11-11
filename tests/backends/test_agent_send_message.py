@@ -58,6 +58,7 @@ from tracecat.agent.session.service import AgentSessionService, message_run_id
 from tracecat.agent.types import AgentConfig
 from tracecat.db.models import AgentSession
 from tracecat.dsl._converter import get_data_converter
+from tracecat.exceptions import TracecatValidationError
 
 pytestmark = [pytest.mark.anyio, pytest.mark.dbtest]
 
@@ -458,3 +459,18 @@ async def test_a_message_to_a_running_turn_steers_or_is_busy(
     run_id = uuid4()
     outcome = await AgentSessionService._steer_or_busy(backend, run_id, uuid4(), "hi")
     assert outcome == result(run_id=run_id)
+
+
+@pytest.mark.parametrize("request_id", ["", "  "])
+async def test_a_blank_request_id_is_refused(
+    connection: AsyncConnection, request_id: str
+) -> None:
+    fake = FakeTemporal()
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        with temporal(fake), pytest.raises(TracecatValidationError, match="blank"):
+            async with channel_service(db, context) as service:
+                await service.send_message(
+                    **message(context.session.id, request_id=request_id)
+                )
+    assert fake.starts == []
