@@ -35,6 +35,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
@@ -74,7 +75,7 @@ async def _call[T](call: Awaitable[T]) -> T:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.get("", response_model=list[AgentChannelBotRead])
+@router.get("", response_model=CursorPaginatedResponse[AgentChannelBotRead])
 @require_scope("agent:read")
 async def list_bots(
     *,
@@ -83,13 +84,20 @@ async def list_bots(
     admin: Admin,
     agent_preset_id: uuid.UUID | None = Query(default=None),
     provider: ChannelBotProvider | None = Query(default=None),
-) -> list[AgentChannelBotRead]:
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> CursorPaginatedResponse[AgentChannelBotRead]:
     return await _call(
         admin.list_bots(
             session,
             role,
             agent_preset_id=agent_preset_id,
             provider=provider,
+            page=PageParams(limit=limit, cursor=cursor),
         )
     )
 

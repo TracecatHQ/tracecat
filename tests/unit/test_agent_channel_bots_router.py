@@ -35,6 +35,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.pagination import CursorPaginatedResponse, PageParams
 
 
 @pytest.fixture(autouse=True)
@@ -149,6 +150,33 @@ async def test_routes_hand_the_request_to_the_provider() -> None:
 
     assert result is expected
     admin.update_bot.assert_awaited_once_with(session, r, expected.id, params)
+
+
+@pytest.mark.anyio
+async def test_list_hands_the_page_to_the_provider() -> None:
+    expected = CursorPaginatedResponse(items=[bot_read()], next_cursor="next")
+    admin = AsyncMock()
+    admin.list_bots.return_value = expected
+    session, r = AsyncMock(), role()
+
+    result = await unwrap(router_module.list_bots)(
+        role=r,
+        session=session,
+        admin=admin,
+        agent_preset_id=None,
+        provider=None,
+        limit=5,
+        cursor="prev",
+    )
+
+    assert result is expected
+    admin.list_bots.assert_awaited_once_with(
+        session,
+        r,
+        agent_preset_id=None,
+        provider=None,
+        page=PageParams(limit=5, cursor="prev"),
+    )
 
 
 @pytest.mark.anyio

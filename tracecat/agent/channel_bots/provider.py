@@ -20,6 +20,7 @@ from tracecat.agent.channel_bots.schemas import (
 )
 from tracecat.api.extensions import load_api_extensions
 from tracecat.auth.types import Role
+from tracecat.pagination import CursorPaginatedResponse, PageParams
 
 
 class ChannelBotAdmin(Protocol):
@@ -35,7 +36,10 @@ class ChannelBotAdmin(Protocol):
         *,
         agent_preset_id: uuid.UUID | None,
         provider: ChannelBotProvider | None,
-    ) -> list[AgentChannelBotRead]: ...
+        page: PageParams,
+    ) -> CursorPaginatedResponse[AgentChannelBotRead]:
+        """Raise ``PaginationError`` for a cursor from another query."""
+        ...
 
     async def create_bot(
         self, session: AsyncSession, role: Role, params: AgentChannelBotCreate

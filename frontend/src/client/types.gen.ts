@@ -4082,6 +4082,30 @@ export type CursorPaginatedResponse_AdminOrgInvitationRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_AgentChannelBotRead_ = {
+  items: Array<AgentChannelBotRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_AgentFolderRead_ = {
   items: Array<AgentFolderRead>
   /**
@@ -16291,11 +16315,14 @@ export type AgentChannelsStartSlackOauthResponse = SlackOAuthStartResponse
 
 export type AgentChannelBotsListBotsData = {
   agentPresetId?: string | null
+  cursor?: string | null
+  limit?: number
   provider?: ChannelBotProvider | null
   workspaceId: string
 }
 
-export type AgentChannelBotsListBotsResponse = Array<AgentChannelBotRead>
+export type AgentChannelBotsListBotsResponse =
+  CursorPaginatedResponse_AgentChannelBotRead_
 
 export type AgentChannelBotsCreateBotData = {
   requestBody: AgentChannelBotCreate
@@ -23114,7 +23141,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentChannelBotRead>
+        200: CursorPaginatedResponse_AgentChannelBotRead_
         /**
          * Validation Error
          */

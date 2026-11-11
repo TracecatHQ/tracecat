@@ -6698,7 +6698,9 @@ export const agentChannelsStartSlackOauth = (
  * @param data.workspaceId
  * @param data.agentPresetId
  * @param data.provider
- * @returns AgentChannelBotRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentChannelBotRead_ Successful Response
  * @throws ApiError
  */
 export const agentChannelBotsListBots = (
@@ -6713,6 +6715,8 @@ export const agentChannelBotsListBots = (
     query: {
       agent_preset_id: data.agentPresetId,
       provider: data.provider,
+      limit: data.limit,
+      cursor: data.cursor,
     },
     errors: {
       422: "Validation Error",
