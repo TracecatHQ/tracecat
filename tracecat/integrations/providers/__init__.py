@@ -1,5 +1,6 @@
 from typing import Final
 
+from tracecat.integrations.providers.atlassian.oauth import AtlassianOAuthProvider
 from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.databricks import (
     DatabricksACProvider,
@@ -78,6 +79,7 @@ from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
+    AtlassianOAuthProvider,
     GitHubOAuthProvider,
     GitHubAppInstallationProvider,
     GitHubAppUserProvider,
