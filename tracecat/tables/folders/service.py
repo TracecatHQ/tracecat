@@ -114,6 +114,19 @@ class TableFolderService(BaseWorkspaceService):
                 code=TableFolderErrorCode.CONFLICT,
             ) from exc
 
+    async def _lock_parent_folder(self, *conditions: sa.ColumnElement[bool]) -> bool:
+        """Key-share lock a parent folder row; return whether it still exists.
+
+        ``delete_folder`` locks the row for update before checking it is
+        empty, so a child can't land under a parent that is being deleted.
+        """
+        parent_id = await self.session.scalar(
+            select(TableFolder.id)
+            .where(TableFolder.workspace_id == self.workspace_id, *conditions)
+            .with_for_update(read=True, key_share=True)
+        )
+        return parent_id is not None
+
     async def _ensure_subtree_unmanaged(self, path: str) -> None:
         """Refuse a change that moves managed tables under ``path``.
 
@@ -151,8 +164,7 @@ class TableFolderService(BaseWorkspaceService):
         parent_path = self._normalize_folder_path(parent_path)
 
         if parent_path != "/":
-            parent_exists = await self._folder_path_exists(parent_path)
-            if not parent_exists:
+            if not await self._lock_parent_folder(TableFolder.path == parent_path):
                 raise self._folder_validation_error(
                     f"Parent path {parent_path} not found",
                     code=TableFolderErrorCode.PARENT_NOT_FOUND,
@@ -418,7 +430,9 @@ class TableFolderService(BaseWorkspaceService):
         new_parent_path = "/"
         if new_parent_id is not None:
             new_parent = await self.get_folder(new_parent_id)
-            if not new_parent:
+            if not new_parent or not await self._lock_parent_folder(
+                TableFolder.id == new_parent_id
+            ):
                 raise self._folder_validation_error(
                     f"Parent folder {new_parent_id} not found",
                     code=TableFolderErrorCode.PARENT_NOT_FOUND,
@@ -468,7 +482,17 @@ class TableFolderService(BaseWorkspaceService):
         self, folder_id: uuid.UUID, recursive: bool = False
     ) -> None:
         """Delete a folder."""
-        folder = await self._get_folder(folder_id)
+        # Hold the ownership lock through the emptiness check so a rollout
+        # can't move a managed table in before the delete clears it.
+        await hold_for_customer_write(self.session, self.workspace_id)
+        folder = await self.session.scalar(
+            select(TableFolder)
+            .where(
+                TableFolder.workspace_id == self.workspace_id,
+                TableFolder.id == folder_id,
+            )
+            .with_for_update()
+        )
         if not folder:
             raise self._folder_validation_error(
                 f"Folder {folder_id} not found",

@@ -1,13 +1,15 @@
+import asyncio
 from collections.abc import AsyncGenerator
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_CONFIG
 from tests.support.managed_resources import mark_managed
 from tracecat.auth.types import Role
-from tracecat.db.models import Table, TableFolder
+from tracecat.db.models import Table, TableFolder, Workspace
 from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
 from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.tables.folders.schemas import (
@@ -214,3 +216,48 @@ async def test_create_table_in_folder_commits_once(
     table = await tables.create_table(TableCreate(name="feed"), folder_id=folder.id)
 
     assert table.folder_id == folder.id
+
+
+@pytest.mark.anyio
+async def test_parent_delete_waits_for_a_child_create(svc_role: Role) -> None:
+    """A parent can't be deleted out from under a child being created.
+
+    Two real sessions: the create holds the parent row, so the delete waits,
+    then sees the new child and refuses instead of orphaning it.
+    """
+    role = svc_role.model_copy(update={"workspace_id": uuid4()}, deep=True)
+    assert role.workspace_id is not None
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        async with sessions() as seed:
+            seed.add(
+                Workspace(
+                    id=role.workspace_id,
+                    name="folder-race-workspace",
+                    organization_id=role.organization_id,
+                )
+            )
+            await seed.commit()
+            parent = await TableFolderService(seed, role=role).create_folder(
+                name="parent"
+            )
+        async with sessions() as creator, sessions() as deleter:
+            await TableFolderService(creator, role=role).create_folder(
+                name="child", parent_path="/parent/", commit=False
+            )
+            delete_parent = asyncio.create_task(
+                TableFolderService(deleter, role=role).delete_folder(parent.id)
+            )
+            await asyncio.sleep(0.5)
+            assert not delete_parent.done()
+            await creator.commit()
+            with pytest.raises(TracecatValidationError, match="not empty"):
+                await asyncio.wait_for(delete_parent, timeout=10)
+    finally:
+        async with sessions() as cleanup:
+            await cleanup.execute(
+                delete(Workspace).where(Workspace.id == role.workspace_id)
+            )
+            await cleanup.commit()
+        await engine.dispose()
