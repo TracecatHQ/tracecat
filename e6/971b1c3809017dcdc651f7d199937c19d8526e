@@ -1,0 +1,21 @@
+deployments/fargate/README.md
+  s_28b5e1d0991a70::t_34abfcd8b9821d 202-204
+docs/self-hosting/aws-fargate.mdx
+  s_28b5e1d0991a70::t_34abfcd8b9821d 112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e6971b1c3809017dcdc651f7d199937c19d8526e",
+  "prompts": {},
+  "sessions": {
+    "s_28b5e1d0991a70": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c773-bf8e-79c3-b123-586e18d5970c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
