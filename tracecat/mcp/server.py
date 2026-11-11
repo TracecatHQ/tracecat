@@ -7150,13 +7150,9 @@ async def create_case(
         )
 
         async with CasesService.with_session(role=role) as svc:
-            case = await svc.create_case(params)
-
-            if tags:
-                for tag in tags:
-                    await svc.tags.add_case_tag(
-                        case.id, tag, create_if_missing=create_missing_tags
-                    )
+            case = await svc.create_case(
+                params, tags=tags or (), create_missing_tags=create_missing_tags
+            )
 
             return CaseCreatedResponse(
                 message="Case created successfully",

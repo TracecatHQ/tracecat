@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
@@ -51,12 +52,14 @@ from tracecat.db.models import (
     Case,
     CaseComment,
     CaseEvent,
+    CaseTag,
     CaseTrigger,
     CaseTriggerOutbox,
     Workflow,
     Workspace,
 )
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
+from tracecat.tags.schemas import TagCreate
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -329,6 +332,106 @@ async def _comment_status(session: AsyncSession, comment_id: uuid.UUID) -> str |
     return await session.scalar(
         select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
     )
+
+
+def _tagged_case_create(summary: str = "Tagged case") -> CaseCreate:
+    return CaseCreate(
+        summary=summary,
+        description="Case trigger outbox test",
+        status=CaseStatus.NEW,
+        priority=CasePriority.MEDIUM,
+        severity=CaseSeverity.LOW,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("bypass_session")
+class TestCreateCaseWithTags:
+    async def test_case_created_matches_the_tags_given_at_create(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """A `case_created` trigger filtered on X fires for a case created with X.
+
+        A trigger filtered only on a tag the case wasn't created with does not.
+        """
+        cases = CasesService(session=session, role=svc_role)
+        tag = await cases.tags.create_tag(TagCreate(name="Created with"))
+        matching = await _add_trigger(
+            session, svc_role, event_types=["case_created"], tag_filters=[tag.ref]
+        )
+        await _add_trigger(
+            session, svc_role, event_types=["case_created"], tag_filters=["other"]
+        )
+
+        case = await cases.create_case(_tagged_case_create(), tags=[tag.ref])
+
+        assert [t.ref for t in case.tags] == [tag.ref]
+        start = AsyncMock()
+        with _dispatch_mocks(start):
+            await _dispatch_only_row()
+        assert [call.kwargs["wf_id"] for call in start.await_args_list] == [
+            WorkflowUUID.new(matching.workflow_id)
+        ]
+
+    async def test_tags_commit_with_the_case_created_row(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """No commit separates the `CASE_CREATED` outbox row from the case's tags.
+
+        The dispatcher sees the row only once it commits, so it can never load
+        the case between the case insert and the tag inserts.
+        """
+        cases = CasesService(session=session, role=svc_role)
+        tag = await cases.tags.create_tag(TagCreate(name="Same commit"))
+        await _add_trigger(
+            session, svc_role, event_types=["case_created"], tag_filters=[tag.ref]
+        )
+        commits = 0
+        commits_at_link: list[int] = []
+        real_commit = session.commit
+        real_link_tag = cases.tags.link_tag
+
+        async def counting_commit() -> None:
+            nonlocal commits
+            commits += 1
+            await real_commit()
+
+        async def recording_link_tag(case: Case, tag: CaseTag) -> bool:
+            commits_at_link.append(commits)
+            # The row the dispatcher will pick up is already pending.
+            assert len(await _outbox_rows(session, case)) == 1
+            return await real_link_tag(case, tag)
+
+        with (
+            patch.object(session, "commit", counting_commit),
+            patch.object(cases.tags, "link_tag", recording_link_tag),
+        ):
+            await cases.create_case(_tagged_case_create(), tags=[tag.ref])
+
+        assert commits_at_link == [0]
+        assert commits == 1
+
+    async def test_unknown_tag_creates_no_case(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """An unknown tag fails the whole create, so a retry can't duplicate it."""
+        cases = CasesService(session=session, role=svc_role)
+        known = await cases.tags.create_tag(TagCreate(name="Known"))
+        await _add_trigger(session, svc_role, event_types=["case_created"])
+        summary = f"Unknown tag {uuid.uuid4().hex[:8]}"
+
+        with pytest.raises(NoResultFound):
+            await cases.create_case(
+                _tagged_case_create(summary), tags=[known.ref, "does-not-exist"]
+            )
+
+        assert (
+            await session.scalar(
+                select(func.count()).select_from(Case).where(Case.summary == summary)
+            )
+            == 0
+        )
+        assert await list_outbox_row_ids() == []
 
 
 @pytest.mark.anyio

@@ -1428,17 +1428,10 @@ async def create_case_simple(
                 dropdown_values=params.dropdown_values,
                 assignee_id=params.assignee_id,
                 payload=params.payload,
-            )
+            ),
+            tags=params.tags or (),
+            create_missing_tags=params.create_missing_tags,
         )
-
-        # Add tags if provided
-        if params.tags:
-            for tag in params.tags:
-                await service.tags.add_case_tag(
-                    case.id, tag, create_if_missing=params.create_missing_tags
-                )
-            await session.refresh(case)
-
     except NoResultFound as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
