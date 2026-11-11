@@ -1,4 +1,4 @@
-"""Atlassian OAuth 2.0 (3LO) provider for Jira and Jira Service Management."""
+"""Atlassian OAuth 2.0 (3LO) provider for Jira, JSM, and Confluence."""
 
 from typing import Any, ClassVar
 
@@ -29,6 +29,12 @@ ATLASSIAN_SCOPES = [
     "read:ops-config:jira-service-management",
     "write:ops-config:jira-service-management",
     "delete:ops-config:jira-service-management",
+    # Confluence
+    "read:confluence-content.all",
+    "read:confluence-content.summary",
+    "read:confluence-space.summary",
+    "write:confluence-content",
+    "search:confluence",
     # Refresh tokens
     "offline_access",
 ]
@@ -43,14 +49,19 @@ class AtlassianOAuthProvider(AuthorizationCodeOAuthProvider):
         id="atlassian",
         name="Atlassian",
         description=(
-            "Atlassian OAuth provider for Jira and Jira Service Management cloud APIs."
+            "Atlassian OAuth provider for Jira, Jira Service Management, and "
+            "Confluence cloud APIs."
         ),
         setup_instructions=(
             "Create an OAuth 2.0 (3LO) integration in the Atlassian developer "
-            "console, add the Jira and Jira Service Management API permissions, and "
+            "console, add the Jira, Jira Service Management, and Confluence API "
+            "permissions, and "
             "register the Tracecat redirect URI as the callback URL. OAuth requests "
             "are routed through api.atlassian.com, so set the Jira base URL to "
-            "https://api.atlassian.com/ex/jira/{cloudId} rather than your site URL."
+            "https://api.atlassian.com/ex/jira/{cloudId} and the Confluence base URL "
+            "to https://api.atlassian.com/ex/confluence/{cloudId} rather than your "
+            "site URLs. Remove the Confluence scopes if the app only has Jira "
+            "permissions."
         ),
         requires_config=True,
         enabled=True,
