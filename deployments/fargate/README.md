@@ -181,3 +181,33 @@ Keep the operation table and stored preview artifacts when rolling back. Let
 running lifecycle workflows finish on a worker that understands them before
 removing that worker version. After an import commits, the worker retries pending
 schedule and background updates automatically; it does not import those resources again.
+
+### ALB traffic logging
+
+ALB access and TLS connection logs are disabled by default. Enable them explicitly
+with `enable_alb_logging = true` and set `alb_log_bucket_name` to a bucket in the
+load balancer's AWS region. Supplying a bucket alone leaves logging disabled.
+The bucket must exist, use SSE-S3 encryption, and grant
+`logdelivery.elasticloadbalancing.amazonaws.com` permission to write under the
+source account's object prefixes before logging is enabled.
+
+Request records use `alb/access/`; TLS connection records use `alb/connection/`.
+Set `enable_alb_logging = false` to disable both streams on the next apply.
+ALB logs can contain sensitive URLs and client metadata. Delivery is best effort
+and is separate from CloudTrail management API auditing. Target health-check
+logging is a separate diagnostic feature.
+
+### WAF ownership
+
+This application stack creates no WAF resources. Manage protection in a separate
+security stack or with customer-owned tooling, using the `alb_arn` output to
+associate a regional web ACL. The security stack also owns WAF rules, request
+redaction, and WAF event logging independently of the ALB logging switch.
+
+Upgrading an existing deployment requires Terraform 1.7 or later. The module's
+`waf-handoff.tf` declarations remove the former ACL, three regex pattern sets,
+association, and any logging configuration from Terraform state without deleting
+them. Existing protection remains attached; arrange an explicit ownership
+handoff, such as CloudFormation resource import, before changing those resources.
+Do not replace these declarations with an ordinary resource deletion or a destroy
+plan. New deployments need a separately provisioned WAF if protection is required.
