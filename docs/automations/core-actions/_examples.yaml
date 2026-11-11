@@ -565,6 +565,16 @@ examples:
           comment_id: ${{ TRIGGER.comment_id }}
           content: "Initial triage started. Waiting on endpoint data."
 
+  cases-delete-comment:
+    title: Delete a comment
+    language: yaml
+    code: |
+      - ref: delete_comment
+        action: core.cases.delete_comment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          comment_id: ${{ TRIGGER.comment_id }}
+
   cases-list-comments:
     title: List comments
     language: yaml
@@ -707,6 +717,18 @@ examples:
         args:
           task_id: ${{ TRIGGER.task_id }}
           status: in_progress
+
+  cases-run-task:
+    title: Run a task's workflow
+    language: yaml
+    code: |
+      - ref: run_task
+        action: core.cases.run_task
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          task_id: ${{ TRIGGER.task_id }}
+          inputs:
+            reason: Requested by analyst
 
   cases-delete-task:
     title: Delete a task

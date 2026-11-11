@@ -5,7 +5,6 @@ from __future__ import annotations
 import secrets
 import uuid
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from functools import partial
 from typing import Annotated, Any, Literal
 
@@ -25,7 +24,7 @@ from fastapi.security import (
     HTTPBearer,
     OAuth2PasswordBearer,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -434,8 +433,30 @@ async def _authenticate_api_key(
                 )
             resolved_workspace_id = workspace_id or bound_workspace_id
 
-        record.last_used_at = datetime.now(UTC)
-        session.add(record)
+        # Concurrent requests with the same key must not queue on this row's
+        # lock while holding an auth-pool connection. `key_share=True` emits
+        # FOR NO KEY UPDATE, the mode this UPDATE takes anyway: it conflicts
+        # with another `last_used_at` writer, so SKIP LOCKED skips the row
+        # while one is in flight (it is recording a timestamp milliseconds
+        # older). It does not conflict with foreign-key FOR KEY SHARE locks, so
+        # those never cause a skip. GREATEST keeps a slower transaction from
+        # moving the timestamp backwards.
+        locked_key = (
+            select(ServiceAccountApiKey.surrogate_id)
+            .where(ServiceAccountApiKey.surrogate_id == record.surrogate_id)
+            .with_for_update(skip_locked=True, key_share=True)
+            .scalar_subquery()
+        )
+        await session.execute(
+            update(ServiceAccountApiKey)
+            .where(ServiceAccountApiKey.surrogate_id == locked_key)
+            .values(
+                last_used_at=func.greatest(
+                    ServiceAccountApiKey.last_used_at, func.now()
+                )
+            )
+            .returning(ServiceAccountApiKey.surrogate_id)
+        )
         await session.commit()
         return Role(
             type="service_account",

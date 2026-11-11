@@ -724,6 +724,45 @@
       ]
     },
     {
+      "slug": "swif-mcp",
+      "docs": "https://help.swif.ai/en/articles/17683909-swif-mcp-server",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.swifteam.com/mcp",
+        "scopes": [
+          "swif:read",
+          "offline_access"
+        ],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "SWIF_MCP_ENDPOINT",
+            "label": "Swif MCP server URL",
+            "description": "Regional Swif MCP endpoint. Keep the default for US tenants or use https://mcp.eu.swifteam.com/mcp for EU tenants. OAuth endpoints are discovered from this host; sign-in asks for a Swif API key.",
+            "required": true,
+            "secret": false,
+            "type": "url",
+            "default_value": "https://mcp.swifteam.com/mcp",
+            "placeholder": "https://mcp.swifteam.com/mcp",
+            "target": "server_uri"
+          }
+        ],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Swif hosts a first-party remote MCP server over streamable HTTP at https://mcp.swifteam.com/mcp (US) and https://mcp.eu.swifteam.com/mcp (EU). Unauthenticated POSTs return 401 with WWW-Authenticate pointing at /.well-known/oauth-protected-resource/mcp, which names https://mcp.swifteam.com/mcp as the resource, https://mcp.swifteam.com/api/auth as the authorization server, and scopes swif:read and offline_access. The authorization server metadata advertises /api/auth/oauth2/authorize, /api/auth/oauth2/token, /api/auth/oauth2/register (dynamic client registration), PKCE S256, and token_endpoint_auth_methods none, so endpoints are discovered and left null. On the Swif sign-in page the user pastes a Swif API key once; Swif stores it encrypted and issues short-lived OAuth tokens, scoped to that key's tenant. Swif's docs say only approved MCP clients can sign in (currently Claude, ChatGPT, Claude Code and Codex), and the sign-in page's CSP form-action allows only chatgpt.com, claude.ai and localhost redirects, so Swif must approve Tracecat's redirect URI before OAuth completes. Tools list teams, devices and employees, return Swif's compliance verdict with non-compliance reasons and fix steps, and list apps and browser extensions per device or find devices with a given app. Writes are limited to adding an employee and moving an employee to another team; the server cannot change, lock or wipe devices, delete employees, or change policies. Swif documents no osquery or script report tools; use the tools.swif script report actions for those.",
+          "sources": [
+            "https://help.swif.ai/en/articles/17683909-swif-mcp-server",
+            "https://mcp.swifteam.com/.well-known/oauth-protected-resource/mcp",
+            "https://mcp.swifteam.com/.well-known/oauth-authorization-server",
+            "https://mcp.eu.swifteam.com/.well-known/oauth-protected-resource/mcp"
+          ]
+        }
+      }
+    },
+    {
       "slug": "iru-mcp",
       "docs": "https://docs.iru.com/en/endpoint/api/model-context-protocol/iru-mcp",
       "connection_spec": {
@@ -2705,6 +2744,36 @@
             "https://docs.perplexity.ai/docs/getting-started/integrations/mcp-server",
             "https://api.perplexity.ai/.well-known/oauth-protected-resource",
             "https://api.perplexity.ai/.well-known/oauth-authorization-server"
+          ]
+        }
+      }
+    },
+    {
+      "slug": "devin-mcp",
+      "docs": "https://docs.devin.ai/work-with-devin/devin-mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": "https://mcp.devin.ai/mcp",
+        "credentials": [
+          {
+            "key": "Authorization",
+            "label": "Devin API key (Authorization header)",
+            "description": "Devin API key sent as the Authorization header in the form 'Bearer cog_<key>'. Provision a service user under Settings > Devin API > Service users to get a cog_ key. Enterprise service user keys and personal access tokens also need an X-Org-Id header with your Devin organization ID. Legacy apk_ keys only work for the repository documentation tools.",
+            "required": true,
+            "secret": true,
+            "target": "http_header",
+            "placeholder": "Bearer cog_..."
+          }
+        ],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Cognition hosts the first-party Devin MCP server at https://mcp.devin.ai/mcp over streamable HTTP (a legacy SSE transport is also served at /sse). Unauthenticated POSTs return 401 with WWW-Authenticate pointing at /.well-known/oauth-protected-resource/mcp, which lists https://api.devin.ai as the authorization server and the devin scope. That authorization server advertises authorization_code with PKCE and client ID metadata documents but no registration_endpoint, so Tracecat's DCR-based OAuth connect cannot register a client; the documented path for third-party clients is a Devin API key sent as Authorization: Bearer <key>. cog_ service user keys scoped to an organization resolve the org automatically; enterprise service user keys and personal access tokens also need the X-Org-Id header. Legacy apk_ keys only work with the wiki tools. Tools cover repository docs and Q&A (read_wiki_structure, read_wiki_contents, ask_question, list_available_repos), sessions (devin_session_create/search/interact/events/gather), playbooks, knowledge, schedules and integrations.",
+          "sources": [
+            "https://docs.devin.ai/work-with-devin/devin-mcp",
+            "https://mcp.devin.ai/.well-known/oauth-protected-resource/mcp",
+            "https://api.devin.ai/.well-known/oauth-authorization-server"
           ]
         }
       }

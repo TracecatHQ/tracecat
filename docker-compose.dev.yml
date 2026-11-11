@@ -216,7 +216,7 @@ services:
       target: development
     restart: unless-stopped
     environment:
-      TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES:-4}
+      TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES:-10}
       TRACECAT__AGENT_SANDBOX_TIMEOUT: ${TRACECAT__AGENT_SANDBOX_TIMEOUT:-10800}
       TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
       TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
@@ -239,6 +239,8 @@ services:
       TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SERVICE_NAME: background-worker
+      # Embedding provider calls from semantic-search indexing.
+      TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS: ${TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS:-}
       TRACECAT__DB_POOL_TIMEOUT: ${TRACECAT__DB_POOL_TIMEOUT:-30}
       TRACECAT__DB_AUTH_POOL_SIZE: ${TRACECAT__DB_AUTH_POOL_SIZE:-5}
       TRACECAT__DB_AUTH_MAX_OVERFLOW: ${TRACECAT__DB_AUTH_MAX_OVERFLOW:-5}
@@ -503,6 +505,10 @@ services:
       TRACECAT__DB_AUTH_POOL_SIZE: ${TRACECAT__DB_AUTH_POOL_SIZE:-5}
       TRACECAT__DB_AUTH_MAX_OVERFLOW: ${TRACECAT__DB_AUTH_MAX_OVERFLOW:-5}
       TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT:-4000}
+      # One proxy worker is enough locally; each worker holds ~300 MiB.
+      TRACECAT__LITELLM_NUM_WORKERS: ${TRACECAT__LITELLM_NUM_WORKERS:-1}
+      # Use LiteLLM's bundled model cost map instead of fetching it at startup.
+      LITELLM_LOCAL_MODEL_COST_MAP: ${LITELLM_LOCAL_MODEL_COST_MAP:-true}
       TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
       TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS: ${TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS:-}
       PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
@@ -709,7 +715,7 @@ services:
         condition: service_healthy
 
   ui:
-    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0}
+    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-latest}
     # container_name: ui
     build:
       context: ./frontend
@@ -768,14 +774,41 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__LOG_FORMAT: ${TRACECAT__LOG_FORMAT:-console}
-      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      # The app's database: role setup checks it names the admin URI's database.
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      # Migrations log in as migrator once database role setup is on.
+      TRACECAT__DB_MIGRATOR_URI: ${TRACECAT__DB_MIGRATOR_URI:-} # Sensitive
+      # With TRACECAT__DB_ROLE_LOGIN set, role setup runs as TRACECAT__DB_ADMIN_URI first.
+      TRACECAT__DB_ADMIN_URI: ${TRACECAT__DB_ADMIN_URI:-} # Sensitive
+      TRACECAT__DB_MIGRATOR_PASSWORD: ${TRACECAT__DB_MIGRATOR_PASSWORD:-} # Sensitive
+      TRACECAT__DB_APP_PASSWORD: ${TRACECAT__DB_APP_PASSWORD:-} # Sensitive
+      TRACECAT__DB_ROLE_LOGIN: ${TRACECAT__DB_ROLE_LOGIN:-}
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages:/app/packages
       - ./alembic:/app/alembic
-    command: ["python3", "-m", "alembic", "upgrade", "head"]
+    # Role setup (when on) as the admin, then migrations as migrator.
+    command:
+      - sh
+      - -ec
+      - |
+        if [ -n "$${TRACECAT__DB_ROLE_LOGIN}" ]; then
+          python3 -m tracecat.db.roles upgrade --login "$${TRACECAT__DB_ROLE_LOGIN}"
+        fi
+        # The migrations get migrator's login only, never the admin's.
+        (
+          unset TRACECAT__DB_ADMIN_URI TRACECAT__DB_MIGRATOR_PASSWORD TRACECAT__DB_APP_PASSWORD
+          if [ -n "$${TRACECAT__DB_MIGRATOR_URI}" ]; then
+            export TRACECAT__DB_URI="$${TRACECAT__DB_MIGRATOR_URI}"
+          fi
+          exec python3 -m tracecat.db.roles migrate
+        )
+        # Again once the schema exists: installs the dynamic-table RLS guard on a new install.
+        if [ -n "$${TRACECAT__DB_ROLE_LOGIN}" ]; then
+          python3 -m tracecat.db.roles upgrade --login "$${TRACECAT__DB_ROLE_LOGIN}"
+        fi
     depends_on:
       postgres_db:
         condition: service_healthy

@@ -24,13 +24,16 @@ async def test_after_commit_inline_backfill_syncs_each_case_under_lock(
     sync_mock = AsyncMock(side_effect=[True, False])
     role = MagicMock()
 
+    tenant_workspace_ids: list[uuid.UUID] = []
+
     @contextlib.asynccontextmanager
-    async def fake_session_context():
+    async def fake_tenant_session(*, workspace_id: uuid.UUID):
+        tenant_workspace_ids.append(workspace_id)
         yield fresh_session
 
     monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
-        fake_session_context,
+        "tracecat.cases.durations.sync_queue.get_async_session_tenant_context_manager",
+        fake_tenant_session,
     )
     monkeypatch.setattr(
         "tracecat.cases.durations.materialization.sync_case_duration",
@@ -46,6 +49,7 @@ async def test_after_commit_inline_backfill_syncs_each_case_under_lock(
     )
 
     assert outcome is False
+    assert tenant_workspace_ids == [definition_service.workspace_id]
     assert sync_mock.await_args_list == [
         call(definition_service.workspace_id, case_ids[0], event_types=None),
         call(definition_service.workspace_id, case_ids[1], event_types=None),

@@ -1,3 +1,14 @@
+variable "iam_role_permissions_boundary" {
+  description = "IAM permissions boundary managed-policy ARN selected by the platform administrator and applied to every workload role created by this stack. Null preserves installs without a boundary."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.iam_role_permissions_boundary == null ? true : can(regex("^arn:[a-z0-9-]+:iam::(aws|[0-9]{12}):policy/.+$", var.iam_role_permissions_boundary))
+    error_message = "iam_role_permissions_boundary must be an IAM managed-policy ARN or null."
+  }
+}
+
 ## AWS provider variables
 
 variable "aws_region" {
@@ -44,24 +55,6 @@ variable "redis_default_user_id" {
   type        = string
   description = "ElastiCache Redis default ACL user ID."
   default     = "default-user-tracecat"
-}
-
-variable "waf_attachments_endpoint_pattern_name" {
-  type        = string
-  description = "WAF regex pattern set name for attachments endpoint matching. When null, defaults to \"$${name_prefix}-attachments-endpoint-pattern\"."
-  default     = null
-}
-
-variable "waf_mcp_oauth_endpoints_pattern_name" {
-  type        = string
-  description = "WAF regex pattern set name for MCP OAuth endpoint matching. When null, defaults to \"$${name_prefix}-mcp-oauth-endpoints-pattern\"."
-  default     = null
-}
-
-variable "waf_mcp_public_endpoint_pattern_name" {
-  type        = string
-  description = "WAF regex pattern set name for MCP public endpoint matching. When null, defaults to \"$${name_prefix}-mcp-public-endpoint-pattern\"."
-  default     = null
 }
 
 ### Networking
@@ -668,6 +661,12 @@ variable "executor_queue" {
   default     = "shared-action-queue"
 }
 
+variable "executor_deny_same_account_assume_role" {
+  type        = bool
+  description = "Deny the executor task role sts:AssumeRole on roles in this deployment's own AWS account, so workflows and external secret stores can assume only roles in other accounts. Set false only for single-account self-hosted installs whose AWS integration roles live in this account; false lets every workspace user assume any role in this account whose trust policy names the account root or the executor task role and doesn't require a different ExternalId (see the Executor AWS role assumption section of deployments/fargate/README.md)."
+  default     = true
+}
+
 variable "executor_registry_cache_max_entries" {
   type        = number
   description = "Maximum number of entries in the executor-local registry artifact cache (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES). Set to 0 to disable entry-count eviction."
@@ -1062,10 +1061,38 @@ variable "background_worker_desired_count" {
 
 variable "background_worker_max_concurrent_activities" {
   type    = number
-  default = 4
+  default = 10
 
   validation {
     condition     = var.background_worker_max_concurrent_activities > 0 && floor(var.background_worker_max_concurrent_activities) == var.background_worker_max_concurrent_activities
     error_message = "background_worker_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "enable_alb_logging" {
+  description = "Enable ALB access and TLS connection logs in the configured S3 bucket. Supplying a bucket alone does not enable logging."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "alb_log_bucket_name" {
+  description = "Same-region S3 bucket for ALB access and TLS connection logs. Configure its delivery policy before enabling logging."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.alb_log_bucket_name == null ? true : alltrue([
+      can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.alb_log_bucket_name)),
+      !can(regex("\\.\\.", var.alb_log_bucket_name)),
+      !can(cidrnetmask("${var.alb_log_bucket_name}/32")),
+      !anytrue([
+        for prefix in ["xn--", "sthree-", "amzn-s3-demo-"] : startswith(var.alb_log_bucket_name, prefix)
+      ]),
+      !anytrue([
+        for suffix in ["-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3"] : endswith(var.alb_log_bucket_name, suffix)
+      ]),
+    ])
+    error_message = "alb_log_bucket_name must follow S3 bucket naming rules, including reserved prefixes and suffixes."
   }
 }

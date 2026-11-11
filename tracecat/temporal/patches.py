@@ -8,6 +8,7 @@ class WorkflowPatch(StrEnum):
     """Patch IDs recorded in Temporal workflow histories."""
 
     ACTION_HEARTBEAT_TIMEOUT_RETRY = "dsl-action-heartbeat-timeout-retry-v1"
+    ACTION_WORKER_SHUTDOWN_RETRY = "dsl-action-worker-shutdown-retry-v1"
     COMPILE_DSL_DEPENDENCIES = "dsl-compile-dependencies-v1"
     ERROR_OWNER_SEARCH_ATTRIBUTE = "dsl-error-owner-search-attribute-v1"
     ERROR_OWNER_CONTROL_FLOW = "dsl-error-owner-control-flow-v1"
@@ -19,6 +20,7 @@ class WorkflowPatch(StrEnum):
     PRESERVE_RUN_IF_CANCELLATION = "dsl-preserve-run-if-cancellation-v1"
     PRESERVE_TEMPORAL_CANCELLATION = "dsl-preserve-temporal-cancellation-v1"
     RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR = "runtime-error-attribution-interceptor-v1"
+    AGENT_ACTIONS_ON_SESSION_BACKEND = "dsl-agent-actions-on-session-backend-v1"
 
 
 @unique
@@ -55,3 +57,4 @@ class DurableAgentWorkflowPatch(StrEnum):
     FINALIZE_TURN_WITH_END = "durable-agent-finalize-turn-with-end-v1"
     REMINT_SCOPE_TOKENS = "durable-agent-remint-scope-tokens-v1"
     APPROVAL_STREAM_V2 = "durable-agent-approval-stream-v2"
+    RESOLVE_AGENT_CONFIG = "durable-agent-resolve-agent-config-v1"

@@ -9,6 +9,12 @@ class DataCenterBranch(BaseModel):
     isDefault: bool = False
 
 
+class DataCenterTag(BaseModel):
+    id: str
+    name: str = Field(alias="displayId")
+    latestCommit: str
+
+
 class DataCenterAuthor(BaseModel):
     name: str
     emailAddress: str = ""
@@ -41,7 +47,7 @@ class DataCenterPullRequest(BaseModel):
     toRef: DataCenterRef
 
 
-class DataCenterPage[T: BaseModel](BaseModel):
+class DataCenterPage[T](BaseModel):
     values: list[T] = Field(default_factory=list)
     isLastPage: bool
     nextPageStart: int | None = None

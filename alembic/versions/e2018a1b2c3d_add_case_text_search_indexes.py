@@ -10,7 +10,8 @@ without application dual-writes or a stored-column backfill. The explicit
 the server's default text-search configuration. Guarded source vectors supply indexed word candidates. The positional native
 helper preserves full-source phrase/word matching beyond whole-vector limits.
 
-The preceding shared migration enables pg_trgm in public when permitted;
+The preceding shared migration enables pg_trgm in public (ibm_extension on IBM
+Cloud) when permitted, and keeps an existing extension in its schema;
 restricted migration roles require administrator preinstallation using the
 shared scripts/postgres/pg-trgm.sql tooling. This revision only checks readiness; it
 never installs, moves, upgrades, or drops the shared extension. Concurrent
@@ -139,7 +140,7 @@ _INDEXES = tuple(
         ),
         (
             "trgm",
-            f"lower(CASE WHEN octet_length(coalesce({field}::text, '')) <= {_DOCUMENT_BYTES} THEN coalesce({field}::text, '') ELSE '' END) public.gin_trgm_ops",
+            f"lower(CASE WHEN octet_length(coalesce({field}::text, '')) <= {_DOCUMENT_BYTES} THEN coalesce({field}::text, '') ELSE '' END) {{trgm_schema}}.gin_trgm_ops",
         ),
     )
 )
@@ -273,7 +274,10 @@ def _index_state(name: str, expression: str) -> bool | None:
             AND a.amname = 'gin' AND NOT i.indisunique
             AND i.indnkeyatts = 1 AND i.indnatts = 1 AND i.indkey[0] = 0
             AND i.indpred IS NULL AND (NOT i.indisvalid OR i.indisready)
-            AND o.opcname = :opclass AND n.nspname = :opclass_schema
+            AND o.opcname = :opclass AND n.nspname = CASE WHEN :is_fts
+                THEN 'pg_catalog' ELSE (SELECT en.nspname FROM pg_extension e
+                    JOIN pg_namespace en ON en.oid = e.extnamespace
+                    WHERE e.extname = 'pg_trgm') END
             AND (NOT :is_fts OR EXISTS (
                 SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid
                     AND d.refclassid='pg_proc'::regclass
@@ -290,7 +294,6 @@ def _index_state(name: str, expression: str) -> bool | None:
             {
                 "name": f"public.{name}",
                 "opclass": "tsvector_ops" if is_fts else "gin_trgm_ops",
-                "opclass_schema": "pg_catalog" if is_fts else "public",
                 "is_fts": is_fts,
             },
         )
@@ -326,16 +329,19 @@ def upgrade() -> None:
                 RAISE EXCEPTION 'Case text search requires the pg_trgm extension'
                     USING HINT = 'Install the PostgreSQL pg_trgm package and allow pg_trgm in the RDS extension policy, then retry.';
             END IF;
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
-                WHERE e.extname = 'pg_trgm' AND n.nspname = 'public'
-            ) THEN
-                RAISE EXCEPTION 'Case text search requires pg_trgm in the public schema'
-                    USING HINT = 'Run the shared scripts/postgres/pg-trgm.sql check as the migration role and ask an operator to provision pg_trgm in public before retrying.';
+            IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+                RAISE EXCEPTION 'Case text search requires pg_trgm to be enabled'
+                    USING HINT = 'Run the shared scripts/postgres/pg-trgm.sql check as the migration role and ask an operator to provision pg_trgm in public (ibm_extension on IBM Cloud) before retrying.';
             END IF;
         END
         $$
         """
+    )
+    # pg_trgm is in public, or ibm_extension on IBM Cloud; regnamespace quotes it.
+    trgm_schema = op.get_bind().scalar(
+        sa.text(
+            "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'"
+        )
     )
     # Inspect every name before any concurrent build/drop. Never adopt or
     # destroy an unrelated index merely because its name matches this revision.
@@ -362,7 +368,7 @@ def upgrade() -> None:
             if states[name] is False:
                 op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS public."{name}"')
             op.execute(
-                f'CREATE INDEX CONCURRENTLY IF NOT EXISTS "{name}" ON public."case" USING gin ({expression})'
+                f'CREATE INDEX CONCURRENTLY IF NOT EXISTS "{name}" ON public."case" USING gin ({expression.format(trgm_schema=trgm_schema)})'
             )
             # Verify again to catch a competing same-name object created after
             # preflight. Name existence alone is never readiness evidence.

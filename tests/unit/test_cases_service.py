@@ -59,6 +59,7 @@ from tracecat.db.models import (
     Case,
     CaseComment,
     CaseEvent,
+    CaseTriggerOutbox,
     Organization,
     User,
     Workspace,
@@ -85,10 +86,6 @@ def stub_case_duration_sync() -> Iterator[None]:
         patch(
             "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             return_value=None,
-        ),
-        patch(
-            "tracecat.cases.service.publish_case_event_payload",
-            new=AsyncMock(return_value=None),
         ),
     ):
         yield
@@ -201,6 +198,11 @@ async def _create_dropdown_with_option(
         ),
     )
     return definition, option
+
+
+async def _outbox_case_ids(session: AsyncSession) -> set[uuid.UUID]:
+    result = await session.scalars(select(CaseTriggerOutbox.case_id))
+    return set(result.all())
 
 
 def _assert_batch_audit_calls(
@@ -853,41 +855,31 @@ class TestCasesService:
             case_create_params.model_copy(update={"summary": "Second case"})
         )
         case_ids = [first_case.id, second_case.id]
-        original_commit = session.commit
-        mock_publish = AsyncMock()
-
-        async def commit_batch() -> None:
-            mock_publish.assert_not_awaited()
-            await original_commit()
 
         with (
             patch.object(
                 AuditService, "create_event", new_callable=AsyncMock
             ) as mock_audit,
             patch(
-                "tracecat.cases.events.publish_case_event_payload",
-                new=mock_publish,
+                "tracecat.cases.triggers.outbox.has_online_trigger",
+                new=AsyncMock(return_value=True),
             ),
             patch.object(
                 cases_service.events,
                 "create_event",
                 wraps=cases_service.events.create_event,
             ) as mock_create_case_event,
-            patch.object(session, "commit", side_effect=commit_batch) as mock_commit,
+            patch.object(session, "commit", wraps=session.commit) as mock_commit,
         ):
             response = await cases_service.batch_update_cases(
                 case_ids, CaseUpdate(summary="Batch updated")
             )
-            for _ in range(10):
-                if mock_publish.await_count == 2:
-                    break
-                await asyncio.sleep(0)
 
         assert response.succeeded == 2
         assert response.failed == 0
         assert all(result.success for result in response.results)
         assert mock_create_case_event.await_count == 2
-        assert mock_publish.await_count == 2
+        assert await _outbox_case_ids(session) == set(case_ids)
         mock_commit.assert_awaited_once()
         _assert_batch_audit_calls(
             mock_audit,
@@ -1089,14 +1081,13 @@ class TestCasesService:
                 raise ValueError("Invalid case update")
             await apply_case_update(case, params)
 
-        mock_publish = AsyncMock()
         with (
             patch.object(
                 AuditService, "create_event", new_callable=AsyncMock
             ) as mock_audit,
             patch(
-                "tracecat.cases.events.publish_case_event_payload",
-                new=mock_publish,
+                "tracecat.cases.triggers.outbox.has_online_trigger",
+                new=AsyncMock(return_value=True),
             ),
             patch.object(
                 cases_service.events,
@@ -1113,10 +1104,6 @@ class TestCasesService:
             response = await cases_service.batch_update_cases(
                 case_ids, CaseUpdate(summary="Batch updated")
             )
-            for _ in range(10):
-                if mock_publish.await_count == 2:
-                    break
-                await asyncio.sleep(0)
 
         assert response.succeeded == 2
         assert response.failed == 1
@@ -1125,9 +1112,8 @@ class TestCasesService:
         assert response.results[1].error == "Invalid case update"
         assert response.results[2].success is True
         assert mock_create_case_event.await_count == 3
-        assert {
-            published.kwargs["case_id"] for published in mock_publish.await_args_list
-        } == {str(case_ids[0]), str(case_ids[2])}
+        # The failed case's savepoint rolled back its outbox row with its event.
+        assert await _outbox_case_ids(session) == {case_ids[0], case_ids[2]}
         mock_commit.assert_awaited_once()
         _assert_batch_audit_calls(
             mock_audit,
@@ -1281,7 +1267,7 @@ class TestCasesService:
         case_create_params: CaseCreate,
         session: AsyncSession,
     ) -> None:
-        """A whole-batch rollback cannot publish callbacks on a later commit."""
+        """A whole-batch rollback cannot leave case trigger outbox rows behind."""
         first_case = await cases_service.create_case(case_create_params)
         second_case = await cases_service.create_case(
             case_create_params.model_copy(update={"summary": "Second case"})
@@ -1293,12 +1279,11 @@ class TestCasesService:
                 raise RuntimeError("Unexpected failure")
             await original_apply_case_update(case, params)
 
-        mock_publish = AsyncMock()
         with (
             patch.object(AuditService, "create_event", new_callable=AsyncMock),
             patch(
-                "tracecat.cases.events.publish_case_event_payload",
-                new=mock_publish,
+                "tracecat.cases.triggers.outbox.has_online_trigger",
+                new=AsyncMock(return_value=True),
             ),
             patch.object(
                 cases_service,
@@ -1313,10 +1298,8 @@ class TestCasesService:
                 )
 
             await session.commit()
-            for _ in range(10):
-                await asyncio.sleep(0)
 
-        mock_publish.assert_not_awaited()
+        assert await _outbox_case_ids(session) == set()
 
     async def test_batch_update_cases_survives_audit_database_failure(
         self,

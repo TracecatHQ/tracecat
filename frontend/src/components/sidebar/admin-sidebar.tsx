@@ -3,10 +3,12 @@
 import {
   BookOpenIcon,
   BuildingIcon,
+  InfoIcon,
   LayersIcon,
   LogOutIcon,
   LogsIcon,
   MousePointerClickIcon,
+  PackageIcon,
   ShieldCheckIcon,
   UsersIcon,
   WrenchIcon,
@@ -66,6 +68,12 @@ export function AdminSidebar({
       isActive: pathname?.includes("/admin/agent"),
     },
     {
+      title: "Managed Workspaces",
+      url: "/admin/managed-package",
+      icon: PackageIcon,
+      isActive: pathname?.includes("/admin/managed-package"),
+    },
+    {
       title: "Audit Logs",
       url: "/admin/audit",
       icon: LogsIcon,
@@ -82,6 +90,12 @@ export function AdminSidebar({
       url: "/admin/maintenance",
       icon: WrenchIcon,
       isActive: pathname?.includes("/admin/maintenance"),
+    },
+    {
+      title: "Build",
+      url: "/admin/build-info",
+      icon: InfoIcon,
+      isActive: pathname?.includes("/admin/build-info"),
     },
   ]
 

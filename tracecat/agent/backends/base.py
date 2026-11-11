@@ -34,6 +34,8 @@ from tracecat.agent.backends.types import (
     AgentControlUncertain,
     AgentWorkflow,
     PendingMessage,
+    SessionCleanup,
+    SessionDeleteContext,
     SessionDispatchUncertain,
     SessionForkContext,
     SessionHistoryAdapter,
@@ -45,6 +47,7 @@ from tracecat.agent.backends.types import (
 from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.references.contracts import ReferenceCapabilities
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
 from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -70,6 +73,52 @@ _START_RPC_TIMEOUT = timedelta(seconds=30)
 # Until then a missing workflow may be a start still in flight. Tombstoning it
 # would drop that turn for a quick second send, so keep the conflict instead.
 _TOMBSTONE_MIN_AGE = _START_RPC_TIMEOUT + timedelta(seconds=5)
+
+
+async def claim_unstarted_workflow_id(client: Client, workflow_id: str) -> bool:
+    """Claim a workflow ID so a delayed start under it can never run.
+
+    Callers start these workflows with ``REJECT_DUPLICATE``, so once any
+    execution holds the ID, a delayed original start is rejected. The
+    tombstone needs no worker and is terminated at once.
+
+    Returns:
+        True only when the tombstone started. False when the original start
+        already holds the ID, or when the tombstone's own start outcome is
+        unknown.
+    """
+    try:
+        tombstone = await client.start_workflow(
+            _TOMBSTONE_WORKFLOW,
+            id=workflow_id,
+            task_queue=_TOMBSTONE_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            execution_timeout=_TOMBSTONE_TIMEOUT,
+            rpc_timeout=timedelta(seconds=5),
+        )
+    except Exception:
+        return False
+    try:
+        await tombstone.terminate(
+            reason="Agent turn could not be started",
+            rpc_timeout=timedelta(seconds=5),
+        )
+    except Exception:
+        # The ID is already claimed; the execution timeout closes the tombstone.
+        logger.warning(
+            "Failed to terminate agent turn tombstone", workflow_id=workflow_id
+        )
+    return True
+
+
+async def _publish_run_finished(context: SessionTurnContext, run_id: UUID) -> None:
+    """Tell open tabs a released reservation will not produce more output."""
+    await publish_session_event(
+        workspace_id=context.session.workspace_id,
+        session_id=context.session.id,
+        type=SessionFeedEventType.RUN_FINISHED,
+        run_id=run_id,
+    )
 
 
 class AgentBackend[InputT, OutputT](ABC):
@@ -124,6 +173,25 @@ class AgentBackend[InputT, OutputT](ABC):
         parent's history without mutating the parent.
         """
 
+    async def prepare_delete(
+        self, context: SessionDeleteContext
+    ) -> SessionCleanup | None:
+        """Prepare backend state for the session's deletion.
+
+        The service calls this in the delete's transaction, before it deletes the
+        session and its history, and commits afterwards. Take here any row locks
+        the backend's own writers take, in their order, so the delete cannot
+        deadlock with them, and read what a cleanup needs. Do not commit or call
+        remote services.
+
+        Return a callable to run once the delete has committed, for state outside
+        the database. It must return promptly, such as by starting durable work
+        elsewhere, and raise any failure it wants logged. The service bounds it,
+        logs a failure and never fails the delete, and lets it finish even when
+        the request is cancelled.
+        """
+        return None
+
     @abstractmethod
     async def build_workflow_args(self, context: SessionWorkflowContext) -> InputT:
         """Build workflow input without side effects from a data-only snapshot.
@@ -132,6 +200,10 @@ class AgentBackend[InputT, OutputT](ABC):
         transactions, or dispatch work. Persist turn data in workflow activities
         after execution starts, idempotently across activity retries. The shared
         lifecycle alone commits session ownership before the start RPC.
+
+        The returned input is recorded in Temporal history and, for workflow
+        agent actions, shown to workspace members in the workflow run view.
+        Never put credentials or other secrets in it.
         """
 
     async def start_turn(self, context: SessionTurnContext) -> None:
@@ -143,7 +215,9 @@ class AgentBackend[InputT, OutputT](ABC):
                 AgentSession.id == context.session.id,
                 AgentSession.workspace_id == context.role.workspace_id,
             )
-            .with_for_update()
+            # NO KEY UPDATE serializes admissions without blocking agent runtime
+            # FK checks on history inserts; admission writes no key columns.
+            .with_for_update(key_share=True)
             .execution_options(populate_existing=True)
         )
         session = await context.db.scalar(locked_session)
@@ -179,7 +253,7 @@ class AgentBackend[InputT, OutputT](ABC):
         Called only after Temporal confirms that the workflow for ``run_id`` is
         terminal or can never start, and before the shared lifecycle releases
         that turn's ownership.
-        ``context.session`` is the session row locked for update in
+        ``context.session`` is the session row locked FOR NO KEY UPDATE in
         ``context.db``. Return True when the backend's durable records show that
         the turn ended with an uncertain outcome that must be reconciled before
         another turn; the session then stays owned and the new turn is rejected
@@ -251,7 +325,10 @@ class AgentBackend[InputT, OutputT](ABC):
             .returning(AgentSession.id)
         )
         await context.db.commit()
-        return released is not None
+        if released is None:
+            return False
+        await _publish_run_finished(context, run_id)
+        return True
 
     @staticmethod
     async def _outlived_start_deadline(context: SessionTurnContext) -> bool:
@@ -284,28 +361,7 @@ class AgentBackend[InputT, OutputT](ABC):
             already holds the ID, so its terminal status releases the turn later,
             or when the tombstone's own start outcome is unknown.
         """
-        try:
-            tombstone = await client.start_workflow(
-                _TOMBSTONE_WORKFLOW,
-                id=self.workflow_id(run_id),
-                task_queue=_TOMBSTONE_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-                execution_timeout=_TOMBSTONE_TIMEOUT,
-                rpc_timeout=timedelta(seconds=5),
-            )
-        except Exception:
-            return False
-        try:
-            await tombstone.terminate(
-                reason="Agent turn could not be started",
-                rpc_timeout=timedelta(seconds=5),
-            )
-        except Exception:
-            # The ID is already claimed; the execution timeout closes the tombstone.
-            logger.warning(
-                "Failed to terminate agent turn tombstone", run_id=str(run_id)
-            )
-        return True
+        return await claim_unstarted_workflow_id(client, self.workflow_id(run_id))
 
     async def _prepare_and_dispatch_turn(
         self, context: SessionTurnContext, client: Client
@@ -377,6 +433,13 @@ class AgentBackend[InputT, OutputT](ABC):
                 else:
                     await context.db.rollback()
         else:
+            await publish_session_event(
+                workspace_id=context.session.workspace_id,
+                session_id=session_id,
+                type=SessionFeedEventType.RUN_STARTED,
+                run_id=context.run_id,
+                stream_id=context.stream_id,
+            )
             return
         if not dispatch.committed:
             if dispatch.commit_attempted and not commit_reconciled:
@@ -409,6 +472,7 @@ class AgentBackend[InputT, OutputT](ABC):
                 pass
             else:
                 if released is not None:
+                    await _publish_run_finished(context, context.run_id)
                     raise RuntimeError("Agent workflow start was rejected")
         # Raise outside the handler so SDK context cannot leak. Ownership stays
         # reserved because a lost acknowledgement cannot prove dispatch failed.
@@ -445,10 +509,14 @@ class AgentBackend[InputT, OutputT](ABC):
                     .returning(AgentSession.id)
                 )
                 await db.commit()
-            # If ownership changed, suppress the router's less restrictive cleanup.
-            return released is not None
         except Exception:
             return False
+        else:
+            # If ownership changed, suppress the router's less restrictive cleanup.
+            if released is None:
+                return False
+            await _publish_run_finished(context, context.run_id)
+            return True
         finally:
             ctx_role.reset(role_token)
 

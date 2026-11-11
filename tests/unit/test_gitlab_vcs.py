@@ -29,11 +29,14 @@ from tracecat.sync import PushStatus
 from tracecat.vcs.gitlab.app import (
     GITLAB_TOKEN_SECRET_NAME,
     GitLabApiError,
+    GitLabError,
     GitLabTokenService,
 )
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
+from tracecat.vcs.gitlab.types import GitLabBranch
 from tracecat.workspace_sync.schemas import MANIFEST_FILENAME, WorkspaceManifest
 from tracecat.workspace_sync.serialization import canonical_json_text
+from tracecat.workspace_sync.tags import encode_tag_cursor
 from tracecat.workspace_sync.transport import GitLabWorkspaceSyncTransport
 
 type _FileContent = str | bytes
@@ -67,6 +70,13 @@ class _MockGitLabApi:
         self._commits: dict[str, _Commit] = {}
         self._branches: dict[str, str] = {}
         self._tags: dict[str, str] = {}
+        self.tag_created_at: dict[str, str] = {}
+        """Annotated tag dates; lightweight tags are absent."""
+        self.tree_tags: set[str] = set()
+        """Tags GitLab reports without a commit (they point at a tree or blob)."""
+        self.malformed_tags: set[str] = set()
+        """Tags whose payload fails validation."""
+        self.tag_list_params: list[dict[str, str]] = []
         self._commit_branches: dict[str, str] = {}
         self._blobs: dict[str, _FileContent] = {}
         self._merge_requests: list[dict[str, Any]] = []
@@ -207,6 +217,8 @@ class _MockGitLabApi:
                     title=payload["title"],
                 )
                 return self._json(mr, status_code=201)
+            if request.method == "GET" and subpath == "/repository/tags":
+                return self._tag_page(request)
         except KeyError as e:
             return httpx.Response(404, json={"message": f"Not Found: {str(e)}"})
 
@@ -214,6 +226,42 @@ class _MockGitLabApi:
 
     def create_branch(self, branch: str, ref: str) -> None:
         self._branches[branch] = self._commit_at_ref(ref).sha
+
+    def create_tag(self, tag: str, ref: str, *, created_at: str | None = None) -> str:
+        sha = self._commit_at_ref(ref).sha
+        self._tags[tag] = sha
+        if created_at is not None:
+            self.tag_created_at[tag] = created_at
+        return sha
+
+    @staticmethod
+    def commit_date(sha: str) -> str:
+        """Deterministic authored date: later commits get later days."""
+        return f"2026-01-{int(sha, 16):02d}T00:00:00Z"
+
+    def _tag_json(self, name: str) -> dict[str, Any]:
+        sha = self._tags[name]
+        if name in self.malformed_tags:
+            return {"name": name, "commit": "not-an-object"}
+        commit = {"id": sha, "authored_date": self.commit_date(sha)}
+        return {
+            "name": name,
+            "created_at": self.tag_created_at.get(name),
+            "commit": None if name in self.tree_tags else commit,
+        }
+
+    def _tag_page(self, request: httpx.Request) -> httpx.Response:
+        """Page tags newest commit first, like ``order_by=updated&sort=desc``."""
+        self.tag_list_params.append(dict(request.url.params))
+        page = int(request.url.params["page"])
+        per_page = int(request.url.params["per_page"])
+        names = sorted(self._tags, key=lambda n: (self._tags[n], n), reverse=True)
+        start = (page - 1) * per_page
+        end = start + per_page
+        return self._json(
+            [self._tag_json(name) for name in names[start:end]],
+            headers={"x-next-page": str(page + 1) if end < len(names) else ""},
+        )
 
     def commit_actions(
         self,
@@ -417,6 +465,124 @@ async def test_gitlab_transport_encodes_nested_project_path_and_lists_refs() -> 
         "/api/v4/projects/group%2Fsubgroup%2Fproject/repository/branches"
         in api.raw_paths
     )
+
+
+def _tagged_gitlab_api() -> _MockGitLabApi:
+    """v1..v4 on successive commits; v3 is annotated.
+
+    tree-tag has no commit and broken has a malformed payload; both are skipped.
+    """
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
+    )
+    for version in range(1, 5):
+        api.commit_actions(
+            branch="main",
+            message=f"Release {version}",
+            actions=[
+                {"action": "create", "file_path": f"v{version}.yml", "content": "x"}
+            ],
+        )
+        api.create_tag(
+            f"v{version}",
+            "main",
+            created_at="2026-02-01T00:00:00Z" if version == 3 else None,
+        )
+    api._tags["tree-tag"] = api._tags["v2"]
+    api.tree_tags.add("tree-tag")
+    api._tags["broken"] = api._tags["v1"]
+    api.malformed_tags.add("broken")
+    return api
+
+
+@pytest.mark.anyio
+async def test_gitlab_list_tags_pages_newest_first() -> None:
+    api = _tagged_gitlab_api()
+    transport = _MockGitLabTransport(api=api)
+
+    pages: list[list[tuple[str, str]]] = []
+    cursor: str | None = None
+    while True:
+        tags, cursor = await transport.list_tags(url=_git_url(), limit=2, cursor=cursor)
+        pages.append([(t.name, t.date) for t in tags])
+        if cursor is None:
+            break
+
+    sha = api._tags
+    assert pages == [
+        # v3 is annotated, so it carries the tag date instead of the commit's.
+        [("v4", api.commit_date(sha["v4"])), ("v3", "2026-02-01T00:00:00Z")],
+        # tree-tag points at no commit and broken is malformed: both are
+        # skipped without failing their page.
+        [("v2", api.commit_date(sha["v2"]))],
+        [("v1", api.commit_date(sha["v1"]))],
+    ]
+    assert [p["page"] for p in api.tag_list_params] == ["1", "2", "3"]
+    assert {(p["order_by"], p["sort"], p["per_page"]) for p in api.tag_list_params} == {
+        ("updated", "desc", "2")
+    }
+
+
+@pytest.mark.anyio
+async def test_gitlab_list_tags_rejects_foreign_cursors() -> None:
+    transport = _MockGitLabTransport(api=_tagged_gitlab_api())
+    _tags, cursor = await transport.list_tags(url=_git_url(), limit=2)
+    assert cursor is not None
+
+    # A page number only means something at the page size that issued it.
+    with pytest.raises(TracecatValidationError, match="different page size"):
+        await transport.list_tags(url=_git_url(), limit=3, cursor=cursor)
+    with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
+        await transport.list_tags(url=_git_url(), limit=2, cursor="not-a-cursor")
+    assert await transport.list_tags(url=_git_url(), limit=0) == ([], None)
+    # The effective page size is min(limit, 100), so any limit over 100 can
+    # follow a cursor issued at 100.
+    issued_at_100 = encode_tag_cursor(2, 100)
+    assert await transport.list_tags(
+        url=_git_url(), limit=150, cursor=issued_at_100
+    ) == ([], None)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("header", ["-1", "0", str(2**40)])
+async def test_gitlab_list_tags_rejects_out_of_range_next_page(
+    monkeypatch: pytest.MonkeyPatch, header: str
+) -> None:
+    api = _tagged_gitlab_api()
+    monkeypatch.setattr(
+        api,
+        "_tag_page",
+        lambda request: httpx.Response(200, json=[], headers={"x-next-page": header}),
+    )
+    transport = _MockGitLabTransport(api=api)
+    with pytest.raises(GitLabError, match="pagination"):
+        await transport.list_tags(url=_git_url(), limit=2)
+
+
+@pytest.mark.anyio
+async def test_gitlab_list_ignores_next_page_header_once_limit_is_met() -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[{"name": "main", "default": True}],
+            headers={"x-next-page": "not-a-number"},
+        )
+
+    transport = _MockGitLabTransport(api=_tagged_gitlab_api())
+    async with httpx.AsyncClient(
+        base_url="https://gitlab.example.test/api/v4",
+        transport=httpx.MockTransport(respond),
+    ) as client:
+        # Limit met: the malformed header is never parsed.
+        branches = await transport._gitlab_list(
+            client, "/projects/x/repository/branches", model=GitLabBranch, limit=1
+        )
+        assert [b.name for b in branches] == ["main"]
+        # Another page needed: the malformed header is an error.
+        with pytest.raises(GitLabError, match="pagination"):
+            await transport._gitlab_list(
+                client, "/projects/x/repository/branches", model=GitLabBranch
+            )
 
 
 @pytest.mark.anyio

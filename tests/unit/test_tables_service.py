@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+import orjson
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import event, select
@@ -56,6 +57,15 @@ from tracecat.tables.service import (
 )
 
 pytestmark = pytest.mark.usefixtures("db")
+
+SPECIAL_TEXT_DEFAULT = "C:\\temp\\new 'single' \"double\" \\' 100% :name"
+SPECIAL_JSON_DEFAULT = {
+    "quote": 'say "hi"',
+    "path": "C:\\temp\\new",
+    "single": "O'Brien",
+    "escaped": '{"inner": "\\"x\\""}',
+    "percent": "100%",
+}
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -534,13 +544,13 @@ class TestHandleDefaultValue:
             pytest.param(
                 SqlType.TEXT,
                 "O'Brien",
-                "'O''Brien'",
+                "E'O''Brien'",
                 id="text-escapes-single-quote",
             ),
             pytest.param(
                 SqlType.SELECT,
                 "O'Brien",
-                "'O''Brien'",
+                "E'O''Brien'",
                 id="select-escapes-single-quote",
             ),
             pytest.param(
@@ -558,7 +568,7 @@ class TestHandleDefaultValue:
             pytest.param(
                 SqlType.JSONB,
                 {"author": "O'Brien"},
-                "'{\"author\":\"O''Brien\"}'::jsonb",
+                "E'{\"author\":\"O''Brien\"}'::jsonb",
                 id="jsonb-literal",
             ),
         ],
@@ -613,13 +623,13 @@ class TestHandleDefaultValue:
         payload = "'; SELECT pg_sleep(1); --"
         assert (
             handle_default_value(SqlType.TEXT, payload)
-            == "'''; SELECT pg_sleep(1); --'"
+            == "E'''; SELECT pg_sleep(1); --'"
         )
 
     def test_jsonb_sql_injection_payload_is_rendered_as_literal(self) -> None:
         payload = {"query": "'; SELECT pg_sleep(1); --"}
         rendered = handle_default_value(SqlType.JSONB, payload)
-        assert rendered.startswith("'")
+        assert rendered.startswith("E'")
         assert rendered.endswith("'::jsonb")
         assert "SELECT pg_sleep(1)" in rendered
 
@@ -902,6 +912,104 @@ class TestTableColumns:
         assert column.default == payload
         inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
         assert inserted["notes"] == payload
+
+    @pytest.mark.parametrize(
+        ("sql_type", "default"),
+        [
+            pytest.param(SqlType.TEXT, SPECIAL_TEXT_DEFAULT, id="text"),
+            pytest.param(SqlType.JSONB, SPECIAL_JSON_DEFAULT, id="jsonb"),
+        ],
+    )
+    async def test_column_defaults_round_trip_quotes_and_backslashes(
+        self, tables_service: TablesService, sql_type: SqlType, default: Any
+    ) -> None:
+        """Quotes, backslashes and escaped JSON quotes survive create and update DDL."""
+        table = await tables_service.create_table(
+            TableCreate(name=f"special_default_{sql_type.value.lower()}")
+        )
+        created = await tables_service.create_column(
+            table,
+            TableColumnCreate(
+                name="created", type=sql_type, nullable=True, default=default
+            ),
+        )
+        updated = await tables_service.create_column(
+            table, TableColumnCreate(name="updated", type=sql_type, nullable=True)
+        )
+        await tables_service.update_column(updated, TableColumnUpdate(default=default))
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+        await editor.create_column(
+            TableColumnCreate(
+                name="editor", type=sql_type, nullable=True, default=default
+            )
+        )
+
+        assert created.default == default
+        inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
+        assert inserted["created"] == default
+        assert inserted["updated"] == default
+        assert inserted["editor"] == default
+
+    @pytest.mark.parametrize("standard_conforming_strings", ["on", "off"])
+    @pytest.mark.parametrize(
+        ("sql_type", "default"),
+        [
+            pytest.param(SqlType.TEXT, SPECIAL_TEXT_DEFAULT, id="text"),
+            pytest.param(
+                SqlType.TEXT, "\\'; SELECT pg_sleep(1); --", id="text-backslash-quote"
+            ),
+            pytest.param(SqlType.JSONB, SPECIAL_JSON_DEFAULT, id="jsonb"),
+        ],
+    )
+    async def test_rendered_default_is_a_single_literal(
+        self,
+        tables_service: TablesService,
+        standard_conforming_strings: str,
+        sql_type: SqlType,
+        default: Any,
+    ) -> None:
+        """Rendered defaults evaluate to the input whatever the string setting is."""
+        rendered = handle_default_value(sql_type, default)
+        conn = await tables_service.session.connection()
+        await conn.exec_driver_sql(
+            f"SET LOCAL standard_conforming_strings = {standard_conforming_strings}"
+        )
+        result = await conn.exec_driver_sql(f"SELECT {rendered}")
+        value = result.scalar_one()
+        await conn.exec_driver_sql("SET LOCAL standard_conforming_strings = on")
+        if sql_type is SqlType.JSONB:
+            value = orjson.loads(value) if isinstance(value, str) else value
+        assert value == default
+
+    @pytest.mark.parametrize(
+        ("sql_type", "default"),
+        [
+            pytest.param(SqlType.TEXT, "nul\x00byte", id="text-nul"),
+            pytest.param(SqlType.JSONB, {"key": "nul\x00byte"}, id="jsonb-nul"),
+            pytest.param(SqlType.JSONB, {"nul\x00key": 1}, id="jsonb-nul-key"),
+            pytest.param(SqlType.JSONB, {"big": 2**64}, id="jsonb-int-overflow"),
+        ],
+    )
+    async def test_create_column_rejects_defaults_postgres_cannot_store(
+        self, tables_service: TablesService, sql_type: SqlType, default: Any
+    ) -> None:
+        """Defaults Postgres would reject fail validation instead of reaching DDL."""
+        table = await tables_service.create_table(
+            TableCreate(name="unstorable_default")
+        )
+
+        with pytest.raises(ValueError, match="Invalid .* default value"):
+            await tables_service.create_column(
+                table,
+                TableColumnCreate(
+                    name="bad", type=sql_type, nullable=True, default=default
+                ),
+            )
 
     async def test_update_column_rejects_sql_injection_payload_for_integer_default(
         self, tables_service: TablesService
@@ -1507,6 +1615,19 @@ class TestTableRows:
         with pytest.raises(ValueError, match="expects a UUID"):
             await tables_service.lookup_rows(
                 table_name=table.name, columns=["id"], values=["not-a-uuid"]
+            )
+
+    @pytest.mark.parametrize("column", ["created_at", "updated_at"])
+    async def test_lookup_row_rejects_invalid_timestamp(
+        self, tables_service: TablesService, table: Table, column: str
+    ) -> None:
+        with pytest.raises(ValueError, match="Invalid ISO datetime"):
+            await tables_service.lookup_rows(
+                table_name=table.name, columns=[column], values=["not-a-date"]
+            )
+        with pytest.raises(ValueError, match="Invalid ISO datetime"):
+            await tables_service.exists_rows(
+                table_name=table.name, columns=[column], values=["not-a-date"]
             )
 
     async def test_lookup_row_coerces_string_to_integer_column(
@@ -3026,10 +3147,11 @@ async def test_database_not_null_fallback(
         (False, False),
         (1, True),
         (0, False),
+        (None, None),
     ],
 )
 def test_boolean_sql_clause_coerces_supported_values(
-    value: str | bool | int, expected: bool
+    value: str | bool | int | None, expected: bool | None
 ) -> None:
     assert to_sql_clause(value, "enabled", SqlType.BOOLEAN).value is expected
 
@@ -3083,6 +3205,43 @@ async def test_boolean_row_writes_preserve_supported_values(
     rows = await _list_rows(tables_service, table)
     assert len(rows) == 2
     assert all(result["enabled"] is expected for result in rows)
+
+
+@pytest.mark.anyio
+async def test_boolean_row_writes_accept_null_for_nullable_column(
+    tables_service: TablesService, table: Table
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="enabled", type=SqlType.BOOLEAN)
+    )
+    await tables_service.create_unique_index(table, "name")
+
+    row = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": None})
+    )
+    assert row["enabled"] is None
+    updated = await tables_service.update_row(table, row["id"], {"enabled": True})
+    assert updated["enabled"] is True
+    updated = await tables_service.update_row(table, row["id"], {"enabled": None})
+    assert updated["enabled"] is None
+    upserted = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": None}, upsert=True)
+    )
+    assert upserted["enabled"] is None
+
+    assert (
+        await tables_service.batch_insert_rows(
+            table, [{"name": "batch", "enabled": None}]
+        )
+        == 1
+    )
+    assert (
+        await tables_service.batch_update_rows(table, [row["id"]], {"enabled": None})
+        == 1
+    )
+    rows = await _list_rows(tables_service, table)
+    assert len(rows) == 2
+    assert all(result["enabled"] is None for result in rows)
 
 
 @pytest.mark.anyio

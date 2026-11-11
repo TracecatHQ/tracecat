@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -20,6 +21,7 @@ from tracecat.exceptions import (
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
 )
+from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import (
     SecretCreate,
@@ -606,6 +608,78 @@ class TestSecretsService:
         """Test retrieving non-existent SSH key."""
         with pytest.raises(TracecatCredentialsNotFoundError):
             await service.get_ssh_key("nonexistent-key")
+
+    @pytest.mark.parametrize(
+        "scopes",
+        [
+            frozenset({"org:registry:update"}),
+            frozenset({"org:registry:read"}),
+        ],
+    )
+    async def test_registry_ssh_key_allows_registry_scopes(
+        self,
+        session: AsyncSession,
+        service: SecretsService,
+        svc_admin_role: Role,
+        ssh_private_key: str,
+        scopes: frozenset[str],
+    ) -> None:
+        await service.create_org_secret(
+            SecretCreate(
+                name=REGISTRY_GIT_SSH_KEY_SECRET_NAME,
+                type=SecretType.SSH_KEY,
+                keys=[
+                    SecretKeyValue(key="PRIVATE_KEY", value=SecretStr(ssh_private_key))
+                ],
+            )
+        )
+        await service.create_org_secret(
+            SecretCreate(
+                name="other-ssh-key",
+                type=SecretType.SSH_KEY,
+                keys=[
+                    SecretKeyValue(key="PRIVATE_KEY", value=SecretStr(ssh_private_key))
+                ],
+            )
+        )
+        registry_role = Role(
+            type="service_account",
+            service_id="tracecat-api",
+            organization_id=svc_admin_role.organization_id,
+            service_account_id=uuid.uuid4(),
+            scopes=scopes,
+        )
+        registry_service = SecretsService(session=session, role=registry_role)
+
+        ssh_key = await registry_service.get_ssh_key(target="registry")
+        assert ssh_key.get_secret_value() == f"{ssh_private_key}\n"
+        secret = await registry_service.get_registry_ssh_key_secret()
+        assert secret.name == REGISTRY_GIT_SSH_KEY_SECRET_NAME
+
+        with pytest.raises(ScopeDeniedError):
+            await registry_service.get_ssh_key(key_name="other-ssh-key")
+        with pytest.raises(ScopeDeniedError):
+            await registry_service.get_org_secret_by_name(
+                REGISTRY_GIT_SSH_KEY_SECRET_NAME
+            )
+
+    async def test_registry_ssh_key_denies_unrelated_scopes(
+        self,
+        session: AsyncSession,
+        svc_admin_role: Role,
+    ) -> None:
+        role = Role(
+            type="service_account",
+            service_id="tracecat-api",
+            organization_id=svc_admin_role.organization_id,
+            service_account_id=uuid.uuid4(),
+            scopes=frozenset({"org:settings:read"}),
+        )
+        unscoped_service = SecretsService(session=session, role=role)
+        with pytest.raises(ScopeDeniedError):
+            await unscoped_service.get_ssh_key(target="registry")
+        with pytest.raises(ScopeDeniedError):
+            await unscoped_service.get_registry_ssh_key_secret()
 
     async def test_search_secrets(
         self, service: SecretsService, secret_create_params: SecretCreate

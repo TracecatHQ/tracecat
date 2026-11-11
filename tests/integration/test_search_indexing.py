@@ -1,5 +1,6 @@
 """Real PostgreSQL/Redis and controlled HTTP embedding lifecycle coverage."""
 
+import asyncio
 import json
 import threading
 from collections.abc import Iterator
@@ -14,14 +15,22 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy import event
 from temporalio import activity
+from temporalio.client import (
+    Client,
+    ScheduleActionExecutionStartWorkflow,
+    ScheduleActionStartWorkflow,
+    ScheduleOverlapPolicy,
+    WorkflowExecutionStatus,
+)
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tests.integration import test_table_search_lifecycle as lifecycle
 from tests.integration.test_table_search_lifecycle import documents, enable
 from tracecat import config
+from tracecat.background.sandbox import new_sandbox_runner
 from tracecat.db.engine import reset_async_engine
 from tracecat.db.models import SearchChunk, SearchDocument, Table
 from tracecat.redis.client import RedisClient
@@ -295,7 +304,9 @@ async def test_temporal_dispatch_discovers_committed_row_and_schedule(
             task_queue=queue,
             workflows=[SearchIndexDispatcher],
             activities=[discover_search_collections, controlled_activity],
-            workflow_runner=UnsandboxedWorkflowRunner(),
+            # The background worker's runner, so this also proves the
+            # dispatcher runs under the sandbox that now hosts it.
+            workflow_runner=new_sandbox_runner(),
         ):
             await ensure_search_schedule(environment.client, queue)
             handle = environment.client.get_schedule_handle(SCHEDULE_ID)
@@ -317,6 +328,50 @@ async def test_temporal_dispatch_discovers_committed_row_and_schedule(
         and doc.state == "ready"
         and doc.indexed_revision == doc.desired_revision
     )
+
+
+async def _running_dispatch(client: Client, previous: str | None = None) -> str:
+    handle = client.get_schedule_handle(SCHEDULE_ID)
+    # The schedule may not have noticed a terminated run yet; don't skip.
+    await handle.trigger(overlap=ScheduleOverlapPolicy.ALLOW_ALL)
+    async with asyncio.timeout(10):
+        while True:
+            for action in (await handle.describe()).info.running_actions:
+                if (
+                    isinstance(action, ScheduleActionExecutionStartWorkflow)
+                    and action.workflow_id != previous
+                ):
+                    return action.workflow_id
+            await asyncio.sleep(0.1)
+
+
+async def test_schedule_move_terminates_dispatch_stranded_on_previous_queue():
+    async with await WorkflowEnvironment.start_local(
+        data_converter=pydantic_data_converter
+    ) as environment:
+        client = environment.client
+        # No worker polls either queue, so triggered runs stay open, like a run
+        # left on the DSL queue after its workers stop hosting the dispatcher.
+        previous = "synthetic-previous-" + uuid4().hex
+        current = "synthetic-current-" + uuid4().hex
+        handle = client.get_schedule_handle(SCHEDULE_ID)
+        await ensure_search_schedule(client, previous)
+        try:
+            stranded = await _running_dispatch(client)
+            await ensure_search_schedule(client, current)
+            stranded_run = await client.get_workflow_handle(stranded).describe()
+            assert stranded_run.status == WorkflowExecutionStatus.TERMINATED
+            action = (await handle.describe()).schedule.action
+            assert isinstance(action, ScheduleActionStartWorkflow)
+            assert action.task_queue == current
+
+            # A run already on the target queue is left alone.
+            active = await _running_dispatch(client, stranded)
+            await ensure_search_schedule(client, current)
+            active_run = await client.get_workflow_handle(active).describe()
+            assert active_run.status == WorkflowExecutionStatus.RUNNING
+        finally:
+            await handle.delete()
 
 
 async def test_large_document_yields_to_short_row(

@@ -5,7 +5,7 @@ uv run pytest --noconftest tests/backends/test_agent_dispatch_transaction.py
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import timedelta
@@ -936,6 +936,109 @@ async def test_caller_owned_reservation_is_never_tombstoned(
     saved = await assert_reserved_by(connection, session_id, prepared.run_id)
     assert saved.reserved_run_id is None
     assert saved.reserved_at is None
+
+
+def identity_map_loader(
+    db: AsyncSession, context: SessionTurnContext
+) -> Callable[..., Awaitable[AgentSession]]:
+    """Stand in for turn validation, which loads the session without a refresh."""
+
+    async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
+        loaded = await db.get(AgentSession, context.session.surrogate_id)
+        assert loaded is not None
+        return loaded
+
+    return load_session
+
+
+async def test_named_caller_runs_are_admitted_one_at_a_time(
+    connection: AsyncConnection,
+) -> None:
+    """Callers that name their run, such as workflow agent actions, share no queue.
+
+    So admission refuses a second run while one holds the session, unless that
+    run has ended for good, and a retry of the first caller adopts its own run.
+    Validation loads the session the way production does, without a refresh.
+    """
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        service = AgentSessionService(db, context.role)
+        first, second, third = uuid4(), uuid4(), uuid4()
+
+        load_session = identity_map_loader(db, context)
+
+        async def prepare(run_id: UUID, *, ended: bool = False):
+            return await service.prepare_new_turn(
+                session_id,
+                "Investigate",
+                config=context.config,
+                caller_run_id=run_id,
+                holder_ended=AsyncMock(return_value=ended),
+            )
+
+        with patch.object(service, "validate_turn_request", load_session):
+            prepared = await prepare(first)
+            with pytest.raises(TracecatConflictError):
+                await prepare(second)
+            await db.rollback()
+            retried = await prepare(first)
+            # The first run's workflow can never finish; a new caller takes over.
+            taken = await prepare(third, ended=True)
+
+    assert prepared.run_id == retried.run_id == first
+    assert prepared.active_stream_id == retried.active_stream_id
+    assert taken.run_id == third
+    assert taken.active_stream_id != prepared.active_stream_id
+    await assert_reserved_by(connection, session_id, third)
+
+
+async def test_named_caller_never_reuses_a_finished_runs_pointers(
+    connection: AsyncConnection,
+) -> None:
+    """The previous turn may release the session after the caller loaded it.
+
+    Admission reads the row as locked, so the new caller reserves its own run
+    and stream instead of the finished run's stale ones.
+    """
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        finished, finished_stream, caller = uuid4(), uuid4(), uuid4()
+        await db.execute(
+            update(AgentSession)
+            .where(AgentSession.id == session_id)
+            .values(curr_run_id=finished, active_stream_id=finished_stream)
+        )
+        await db.commit()
+        service = AgentSessionService(db, context.role)
+        # The caller's copy shows the finished run still holding the session.
+        stale = await db.get(AgentSession, context.session.surrogate_id)
+        assert stale is not None
+        await db.refresh(stale)
+        assert stale.curr_run_id == finished
+        # End this read, keeping the loaded copy, so the release below commits
+        # in a transaction of its own.
+        await db.commit()
+        # That run's workflow then releases it.
+        async with AsyncSession(connection) as other:
+            await other.execute(
+                update(AgentSession)
+                .where(AgentSession.id == session_id)
+                .values(curr_run_id=None, active_stream_id=None)
+            )
+            await other.commit()
+
+        load_session = identity_map_loader(db, context)
+
+        with patch.object(service, "validate_turn_request", load_session):
+            prepared = await service.prepare_new_turn(
+                session_id, "Investigate", config=context.config, caller_run_id=caller
+            )
+
+    assert prepared.run_id == caller
+    assert prepared.active_stream_id != finished_stream
+    await assert_reserved_by(connection, session_id, caller)
 
 
 async def test_stale_preparation_keeps_a_newer_reservation_recoverable(

@@ -213,6 +213,34 @@ it("shows a push polling error and retries GET without creating another job", as
   expect(workflowsCreateSyncOperation).toHaveBeenCalledTimes(1)
 })
 
+it.each([
+  ["preparing", true],
+  ["applying", false],
+  ["finishing", false],
+] as const)(
+  "reports a push failed at %s as a preview error: %s",
+  async (stage, isPreviewError) => {
+    jest.mocked(workflowsGetSyncOperation).mockResolvedValue({
+      ...operation,
+      status: "failed",
+      stage,
+      error: "Sync failed at this stage. Retry to resume the operation.",
+    })
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSyncExportPreview("workspace-test", {
+          push: { branch: "sync/test", message: "Sync" },
+        }),
+      { wrapper }
+    )
+    act(() => result.current.refetchPreview())
+    await waitFor(() => expect(workflowsGetSyncOperation).toHaveBeenCalled())
+    await waitFor(() => expect(result.current.previewIsLoading).toBe(false))
+    expect(Boolean(result.current.previewError)).toBe(isPreviewError)
+    expect(result.current.previewOperationId).toBeUndefined()
+  }
+)
+
 it("removes the previous prepared ID while refreshing and after a failed refresh", async () => {
   const { result } = renderHook(
     () =>

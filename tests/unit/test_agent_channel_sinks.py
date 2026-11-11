@@ -539,12 +539,15 @@ async def test_session_sink_fans_out_only_for_slack_sessions(
     )
     lookup = _FakeLookupSession(agent_session, channel_token)
 
+    session_scopes: list[dict[str, object]] = []
+
     @asynccontextmanager
-    async def _session_context() -> AsyncIterator[_FakeLookupSession]:
+    async def _session_context(**scope: object) -> AsyncIterator[_FakeLookupSession]:
+        session_scopes.append(scope)
         yield lookup
 
     monkeypatch.setattr(
-        "tracecat.agent.channels.sinks.session.get_async_session_context_manager",
+        "tracecat.agent.channels.sinks.session.get_async_session_tenant_context_manager",
         _session_context,
     )
     redis_stream = _FakeSinkTarget()
@@ -553,9 +556,12 @@ async def test_session_sink_fans_out_only_for_slack_sessions(
         AsyncMock(return_value=redis_stream),
     )
 
+    workspace_id = uuid.uuid4()
     sink = await open_session_event_sink(
-        session_id=uuid.uuid4(), workspace_id=uuid.uuid4(), stream_id=uuid.uuid4()
+        session_id=uuid.uuid4(), workspace_id=workspace_id, stream_id=uuid.uuid4()
     )
+    # The agent executor has no ctx_role; the lookup must carry the workspace.
+    assert session_scopes == [{"workspace_id": workspace_id}]
 
     if fans_out:
         assert isinstance(sink, FanoutStreamSink)

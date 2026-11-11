@@ -1,0 +1,79 @@
+type: action
+definition:
+  title: List sweeping tasks
+  description: >-
+    List tasks. Displays information about tasks and asynchronous jobs in a paginated list.
+    Calls GET /v3.0/threatintel/tasks.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Intelligence-Reports/paths/~1v3.0~1threatintel~1tasks/get
+  namespace: tools.trend_vision_one
+  name: list_sweeping_tasks
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    orderBy:
+      type: str | None
+      description: >-
+        The parameter that allows you to sort the retrieved search results in ascending or
+        descending order. If no order is specified, the results are shown in ascending
+        order. Provider default: lastActionDateTime desc.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        Filter for retrieving a subset of the sweeping task list.
+      default: null
+    startDateTime:
+      type: str | None
+      description: >-
+        The timestamp in ISO 8601 format that indicates the start of the data retrieval time
+        range. If no value is specified, 'startDateTime' defaults to the earliest available
+        value for 'createdDateTime'.
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        The timestamp in ISO 8601 format that indicates the end of the data retrieval time
+        range. If no value is specified, 'endDateTime' defaults to the time the request is
+        made.
+      default: null
+    top:
+      type: int | None
+      description: >-
+        The number of records displayed on a page. Allowed values: 50, 100, 200. Provider
+        default: 100.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/threatintel/tasks
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        params:
+          orderBy: ${{ inputs.orderBy }}
+          filter: ${{ inputs.filter }}
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          top: ${{ inputs.top }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}

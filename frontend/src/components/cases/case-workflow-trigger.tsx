@@ -44,8 +44,10 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    // Capture so this runs before the global command palette, which skips
+    // events that are already handled.
+    window.addEventListener("keydown", handleKeyDown, true)
+    return () => window.removeEventListener("keydown", handleKeyDown, true)
   }, [])
 
   useEffect(() => {

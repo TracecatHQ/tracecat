@@ -252,7 +252,9 @@ class CaseSearchService(BaseWorkspaceService):
             *case_identity_predicates(query),
         ]
         if lexical is not None:
-            predicates.append(build_case_text_expressions(lexical).predicate)
+            predicates.append(
+                build_case_text_expressions(lexical, self.workspace_id).predicate
+            )
         predicates.extend(
             compile_filter(tree, resolver) for tree in trees if tree is not None
         )
@@ -409,7 +411,9 @@ class CaseSearchService(BaseWorkspaceService):
         )
 
         text_expressions = (
-            build_case_text_expressions(lexical) if lexical is not None else None
+            build_case_text_expressions(lexical, self.workspace_id)
+            if lexical is not None
+            else None
         )
         if lexical is not None:
             stmt = stmt.execution_options(
@@ -448,7 +452,10 @@ class CaseSearchService(BaseWorkspaceService):
         elif sort_column == "tasks":
             task_count_expr = func.coalesce(
                 select(func.count())
-                .where(CaseTask.case_id == Case.id)
+                .where(
+                    CaseTask.workspace_id == self.workspace_id,
+                    CaseTask.case_id == Case.id,
+                )
                 .correlate(Case)
                 .scalar_subquery(),
                 0,
@@ -741,7 +748,10 @@ class CaseSearchService(BaseWorkspaceService):
                     sa.case((CaseTask.status == CaseTaskStatus.COMPLETED, 1), else_=0)
                 ).label("completed"),
             )
-            .where(CaseTask.case_id.in_(case_ids))
+            .where(
+                CaseTask.workspace_id == self.workspace_id,
+                CaseTask.case_id.in_(case_ids),
+            )
             .group_by(CaseTask.case_id)
         )
 

@@ -25,7 +25,11 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
-from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.git.types import GitUrl
 from tracecat.pagination import PageParams
 from tracecat.registry.lock.types import RegistryLock
@@ -462,6 +466,24 @@ async def test_activity_failures_do_not_serialize_original_exception(error, retr
     assert result.value.__cause__ is None
     assert result.value.__context__ is None
     assert result.value.non_retryable is not retryable
+
+
+@pytest.mark.anyio
+async def test_activity_validation_failures_keep_user_facing_message():
+    async def fail():
+        raise TracecatValidationError(
+            "Workflow 'Example' has never been published.\nPublish it first."
+        )
+
+    with pytest.raises(ApplicationError) as result:
+        await activities.safe_activity(fail)()
+    assert result.value.type == "SyncValidationError"
+    assert result.value.non_retryable
+    assert result.value.message == (
+        "Workflow 'Example' has never been published. Publish it first."
+    )
+    assert result.value.__cause__ is None
+    assert result.value.__context__ is None
 
 
 @pytest.mark.anyio

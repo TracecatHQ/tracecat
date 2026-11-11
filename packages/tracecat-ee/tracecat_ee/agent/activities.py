@@ -13,6 +13,7 @@ from pydantic import (
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.channel_publisher import RunUpdate
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
@@ -151,6 +152,8 @@ class PersistApprovalsActivityInputs(BaseModel):
     role: Role
     session_id: uuid.UUID
     approvals: list[ToolApprovalPayload]
+    # Published once the requests are durable; the publisher reads them.
+    channel_updates: list[RunUpdate] = Field(default_factory=list)
 
 
 class ApprovalDecisionPayload(BaseModel):
@@ -168,6 +171,8 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
     # Unique by tool_call_id: handle_decisions builds these from a dict, and the
     # persistence upsert cannot carry one conflict key twice.
     decisions: list[ApprovalDecisionPayload]
+    # Published once the decisions are durable.
+    channel_updates: list[RunUpdate] = Field(default_factory=list)
 
 
 class EmitSessionErrorInputs(BaseModel):
@@ -293,9 +298,12 @@ async def _build_stdio_mcp_tool_definitions(
     policies_by_integration_id: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
     if integration_ids:
         async with AgentPresetService.with_session(role=role) as svc:
+            integrations = await svc.load_mcp_integrations(
+                set(integration_ids.values())
+            )
             try:
-                refs = await svc.resolve_mcp_integration_refs(
-                    [str(i) for i in integration_ids.values()]
+                refs = svc.mcp_integration_refs(
+                    [str(i) for i in integration_ids.values()], integrations
                 )
             except TracecatValidationError:
                 refs = None
@@ -304,11 +312,7 @@ async def _build_stdio_mcp_tool_definitions(
                 for ref in refs or []
                 if is_stdio_mcp_server(ref) and (ref_id := ref.get("id"))
             }
-            policies_by_integration_id = (
-                await svc.resolve_mcp_integration_tool_policies(
-                    list(integration_ids.values())
-                )
-            )
+            policies_by_integration_id = svc.mcp_tool_policies(integrations.values())
 
     definitions: dict[str, MCPToolDefinition] = {}
     claims: list[UserMCPServerClaim] = []
@@ -526,21 +530,22 @@ class AgentActivities:
             ] = {}
             if configs_with_integration_id:
                 async with AgentPresetService.with_session(role=role) as svc:
-                    tool_policies_by_integration_id = (
-                        await svc.resolve_mcp_integration_tool_policies(
-                            [
-                                integration_id
-                                for _, integration_id in configs_with_integration_id
-                            ]
-                        )
+                    # One workspace-scoped read serves policy, address and
+                    # credentials for every server in this compile.
+                    integrations = await svc.load_mcp_integrations(
+                        {i for _, i in configs_with_integration_id}
+                    )
+                    tool_policies_by_integration_id = svc.mcp_tool_policies(
+                        integrations.values()
                     )
                     # Address, route and credentials all come from the
                     # integration row, as they do at execution. A stale or
                     # edited payload can't send fresh credentials to an old
                     # URL, or go direct by dropping ``tunnel_id``.
                     try:
-                        refs = await svc.resolve_mcp_integration_refs(
-                            [str(i) for _, i in configs_with_integration_id]
+                        refs = svc.mcp_integration_refs(
+                            [str(i) for _, i in configs_with_integration_id],
+                            integrations,
                         )
                     except TracecatValidationError:
                         refs = None
@@ -573,8 +578,8 @@ class AgentActivities:
                         # Only credentials resolved below may reach the URL.
                         hydrated.pop("headers", None)
                         try:
-                            secrets = await svc.resolve_mcp_integration_secrets(
-                                integration_id
+                            secrets = await svc.resolve_loaded_mcp_integration_secrets(
+                                integrations[integration_id]
                             )
                         except (ValueError, MCPSecretResolutionError):
                             secrets = None

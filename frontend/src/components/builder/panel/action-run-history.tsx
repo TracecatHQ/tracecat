@@ -35,10 +35,13 @@ export function ActionRunHistory({
   action,
   workflowId,
   updateAction,
+  readOnly = false,
 }: {
   action: ActionRead
   workflowId: string
   updateAction: (values: ActionUpdate) => Promise<unknown>
+  /** Hide lock and unlock on managed workflows. */
+  readOnly?: boolean
 }) {
   const { workflowExecutions, workflowExecutionsIsLoading } =
     useWorkflowExecutions(workflowId)
@@ -89,7 +92,7 @@ export function ActionRunHistory({
               </TooltipContent>
             </Tooltip>
           )}
-          {lockedId && (
+          {lockedId && !readOnly && (
             <Button
               type="button"
               size="sm"
@@ -117,6 +120,7 @@ export function ActionRunHistory({
               run={run}
               actionRef={ref}
               locked={run.id === lockedId}
+              readOnly={readOnly}
               onLock={() => updateAction({ locked_execution_id: run.id })}
             />
           ))
@@ -130,11 +134,13 @@ function ActionRunRow({
   run,
   actionRef,
   locked,
+  readOnly,
   onLock,
 }: {
   run: WorkflowExecutionReadMinimal
   actionRef: string
   locked: boolean
+  readOnly: boolean
   onLock: () => void
 }) {
   const { execution } = useCompactWorkflowExecution(run.id)
@@ -177,7 +183,7 @@ function ActionRunRow({
           </TooltipTrigger>
           <TooltipContent>Locked to this run</TooltipContent>
         </Tooltip>
-      ) : reusable ? (
+      ) : reusable && !readOnly ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

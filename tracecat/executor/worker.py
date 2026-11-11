@@ -54,6 +54,7 @@ with workflow.unsafe.imports_passed_through():
     )
 
     from tracecat import config
+    from tracecat.db.engine import verify_rls_enforceable_login
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
     from tracecat.executor.action_gateway.server import ActionGateway
@@ -124,6 +125,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     with executor_lifecycle() as readiness:
         if shutdown_event is None:
             shutdown_event = asyncio.Event()
+        await verify_rls_enforceable_login()
 
         if config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
             sandbox_cgroup()
@@ -204,7 +206,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                         max_concurrent_activities=max_concurrent,
                         workflow_runner=new_sandbox_runner(),
                         interceptors=interceptors,
-                        graceful_shutdown_timeout=timedelta(minutes=5),
+                        # 2x DEFAULT_ACTION_TIMEOUT so default-timeout actions finish.
+                        graceful_shutdown_timeout=timedelta(minutes=10),
                     ),
                     # LIFO exit removes readiness before Temporal drains activities.
                     readiness,

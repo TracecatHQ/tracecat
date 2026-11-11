@@ -51,10 +51,13 @@ from tracecat.agent.error_policy import (
     agent_executor_unclassified,
     agent_llm_budget_exceeded,
     agent_llm_gateway_auth_failed,
+    agent_llm_gateway_unavailable,
     agent_llm_model_not_enabled,
     agent_llm_provider_auth_failed,
     agent_llm_provider_rejected_request,
+    agent_llm_provider_role_denied,
     agent_llm_provider_subscription_required,
+    agent_llm_provider_unavailable,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
     agent_llm_stream_interrupted,
@@ -66,6 +69,7 @@ from tracecat.agent.gateway_providers import (
     resolve_gateway_provider_config,
 )
 from tracecat.agent.llm_routing import get_litellm_route_model
+from tracecat.agent.metrics import UNKNOWN_LABEL, record_llm_ttft
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.sandbox.shim_entrypoint import HTTPRequestError, read_http_request
 from tracecat.agent.sandbox.tool_use_rewrite import (
@@ -337,6 +341,8 @@ def _http_error_classification(
             return agent_llm_model_not_enabled()
         if error_type == "tracecat_llm_provider_subscription_required":
             return agent_llm_provider_subscription_required()
+        if error_type == "tracecat_llm_provider_role_denied":
+            return agent_llm_provider_role_denied()
     if status_code in {400, 429} and error_type in {
         "budget_exceeded",
         "insufficient_quota",
@@ -349,7 +355,11 @@ def _http_error_classification(
             return agent_llm_provider_auth_failed()
         return _managed_unclassified(status_code, body)
     if status_code == 429:
-        return agent_llm_rate_limited(route_is_direct=route_is_direct)
+        # The gateway types throttling_error only for a provider rate limit on
+        # the workspace's own credentials. Other managed 429s stay platform's.
+        return agent_llm_rate_limited(
+            user_owned=route_is_direct or error_type == "throttling_error"
+        )
     if route_is_direct:
         return agent_llm_provider_rejected_request(
             status_code=status_code,
@@ -360,6 +370,10 @@ def _http_error_classification(
         )
     if status_code in {408, 504}:
         return agent_executor_timed_out()
+    if error_type == "tracecat_llm_provider_unavailable" and status_code >= 500:
+        return agent_llm_provider_unavailable(status_code=status_code)
+    if error_type == "tracecat_llm_deployment_unavailable" and status_code >= 500:
+        return agent_llm_gateway_unavailable(status_code=status_code)
     if status_code >= 500:
         return _managed_unclassified(status_code, body)
     return agent_llm_provider_rejected_request(
@@ -1021,6 +1035,8 @@ _STREAM_ERROR_STATUS_CODES = {
     "insufficient_quota": 429,
     "rate_limit_error": 429,
     "throttling_error": 429,
+    "tracecat_llm_deployment_unavailable": 503,
+    "tracecat_llm_provider_unavailable": 502,
 }
 
 
@@ -1237,6 +1253,7 @@ class LLMSocketProxy:
         on_error: Callable[[LLMProxyError], None] | None = None,
         *,
         rewrite_tool_use: bool = True,
+        backend: str | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -1249,10 +1266,14 @@ class LLMSocketProxy:
                 ``/v1/messages`` responses. Runtimes other than Claude Code
                 should turn this off to receive upstream response bodies
                 unchanged. Stream error detection runs either way.
+            backend: ``backend`` label for proxy metrics, from
+                ``tracecat.agent.metrics.backend_label``. Unset is labelled
+                unknown.
         """
         self.socket_path = socket_path
         self.routing_plan = routing_plan
         self.rewrite_tool_use = rewrite_tool_use
+        self.backend = backend or UNKNOWN_LABEL
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._direct_client: httpx.AsyncClient | None = None
@@ -2037,6 +2058,11 @@ class LLMSocketProxy:
                         )
                         if upstream is not None:
                             upstream.first_chunk(ttft_ms)
+                        record_llm_ttft(
+                            backend=self.backend,
+                            route="direct" if route_is_direct else "managed",
+                            ttft_ms=ttft_ms,
+                        )
                     writer.write(chunk)
                     await writer.drain()
                     bytes_forwarded += len(chunk)

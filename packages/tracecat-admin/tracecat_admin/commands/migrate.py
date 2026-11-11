@@ -1,4 +1,8 @@
-"""Database migration commands."""
+"""Database migration commands.
+
+These run alembic with a password URI (``TRACECAT__DB_URI`` or ``--db-uri``)
+only; the IAM token modes (``TRACECAT__DB_AUTH_MODE``) are not supported here.
+"""
 
 from __future__ import annotations
 
@@ -52,6 +56,9 @@ def _run_alembic(args: list[str], db_uri: str | None = None) -> int:
 
     env = os.environ.copy()
     env["TRACECAT__DB_URI"] = effective_db_uri
+    # The URI carries the login; the app's token mode refuses any
+    # TRACECAT__DB_URI and doesn't apply to these commands.
+    env.pop("TRACECAT__DB_AUTH_MODE", None)
 
     cmd = ["alembic", *args]
     try:

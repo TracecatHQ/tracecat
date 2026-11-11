@@ -34,6 +34,14 @@ jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => mockUseScopeCheck(),
 }))
 
+let mockPresetManaged = false
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    isManaged: (resourceType: string, id?: string | null) =>
+      mockPresetManaged && resourceType === "agent_preset" && id === "preset-1",
+  }),
+}))
+
 describe("AgentPresetChatToggle", () => {
   beforeEach(() => {
     mockUseAgentPreset.mockReturnValue({ preset: { use_in_chat: false } })
@@ -41,6 +49,7 @@ describe("AgentPresetChatToggle", () => {
     mockUpdateAgentPreset.mockReset()
     mockUpdateAgentPreset.mockResolvedValue({})
     mockPending = false
+    mockPresetManaged = false
   })
 
   it.each([false, true])(
@@ -61,10 +70,11 @@ describe("AgentPresetChatToggle", () => {
     }
   )
 
-  it.each(["permission", "pending", "loading", "saving"])(
+  it.each(["permission", "pending", "loading", "saving", "managed"])(
     "disables for %s",
     (reason) => {
       if (reason === "permission") mockUseScopeCheck.mockReturnValue(false)
+      if (reason === "managed") mockPresetManaged = true
       if (reason === "pending") mockPending = true
       if (reason === "loading") mockUseAgentPreset.mockReturnValue({})
       render(

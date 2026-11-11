@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import {
   useAuthorizedSecretStores,
   useAwsSecretReferences,
@@ -167,6 +168,11 @@ export function AwsSecretReferenceForm({
   } = useAuthorizedSecretStores(workspaceId)
   const { createReference, updateReference } =
     useAwsSecretReferences(workspaceId)
+  // A managed AWS secret only lets the customer change the secret name or
+  // ARN. Inputs are read-only rather than disabled so their values still
+  // submit unchanged.
+  const { isManaged } = useManagedResources(workspaceId)
+  const referenceOnly = isManaged("secret_metadata", secret?.id)
   const mapping = secret?.remote_key_mapping
 
   const methods = useForm<AwsReferenceForm>({
@@ -267,7 +273,7 @@ export function AwsSecretReferenceForm({
                   <Input
                     className="text-sm"
                     placeholder="hello_world"
-                    readOnly={Boolean(initialName)}
+                    readOnly={Boolean(initialName) || referenceOnly}
                     {...register("name")}
                   />
                 </FormControl>
@@ -285,6 +291,7 @@ export function AwsSecretReferenceForm({
                   <Input
                     className="text-sm"
                     placeholder="Description"
+                    readOnly={referenceOnly}
                     {...register("description")}
                   />
                 </FormControl>
@@ -302,6 +309,7 @@ export function AwsSecretReferenceForm({
                   <Input
                     className="text-sm"
                     placeholder='Default environment: "default"'
+                    readOnly={referenceOnly}
                     {...register("environment")}
                   />
                 </FormControl>
@@ -319,7 +327,11 @@ export function AwsSecretReferenceForm({
                   <FormDescription className="text-sm">
                     Only stores authorized for this workspace are listed.
                   </FormDescription>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={referenceOnly}
+                  >
                     <FormControl>
                       <SelectTrigger className="text-sm">
                         <SelectValue placeholder="Select a store" />
@@ -371,7 +383,11 @@ export function AwsSecretReferenceForm({
                 <FormDescription className="text-sm">
                   How the remote SecretString maps onto secret keys.
                 </FormDescription>
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select
+                  onValueChange={field.onChange}
+                  value={field.value}
+                  disabled={referenceOnly}
+                >
                   <FormControl>
                     <SelectTrigger className="text-sm">
                       <SelectValue />
@@ -401,6 +417,7 @@ export function AwsSecretReferenceForm({
                     <Input
                       className="text-sm"
                       placeholder="API_TOKEN"
+                      readOnly={referenceOnly}
                       {...register("whole_string_key")}
                     />
                   </FormControl>
@@ -431,6 +448,7 @@ export function AwsSecretReferenceForm({
                                 <Input
                                   className="text-sm"
                                   placeholder="Output key"
+                                  readOnly={referenceOnly}
                                   {...register(`fields.${index}.key`)}
                                 />
                               </FormControl>
@@ -447,6 +465,7 @@ export function AwsSecretReferenceForm({
                                 <Input
                                   className="text-sm"
                                   placeholder="JSON field"
+                                  readOnly={referenceOnly}
                                   {...register(`fields.${index}.field`)}
                                 />
                               </FormControl>
@@ -459,6 +478,7 @@ export function AwsSecretReferenceForm({
                           variant="ghost"
                           size="icon"
                           aria-label="Remove field"
+                          disabled={referenceOnly}
                           onClick={() => remove(index)}
                         >
                           <Trash2Icon className="size-4" />
@@ -470,6 +490,7 @@ export function AwsSecretReferenceForm({
                     type="button"
                     variant="outline"
                     size="sm"
+                    disabled={referenceOnly}
                     onClick={() => append({ key: "", field: "" })}
                   >
                     <PlusCircle className="mr-2 size-4" />

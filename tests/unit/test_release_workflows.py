@@ -43,23 +43,23 @@ def run_image_guard(
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
 @pytest.mark.parametrize(
-    ("tag", "latest"),
+    ("tag", "latest", "release"),
     [
-        ("1.2.0", "true"),
-        ("1.2.1", "true"),
-        ("0.0.0", "true"),
-        ("1.3.0-alpha.1", "false"),
-        ("1.3.0-rc.1", "false"),
-        ("1.0.0-beta.1-rc.2.post1", "false"),
-        ("nightly-20260901", "false"),
+        ("1.2.0", "true", "true"),
+        ("1.2.1", "true", "true"),
+        ("0.0.0", "true", "true"),
+        ("1.3.0-alpha.1", "false", "true"),
+        ("1.3.0-rc.1", "false", "true"),
+        ("1.0.0-beta.1-rc.2.post1", "false", "true"),
+        ("nightly-20260901", "false", "false"),
     ],
 )
 def test_only_stable_tags_promote_latest(
-    tmp_path: Path, event: str, tag: str, latest: str
+    tmp_path: Path, event: str, tag: str, latest: str, release: str
 ) -> None:
     result, output = run_image_guard(tmp_path, event=event, ref=tag, tag=tag)
     assert result.returncode == 0, result.stderr
-    assert output == {"tag": tag, "latest": latest}
+    assert output == {"tag": tag, "latest": latest, "release": release}
 
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
@@ -115,7 +115,204 @@ def test_branch_and_scheduled_builds_do_not_promote_latest(
         tmp_path, event=event, ref_type="branch", ref=branch
     )
     assert result.returncode == 0, result.stderr
-    assert output == {"tag": "", "latest": "false"}
+    assert output == {"tag": "", "latest": "false", "release": "false"}
+
+
+REGISTRY_INIT = ROOT / "packages/tracecat-registry/tracecat_registry/__init__.py"
+
+
+def _registry_init(version: str, pep440_version: str) -> str:
+    """Return the real registry __init__.py with the given version lines."""
+    lines = REGISTRY_INIT.read_text().splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if line.startswith("__version__ = "):
+            lines[index] = f'__version__ = "{version}"\n'
+        elif line.startswith("__pep440_version__ = "):
+            lines[index] = f'__pep440_version__ = "{pep440_version}"\n'
+    return "".join(lines)
+
+
+def _git(repo: Path, *args: str, commit_time: int | None = None) -> None:
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+    if commit_time is not None:
+        env["GIT_COMMITTER_DATE"] = f"@{commit_time} +0000"
+    subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True
+    )
+
+
+def _commit(repo: Path, commit_time: int) -> None:
+    _git(
+        repo,
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        str(commit_time),
+        commit_time=commit_time,
+    )
+
+
+def _init_registry_repo(repo: Path, init_text: str) -> None:
+    init = repo / REGISTRY_INIT.relative_to(ROOT)
+    init.parent.mkdir(parents=True)
+    init.write_text(init_text)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", ".")
+
+
+def _run_stamp_step(repo: Path) -> str:
+    """Run the workflow's stamp step at the repo's HEAD and return the file."""
+    workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["build-and-push-api"]["steps"]
+        if step.get("name") == "Stamp registry version on non-release builds"
+    )
+    assert step["if"] == "needs.validate.outputs.release == 'false'"
+    init = repo / REGISTRY_INIT.relative_to(ROOT)
+    original = init.read_text()
+    subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    stamped = init.read_text()
+    init.write_text(original)
+    return stamped
+
+
+def _run_registry_stamp(tmp_path: Path, init_text: str, commit_times: list[int]) -> str:
+    """Commit once per commit time, run the stamp step, and return the file."""
+    _init_registry_repo(tmp_path, init_text)
+    for commit_time in commit_times:
+        _commit(tmp_path, commit_time)
+    return _run_stamp_step(tmp_path)
+
+
+def _stamped_init(repo: Path, ref: str, post: str) -> str:
+    """Return the expected 1.0.0 stamp: post prefix plus the ref's commit id."""
+    sha = subprocess.run(
+        ["git", "rev-parse", ref], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    version = f"1.0.0.post{post}{int(sha[:5], 16):07d}"
+    # uv rejects version numbers above an unsigned 64-bit integer.
+    assert int(version.removeprefix("1.0.0.post")) <= 2**64 - 1
+    return _registry_init(version, version)
+
+
+@pytest.mark.parametrize(
+    ("commit_times", "post"),
+    [
+        ([1761696000], "176169600000"),
+        ([1761695999, 1761696000], "176169600000"),
+        # A merged PR stack lands several commits in the same second.
+        ([1761696000, 1761696000], "176169600001"),
+        ([1761696000, 1761696000, 1761696000], "176169600002"),
+        # Same-second ancestors count even when they aren't adjacent.
+        ([1761696000, 1761695999, 1761696000], "176169600001"),
+        # The largest 10-digit commit time still fits uv's version limit.
+        ([9999999999], "999999999900"),
+    ],
+)
+def test_non_release_api_builds_stamp_a_per_commit_registry_version(
+    tmp_path: Path, commit_times: list[int], post: str
+) -> None:
+    """Every commit gets .post<commit time><same-second ancestors><commit id>."""
+    original = _registry_init("1.0.0", "1.0.0")
+
+    stamped = _run_registry_stamp(tmp_path, original, commit_times)
+
+    assert stamped == _stamped_init(tmp_path, "HEAD", post)
+
+
+def test_registry_stamp_puts_a_merge_above_its_same_second_merge_parent(
+    tmp_path: Path,
+) -> None:
+    """A merge must not reuse the version of a branch commit it brings in."""
+    _init_registry_repo(tmp_path, _registry_init("1.0.0", "1.0.0"))
+    _commit(tmp_path, 1761695999)
+    _git(tmp_path, "checkout", "-q", "-b", "feature")
+    _commit(tmp_path, 1761696000)
+    _git(tmp_path, "checkout", "-q", "main")
+    _git(
+        tmp_path,
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "merge",
+        "feature",
+        commit_time=1761696000,
+    )
+
+    merged = _run_stamp_step(tmp_path)
+    _git(tmp_path, "checkout", "-q", "feature")
+    branch = _run_stamp_step(tmp_path)
+
+    assert branch == _stamped_init(tmp_path, "feature", "176169600000")
+    assert merged == _stamped_init(tmp_path, "main", "176169600001")
+
+
+def test_registry_stamp_keeps_same_second_sibling_commits_apart(
+    tmp_path: Path,
+) -> None:
+    """Same-second commits on different branches still get different versions."""
+    _init_registry_repo(tmp_path, _registry_init("1.0.0", "1.0.0"))
+    _commit(tmp_path, 1761695999)
+    _git(tmp_path, "checkout", "-q", "-b", "staging")
+    _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "a", commit_time=1761696000)
+    staging = _run_stamp_step(tmp_path)
+    _git(tmp_path, "checkout", "-q", "-b", "preview", "main")
+    _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "b", commit_time=1761696000)
+    preview = _run_stamp_step(tmp_path)
+
+    assert staging == _stamped_init(tmp_path, "staging", "176169600000")
+    assert preview == _stamped_init(tmp_path, "preview", "176169600000")
+    assert staging != preview
+
+
+@pytest.mark.parametrize(
+    ("version", "pep440_version"),
+    [("1.3.0-alpha.5", "1.3.0a5"), ("1.2.0-alpha.1.2", "1.2.0a1.post2")],
+)
+def test_registry_stamp_leaves_pre_release_versions_unchanged(
+    tmp_path: Path, version: str, pep440_version: str
+) -> None:
+    """A stamped pre-release would sort above that train's later hotfixes."""
+    original = _registry_init(version, pep440_version)
+
+    assert _run_registry_stamp(tmp_path, original, [1761696000]) == original
+
+
+def test_registry_stamp_fails_when_too_many_commits_share_a_second(
+    tmp_path: Path,
+) -> None:
+    """Reaching 99 same-second ancestors must fail: git log -n 99 caps the count."""
+    with pytest.raises(subprocess.CalledProcessError):
+        _run_registry_stamp(
+            tmp_path, _registry_init("1.0.0", "1.0.0"), [1761696000] * 100
+        )
+
+
+def test_registry_stamp_fails_when_the_version_line_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    """An unreadable version must fail the build, not skip the stamp."""
+    original = _registry_init("1.0.0", "1.0.0").replace(
+        '__pep440_version__ = "1.0.0"', '__pep440_version__ = "1.0.0"  # note'
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _run_registry_stamp(tmp_path, original, [1761696000])
 
 
 def test_only_serialized_promotion_can_publish_latest() -> None:
@@ -134,7 +331,13 @@ def test_only_serialized_promotion_can_publish_latest() -> None:
         "queue": "max",
         "cancel-in-progress": False,
     }
-    for name in ("build-and-push-api", "build-and-push-ui", "merge-api"):
+    for name in (
+        "build-and-push-api",
+        "build-and-push-ui",
+        "merge-api",
+        "build-and-push-tunnel-gateway",
+        "merge-tunnel-gateway",
+    ):
         job = workflow["jobs"][name]
         assert "validate" in job["needs"]
         metadata = next(step for step in job["steps"] if step.get("id") == "meta")
@@ -143,6 +346,16 @@ def test_only_serialized_promotion_can_publish_latest() -> None:
         for step in job["steps"]:
             # Manifest creation must not append tags outside metadata-action.
             assert ":latest" not in step.get("run", "")
+    # X.Y floats like latest, so only the guarded promotion may move it.
+    metadata_steps = [
+        step
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("docker/metadata-action@")
+    ]
+    assert len(metadata_steps) == 5
+    for metadata in metadata_steps:
+        assert "{{major}}.{{minor}}" not in metadata["with"]["tags"]
 
 
 @pytest.mark.parametrize("version", ["1.2.0", "1.3.0-alpha.1"])
@@ -207,23 +420,54 @@ def test_ui_build_pushes_only_metadata_tags() -> None:
     assert "outputs" not in build["with"]
 
 
-@pytest.mark.parametrize("version", ["1.2.1", "1.3.0"])
-@pytest.mark.parametrize("fail_api", [False, True])
-def test_promotion_updates_all_images_from_the_same_stable_tag(
-    tmp_path: Path, version: str, fail_api: bool
-) -> None:
+def _run_promotion(
+    tmp_path: Path,
+    version: str,
+    *,
+    minor: str,
+    latest: str,
+    ui_latest: str = "",
+    fail_api: bool = False,
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run the promote step with a Docker stub.
+
+    `inspect` prints `minor` as the version label of the `X.Y` tag and
+    `latest` as that of `latest` (`ui_latest` overrides it for the UI image).
+    `-` means the tag doesn't exist yet, `!`
+    means the registry call fails, and `?` means the tag exists but its
+    child content is missing.
+    """
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     step = workflow["jobs"]["promote-latest"]["steps"][-1]
     assert step["env"]["VERSION"] == "${{ needs.validate.outputs.tag }}"
     docker = tmp_path / "docker"
     docker.write_text(
-        '#!/bin/bash\nprintf "%s\\n" "$@" >> "$CAPTURE_ARGS"\n'
+        "#!/bin/bash\n"
+        'if [[ "$3" == inspect ]]; then\n'
+        '  for arg in "$@"; do [[ "$arg" == ghcr.io/* ]] && ref=$arg; done\n'
+        '  if [[ "$ref" == *:latest ]]; then label=$LATEST; else label=$MINOR; fi\n'
+        '  [[ "$ref" == */tracecat-ui:latest && -n "$UI_LATEST" ]] && label=$UI_LATEST\n'
+        '  case "$label" in\n'
+        '    -) echo "ERROR: $ref: not found" >&2; exit 1 ;;\n'
+        '    !) echo "ERROR: unexpected status 503" >&2; exit 1 ;;\n'
+        "  esac\n"
+        '  if [[ "$4" == --raw ]]; then\n'
+        "    echo '{}'\n"
+        '  elif [[ "$label" == "?" ]]; then\n'
+        '    echo "ERROR: sha256:abc: not found" >&2; exit 1\n'
+        "  else\n"
+        '    echo "$label"\n'
+        "  fi\n"
+        "  exit 0\n"
+        "fi\n"
+        'printf "%s\\n" "$@" >> "$CAPTURE_ARGS"\n'
         'if [[ "$FAIL_API" == true && "$*" == *"/tracecat:latest"* ]]; then\n'
         "  exit 1\n"
         "fi\n"
     )
     docker.chmod(0o755)
     args_file = tmp_path / "args"
+    args_file.touch()
     result = subprocess.run(
         ["bash", "-euo", "pipefail", "-c", step["run"]],
         env={
@@ -231,27 +475,97 @@ def test_promotion_updates_all_images_from_the_same_stable_tag(
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "CAPTURE_ARGS": str(args_file),
             "VERSION": version,
+            "MINOR": minor,
+            "LATEST": latest,
+            "UI_LATEST": ui_latest,
             "FAIL_API": str(fail_api).lower(),
         },
         capture_output=True,
         text=True,
         check=False,
     )
-    assert (result.returncode != 0) == fail_api, result.stderr
-    images = (
-        ["tracecat"]
-        if fail_api
-        else ["tracecat", "tracecat-ui", "tracecat-tunnel-gateway"]
-    )
-    assert args_file.read_text().splitlines() == [
+    return result, args_file.read_text().splitlines()
+
+
+def _create_args(version: str, images: list[str], tags: list[str]) -> list[str]:
+    return [
         arg
         for image in images
+        for tag in tags
         for arg in (
             "buildx",
             "imagetools",
             "create",
             "--tag",
-            f"ghcr.io/tracecathq/{image}:latest",
+            f"ghcr.io/tracecathq/{image}:{tag}",
             f"ghcr.io/tracecathq/{image}:{version}",
         )
     ]
+
+
+ALL_IMAGES = ["tracecat", "tracecat-ui", "tracecat-tunnel-gateway"]
+
+
+@pytest.mark.parametrize("version", ["1.2.1", "1.3.0"])
+@pytest.mark.parametrize("fail_api", [False, True])
+def test_promotion_updates_all_images_from_the_same_stable_tag(
+    tmp_path: Path, version: str, fail_api: bool
+) -> None:
+    result, created = _run_promotion(
+        tmp_path, version, minor="-", latest="1.2.0", fail_api=fail_api
+    )
+    assert (result.returncode != 0) == fail_api, result.stderr
+    images = ["tracecat"] if fail_api else ALL_IMAGES
+    assert created == _create_args(version, images, [version[:3], "latest"])
+
+
+@pytest.mark.parametrize(
+    ("version", "minor", "latest", "tags"),
+    [
+        # An older train's patch moves its own X.Y, never latest.
+        ("1.1.4", "1.1.3", "1.2.3", ["1.1"]),
+        # Rebuilding an older patch moves neither.
+        ("1.2.3", "1.2.4", "1.2.4", []),
+        # Same version re-promotes (rebuild), and patches compare numerically.
+        ("1.2.3", "1.2.3", "1.2.3", ["1.2", "latest"]),
+        ("1.2.10", "1.2.9", "1.2.9", ["1.2", "latest"]),
+        # A missing tag is its first promotion.
+        ("2.0.0", "-", "1.9.9", ["2.0", "latest"]),
+        ("1.0.0", "-", "-", ["1.0", "latest"]),
+    ],
+)
+def test_promotion_only_moves_floating_tags_forward(
+    tmp_path: Path, version: str, minor: str, latest: str, tags: list[str]
+) -> None:
+    result, created = _run_promotion(tmp_path, version, minor=minor, latest=latest)
+    assert result.returncode == 0, result.stderr
+    assert created == _create_args(version, ALL_IMAGES, tags)
+
+
+def test_promotion_checks_each_image_on_its_own(tmp_path: Path) -> None:
+    # A newer UI latest (from a break-glass publish) is left alone, while the
+    # other images and every X.Y still move.
+    result, created = _run_promotion(
+        tmp_path, "1.2.5", minor="1.2.4", latest="1.2.4", ui_latest="1.3.0"
+    )
+    assert result.returncode == 0, result.stderr
+    assert created == [
+        *_create_args("1.2.5", ["tracecat"], ["1.2", "latest"]),
+        *_create_args("1.2.5", ["tracecat-ui"], ["1.2"]),
+        *_create_args("1.2.5", ["tracecat-tunnel-gateway"], ["1.2", "latest"]),
+    ]
+
+
+@pytest.mark.parametrize("floating", ["minor", "latest"])
+@pytest.mark.parametrize("label", ["!", "?", "", "v1.2.3", "1.3.0-rc.1"])
+def test_promotion_stops_when_a_floating_version_is_unreadable(
+    tmp_path: Path, floating: str, label: str
+) -> None:
+    # A registry error, missing child content, or a label sort -V can't order
+    # must stop the job, not be read as "no tag" or "newer".
+    labels = {"minor": "1.2.3", "latest": "1.2.3", floating: label}
+    result, created = _run_promotion(
+        tmp_path, "1.2.4", minor=labels["minor"], latest=labels["latest"]
+    )
+    assert result.returncode != 0
+    assert created == []

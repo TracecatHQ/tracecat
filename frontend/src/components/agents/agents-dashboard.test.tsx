@@ -28,6 +28,21 @@ const mockReplace = jest.fn()
 const mockUseWorkflowReferences = jest.fn()
 const mockUseListMcpIntegrations = jest.fn()
 
+// Presets are unmanaged unless a test marks one as managed by Tracecat.
+const mockManagedPresetIds = { current: new Set<string>() }
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: (resourceType: string, id?: string | null) =>
+      resourceType === "agent_preset" &&
+      Boolean(id) &&
+      mockManagedPresetIds.current.has(id ?? ""),
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/components/ai-elements/code-block", () => ({
   CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
   CodeBlockCopyButton: () => null,
@@ -145,6 +160,7 @@ describe("AgentsDashboard entitlement split", () => {
     mockHasEntitlement.mockReset()
     mockHasEntitlement.mockReturnValue(false)
     mockSearchParams.current = new URLSearchParams()
+    mockManagedPresetIds.current = new Set()
     mockUseAgentPresets.mockReset()
     mockUseAgentPresets.mockReturnValue({
       presets: [PRESET],
@@ -558,6 +574,19 @@ describe("AgentsDashboard entitlement split", () => {
     fireEvent.contextMenu(screen.getByText(PRESET.name))
     expect(
       screen.queryByRole("menuitemcheckbox", { name: "Use in chat" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("hides update and delete actions for a managed preset", async () => {
+    mockManagedPresetIds.current = new Set([PRESET.id])
+    renderDashboard()
+    fireEvent.contextMenu(screen.getByText(PRESET.name))
+    await screen.findByRole("menuitem", { name: "Make default" })
+    expect(
+      screen.queryByRole("menuitemcheckbox", { name: "Use in chat" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Delete" })
     ).not.toBeInTheDocument()
   })
 

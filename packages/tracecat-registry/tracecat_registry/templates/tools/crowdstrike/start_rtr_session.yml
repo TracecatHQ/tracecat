@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Start RTR session
+  description: >-
+    Initialize a Real Time Response session on a host. Returns the session ID used
+    by the RTR command actions. Requires the Real time response: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-initsession
+  namespace: tools.crowdstrike
+  name: start_rtr_session
+  expects:
+    device_id:
+      type: str
+      description: Host agent ID (AID) to open the session on.
+    queue_offline:
+      type: bool
+      description: Queue commands to run when an offline host comes back online.
+      default: false
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: start_rtr_session
+      action: tools.falconpy.call_command
+      args:
+        operation_id: RTR_InitSession
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            device_id: ${{ inputs.device_id }}
+            queue_offline: ${{ inputs.queue_offline }}
+  returns: ${{ steps.start_rtr_session.result }}

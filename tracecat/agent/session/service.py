@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import hashlib
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
@@ -41,7 +41,10 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
-from tracecat.agent.backends.access import require_backend_entitlement
+from tracecat.agent.backends.access import (
+    require_backend_entitlement,
+    require_session_backend_entitlement,
+)
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
     find_agent_backend,
@@ -51,6 +54,8 @@ from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
     AgentControlRejected,
+    SessionCleanup,
+    SessionDeleteContext,
     SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnContext,
@@ -107,6 +112,11 @@ from tracecat.agent.session.types import (
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.feed import (
+    SessionFeedEventType,
+    SessionFeedSnapshot,
+    publish_session_event,
+)
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
@@ -140,6 +150,7 @@ from tracecat.chat.tools import (
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
+from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.db.models import (
     APPROVAL_STATUS_ENUM,
     AgentSession,
@@ -156,7 +167,6 @@ from tracecat.exceptions import (
     TracecatServiceError,
     TracecatValidationError,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
@@ -421,6 +431,26 @@ def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
             return None
 
 
+# How long a backend's post-delete cleanup may run; it should only start work.
+SESSION_CLEANUP_TIMEOUT_SECONDS = 10
+
+
+async def _run_session_cleanup(cleanup: SessionCleanup, session_id: uuid.UUID) -> None:
+    """Run a committed delete's cleanup, bounded, logging rather than raising."""
+    try:
+        async with asyncio.timeout(SESSION_CLEANUP_TIMEOUT_SECONDS):
+            await cleanup()
+    # The caller's cancellation never reaches this (see `delete_session`), so
+    # a cancellation here is the cleanup's own.
+    except (asyncio.CancelledError, Exception) as e:
+        # The error's text may carry backend or provider detail; log its type.
+        logger.warning(
+            "Agent session cleanup failed",
+            session_id=session_id,
+            error_type=type(e).__name__,
+        )
+
+
 class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
@@ -455,9 +485,7 @@ class AgentSessionService(BaseWorkspaceService):
         return list(BUILTIN_WORKSPACE_CHAT_SKILLS)
 
     async def _forms_enabled(self) -> bool:
-        """Whether this organization has the forms flag and entitlement."""
-        if not is_feature_enabled(FeatureFlag.FORMS):
-            return False
+        """Whether this organization has the forms entitlement."""
         return await is_org_entitled(
             self.session, self.organization_id, Entitlement.FORMS
         )
@@ -556,7 +584,10 @@ class AgentSessionService(BaseWorkspaceService):
             )
             args = args.model_copy(update={"backend_id": backend_id})
         await require_backend_entitlement(
-            self.session, self.organization_id, args.backend_id
+            self.session,
+            self.organization_id,
+            args.backend_id,
+            entity_type=args.entity_type,
         )
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
         if args.spawned_by_session_id is not None:
@@ -828,7 +859,12 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
             )
-            .with_for_update()
+            # NO KEY UPDATE serializes artifact writers without blocking agent
+            # runtime FK checks on history inserts. Refresh a session the
+            # caller already loaded so the read-modify-write sees the latest
+            # artifacts.
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         agent_session = result.scalar_one_or_none()
@@ -861,7 +897,12 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
             )
-            .with_for_update()
+            # NO KEY UPDATE serializes artifact writers without blocking agent
+            # runtime FK checks on history inserts. Refresh a session the
+            # caller already loaded so the read-modify-write sees the latest
+            # artifacts.
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         agent_session = result.scalar_one_or_none()
@@ -1122,11 +1163,33 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> None:
         """Delete an agent session and its history.
 
+        The session's backend, when installed, prepares the delete in its
+        transaction and may clean up its own state once it commits.
+
         Args:
             agent_session: The AgentSession model to delete.
         """
+        session_id = agent_session.id
+        backend = find_agent_backend(agent_session.backend_id)
+        cleanup = (
+            None
+            if backend is None
+            else await backend.prepare_delete(
+                SessionDeleteContext(
+                    db=self.session, session=agent_session, role=self.role
+                )
+            )
+        )
         await self.session.delete(agent_session)
-        await self.session.commit()
+
+        async def commit_and_clean_up() -> None:
+            await self.session.commit()
+            if cleanup is not None:
+                await _run_session_cleanup(cleanup, session_id)
+
+        # Cancellation must not interrupt a commit PostgreSQL may already have
+        # accepted, or skip the cleanup after it.
+        await rejoin_future_on_cancel(asyncio.ensure_future(commit_and_clean_up()))
 
     async def update_last_stream_id(
         self,
@@ -1175,9 +1238,17 @@ class AgentSessionService(BaseWorkspaceService):
                 reserved_run_id=None,
                 reserved_at=None,
             )
+            .returning(AgentSession.id)
         )
-        await self.session.execute(stmt)
+        cleared = await self.session.scalar(stmt)
         await self.session.commit()
+        if cleared is not None:
+            await publish_session_event(
+                workspace_id=self.workspace_id,
+                session_id=session_id,
+                type=SessionFeedEventType.RUN_FINISHED,
+                run_id=run_id,
+            )
 
     async def finalize_turn(
         self,
@@ -1275,12 +1346,26 @@ class AgentSessionService(BaseWorkspaceService):
         not serialized, so a concurrent turn can pin its own pointers in that
         window. Only clear while the session still points at our stream id.
         """
+        run_id = await self.session.scalar(
+            select(AgentSession.curr_run_id).where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.active_stream_id == expected_stream_id,
+            )
+        )
+        # Pin the run read above, so the published run is the one this clears.
+        run_matches = (
+            AgentSession.curr_run_id.is_(None)
+            if run_id is None
+            else AgentSession.curr_run_id == run_id
+        )
         stmt = (
             update(AgentSession)
             .where(
                 AgentSession.id == session_id,
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.active_stream_id == expected_stream_id,
+                run_matches,
             )
             .values(
                 curr_run_id=None,
@@ -1288,9 +1373,17 @@ class AgentSessionService(BaseWorkspaceService):
                 reserved_run_id=None,
                 reserved_at=None,
             )
+            .returning(AgentSession.id)
         )
-        await self.session.execute(stmt)
+        cleared = await self.session.scalar(stmt)
         await self.session.commit()
+        if cleared is not None and run_id is not None:
+            await publish_session_event(
+                workspace_id=self.workspace_id,
+                session_id=session_id,
+                type=SessionFeedEventType.RUN_FINISHED,
+                run_id=run_id,
+            )
 
     # =========================================================================
     # Session History Management (for Claude SDK session persistence)
@@ -1486,6 +1579,27 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
+
+    async def get_feed_snapshot(
+        self, session_id: uuid.UUID
+    ) -> SessionFeedSnapshot | None:
+        """Read the run state a feed reader starts from, or None if no session."""
+        row = (
+            await self.session.execute(
+                select(AgentSession.curr_run_id, AgentSession.active_stream_id).where(
+                    AgentSession.id == session_id,
+                    AgentSession.workspace_id == self.workspace_id,
+                )
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        paused = row.curr_run_id is not None and await self.has_pending_approvals(
+            session_id
+        )
+        return SessionFeedSnapshot(
+            run_id=row.curr_run_id, stream_id=row.active_stream_id, paused=paused
+        )
 
     async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
         """Return whether the session has pending approval decisions."""
@@ -2047,6 +2161,10 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         prompt: str,
+        *,
+        config: AgentConfig | None = None,
+        caller_run_id: uuid.UUID | None = None,
+        holder_ended: Callable[[AgentSession], Awaitable[bool]] | None = None,
     ) -> PreparedAgentTurn:
         """Prepare a new turn for a caller-owned Temporal workflow.
 
@@ -2054,10 +2172,52 @@ class AgentSessionService(BaseWorkspaceService):
         same session configuration and persists the run pointers, but leaves
         child-workflow execution to the caller. Reusing persisted pointers makes
         an activity retry after commit return the same workflow identity.
+
+        Args:
+            session_id: The session to run the turn in.
+            prompt: The user prompt for the turn.
+            config: The turn's agent configuration, for callers that own it,
+                such as workflow agent actions. Built from the session when
+                omitted.
+            caller_run_id: The run ID this caller reserves, for callers that
+                do not serialize their turns per session, such as workflow
+                agent actions. The session is admitted only while no other
+                run holds it, and a retry adopts this caller's own run. When
+                omitted, the caller serializes its turns and any persisted run
+                is adopted.
+            holder_ended: With ``caller_run_id``, decides whether another run
+                that holds the session has ended for good. Called under the
+                row lock with the locked session; when it returns True, this
+                caller takes the session over.
+
+        Raises:
+            TracecatConflictError: If ``caller_run_id`` is given and another
+                run holds the session.
         """
+        if caller_run_id is not None:
+            # Lock the row until the reservation commits, so concurrent
+            # callers cannot both see the session idle. Refresh any copy
+            # loaded earlier, so this admission and the reservation below
+            # both read the row as locked.
+            locked = await self.session.scalar(
+                select(AgentSession)
+                .where(
+                    AgentSession.id == session_id,
+                    AgentSession.workspace_id == self.workspace_id,
+                )
+                .with_for_update(key_share=True)
+                .execution_options(populate_existing=True)
+            )
+            if locked is not None and locked.curr_run_id not in (None, caller_run_id):
+                if holder_ended is None or not await holder_ended(locked):
+                    raise TracecatConflictError("This chat already has an active turn")
+                # Its run will never release the session, so take it over.
+                locked.curr_run_id = None
+                locked.active_stream_id = None
         agent_session = await self.validate_turn_request(
             session_id,
             BasicChatRequest(message=prompt),
+            resume_prepared_turn=True,
         )
         backend = get_agent_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type
@@ -2067,9 +2227,20 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "This backend does not support caller-owned workflows"
             )
-        async with self._build_agent_config(agent_session) as agent_config:
-            run_id = agent_session.curr_run_id or uuid.uuid4()
-            stream_id = agent_session.active_stream_id or uuid.uuid4()
+        session_config = (
+            contextlib.nullcontext(config)
+            if config is not None
+            else self._build_agent_config(agent_session)
+        )
+        async with session_config as agent_config:
+            run_id = agent_session.curr_run_id or caller_run_id or uuid.uuid4()
+            # Reuse a stream only with the run it belongs to.
+            adopted_stream = (
+                agent_session.active_stream_id
+                if agent_session.curr_run_id is not None
+                else None
+            )
+            stream_id = adopted_stream or uuid.uuid4()
             prepared_turn = PreparedAgentTurn(
                 prompt=prompt,
                 session_id=session_id,
@@ -2312,8 +2483,21 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
+        *,
+        resume_prepared_turn: bool = False,
     ) -> AgentSession:
-        """Assert a turn can start before mutating session or stream state."""
+        """Assert a turn can start before mutating session or stream state.
+
+        Args:
+            session_id: The ID of the session.
+            request: The new message or approval continuation.
+            resume_prepared_turn: Whether the caller may adopt a run that a
+                caller-owned preparation already committed (``prepare_new_turn``
+                retried after its commit). That run was admitted while
+                entitled, so it skips the entitlement check like any turn
+                already in flight. A direct dispatch's run is never adopted
+                this way.
+        """
         agent_session = await self.get_session(session_id)
         if not agent_session:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
@@ -2329,6 +2513,9 @@ class AgentSessionService(BaseWorkspaceService):
         )
         match request:
             case ContinueRunRequest():
+                # Approval decisions finish a turn that started while entitled,
+                # so they skip the entitlement check. Refusing them would leave
+                # the turn parked until someone cancels it.
                 if agent_session.curr_run_id is None:
                     raise TracecatNotFoundError(
                         f"No active workflow run for session {session_id}"
@@ -2339,6 +2526,23 @@ class AgentSessionService(BaseWorkspaceService):
                     raise ValueError(
                         "This session is waiting for approval decisions. "
                         "Submit all pending approvals before sending another message."
+                    )
+                # Only a caller-owned preparation clears the reservation
+                # marker; a direct dispatch keeps it until the turn ends.
+                # Refusing an adopted preparation would strand its committed
+                # pointers: no workflow ever starts, so recovery cannot
+                # release them.
+                adopts_prepared_turn = (
+                    resume_prepared_turn
+                    and agent_session.curr_run_id is not None
+                    and agent_session.reserved_run_id is None
+                )
+                if not adopts_prepared_turn:
+                    await require_session_backend_entitlement(
+                        self.session,
+                        self.organization_id,
+                        agent_session.backend_id,
+                        entity_type=AgentSessionEntity(agent_session.entity_type),
                     )
                 return agent_session
             case _:
@@ -2599,6 +2803,20 @@ class AgentSessionService(BaseWorkspaceService):
                 tool_call_ids=list(validated.approval_map),
             )
 
+        # A partial batch stays paused but moves to the new segment too.
+        event_type = (
+            SessionFeedEventType.RUN_RESUMED
+            if did_resume
+            else SessionFeedEventType.RUN_PAUSED
+        )
+        await publish_session_event(
+            workspace_id=self.workspace_id,
+            session_id=session_id,
+            type=event_type,
+            run_id=curr_run_id,
+            stream_id=attempt.stream_id,
+        )
+
         logger.info(
             "Approval decisions submitted successfully",
             session_id=str(session_id),
@@ -2782,6 +3000,15 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatConflictError(str(e)) from e
         match control:
             case "steer":
+                # A steer is new user input and can be queued for a later turn,
+                # so it needs the entitlement like a new message. Withdrawing
+                # only takes input back and stays allowed.
+                await require_session_backend_entitlement(
+                    self.session,
+                    self.organization_id,
+                    agent_session.backend_id,
+                    entity_type=AgentSessionEntity(agent_session.entity_type),
+                )
                 supported, feature = backend.steering, "steering"
             case "withdraw":
                 supported, feature = backend.withdrawing, "withdrawing"
@@ -3751,8 +3978,14 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
 
+        # An approval fork inherits its source's backend under the preview
+        # entitlement alone; a fork that stays on its source's surface needs
+        # what that surface needs.
         await require_backend_entitlement(
-            self.session, self.organization_id, source.backend_id
+            self.session,
+            self.organization_id,
+            source.backend_id,
+            entity_type=entity_type or AgentSessionEntity(source.entity_type),
         )
         backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 

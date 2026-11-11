@@ -49,14 +49,12 @@ For a custom remote MCP server, first create a custom OAuth provider in [OAuth](
 
 ```json
 {
-  "Authorization": "Bearer token123",
+  "Authorization": "Bearer ${{ SECRETS.mcp_api.API_KEY }}",
   "X-API-Key": "abc123"
 }
 ```
 
-<Info>
-Remote MCP custom header JSON does not resolve `${{ SECRETS.* }}` or `${{ VARS.* }}`. Header values are sent as literal strings.
-</Info>
+Header values support `${{ SECRETS.* }}` and `${{ VARS.* }}` from your workspace's `default` environment. Tracecat resolves them when testing the connection or calling a tool. Header names and literal values stay unchanged. To save or test headers that contain expressions, you need the `integration:update` permission.
 
 ## Stdio MCP
 
@@ -79,7 +77,7 @@ Expression support differs by MCP integration type:
 
 - `stdio` environment variables support `${{ SECRETS.* }}` and `${{ VARS.* }}`.
 - Remote MCP OAuth mode does not need secret expressions for the bearer token because Tracecat injects the OAuth token automatically.
-- Remote MCP custom header JSON does not currently resolve `${{ SECRETS.* }}` or `${{ VARS.* }}`.
+- Remote MCP `Custom` header values support `${{ SECRETS.* }}` and `${{ VARS.* }}` from your workspace's `default` environment.
 
 ## Related pages
 

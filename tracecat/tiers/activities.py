@@ -7,6 +7,7 @@ from typing import Never
 from pydantic import BaseModel
 from temporalio import activity
 
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.runtime.errors import (
@@ -255,8 +256,11 @@ async def get_tier_limits_activity(
         EffectiveLimits with the organization's effective limits.
     """
     try:
-        async with TierService.with_session() as service:
-            limits = await service.get_effective_limits(input.org_id)
+        # Activities run without a ctx_role; scope the read to the org explicitly.
+        async with get_async_session_tenant_context_manager(
+            organization_id=input.org_id
+        ) as session:
+            limits = await TierService(session).get_effective_limits(input.org_id)
     except Exception as e:
         invalid_data = isinstance(e, DefaultTierNotConfiguredError)
         classification = RuntimeErrorClassification.platform(

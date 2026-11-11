@@ -18,10 +18,11 @@ SANDBOX_POLICY_COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
 )
-# The sandbox Compose file is an override and inherits policy variables from a base.
+# The sandbox and lite Compose files are overrides and inherit policy variables from a base.
 COMPOSE_ENV_FILES = (
     *SANDBOX_POLICY_COMPOSE_ENV_FILES,
     REPO_ROOT / "docker-compose.sandbox.yml",
+    REPO_ROOT / "docker-compose.lite.yml",
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
@@ -246,10 +247,16 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
 
 
 def test_outbound_private_cidrs_are_wired_to_deployments() -> None:
-    """Validation, gateway, and agent processes share the operator's policy."""
+    """Validation, gateway, agent, and search-indexing processes share the policy."""
     name = "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
     for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
-        for service in ("api", "litellm", "agent-executor", "agent-worker"):
+        for service in (
+            "api",
+            "litellm",
+            "agent-executor",
+            "agent-worker",
+            "background-worker",
+        ):
             match = re.search(
                 rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
                 path.read_text(),
@@ -494,9 +501,9 @@ def test_removed_agent_runtime_feature_flag_is_ignored(
     """Deployments that still set the removed flag keep starting."""
     try:
         with monkeypatch.context() as env:
-            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime,forms")
+            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime,ai-ranking")
             reloaded_config = importlib.reload(tracecat_config)
-            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {FeatureFlag.FORMS}
+            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {FeatureFlag.AI_RANKING}
     finally:
         importlib.reload(tracecat_config)
 

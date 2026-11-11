@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 import sqlalchemy as sa
@@ -42,10 +42,6 @@ def stub_case_duration_sync() -> Iterator[None]:
         patch(
             "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             return_value=None,
-        ),
-        patch(
-            "tracecat.cases.events.publish_case_event_payload",
-            new=AsyncMock(return_value=None),
         ),
     ):
         yield

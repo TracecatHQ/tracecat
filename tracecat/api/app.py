@@ -44,6 +44,7 @@ from tracecat_ee.watchtower.router import router as watchtower_router
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.admin.agent.router import router as admin_agent_router
+from tracecat.admin.build_info.router import router as admin_build_router
 from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.agent.access.router import router as agent_model_access_router
@@ -85,6 +86,10 @@ from tracecat.api.common import (
     table_row_exception_handler,
     tracecat_exception_handler,
     without_inputs,
+)
+from tracecat.api.extensions import (
+    include_api_extension_routers,
+    spawn_api_extension_tasks,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import (
@@ -136,6 +141,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
+    verify_rls_enforceable_login,
 )
 from tracecat.db.errors import is_data_error
 from tracecat.db.exceptions import AuthPoolExhaustedError
@@ -170,6 +176,11 @@ from tracecat.integrations.router import (
 from tracecat.invitations.consumer import start_invitation_email_consumer
 from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import (
+    LOCKED_MESSAGE,
+    ManagedResourceLockedError,
+)
+from tracecat.managed_resources.router import router as managed_resources_router
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.mcp.personal_access_tokens.router import (
     router as mcp_personal_access_tokens_router,
@@ -248,6 +259,7 @@ async def lifespan(app: FastAPI):
     # by tests and OpenAPI generation, before secrets are available.
     get_user_auth_secret()
     assert_soft_delete_listener_registered()
+    await verify_rls_enforceable_login()
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
@@ -325,6 +337,8 @@ async def lifespan(app: FastAPI):
             start_invitation_email_consumer,
             name="invitation_email_consumer",
         )
+
+    spawn_api_extension_tasks(supervisor)
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -437,6 +451,9 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DBAPIError, _database)
     app.add_exception_handler(TracecatAuthorizationError, _authorization)
     app.add_exception_handler(ScopeDeniedError, _scope_denied)
+    app.add_exception_handler(
+        ManagedResourceLockedError, managed_resource_locked_exception_handler
+    )
     app.add_exception_handler(HTTPException, _http_async)
     app.add_exception_handler(RequestValidationError, _validation)
     for exc_type in scim_statuses:
@@ -528,6 +545,37 @@ def authorization_exception_handler(request: Request, exc: Exception) -> Respons
     )
 
 
+def managed_resource_locked_exception_handler(
+    request: Request, exc: Exception
+) -> Response:
+    """Answer 403 when a caller tries to change a managed resource.
+
+    The body tells the user why and what to do instead. It carries only the
+    resource type, never names or ids, matching the fixed-body rule for
+    authorization errors.
+    """
+    resource_type = (
+        exc.resource_type if isinstance(exc, ManagedResourceLockedError) else None
+    )
+    logger.info(
+        "Refused change to managed resource",
+        path=request.url.path,
+        role=ctx_role.get(),
+        resource_type=resource_type,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "detail": LOCKED_MESSAGE,
+            "error": {
+                "code": "managed_resource_locked",
+                "message": LOCKED_MESSAGE,
+                "resource_type": resource_type,
+            },
+        },
+    )
+
+
 def scope_denied_exception_handler(request: Request, exc: Exception) -> Response:
     """Handle ScopeDeniedError exceptions with a 403 Forbidden response.
 
@@ -608,6 +656,56 @@ def _users_router() -> APIRouter:
     return users_router
 
 
+class HealthResponse(BaseModel):
+    status: str
+
+
+def root() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+class AppInfo(BaseModel):
+    version: str
+    public_app_url: str
+    auth_allowed_types: list[AuthType]
+    saml_enabled: bool
+    saml_enforced: bool
+    ee_multi_tenant: bool
+
+
+async def info(session: AsyncDBSessionBypass) -> AppInfo:
+    """Non-sensitive information about the platform, for frontend configuration."""
+
+    keys = {"saml_enabled", "saml_enforced"}
+
+    # Use default organization for platform-level settings.
+    # Org-specific auth routing is handled by the /auth/discover endpoint.
+    org_id = await get_default_organization_id(session)
+    role = bootstrap_role(org_id)
+    await set_rls_context_from_role(session, role)
+    service = SettingsService(session, role=role)
+    settings = await service.list_org_settings(keys=keys)
+    keyvalues = {s.key: service.get_value(s) for s in settings}
+    for key in keys:
+        override_val = get_setting_override(key)
+        if override_val is not None:
+            keyvalues[key] = override_val
+        else:
+            keyvalues[key] = keyvalues.get(key, False)
+    return AppInfo(
+        version=APP_VERSION,
+        public_app_url=config.TRACECAT__PUBLIC_APP_URL,
+        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
+        saml_enabled=keyvalues["saml_enabled"],
+        saml_enforced=keyvalues["saml_enforced"],
+        ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
+    )
+
+
+async def check_health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -660,6 +758,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workflow_actions_router)
     _include_workspace_scoped_router(app, workflow_tags_router)
     _include_workspace_scoped_router(app, workflow_store_router)
+    _include_workspace_scoped_router(app, managed_resources_router)
     _include_workspace_scoped_router(app, sync_operations_router)
     # EE references register first so POST /secrets/aws wins over /secrets/{secret_id}.
     _include_workspace_scoped_router(app, external_secrets_router)
@@ -694,6 +793,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(watchtower_router)
     app.include_router(admin_router)
     app.include_router(admin_agent_router, prefix="/admin")
+    app.include_router(admin_build_router, prefix="/admin")
     app.include_router(admin_maintenance_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
     _include_workspace_scoped_router(app, inbox_router)
@@ -818,6 +918,12 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
+    # Built-ins mount before extensions so the shadow check covers them.
+    app.add_api_route("/", root, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/info", info, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/health", check_health, methods=["GET"], tags=["public"])
+    include_api_extension_routers(app)
+
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(
@@ -878,56 +984,3 @@ def create_app(**kwargs) -> FastAPI:
 
 initialize_api_sentry_from_environment()
 app = create_app()
-
-
-class HealthResponse(BaseModel):
-    status: str
-
-
-@app.get("/", include_in_schema=False)
-def root() -> HealthResponse:
-    return HealthResponse(status="ok")
-
-
-class AppInfo(BaseModel):
-    version: str
-    public_app_url: str
-    auth_allowed_types: list[AuthType]
-    saml_enabled: bool
-    saml_enforced: bool
-    ee_multi_tenant: bool
-
-
-@app.get("/info", include_in_schema=False)
-async def info(session: AsyncDBSessionBypass) -> AppInfo:
-    """Non-sensitive information about the platform, for frontend configuration."""
-
-    keys = {"saml_enabled", "saml_enforced"}
-
-    # Use default organization for platform-level settings.
-    # Org-specific auth routing is handled by the /auth/discover endpoint.
-    org_id = await get_default_organization_id(session)
-    role = bootstrap_role(org_id)
-    await set_rls_context_from_role(session, role)
-    service = SettingsService(session, role=role)
-    settings = await service.list_org_settings(keys=keys)
-    keyvalues = {s.key: service.get_value(s) for s in settings}
-    for key in keys:
-        override_val = get_setting_override(key)
-        if override_val is not None:
-            keyvalues[key] = override_val
-        else:
-            keyvalues[key] = keyvalues.get(key, False)
-    return AppInfo(
-        version=APP_VERSION,
-        public_app_url=config.TRACECAT__PUBLIC_APP_URL,
-        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
-        saml_enabled=keyvalues["saml_enabled"],
-        saml_enforced=keyvalues["saml_enforced"],
-        ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
-    )
-
-
-@app.get("/health", tags=["public"])
-async def check_health() -> HealthResponse:
-    return HealthResponse(status="ok")

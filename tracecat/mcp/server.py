@@ -48,7 +48,8 @@ from pydantic import (
 from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
 from sqlalchemy import select
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
@@ -167,6 +168,7 @@ from tracecat.db.models import (
     Table,
     Workflow,
     WorkflowDefinition,
+    WorkspaceVariable,
 )
 from tracecat.dsl.common import DSLInput, build_action_statements_from_actions
 from tracecat.dsl.schemas import ActionStatement
@@ -184,7 +186,6 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.forms.access import can_read_form_config
 from tracecat.forms.enums import FormStatus
 from tracecat.forms.exceptions import FormError
@@ -200,6 +201,11 @@ from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import (
+    LOCKED_MESSAGE,
+    ManagedResourceLockedError,
+    ensure_unmanaged,
+)
 from tracecat.mcp.action_discovery import list_action_entry_page
 from tracecat.mcp.auth import (
     create_mcp_auth,
@@ -250,6 +256,8 @@ from tracecat.pagination import (
     CursorPaginationParams,
     PageParams,
 )
+from tracecat.redis.auth import create_redis_client
+from tracecat.redis.client import resolve_redis_url
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
     RegistryActionsService,
@@ -290,6 +298,7 @@ from tracecat.validation.schemas import (
     ValidationResult,
 )
 from tracecat.validation.service import validate_dsl
+from tracecat.variables.schemas import VariableCreate, VariableUpdate
 from tracecat.variables.service import VariablesService
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookMethod, WebhookRead, WebhookUpdate
@@ -348,6 +357,7 @@ from tracecat.workflow.schedules.schemas import (
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.tags.service import WorkflowTagsService
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspaces.schemas import (
     WorkspaceSettingsRead,
     WorkspaceSettingsUpdate,
@@ -1569,7 +1579,7 @@ def _get_workflow_artifact_redis() -> AsyncRedis:
     """Get the Redis client used for MCP file artifact metadata."""
     global _workflow_artifact_redis
     if _workflow_artifact_redis is None:
-        _workflow_artifact_redis = AsyncRedis.from_url(config.REDIS_URL)
+        _workflow_artifact_redis = create_redis_client(resolve_redis_url())
     return _workflow_artifact_redis
 
 
@@ -2089,8 +2099,8 @@ def _build_import_data_from_workflow_yaml(
         raise ToolError("Workflow definition YAML must include a definition object")
     if "title" not in definition and title is not None:
         definition["title"] = title
-    if "description" not in definition and description:
-        definition["description"] = description
+    if "description" not in definition:
+        definition["description"] = description or ""
 
     actions = definition.get("actions", [])
     if actions:
@@ -2220,6 +2230,26 @@ def _resolve_workflow_yaml_update_layout(
             for action in workflow.actions or []
         ],
     )
+
+
+async def _ensure_workflow_unmanaged(
+    session: AsyncSession, workspace_id: uuid.UUID, workflow_id: WorkflowUUID
+) -> None:
+    """Refuse an MCP edit of a managed workflow with a readable tool error.
+
+    Call it in the edit's own transaction: the check holds the ownership lock
+    until that transaction ends, so no rollout can take the workflow over
+    between the check and the write.
+    """
+    try:
+        await ensure_unmanaged(
+            session,
+            workspace_id=workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_id,
+        )
+    except ManagedResourceLockedError as exc:
+        raise ToolError(LOCKED_MESSAGE) from exc
 
 
 @audit_log(
@@ -2668,6 +2698,7 @@ definition:
   actions:
     - ref: first_action
       action: core.http_request
+      description: "Fetch the alert details"
       args:
         url: "https://api.example.com/alerts/${{ TRIGGER.alert_id }}"
         method: GET
@@ -2715,6 +2746,7 @@ Each action in the `actions` list supports:
 |-------|------|-------------|
 | `ref` | str (required) | Unique slug identifier (lowercase, hyphens, underscores) |
 | `action` | str (required) | Fully qualified action type (e.g. `core.http_request`) |
+| `description` | str | Human-readable summary of what this action does (default `""`) |
 | `args` | mapping | Action arguments — use expressions for dynamic values |
 | `depends_on` | list[str] | Refs of actions that must complete before this one runs |
 | `run_if` | expression | Conditional — skip this action if the expression is falsy |
@@ -2844,7 +2876,7 @@ Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assi
 `core.cases.assign_user_by_email`, `core.cases.create_case`,
 `core.cases.create_comment`, `core.cases.create_task`,
 `core.cases.delete_attachment`, `core.cases.delete_case`,
-`core.cases.delete_task`, `core.cases.download_attachment`,
+`core.cases.delete_comment`, `core.cases.delete_task`, `core.cases.download_attachment`,
 `core.cases.get_attachment`, `core.cases.get_attachment_download_url`,
 `core.cases.get_case`, `core.cases.get_case_metrics`,
 `core.cases.get_comment_thread`, `core.cases.get_linked_case_rows`,
@@ -2854,7 +2886,7 @@ Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assi
 `core.cases.list_comment_threads`, `core.cases.list_comments`,
 `core.cases.list_tasks`,
 `core.cases.remove_case_tag`, `core.cases.reply_to_comment`,
-`core.cases.search_cases`, `core.cases.unlink_row`,
+`core.cases.run_task`, `core.cases.search_cases`, `core.cases.unlink_row`,
 `core.cases.update_case`, `core.cases.update_comment`,
 `core.cases.update_task`, `core.cases.upload_attachment`,
 `core.cases.upload_attachment_from_url`
@@ -3043,7 +3075,8 @@ There is no `TRIGGER.payload`. A case trigger delivers `case_id`, `event`
 (`id`, `type`, `data`, `created_at`, `user_id`, `wf_exec_id`), `tags` (objects
 with `id`, `ref`, `name`, `color`), and `workspace_id`. `status: online` requires
 a non-empty `event_types`. `tag_filters` are tag refs matched with OR semantics;
-an empty list means no tag filtering.
+an empty list means no tag filtering. `tag_added`/`tag_removed` events match the
+added or removed tag; other events match the case's current tags.
 ```yaml
 case_trigger:
   status: online
@@ -4013,7 +4046,7 @@ async def create_workflow(
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create workflow", error=str(e))
@@ -4331,6 +4364,7 @@ async def edit_workflow(
           "value": {
             "ref": "notify_owner",
             "action": "core.http_request",
+            "description": "Notify the event owner",
             "depends_on": ["parse_event"],
             "args": {
               "method": "POST",
@@ -4362,6 +4396,7 @@ async def edit_workflow(
         )
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
+            await _ensure_workflow_unmanaged(svc.session, workspace_id, wf_id)
             workflow = await svc.get_workflow(wf_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
@@ -4510,6 +4545,7 @@ async def update_workflow(
             else None
         )
         async with WorkflowsManagementService.with_session(role=role) as svc:
+            await _ensure_workflow_unmanaged(svc.session, workspace_id, workflow_id)
             workflow = await svc.get_workflow(workflow_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
@@ -4533,7 +4569,7 @@ async def update_workflow(
         raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to update workflow", error=str(e))
@@ -6354,8 +6390,9 @@ Args:
         valid values are listed above.
     tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
         not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
-        case carries any listed tag. An empty list means no tag filtering. Refs
-        that do not exist yet are created automatically.
+        case carries any listed tag, or for `tag_added`/`tag_removed` when the
+        added or removed tag is listed. An empty list means no tag filtering.
+        Refs that do not exist yet are created automatically.
 
 Returns a confirmation message.
 """
@@ -6411,14 +6448,12 @@ async def _forms_service(
 ) -> AsyncIterator[FormsService]:
     """Open the forms service for one form tool call and map its errors.
 
-    Checks, in order: the caller's workspace role, the ``forms`` feature flag,
-    the ``forms`` entitlement, and the scopes. Any error raised inside the
-    block, the tool's own included, reaches the client as a ``ToolError``.
+    Checks, in order: the caller's workspace role, the ``forms`` entitlement,
+    and the scopes. Any error raised inside the block, the tool's own
+    included, reaches the client as a ``ToolError``.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        if not is_feature_enabled(FeatureFlag.FORMS):
-            raise ToolError("Forms are not enabled on this Tracecat instance")
         async with FormsService.with_session(role=role) as svc:
             if not await svc.has_entitlement(Entitlement.FORMS):
                 raise EntitlementRequired(Entitlement.FORMS.value)
@@ -9306,6 +9341,19 @@ async def list_variables(
         raise ToolError(f"Failed to list variables: {e}") from None
 
 
+def _variable_response(
+    variable: WorkspaceVariable, *, include_values: bool = True
+) -> VariableResponse:
+    return VariableResponse(
+        id=variable.id,
+        name=variable.name,
+        description=variable.description,
+        environment=variable.environment,
+        keys=sorted(variable.values.keys()),
+        values=variable.values if include_values else {},
+    )
+
+
 @mcp.tool()
 async def get_variable(
     workspace_id: uuid.UUID,
@@ -9321,14 +9369,7 @@ async def get_variable(
             variable = await svc.get_variable_by_name(
                 variable_name, environment=environment
             )
-            return VariableResponse(
-                id=variable.id,
-                name=variable.name,
-                description=variable.description,
-                environment=variable.environment,
-                keys=sorted(variable.values.keys()),
-                values=variable.values,
-            )
+            return _variable_response(variable)
     except ScopeDeniedError as e:
         required = ", ".join(e.required_scopes)
         raise ToolError(f"Missing required scope: {required}") from e
@@ -9337,6 +9378,177 @@ async def get_variable(
     except Exception as e:
         logger.error("Failed to get variable", error=str(e))
         raise ToolError(f"Failed to get variable: {e}") from None
+
+
+@mcp.tool()
+async def create_variable(
+    workspace_id: uuid.UUID,
+    name: str,
+    values: dict[str, Any],
+    description: str | None = None,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+    tags: dict[str, str] | None = None,
+) -> VariableResponse:
+    """Create a workspace variable.
+
+    Variable values are not encrypted. Do not put credentials or other
+    sensitive values in variables; use workspace secrets instead.
+
+    Args:
+        workspace_id: The workspace ID.
+        name: Variable name, referenced in workflows as `${{ VARS.<name>.<key> }}`.
+        values: Key/value pairs for the variable. Must contain at least one key.
+        description: Optional description.
+        environment: Variable environment.
+        tags: Optional string tags.
+
+    Returns the created variable. `values` is empty unless the caller has
+    `variable:read`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "variable:create")
+        params = VariableCreate(
+            name=name,
+            description=description,
+            values=values,
+            tags=tags,
+            environment=environment,
+        )
+        async with VariablesService.with_session(role=role) as svc:
+            variable = await svc.create_variable(params)
+            return _variable_response(
+                variable,
+                include_values=has_scope(role.scopes or frozenset(), "variable:read"),
+            )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except IntegrityError:
+        raise ToolError(
+            f"Variable {name!r} already exists in environment {environment!r}"
+        ) from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create variable", error=str(e))
+        raise ToolError(f"Failed to create variable: {e}") from None
+
+
+@mcp.tool()
+async def update_variable(
+    workspace_id: uuid.UUID,
+    variable_name: str,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+    new_name: str | None = None,
+    description: str | None = None,
+    values: dict[str, Any] | None = None,
+    tags: dict[str, str] | None = None,
+    new_environment: str | None = None,
+) -> VariableResponse:
+    """Update a workspace variable.
+
+    Omitted fields are left unchanged. `values` replaces the full key set, so
+    call `get_variable` first and send every key you want to keep.
+
+    Args:
+        workspace_id: The workspace ID.
+        variable_name: Current variable name.
+        environment: Current variable environment.
+        new_name: Optional new name.
+        description: Optional new description.
+        values: Optional replacement key/value pairs. Must contain at least one key.
+        tags: Optional replacement string tags.
+        new_environment: Optional new environment.
+
+    Returns the updated variable, including its values.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "variable:update")
+        updates: dict[str, Any] = {
+            "name": new_name,
+            "description": description,
+            "values": values,
+            "tags": tags,
+            "environment": new_environment,
+        }
+        params = VariableUpdate(
+            **{key: value for key, value in updates.items() if value is not None}
+        )
+        if not params.model_fields_set:
+            raise ToolError("No fields to update")
+        async with VariablesService.with_session(role=role) as svc:
+            variable = await svc.get_variable_by_name(
+                variable_name, environment=environment
+            )
+            updated = await svc.update_variable(variable, params)
+            # `variable:update` implies `variable:read` (`tracecat.authz.controls`).
+            return _variable_response(updated)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except TracecatNotFoundError:
+        raise ToolError(
+            f"Variable {variable_name!r} not found in environment {environment!r}"
+        ) from None
+    except IntegrityError:
+        raise ToolError(
+            "A variable with that name already exists in the target environment"
+        ) from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update variable", error=str(e))
+        raise ToolError(f"Failed to update variable: {e}") from None
+
+
+@mcp.tool()
+async def delete_variable(
+    workspace_id: uuid.UUID,
+    variable_name: str,
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+) -> MCPMessageResponse:
+    """Delete a workspace variable.
+
+    Workflows that still reference `${{ VARS.<name>... }}` will fail to
+    resolve it after deletion.
+
+    Args:
+        workspace_id: The workspace ID.
+        variable_name: Variable name.
+        environment: Variable environment.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "variable:delete")
+        async with VariablesService.with_session(role=role) as svc:
+            variable = await svc.get_variable_by_name(
+                variable_name, environment=environment
+            )
+            await svc.delete_variable(variable)
+            return MCPMessageResponse(
+                message=f"Variable {variable_name!r} deleted successfully"
+            )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except TracecatNotFoundError:
+        raise ToolError(
+            f"Variable {variable_name!r} not found in environment {environment!r}"
+        ) from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete variable", error=str(e))
+        raise ToolError(f"Failed to delete variable: {e}") from None
 
 
 @mcp.tool()

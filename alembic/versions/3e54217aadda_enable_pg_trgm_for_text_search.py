@@ -1,7 +1,10 @@
 """Enable pg_trgm for text search without changing source tables.
 
 The server must provide pg_trgm. Restricted migration roles can use an extension
-preinstalled by an administrator. Downgrade retains this shared dependency.
+preinstalled by an administrator. An existing extension stays in its schema. A
+new one goes in public, or in ibm_extension on IBM Cloud Databases for
+PostgreSQL, which only allows extensions in that read-only, provider-managed
+schema. Downgrade retains this shared dependency.
 
 Revision ID: 3e54217aadda
 Revises: 8b51e0c47d2a
@@ -36,11 +39,18 @@ def upgrade() -> None:
     op.execute("""
         DO $$
         BEGIN
-            CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+            IF EXISTS (SELECT FROM pg_catalog.pg_extension WHERE extname = 'pg_trgm') THEN
+                NULL;
+            ELSIF pg_catalog.to_regnamespace('ibm_extension') IS NOT NULL THEN
+                -- IBM's documented form; IBM places it in ibm_extension.
+                CREATE EXTENSION IF NOT EXISTS pg_trgm;
+            ELSE
+                CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+            END IF;
         EXCEPTION WHEN insufficient_privilege THEN
             RAISE EXCEPTION 'Cannot install pg_trgm with the current role'
                 USING ERRCODE = 'insufficient_privilege', DETAIL = SQLERRM,
-                      HINT = 'Ask an authorized administrator to preinstall pg_trgm in public, then rerun migrations. On RDS, also check rds.allowed_extensions. The migration does not grant privileges.';
+                      HINT = 'Ask an authorized administrator to preinstall pg_trgm in public (ibm_extension on IBM Cloud), then rerun migrations. On RDS, also check rds.allowed_extensions. The migration does not grant privileges.';
         END
         $$;
     """)
@@ -62,15 +72,10 @@ def upgrade() -> None:
                     USING ERRCODE = 'object_not_in_prerequisite_state',
                           HINT = 'Ask the database administrator to run scripts/postgres/pg-trgm.sql with psql -v install=true against this application database before search-dependent migrations.';
             END IF;
-            IF extension_schema <> 'public' THEN
-                RAISE EXCEPTION 'pg_trgm must be installed in the public schema'
-                    USING ERRCODE = 'object_not_in_prerequisite_state',
-                          HINT = 'Ask the database administrator to review the existing extension schema. This migration does not relocate, upgrade or drop extensions.';
-            END IF;
-            IF NOT pg_catalog.has_schema_privilege('public', 'USAGE') THEN
-                RAISE EXCEPTION 'The current role needs USAGE on the public schema'
-                    USING ERRCODE = 'insufficient_privilege',
-                          HINT = 'Ask the database administrator to grant USAGE on schema public to the application and migration roles.';
+            IF NOT pg_catalog.has_schema_privilege(extension_schema, 'USAGE') THEN
+                RAISE EXCEPTION USING ERRCODE = 'insufficient_privilege',
+                    MESSAGE = 'The current role needs USAGE on the ' || extension_schema || ' schema',
+                    HINT = 'Ask the database administrator to grant USAGE on schema ' || quote_ident(extension_schema) || ' to the application and migration roles.';
             END IF;
 
             -- A same-named object is insufficient: require pg_trgm membership.
@@ -83,35 +88,36 @@ def upgrade() -> None:
                     AND d.refclassid = 'pg_extension'::regclass
                     AND d.refobjid = extension_oid
                 WHERE c.opcname = 'gin_trgm_ops' AND a.amname = 'gin'
-                  AND n.nspname = 'public' AND c.opcintype = 'text'::regtype
+                  AND n.nspname = extension_schema AND c.opcintype = 'text'::regtype
             ) THEN
-                RAISE EXCEPTION 'pg_trgm must provide public.gin_trgm_ops for text'
-                    USING ERRCODE = 'object_not_in_prerequisite_state',
-                          HINT = 'Ask the database administrator to repair the extension-owned GIN operator class. A same-named unrelated operator class is not supported.';
+                RAISE EXCEPTION USING ERRCODE = 'object_not_in_prerequisite_state',
+                    MESSAGE = 'pg_trgm must provide ' || extension_schema || '.gin_trgm_ops for text',
+                    HINT = 'Ask the database administrator to repair the extension-owned GIN operator class. A same-named unrelated operator class is not supported.';
             END IF;
 
-            similarity_oid := pg_catalog.to_regprocedure('public.similarity(text,text)');
+            similarity_oid := pg_catalog.to_regprocedure(
+                quote_ident(extension_schema) || '.similarity(text,text)'
+            );
             IF similarity_oid IS NULL OR NOT EXISTS (
                 SELECT FROM pg_catalog.pg_depend
                 WHERE classid = 'pg_proc'::regclass AND objid = similarity_oid
                   AND deptype = 'e' AND refclassid = 'pg_extension'::regclass
                   AND refobjid = extension_oid
             ) THEN
-                RAISE EXCEPTION 'pg_trgm must provide public.similarity(text,text)'
-                    USING ERRCODE = 'object_not_in_prerequisite_state',
-                          HINT = 'Ask the database administrator to repair the extension-owned similarity function. A same-named unrelated function is not supported.';
+                RAISE EXCEPTION USING ERRCODE = 'object_not_in_prerequisite_state',
+                    MESSAGE = 'pg_trgm must provide ' || extension_schema || '.similarity(text,text)',
+                    HINT = 'Ask the database administrator to repair the extension-owned similarity function. A same-named unrelated function is not supported.';
             END IF;
             IF NOT pg_catalog.has_function_privilege(similarity_oid, 'EXECUTE') THEN
-                RAISE EXCEPTION 'The current role needs EXECUTE on public.similarity(text,text)'
-                    USING ERRCODE = 'insufficient_privilege',
-                          HINT = 'Ask the database administrator to grant EXECUTE on the pg_trgm functions used by search to the application and migration roles.';
+                RAISE EXCEPTION USING ERRCODE = 'insufficient_privilege',
+                    MESSAGE = 'The current role needs EXECUTE on ' || extension_schema || '.similarity(text,text)',
+                    HINT = 'Ask the database administrator to grant EXECUTE on the pg_trgm functions used by search to the application and migration roles.';
             END IF;
+
+            EXECUTE 'SELECT ' || quote_ident(extension_schema) || '.similarity($1, $2)'
+                USING 'synthetic search'::text, 'synthetic search'::text;
         END
         $$;
-    """)
-
-    op.execute("""
-        SELECT public.similarity('synthetic search'::text, 'synthetic search'::text);
     """)
 
 

@@ -56,6 +56,22 @@ class TunnelRoute:
     proxy_url: str = field(repr=False)
 
 
+@dataclass(frozen=True)
+class TunnelTarget:
+    """A tunnel that passed its checks, ready to mint proxy tokens for.
+
+    Holds the gateway key, so one lookup can serve several actions that each
+    mint their own short-lived token.
+    """
+
+    tunnel_id: uuid.UUID
+    tunnel_name: str
+    workspace_id: WorkspaceID
+    gateway_ip: str
+    gateway_port: int
+    gateway_key: str = field(repr=False)
+
+
 def gateway_host(tunnel_id: uuid.UUID) -> str:
     return config.TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE.format(tunnel_id=tunnel_id)
 
@@ -89,6 +105,29 @@ async def resolve_tunnel_route(
     ttl_seconds: int = TUNNEL_TOKEN_MAX_TTL_SECONDS,
 ) -> TunnelRoute:
     """Check the tunnel can be used now and mint a proxy token for it.
+
+    Look the tunnel up by exactly one of ``name`` or ``tunnel_id``. Errors
+    never fall back to direct egress.
+    """
+    target = await resolve_tunnel_target(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        name=name,
+        tunnel_id=tunnel_id,
+    )
+    return mint_tunnel_route(
+        target, subject=subject, action_ref=action_ref, ttl_seconds=ttl_seconds
+    )
+
+
+async def resolve_tunnel_target(
+    *,
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
+    name: str | None = None,
+    tunnel_id: uuid.UUID | None = None,
+) -> TunnelTarget:
+    """Check the tunnel can be used now and resolve its gateway.
 
     Look the tunnel up by exactly one of ``name`` or ``tunnel_id``. The lookup
     is filtered by workspace explicitly; callers such as the executor have no
@@ -126,19 +165,38 @@ async def resolve_tunnel_route(
             tunnel.encrypted_gateway_key, key=get_db_encryption_key()
         ).decode("utf-8")
 
-    token = mint_tunnel_token(
-        gateway_key=gateway_key,
+    port = config.TRACECAT__TUNNEL_GATEWAY_PORT
+    ip = await _resolve_gateway_ip(gateway_host(tunnel_id), port)
+    return TunnelTarget(
         tunnel_id=tunnel_id,
+        tunnel_name=name,
         workspace_id=workspace_id,
+        gateway_ip=ip,
+        gateway_port=port,
+        gateway_key=gateway_key,
+    )
+
+
+def mint_tunnel_route(
+    target: TunnelTarget,
+    *,
+    subject: str,
+    action_ref: str | None = None,
+    ttl_seconds: int = TUNNEL_TOKEN_MAX_TTL_SECONDS,
+) -> TunnelRoute:
+    """Mint a fresh proxy token for one action through a resolved tunnel."""
+    token = mint_tunnel_token(
+        gateway_key=target.gateway_key,
+        tunnel_id=target.tunnel_id,
+        workspace_id=target.workspace_id,
         subject=subject,
         action_ref=action_ref,
         ttl_seconds=ttl_seconds,
     )
-    port = config.TRACECAT__TUNNEL_GATEWAY_PORT
-    ip = await _resolve_gateway_ip(gateway_host(tunnel_id), port)
+    ip, port = target.gateway_ip, target.gateway_port
     return TunnelRoute(
-        tunnel_id=tunnel_id,
-        tunnel_name=name,
+        tunnel_id=target.tunnel_id,
+        tunnel_name=target.tunnel_name,
         gateway_ip=ip,
         gateway_port=port,
         proxy_url=f"http://{PROXY_USERNAME}:{quote(token, safe='')}@{ip}:{port}",

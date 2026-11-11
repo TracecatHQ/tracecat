@@ -1,6 +1,6 @@
 ---
 title: Scaling action throughput
-description: "Size a Docker Compose deployment for a target sustained action throughput: executor replicas, concurrency settings, PostgreSQL connections, and host hardware from the default settings up to 256 actions per second."
+description: "Size a Docker Compose deployment for a target sustained action throughput: executor replicas, concurrency settings, PostgreSQL connections, Redis memory, and host hardware from the default settings up to 256 actions per second."
 sidebarTitle: Scaling
 ---
 
@@ -149,6 +149,33 @@ The executor tier is measured; the other services are sized from defaults and op
 
 Add worker replicas when workflow-task schedule-to-start latency in the Temporal UI grows while executor CPU stays idle.
 Lower `TEMPORAL__THREADPOOL_MAX_WORKERS` and `TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS` from 100 on workers with fewer than 4 cores.
+
+## Size Redis
+
+Redis holds short-lived state: agent chat streams, case events, deduplication keys, and concurrency limits.
+Size it for memory, not CPU.
+
+### What uses memory
+
+| Data | Keys | Bound | Grows with |
+| :--- | :--- | :---- | :--------- |
+| Agent chat streams | `agent-stream:*` | About 10,000 events per turn. A turn's buffer expires 5 minutes after a connected reader sees it finish, otherwise `REDIS_CHAT_TTL_SECONDS` (default 3 days) after its last event | Agent turns per TTL window, events per turn, and event size |
+| Deduplication digests | `dedup:*` | One key per unique item, kept for the `expire_seconds` input of `core.transform.deduplicate` (default 1 hour) | Unique items per second and `expire_seconds` |
+| Case events | `case-events` stream | About 30,000 entries (`TRACECAT__CASE_TRIGGERS_MAXLEN`) | Fixed |
+| Case duration sync | `case-duration-sync` stream | Entries are deleted after processing | Grows only while the consumer is down |
+| Concurrency permits | `tier:org:*` | One member per running workflow or action | Concurrent workflows and actions |
+| Search windows, MFA, OAuth, and Slack approval state | `search:*` and others | TTLs from 5 minutes to 24 hours | Small at every tier |
+
+### Redis tiers
+
+Here are the recommended Redis sizes.
+
+| Tier | Typical load | Docker Compose | Managed Redis (ElastiCache example) |
+| :--- | :----------- | :------------- | :---------------------------------- |
+| Default | Up to 8 actions/s, a few agent users, short dedup windows | 1 GiB limit, `maxmemory 768mb` | `cache.t4g.small` (1.37 GiB), 1 node |
+| Standard | 16–32 actions/s, daily agent use across a team | 4 GiB limit, `maxmemory 3gb` | `cache.t4g.medium` (3.09 GiB), primary and 2 replicas, Multi-AZ |
+| Large | 64+ actions/s, or hundreds of agent turns a day | Move to managed Redis | `cache.m7g.large` (6.38 GiB), primary and 1+ replica, Multi-AZ |
+| Memory-bound | High agent volume or dedup windows of a day or more | Move to managed Redis | `cache.r7g.large` (13.07 GiB) or larger, primary and 1+ replica, Multi-AZ |
 
 ## Related pages
 

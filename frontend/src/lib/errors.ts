@@ -126,10 +126,34 @@ function getErrorStatus(error: unknown): number | null {
   return typeof error.status === "number" ? error.status : null
 }
 
+/**
+ * Whether the API refused a change because the resource is managed by
+ * Tracecat (HTTP 403 with `error.code` set to `managed_resource_locked`).
+ */
+export function isManagedResourceLockedError(error: unknown): boolean {
+  if (getErrorStatus(error) !== 403) {
+    return false
+  }
+  const body = (error as { body?: unknown }).body
+  if (typeof body !== "object" || body === null || !("error" in body)) {
+    return false
+  }
+  const apiError = body.error
+  return (
+    typeof apiError === "object" &&
+    apiError !== null &&
+    "code" in apiError &&
+    apiError.code === "managed_resource_locked"
+  )
+}
+
 const GLOBAL_ERROR_HANDLERS: GlobalErrorHandler[] = [
   // Forbidden responses signal missing scopes or entitlements. The UI gates
-  // those surfaces inline, so they are swallowed rather than toasted.
-  (error) => getErrorStatus(error) === 403,
+  // those surfaces inline, so they are swallowed rather than toasted. A
+  // managed resource lock is the exception: its message tells the user to
+  // detach the resource, so it falls through to the toast.
+  (error) =>
+    getErrorStatus(error) === 403 && !isManagedResourceLockedError(error),
 ]
 
 /**

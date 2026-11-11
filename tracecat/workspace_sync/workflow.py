@@ -9,6 +9,7 @@ the thin workflow adapter shim:
 - workspace-sync spec -> workflow-store remote definition conversion
 - child-workflow local-id rewriting for imports
 - current and legacy workflow YAML parsing/serialization
+- splitting Python scripts out into ``scripts/<action ref>.py`` files
 
 The actual adapter class lives in ``tracecat.workspace_sync.adapters.workflow``.
 """
@@ -26,6 +27,7 @@ from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Form, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.forms.service import is_configured, stored_form_config
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
@@ -40,42 +42,8 @@ from tracecat.workflow.store.schemas import (
     Status,
 )
 from tracecat.workspace_sync.schemas import (
-    WORKFLOW_DEFINITION_FILENAME,
-    WORKFLOW_ROOT,
     WorkflowResourceSpec,
 )
-
-
-def workflow_source_path(source_id: str) -> str:
-    """Repository path for a workflow's definition file."""
-    return f"{WORKFLOW_ROOT}/{source_id}/{WORKFLOW_DEFINITION_FILENAME}"
-
-
-def workflow_source_id_from_path(
-    path: str, *, workflow_root: str = WORKFLOW_ROOT
-) -> str | None:
-    """Return the source id a workflow definition path maps to, or ``None``.
-
-    Inverse of :func:`workflow_source_path`. ``None`` means ``path`` is not a
-    ``<workflow_root>/<source_id>/<definition>`` workflow file.
-    """
-    parts = [part for part in path.strip("/").split("/") if part]
-    root_parts = [part for part in workflow_root.strip("/").split("/") if part]
-    if len(parts) != len(root_parts) + 2:
-        return None
-    if parts[: len(root_parts)] != root_parts:
-        return None
-    source_id, filename = parts[-2], parts[-1]
-    if filename != WORKFLOW_DEFINITION_FILENAME:
-        return None
-    return source_id or None
-
-
-def is_workflow_definition_path(
-    path: str, *, workflow_root: str = WORKFLOW_ROOT
-) -> bool:
-    """Return whether ``path`` is a workflow definition file."""
-    return workflow_source_id_from_path(path, workflow_root=workflow_root) is not None
 
 
 def default_workflow_source_id(*, alias: str | None, title: str) -> str:
@@ -358,23 +326,128 @@ def workflow_spec_from_legacy(
     )
 
 
+WORKFLOW_SCRIPTS_DIR = "scripts"
+"""Folder inside a workflow folder that holds its Python scripts."""
+
+
+def _script_relpath(action: ActionStatement) -> str:
+    """Return where an action's script lives inside its workflow folder.
+
+    Refs are unique within a workflow and match ``[a-z0-9_]+``, so they are
+    safe, readable file names: ``enrich_ip`` -> ``scripts/enrich_ip.py``.
+    """
+    return f"{WORKFLOW_SCRIPTS_DIR}/{action.ref}.py"
+
+
+def _python_script(action: ActionStatement) -> str | None:
+    """Return the script a push writes to its own file, or ``None``.
+
+    Only the string ``script`` of a ``core.script.run_python`` action counts.
+    """
+    if action.action != PlatformAction.RUN_PYTHON:
+        return None
+    script = action.args.get("script")
+    return script if isinstance(script, str) else None
+
+
+def _with_actions(
+    spec: WorkflowResourceSpec, actions: list[ActionStatement]
+) -> WorkflowResourceSpec:
+    definition = spec.definition.model_copy(update={"actions": actions})
+    return spec.model_copy(update={"definition": definition})
+
+
+def workflow_script_files(spec: WorkflowResourceSpec) -> dict[str, str]:
+    """Return each Python script by its path inside the workflow folder.
+
+    These files hold the scripts :func:`serialize_workflow_spec` leaves out of
+    ``definition.yml``, so people can read them as plain Python.
+    """
+    return {
+        _script_relpath(action): script
+        for action in spec.definition.actions
+        if (script := _python_script(action)) is not None
+    }
+
+
+def _workflow_spec_without_scripts(spec: WorkflowResourceSpec) -> WorkflowResourceSpec:
+    """Drop every script :func:`workflow_script_files` writes to its own file."""
+    actions = [
+        action.model_copy(
+            update={"args": {k: v for k, v in action.args.items() if k != "script"}}
+        )
+        if _python_script(action) is not None
+        else action
+        for action in spec.definition.actions
+    ]
+    return _with_actions(spec, actions)
+
+
+def workflow_spec_with_script_files(
+    spec: WorkflowResourceSpec, scripts: Mapping[str, str]
+) -> tuple[WorkflowResourceSpec, list[str]]:
+    """Put each script file back into the action it was split out of.
+
+    ``scripts`` maps paths inside the workflow folder, such as
+    ``scripts/enrich_ip.py``, to file contents. An action that still has an
+    inline ``script``, as files written before scripts were split out do,
+    keeps it.
+
+    Returns:
+        The spec, and the script files that belong to no
+        ``core.script.run_python`` action. Pushes never leave such a file, so
+        it means a hand edit, such as a ref renamed without its file.
+    """
+    actions = []
+    for action in spec.definition.actions:
+        script = scripts.get(_script_relpath(action))
+        is_python = action.action == PlatformAction.RUN_PYTHON
+        if is_python and script is not None and "script" not in action.args:
+            action = action.model_copy(
+                update={"args": {**action.args, "script": script}}
+            )
+        actions.append(action)
+    python_paths = {
+        _script_relpath(action)
+        for action in spec.definition.actions
+        if action.action == PlatformAction.RUN_PYTHON
+    }
+    return _with_actions(spec, actions), sorted(scripts.keys() - python_paths)
+
+
 def serialize_workflow_spec(spec: WorkflowResourceSpec) -> str:
-    """Serialize a workflow spec to YAML, omitting null fields."""
-    data = spec.model_dump(mode="json", exclude_none=True)
+    """Serialize a workflow spec to ``definition.yml`` YAML, omitting null fields.
+
+    Python scripts are left out: :func:`workflow_script_files` writes each one
+    to its own file next to ``definition.yml``.
+    """
+    data = _workflow_spec_without_scripts(spec).model_dump(
+        mode="json", exclude_none=True
+    )
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
+def is_current_workflow_spec(raw: Mapping[str, Any]) -> bool:
+    """Return whether parsed YAML is the current ``type: workflow`` format.
+
+    Anything else is the legacy format, whose folder name is its id.
+    """
+    return raw.get("type") == "workflow" and raw.get("version") == 1
+
+
 def parse_workflow_spec(
-    path: str, content: str, *, workflow_root: str = WORKFLOW_ROOT
+    path: str, content: str, *, path_key: str
 ) -> tuple[WorkflowResourceSpec | None, PullDiagnostic | None]:
     """Parse a workflow YAML file into a spec, or a :class:`PullDiagnostic`.
 
     Accepts both the current ``type: workflow`` format and the legacy
-    :class:`RemoteWorkflowDefinition` layout. Returns ``(spec, None)`` on
-    success or ``(None, diagnostic)`` describing the parse, validation, or
-    source-id mismatch failure.
+    :class:`RemoteWorkflowDefinition` layout. A current-format file is
+    identified by its ``id``, or by its folder name if it has none. A
+    legacy-format file is always identified by its folder name, because its
+    in-file ``id`` is a workspace-local workflow id. Returns ``(spec, None)``
+    on success or ``(None, diagnostic)`` describing the parse or validation
+    failure.
     """
-    source_id = workflow_source_id_from_path(path, workflow_root=workflow_root)
     yaml_data: dict[str, Any] | None = None
     try:
         raw = yaml.safe_load(content)
@@ -388,22 +461,14 @@ def parse_workflow_spec(
             )
         yaml_data = raw
 
-        if raw.get("type") == "workflow" and raw.get("version") == 1:
-            if "id" not in raw and source_id is not None:
-                raw = {**raw, "id": source_id}
-            spec = WorkflowResourceSpec.model_validate(raw)
-            if source_id is not None and spec.id != source_id:
-                return None, PullDiagnostic(
-                    workflow_path=path,
-                    workflow_title=spec.definition.title,
-                    error_type="validation",
-                    message="Workflow source id does not match its repository path",
-                    details={"path_source_id": source_id, "spec_id": spec.id},
-                )
-            return spec, None
+        if is_current_workflow_spec(raw):
+            if "id" not in raw:
+                raw = {**raw, "id": path_key}
+            return WorkflowResourceSpec.model_validate(raw), None
 
+        # The legacy format predates readable paths: its folder is the id.
         legacy = RemoteWorkflowDefinition.model_validate(raw)
-        return workflow_spec_from_legacy(legacy, source_id=source_id), None
+        return workflow_spec_from_legacy(legacy, source_id=path_key), None
     except yaml.YAMLError as e:
         return None, PullDiagnostic(
             workflow_path=path,

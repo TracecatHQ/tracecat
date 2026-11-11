@@ -30,7 +30,7 @@ from tracecat.sync import PushStatus
 from tracecat.tiers.enums import Entitlement
 from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
 from tracecat.vcs.bitbucket.git import BitbucketGit, repository_path
-from tracecat.vcs.bitbucket.types import BitbucketBranch
+from tracecat.vcs.bitbucket.types import BitbucketBranch, BitbucketRepository
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import (
@@ -126,9 +126,27 @@ class LocalTransport(BitbucketWorkspaceSyncTransport):
         self.remote = remote
         self.pull_requests: list[dict[str, object]] = []
         self.fail_pr = False
+        self.tags: list[dict[str, object]] = []
+        """Tag payloads, already in the server's ``-target.date`` order."""
+        self.tag_requests: list[httpx.Request] = []
+
+    def tag_response(self, request: httpx.Request) -> httpx.Response:
+        self.tag_requests.append(request)
+        tags = self.tags
+        pagelen = int(request.url.params.get("pagelen", "10"))
+        page = int(request.url.params.get("page", "1"))
+        start = (page - 1) * pagelen
+        body: dict[str, object] = {"values": tags[start : start + pagelen]}
+        if start + pagelen < len(tags):
+            body["next"] = (
+                f"https://api.bitbucket.org{request.url.path}?page={page + 1}"
+            )
+        return httpx.Response(200, json=body)
 
     def response(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path.endswith("/refs/tags"):
+            return self.tag_response(request)
         if path.endswith("/pullrequests"):
             if request.method == "GET":
                 return httpx.Response(200, json={"values": self.pull_requests})
@@ -441,6 +459,87 @@ async def test_credentials_require_settings_scope_and_entitlement():
 def test_workspace_settings_reject_data_center(url: str):
     with pytest.raises(ValueError, match="Bitbucket Cloud"):
         WorkspaceSettingsUpdate(git_provider=VcsProvider.BITBUCKET, git_repo_url=url)
+
+
+SHA_A, SHA_B, SHA_C, SHA_D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
+
+
+def _tag(
+    name: str, sha: str, commit_date: str | None, *, tag_date: str | None = None
+) -> dict[str, object]:
+    target = {"type": "commit", "hash": sha, "date": commit_date}
+    return {"name": name, "target": target, "date": tag_date}
+
+
+@pytest.mark.anyio
+async def test_list_tags_pages_newest_first_and_skips_unusable_tags(remote: Path):
+    transport = LocalTransport(remote)
+    transport.tags = [
+        _tag(
+            "v4",
+            SHA_D,
+            "2026-04-01T00:00:00+00:00",
+            tag_date="2026-04-02T00:00:00+00:00",
+        ),
+        _tag("v3", SHA_C, "2026-03-01T00:00:00+00:00"),
+        {"name": "tree", "target": {"type": "tree", "hash": SHA_B}},
+        # Without target.type the entry is malformed, not assumed a commit.
+        {"name": "no-type", "target": {"hash": SHA_B, "date": "2026-02-01"}},
+        _tag("v2", SHA_B, "2026-02-01T00:00:00+00:00"),
+        {"name": "missing-target"},
+        _tag("v1", SHA_A, "2026-01-01T00:00:00+00:00"),
+        _tag("undated", SHA_A, None),
+    ]
+
+    pages: list[list[tuple[str, str, str]]] = []
+    cursor: str | None = None
+    while True:
+        tags, cursor = await transport.list_tags(url=URL, limit=2, cursor=cursor)
+        pages.append([(t.name, t.commit_sha, t.date) for t in tags])
+        if cursor is None:
+            break
+
+    assert pages == [
+        # The annotated tag's own date wins over its commit's date.
+        [
+            ("v4", SHA_D, "2026-04-02T00:00:00+00:00"),
+            ("v3", SHA_C, "2026-03-01T00:00:00+00:00"),
+        ],
+        # Malformed and non-commit entries are skipped without failing a page.
+        [],
+        [("v2", SHA_B, "2026-02-01T00:00:00+00:00")],
+        [("v1", SHA_A, "2026-01-01T00:00:00+00:00")],
+    ]
+    params = [dict(r.url.params) for r in transport.tag_requests]
+    assert [p["page"] for p in params] == ["1", "2", "3", "4"]
+    assert {(p["pagelen"], p["sort"]) for p in params} == {("2", "-target.date")}
+
+
+@pytest.mark.anyio
+async def test_malformed_payloads_are_provider_errors():
+    """Branch, commit and page payloads map to BitbucketError, not a 500."""
+    transport = BitbucketWorkspaceSyncTransport(session=AsyncMock(), role=role())
+
+    def response(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/refs/branches"):
+            return httpx.Response(200, json={"values": [{"label": "no-name"}]})
+        if request.url.path.endswith("/refs/tags"):
+            return httpx.Response(200, json={"values": "not-a-list"})
+        return httpx.Response(200, json={"mainbranch": "not-an-object"})
+
+    async with httpx.AsyncClient(
+        base_url="https://api.bitbucket.org/2.0/",
+        transport=httpx.MockTransport(response),
+    ) as client:
+        repo = "repositories/example/repo"
+        with pytest.raises(BitbucketError, match="invalid BitbucketBranch"):
+            await transport._list(
+                client, f"{repo}/refs/branches", BitbucketBranch, limit=10
+            )
+        with pytest.raises(BitbucketError, match="invalid BitbucketRepository"):
+            await transport._model(client, repo, BitbucketRepository)
+        with pytest.raises(BitbucketError, match="invalid page"):
+            await transport._cloud_page(client, f"{repo}/refs/tags")
 
 
 @pytest.mark.anyio

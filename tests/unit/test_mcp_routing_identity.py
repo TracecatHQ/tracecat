@@ -122,8 +122,10 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
         assert server_config["name"] == ref["name"]
     monkeypatch.setattr(
         IntegrationService,
-        "list_mcp_integrations",
-        AsyncMock(return_value=integrations),
+        "get_mcp_integrations",
+        AsyncMock(
+            side_effect=lambda ids: [i for i in integrations if i.id in set(ids)]
+        ),
     )
 
     @asynccontextmanager
@@ -378,7 +380,7 @@ async def test_existing_reserved_slugs_fail_before_routing(slug: str) -> None:
     )
     preset_service = AgentPresetService(session, role=role)
     with pytest.raises(TracecatValidationError) as exc_info:
-        preset_service._mcp_integration_refs(
+        preset_service.mcp_integration_refs(
             [str(integration.id)], {integration.id: integration}
         )
     assert exc_info.value.detail == {

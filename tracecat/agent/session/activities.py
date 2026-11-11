@@ -14,6 +14,12 @@ from pydantic import BaseModel, Field
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
+from tracecat.agent.channel_publisher import (
+    RunUpdate,
+    is_channel_linked,
+    publish_updates,
+)
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
 from tracecat.agent.error_policy import invalid_agent_configuration
 from tracecat.agent.executor.schemas import ToolExecutionResult
@@ -22,6 +28,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.bindings import artifact_side_effects_for_tool_result
 from tracecat.artifacts.resolution import resolve_artifact_side_effects
@@ -65,6 +72,7 @@ class CreateSessionResult(BaseModel):
     session_id: uuid.UUID
     success: bool
     error: str | None = None
+    channel_linked: bool = False
 
 
 class PendingToolResult(BaseModel):
@@ -141,6 +149,8 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
     approval submission to locate the running workflow.
     """
     ctx_role.set(input.role)
+    # (workspace_id, stream_id) of a run to announce once its buffer is reset.
+    started: tuple[uuid.UUID, uuid.UUID | None] | None = None
 
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
@@ -155,6 +165,9 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 agent_session, created = await service.get_or_create_session(
                     AgentSessionCreate(
                         id=input.session_id,
+                        # This activity belongs to the built-in durable workflow,
+                        # so the sessions it creates run on that backend.
+                        backend_id=DEFAULT_AGENT_BACKEND,
                         title=input.title,
                         created_by=input.created_by,
                         entity_type=input.entity_type,
@@ -170,7 +183,9 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
             # This activity belongs to the built-in durable workflow. Never let
             # a caller-supplied session ID redirect a different backend's session.
-            if (agent_session.backend_id or "oss") != "oss" or (
+            if (
+                agent_session.backend_id or DEFAULT_AGENT_BACKEND
+            ) != DEFAULT_AGENT_BACKEND or (
                 agent_session.harness_type is not None
                 and agent_session.harness_type != input.harness_type
             ):
@@ -230,6 +245,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 agent_session.last_error = None
                 service.session.add(agent_session)
                 await service.session.commit()
+                started = (agent_session.workspace_id, agent_session.active_stream_id)
 
             # Avoid duplicate title generation when run_turn already attempted
             # first-prompt auto-title before spawning this workflow.
@@ -267,7 +283,21 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             )
             await stream.clear_buffer()
 
-        return CreateSessionResult(session_id=input.session_id, success=True)
+        # After the buffer reset, so an attaching tab never replays the last run.
+        if started is not None and input.curr_run_id is not None:
+            workspace_id, stream_id = started
+            await publish_session_event(
+                workspace_id=workspace_id,
+                session_id=input.session_id,
+                type=SessionFeedEventType.RUN_STARTED,
+                run_id=input.curr_run_id,
+                stream_id=stream_id,
+            )
+
+        linked = await is_channel_linked(input.role, input.session_id)
+        return CreateSessionResult(
+            session_id=input.session_id, success=True, channel_linked=linked
+        )
 
     except ApplicationError:
         raise
@@ -470,6 +500,8 @@ class FinalizeTurnInput(BaseModel):
     # set emit_terminal_done=True and pass their captured per-turn stream ID.
     active_stream_id: uuid.UUID | None = None
     emit_terminal_done: bool = False
+    # Published before the release, so the reply posts before the next turn starts.
+    channel_updates: list[RunUpdate] = Field(default_factory=list)
 
 
 class FinalizeTurnResult(BaseModel):
@@ -491,6 +523,7 @@ async def finalize_turn_activity(
     result and use their temporary stream-emission fallback.
     """
     ctx_role.set(input.role)
+    await publish_updates(input.role, input.channel_updates)
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
             if input.emit_terminal_done:

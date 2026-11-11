@@ -274,6 +274,10 @@ class CustomOAuthProviderMixin:
     def schema(cls) -> dict[str, Any] | None:  # pragma: no cover - trivial override
         return None
 
+    def _use_pkce(self) -> bool:
+        """Always send S256 PKCE; servers that don't use it ignore the params."""
+        return True
+
 
 class BaseMCPProvider(ABC):
     """Base metadata contract for platform-provided MCP connections."""

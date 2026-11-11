@@ -20,6 +20,7 @@ from fastmcp.tools import ToolResult
 from mcp.types import CallToolRequestParams
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
@@ -53,6 +54,7 @@ from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
     ScopeDeniedError,
+    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.expressions.common import ExprType
@@ -62,6 +64,10 @@ from tracecat.integrations.enums import (
     OAuthGrantType,
 )
 from tracecat.integrations.schemas import ProviderKey
+from tracecat.managed_resources.guard import (
+    LOCKED_MESSAGE,
+    ManagedResourceLockedError,
+)
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
@@ -84,7 +90,9 @@ from tracecat.workflow.executions.shaping import (
     window_result_text,
 )
 from tracecat.workflow.management import layout as layout_module
+from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 from tracecat.workflow.schedules import bridge as schedules_bridge
+from tracecat.workspace_sync.enums import SyncResourceType
 
 _original_create_mcp_auth = mcp_auth.create_mcp_auth
 try:
@@ -181,6 +189,16 @@ def resolved_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
         return workspace_id, role
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+
+@pytest.fixture(autouse=True)
+def no_managed_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Workflow edit tests use fake service sessions with no database.
+
+    ``test_edit_workflow_refuses_a_managed_workflow`` overrides this to cover
+    the managed check itself.
+    """
+    monkeypatch.setattr(mcp_server, "ensure_unmanaged", AsyncMock(return_value=None))
 
 
 def _patch_workflow_service(monkeypatch: pytest.MonkeyPatch, workflow: Any) -> None:
@@ -935,6 +953,58 @@ def test_graph_requires_relayout(
     expected: bool,
 ):
     assert layout_module.graph_requires_relayout(previous, updated) is expected
+
+
+@pytest.mark.parametrize("description", ["", "From argument"])
+def test_build_import_data_from_workflow_yaml_defaults_missing_description(
+    description: str,
+):
+    import_data = mcp_server._build_import_data_from_workflow_yaml(
+        definition_yaml=yaml.safe_dump(
+            {
+                "definition": {
+                    "entrypoint": {"ref": "fetch"},
+                    "actions": [
+                        {
+                            "ref": "fetch",
+                            "action": "core.transform.reshape",
+                            "args": {"value": 1},
+                        }
+                    ],
+                }
+            }
+        ),
+        title="Example",
+        description=description,
+    )
+
+    assert import_data["definition"]["description"] == description
+    definition = ExternalWorkflowDefinition.model_validate(import_data).definition
+    assert definition.description == description
+
+
+def test_build_import_data_from_workflow_yaml_keeps_yaml_description():
+    import_data = mcp_server._build_import_data_from_workflow_yaml(
+        definition_yaml=yaml.safe_dump(
+            {
+                "definition": {
+                    "title": "Example",
+                    "description": "From YAML",
+                    "entrypoint": {"ref": "fetch"},
+                    "actions": [
+                        {
+                            "ref": "fetch",
+                            "action": "core.transform.reshape",
+                            "args": {"value": 1},
+                        }
+                    ],
+                }
+            }
+        ),
+        description="From argument",
+    )
+
+    assert import_data["definition"]["description"] == "From YAML"
 
 
 def test_build_import_data_from_workflow_yaml_replaces_supplied_layout():
@@ -2365,6 +2435,32 @@ async def test_edit_workflow_apply_returns_post_save_action_map(monkeypatch):
         {"index": 1, "ref": "classify"},
         {"index": 2, "ref": "fetch_events"},
     ]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_edit_workflow_refuses_a_managed_workflow(monkeypatch):
+    workflow = _workflow_stub()
+    _patch_workflow_service(monkeypatch, workflow)
+    monkeypatch.setattr(
+        mcp_server,
+        "ensure_unmanaged",
+        AsyncMock(
+            side_effect=ManagedResourceLockedError(
+                SyncResourceType.WORKFLOW, workflow.id
+            )
+        ),
+    )
+
+    with pytest.raises(ToolError, match=re.escape(LOCKED_MESSAGE)):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow.id),
+            base_revision="any",
+            patch_ops=[
+                {"op": "replace", "path": "/metadata/title", "value": "Updated flow"}
+            ],
+        )
 
 
 @pytest.mark.anyio
@@ -7894,6 +7990,11 @@ def test_mcp_instruction_named_placeholders_are_all_rendered() -> None:
     assert mcp_server._SKILL_FILE_WARNING in mcp_server._MCP_INSTRUCTIONS_RENDERED
 
 
+def test_dsl_reference_documents_action_description() -> None:
+    assert "| `description` | str |" in mcp_server._DSL_REFERENCE_TEXT
+    assert any("description" in action for action in _prompt_yaml_action_fragments())
+
+
 def test_dsl_reference_text_stays_within_context_budget() -> None:
     # Raised from 15500 for the "Form Trigger" section.
     assert len(mcp_server._DSL_REFERENCE_TEXT) <= 17900
@@ -8575,7 +8676,6 @@ def _patch_forms(
     monkeypatch: pytest.MonkeyPatch,
     *,
     scopes: frozenset[str] = _FORM_BUILDER_SCOPES,
-    flag: bool = True,
     entitled: bool = True,
     **methods: Any,
 ) -> SimpleNamespace:
@@ -8605,11 +8705,6 @@ def _patch_forms(
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(mcp_server.FormsService, "with_session", _with_session)
-    monkeypatch.setattr(
-        mcp_server.config,
-        "TRACECAT__FEATURE_FLAGS",
-        {mcp_server.FeatureFlag.FORMS} if flag else set(),
-    )
     return service
 
 
@@ -8633,7 +8728,6 @@ async def test_form_tools_are_registered_without_submission_tools() -> None:
 @pytest.mark.parametrize(
     ("gate", "error"),
     [
-        ({"flag": False}, "not enabled"),
         ({"entitled": False}, "Feature 'forms' requires"),
         # Scope order in the message is not stable.
         (
@@ -8641,7 +8735,7 @@ async def test_form_tools_are_registered_without_submission_tools() -> None:
             "Missing required scope: .*form:read",
         ),
     ],
-    ids=["flag-off", "no-entitlement", "no-scope"],
+    ids=["no-entitlement", "no-scope"],
 )
 async def test_form_tools_are_gated(
     monkeypatch: pytest.MonkeyPatch, tool_name: str, gate: dict[str, Any], error: str
@@ -8653,7 +8747,7 @@ async def test_form_tools_are_gated(
     with pytest.raises(ToolError, match=error):
         await _call_form_tool(tool_name)
 
-    assert service.opened is ("flag" not in gate)
+    assert service.opened
 
 
 @pytest.mark.anyio
@@ -8920,3 +9014,339 @@ def test_auto_generate_layout_leaves_room_below_trigger():
     row_gap = second["y"] - (first["y"] + layout_module.ACTION_NODE_HEIGHT)
 
     assert trigger_gap == row_gap > 0
+
+
+def _variable_stub(**overrides: Any) -> SimpleNamespace:
+    values: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "name": "splunk",
+        "description": None,
+        "environment": "default",
+        "values": {"url": "https://splunk.example.com"},
+        "tags": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _patch_variables_service(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    scopes: frozenset[str],
+    existing: SimpleNamespace | None = None,
+    write_error: Exception | None = None,
+) -> dict[str, list[Any]]:
+    calls: dict[str, list[Any]] = {
+        "create": [],
+        "lookup": [],
+        "update": [],
+        "delete": [],
+    }
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Any]:
+        return uuid.uuid4(), SimpleNamespace(scopes=scopes)
+
+    class _VariablesService:
+        async def create_variable(self, params):
+            calls["create"].append(params)
+            if write_error is not None:
+                raise write_error
+            return _variable_stub(
+                name=params.name,
+                description=params.description,
+                environment=params.environment,
+                values=params.values,
+                tags=params.tags,
+            )
+
+        async def get_variable_by_name(self, name, *, environment=None):
+            calls["lookup"].append((name, environment))
+            if existing is None:
+                raise TracecatNotFoundError(f"Variable {name} not found")
+            return existing
+
+        async def update_variable(self, variable, params):
+            calls["update"].append(params)
+            if write_error is not None:
+                raise write_error
+            for field, value in params.model_dump(exclude_unset=True).items():
+                setattr(variable, field, value)
+            return variable
+
+        async def delete_variable(self, variable):
+            calls["delete"].append(variable)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.VariablesService,
+        "with_session",
+        lambda role: _AsyncContext(_VariablesService()),
+    )
+    return calls
+
+
+@pytest.mark.anyio
+async def test_create_variable_returns_created_variable(monkeypatch):
+    calls = _patch_variables_service(
+        monkeypatch, scopes=frozenset({"variable:create", "variable:read"})
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com", "index": "main"},
+            description="Splunk config",
+        )
+    )
+
+    assert payload["name"] == "splunk"
+    assert payload["keys"] == ["index", "url"]
+    assert payload["values"]["index"] == "main"
+    assert payload["environment"] == "default"
+    assert len(calls["create"]) == 1
+    assert calls["create"][0].description == "Splunk config"
+
+
+@pytest.mark.anyio
+async def test_create_variable_omits_values_without_read_scope(monkeypatch):
+    _patch_variables_service(monkeypatch, scopes=frozenset({"variable:create"}))
+
+    payload = _payload(
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com"},
+        )
+    )
+
+    assert payload["keys"] == ["url"]
+    assert payload["values"] == {}
+
+
+@pytest.mark.anyio
+async def test_create_variable_requires_create_scope(monkeypatch):
+    calls = _patch_variables_service(monkeypatch, scopes=frozenset({"variable:read"}))
+
+    with pytest.raises(ToolError, match="Missing required scope: variable:create"):
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com"},
+        )
+
+    assert calls["create"] == []
+
+
+@pytest.mark.anyio
+async def test_create_variable_rejects_empty_values(monkeypatch):
+    calls = _patch_variables_service(monkeypatch, scopes=frozenset({"variable:create"}))
+
+    with pytest.raises(ToolError):
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={},
+        )
+
+    assert calls["create"] == []
+
+
+@pytest.mark.anyio
+async def test_create_variable_reports_duplicate(monkeypatch):
+    _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:create"}),
+        write_error=IntegrityError("INSERT", {}, Exception("duplicate key")),
+    )
+
+    with pytest.raises(ToolError, match="already exists in environment 'default'"):
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com"},
+        )
+
+
+@pytest.mark.anyio
+async def test_update_variable_applies_only_provided_fields(monkeypatch):
+    existing = _variable_stub(description="Original")
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update", "variable:read"}),
+        existing=existing,
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            values={"url": "https://splunk2.example.com"},
+        )
+    )
+
+    assert calls["lookup"] == [("splunk", "default")]
+    assert calls["update"][0].model_fields_set == {"values"}
+    assert payload["values"] == {"url": "https://splunk2.example.com"}
+    assert payload["description"] == "Original"
+
+
+@pytest.mark.anyio
+async def test_update_variable_returns_values_with_update_scope_only(monkeypatch):
+    _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update"}),
+        existing=_variable_stub(),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            description="Updated",
+        )
+    )
+
+    assert payload["description"] == "Updated"
+    assert payload["values"] == {"url": "https://splunk.example.com"}
+
+
+@pytest.mark.anyio
+async def test_update_variable_requires_fields(monkeypatch):
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update"}),
+        existing=_variable_stub(),
+    )
+
+    with pytest.raises(ToolError, match="No fields to update"):
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+        )
+
+    assert calls["lookup"] == []
+    assert calls["update"] == []
+
+
+@pytest.mark.anyio
+async def test_update_variable_requires_update_scope(monkeypatch):
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:read", "variable:create"}),
+        existing=_variable_stub(),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: variable:update"):
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            description="New",
+        )
+
+    assert calls["update"] == []
+
+
+@pytest.mark.anyio
+async def test_update_variable_reports_missing_variable(monkeypatch):
+    _patch_variables_service(monkeypatch, scopes=frozenset({"variable:update"}))
+
+    with pytest.raises(ToolError, match="'missing' not found in environment"):
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="missing",
+            description="New",
+        )
+
+
+@pytest.mark.anyio
+async def test_update_variable_reports_name_conflict(monkeypatch):
+    _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update"}),
+        existing=_variable_stub(),
+        write_error=IntegrityError("UPDATE", {}, Exception("duplicate key")),
+    )
+
+    with pytest.raises(ToolError, match="already exists in the target environment"):
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            new_name="taken",
+        )
+
+
+@pytest.mark.anyio
+async def test_delete_variable_deletes_by_name(monkeypatch):
+    existing = _variable_stub()
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:delete"}),
+        existing=existing,
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.delete_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            environment="prod",
+        )
+    )
+
+    assert "deleted successfully" in payload["message"]
+    assert calls["lookup"] == [("splunk", "prod")]
+    assert calls["delete"] == [existing]
+
+
+@pytest.mark.anyio
+async def test_delete_variable_requires_delete_scope(monkeypatch):
+    calls = _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:read", "variable:update"}),
+        existing=_variable_stub(),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: variable:delete"):
+        await _tool(mcp_server.delete_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+        )
+
+    assert calls["lookup"] == []
+    assert calls["delete"] == []
+
+
+@pytest.mark.anyio
+async def test_delete_variable_reports_missing_variable(monkeypatch):
+    calls = _patch_variables_service(monkeypatch, scopes=frozenset({"variable:delete"}))
+
+    with pytest.raises(ToolError, match="'missing' not found in environment"):
+        await _tool(mcp_server.delete_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="missing",
+        )
+
+    assert calls["delete"] == []
+
+
+def test_workflow_artifact_redis_uses_resolved_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The artifact client honours REDIS_URL__ARN through resolve_redis_url()."""
+    sentinel = object()
+    seen: list[str] = []
+
+    def fake_create(url: str, **kwargs: object) -> object:
+        del kwargs
+        seen.append(url)
+        return sentinel
+
+    monkeypatch.setattr(mcp_server, "_workflow_artifact_redis", None)
+    monkeypatch.setattr(
+        mcp_server, "resolve_redis_url", lambda: "rediss://resolved.example:6379"
+    )
+    monkeypatch.setattr(mcp_server, "create_redis_client", fake_create)
+
+    assert mcp_server._get_workflow_artifact_redis() is sentinel
+    assert mcp_server._get_workflow_artifact_redis() is sentinel
+    assert seen == ["rediss://resolved.example:6379"]

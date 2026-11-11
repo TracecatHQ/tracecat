@@ -32,6 +32,7 @@ import {
   PublishFirstDialog,
   type PublishFirstError,
 } from "@/components/workspace-sync/publish-first-dialog"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import {
   type MutateFunction,
@@ -66,6 +67,11 @@ type WorkflowContextType = {
   >
   validationErrors: ValidationResult[] | null
   setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
+  /**
+   * True when the workflow is managed by Tracecat. Edits, saves, publishes,
+   * renames, moves and deletes are locked; runs and schedules stay allowed.
+   */
+  isReadOnly: boolean
 }
 type TracecatErrorMessage = {
   type?: string
@@ -93,6 +99,8 @@ export function WorkflowProvider({
   const [publishError, setPublishError] = useState<PublishFirstError | null>(
     null
   )
+  const { isManaged } = useManagedResources(workspaceId)
+  const isReadOnly = isManaged("workflow", workflowId)
 
   // Queries
   const {
@@ -342,6 +350,7 @@ export function WorkflowProvider({
         updateWorkflow,
         validationErrors,
         setValidationErrors,
+        isReadOnly,
       }}
     >
       {children}

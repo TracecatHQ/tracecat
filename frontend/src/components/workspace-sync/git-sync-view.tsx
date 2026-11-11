@@ -17,7 +17,8 @@ import { GitSyncConnectionPanel } from "@/components/workspace-sync/git-sync-con
 import { GitSyncPullTab } from "@/components/workspace-sync/git-sync-pull"
 import { GitSyncPushTab } from "@/components/workspace-sync/git-sync-push"
 import { GitSyncRepoStatus } from "@/components/workspace-sync/git-sync-repo-status"
-import { SyncOperationHistory } from "@/components/workspace-sync/sync-operation-history"
+import { SyncOperationStatus } from "@/components/workspace-sync/sync-operation-status"
+import { WORKSPACE_SYNC_PACKAGE_QUERY_KEY } from "@/components/workspace-sync/use-workspace-package"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -33,6 +34,7 @@ const SYNC_QUERY_KEYS = [
   "repository_commits",
   "workspace-sync-export-preview",
   "workspace-sync-pull-preview",
+  WORKSPACE_SYNC_PACKAGE_QUERY_KEY,
 ]
 
 interface GitSyncViewProps {
@@ -55,12 +57,12 @@ export function GitSyncView({
     return (
       <div className="flex h-full flex-col">
         <GitSyncHeader workspaceName={workspace.name} />
+        {canSync && <SyncOperationStatus workspaceId={workspace.id} />}
         {canManageConnection ? (
           <GitSyncConnectionPanel workspace={workspace} canSync={canSync} />
         ) : (
           <GitSyncConnectionEmptyState />
         )}
-        {canSync && <SyncOperationHistory workspaceId={workspace.id} />}
       </div>
     )
   }
@@ -170,6 +172,7 @@ function GitSyncConnectedView({
           </div>
         )}
       </GitSyncHeader>
+      <SyncOperationStatus workspaceId={workspaceId} />
       {showConnection && (
         <GitSyncConnectionPanel
           workspace={workspace}
@@ -219,11 +222,16 @@ function GitSyncConnectedView({
             commitsIsLoading={commitsIsLoading}
             commitsError={commitsError}
             isActive={direction === "pull" && !showConnection}
-            onPulled={() => setLocalPullRevision((count) => count + 1)}
+            onPulled={() => {
+              setLocalPullRevision((count) => count + 1)
+              // A pull can add or remove resources the package picker lists.
+              void queryClient.invalidateQueries({
+                queryKey: [WORKSPACE_SYNC_PACKAGE_QUERY_KEY, workspaceId],
+              })
+            }}
           />
         </TabsContent>
       </div>
-      <SyncOperationHistory workspaceId={workspaceId} />
     </Tabs>
   )
 }

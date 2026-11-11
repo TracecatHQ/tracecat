@@ -23,6 +23,7 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.management.layout import (
     GeneratedWorkflowLayout,
@@ -41,6 +42,7 @@ from tracecat.workflow.management.schemas import (
     UpdateTriggerPositionPayload,
     UpdateViewportPayload,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 
 type EdgeSourceType = Literal["trigger", "udf"]
 type EdgeHandle = Literal["success", "error"]
@@ -240,6 +242,12 @@ class WorkflowGraphService(BaseWorkspaceService):
         an independent audit event. The caller owns the workflow lock and the
         surrounding operation's audit lifecycle.
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow.id,
+        )
 
         # Check version for optimistic concurrency
         if workflow.graph_version != base_version:

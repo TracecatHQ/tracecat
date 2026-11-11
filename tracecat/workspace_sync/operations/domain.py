@@ -2,11 +2,12 @@
 
 import hashlib
 import uuid
+from collections.abc import Sequence
 from dataclasses import replace
 
 import orjson
 from pydantic import JsonValue, TypeAdapter
-from sqlalchemy import String, func, select
+from sqlalchemy import String, Uuid, column, func, select, update, values
 from sqlalchemy.dialects.postgresql import insert
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.secrets.references.service import SecretReferencesService
@@ -21,8 +22,9 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.managed_resources.include import PACKAGE_INCLUDE_FILENAME
 from tracecat.secrets.enums import SecretSource
-from tracecat.sync import PullResult, PushStatus
+from tracecat.sync import PullResult, PushStatus, first_diff_per_resource
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.operations.catalog import catalog_target_state
 from tracecat.workspace_sync.operations.mappings import surviving_mapping_targets
@@ -37,6 +39,7 @@ from tracecat.workspace_sync.operations.types import (
     SyncPreviewSummary,
     lock_key,
 )
+from tracecat.workspace_sync.package import include_reader
 from tracecat.workspace_sync.schemas import (
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
@@ -53,6 +56,7 @@ from tracecat.workspace_sync.transport import (
     BaseWorkspaceSyncTransport,
     sync_commit_message,
 )
+from tracecat.workspace_sync.types import SyncMappingTarget
 
 
 def fingerprint(value: object) -> str:
@@ -178,23 +182,100 @@ class DurableSyncService(WorkspaceSyncService):
         rows = (await self.session.execute(stmt)).tuples().all()
         return fingerprint([list(row) for row in rows])
 
+    async def _write_mapping_targets(
+        self, targets: Sequence[SyncMappingTarget]
+    ) -> None:
+        """Insert new mappings and record this push's path on existing ones.
+
+        An existing mapping is never re-pointed: one whose source id or local
+        row is already claimed by another identity keeps its identity. Only a
+        row with the same source id and local row gets its path refreshed.
+
+        This takes two statements because the table has two unique
+        constraints (source id, and local row). ``ON CONFLICT DO UPDATE`` can
+        target only one of them, so a conflict on the other would fail.
+
+        Synchronous pushes use ``WorkspaceSyncService._upsert_mappings``,
+        which does re-point, because they project and write in one step.
+        """
+        for offset in range(0, len(targets), 500):
+            batch = targets[offset : offset + 500]
+            await self.session.execute(
+                insert(WorkspaceSyncResourceMapping)
+                .values(
+                    [
+                        {
+                            "workspace_id": self.workspace_id,
+                            "provider": self._mapping_provider_value,
+                            "resource_type": target.resource_type,
+                            "source_id": target.source_id,
+                            "source_path": target.source_path,
+                            "local_id": target.local_id,
+                        }
+                        for target in batch
+                    ]
+                )
+                .on_conflict_do_nothing()
+            )
+            # Refresh the path of rows whose whole identity matches a target.
+            rows = values(
+                column("resource_type", String),
+                column("source_id", String),
+                column("local_id", Uuid),
+                column("source_path", String),
+                name="refreshed",
+            ).data(
+                [
+                    (
+                        target.resource_type,
+                        target.source_id,
+                        target.local_id,
+                        target.source_path,
+                    )
+                    for target in batch
+                ]
+            )
+            await self.session.execute(
+                update(WorkspaceSyncResourceMapping)
+                .where(
+                    WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                    WorkspaceSyncResourceMapping.provider
+                    == self._mapping_provider_value,
+                    WorkspaceSyncResourceMapping.resource_type == rows.c.resource_type,
+                    WorkspaceSyncResourceMapping.source_id == rows.c.source_id,
+                    WorkspaceSyncResourceMapping.local_id == rows.c.local_id,
+                    WorkspaceSyncResourceMapping.source_path.is_distinct_from(
+                        rows.c.source_path
+                    ),
+                )
+                .values(source_path=rows.c.source_path)
+                .execution_options(synchronize_session=False)
+            )
+
     async def local_fingerprint(
         self,
         inputs: SyncOperationCreate,
         *,
         projection: WorkspaceProjection | None = None,
+        package_include: str | None = None,
     ) -> str:
-        if projection is None:
-            resource_ids = (
-                await self._local_ids_from_resource_refs(inputs.push.resources)
-                if inputs.push
-                else None
+        """Hash the local state a reviewed operation depends on.
+
+        ``package_include`` is the include file a package-mode push was
+        prepared with, so the recomputed projection selects the same package.
+        """
+        if projection is None and inputs.push:
+            push = await self.project_push(
+                resources=inputs.push.resources,
+                include_schedules=inputs.push.include_schedules,
+                package_include=inputs.push.package_include,
+                remote_include=include_reader(package_include),
+                create_missing_mappings=False,
             )
+            projection = push.projection
+        elif projection is None:
             projection = await self.project_workspace(
-                resource_ids=resource_ids,
-                include_schedules=inputs.push.include_schedules
-                if inputs.push
-                else bool(inputs.pull and inputs.pull.sync_schedules),
+                include_schedules=bool(inputs.pull and inputs.pull.sync_schedules),
                 create_missing_mappings=False,
             )
         mapping_identities = sorted(
@@ -347,22 +428,24 @@ class DurableSyncService(WorkspaceSyncService):
         remote = fetched.remote
         if params := inputs.push:
             self._validate_export_params(params)
-            resource_ids = await self._local_ids_from_resource_refs(params.resources)
-            projection = await self.project_export_preview(
-                resource_ids=resource_ids,
+            push = await self.project_push(
+                resources=params.resources,
                 include_schedules=params.include_schedules,
+                package_include=params.package_include,
+                remote_include=include_reader(
+                    remote.files.get(PACKAGE_INCLUDE_FILENAME)
+                ),
+                create_missing_mappings=False,
+                base=remote,
             )
-            roots = list(
-                await self._export_delete_roots(
-                    projection,
-                    full_workspace_export=resource_ids is None,
-                    resource_ids=resource_ids,
-                )
-            )
+            projection = push.projection
+            roots = list(push.delete_roots)
             preview = WorkspaceSyncExportPreview(
                 resource_counts=projection.spec.resource_count_map(),
                 files=sorted(projection.files),
-                resources=_preview_resources_from_spec(projection.spec),
+                resources=_preview_resources_from_spec(
+                    projection.spec, paths=projection.paths
+                ),
                 resource_diffs=self._resource_diffs_for_export(
                     projection, remote, delete_missing_paths_under=roots
                 ),
@@ -370,14 +453,17 @@ class DurableSyncService(WorkspaceSyncService):
             return PreparedSync(
                 projection=projection,
                 preview=preview,
+                # Fingerprint local state only: the bundle entries the push
+                # keeps from the branch are guarded by ``compare_sha``.
                 workspace_fingerprint=await self.local_fingerprint(
-                    inputs, projection=projection
+                    inputs, projection=push.local_projection
                 ),
                 repository_fingerprint=repository_fingerprint,
                 compare_ref=fetched.compare_ref,
                 compare_sha=remote.commit_sha,
                 target_exists=fetched.target_exists,
                 delete_roots=roots,
+                package_include=push.package_include,
             )
         params = inputs.pull
         if params is None:
@@ -516,7 +602,9 @@ class DurableSyncService(WorkspaceSyncService):
                 # verified operation-marked commit already contains the reviewed
                 # bytes; recovery only needs to finish its PR and receipt.
                 if (
-                    await self.local_fingerprint(inputs)
+                    await self.local_fingerprint(
+                        inputs, package_include=prepared.package_include
+                    )
                     != prepared.workspace_fingerprint
                 ):
                     raise StaleSyncPreviewError("Workspace changed; preview again")
@@ -525,24 +613,7 @@ class DurableSyncService(WorkspaceSyncService):
             mapping_targets = projection.mapping_targets
             if recovered_sha is not None:
                 mapping_targets = await surviving_mapping_targets(self, mapping_targets)
-            for offset in range(0, len(mapping_targets), 500):
-                await self.session.execute(
-                    insert(WorkspaceSyncResourceMapping)
-                    .values(
-                        [
-                            {
-                                "workspace_id": self.workspace_id,
-                                "provider": self._mapping_provider_value,
-                                "resource_type": target.resource_type,
-                                "source_id": target.source_id,
-                                "source_path": target.source_path,
-                                "local_id": target.local_id,
-                            }
-                            for target in mapping_targets[offset : offset + 500]
-                        ]
-                    )
-                    .on_conflict_do_nothing()
-                )
+            await self._write_mapping_targets(mapping_targets)
             commit = await transport.write_files(
                 url=url,
                 files=projection.files,
@@ -571,6 +642,11 @@ class DurableSyncService(WorkspaceSyncService):
             params = inputs.pull
             if snapshot is None or params is None:
                 raise StaleSyncPreviewError("Missing prepared snapshot")
+            # The preview filtered out managed resources in another
+            # transaction. Check again under the ownership lock, held until
+            # this import commits, so a rollout cannot claim one in between.
+            if (await self._skip_managed_incoming(snapshot))[1]:
+                raise StaleSyncPreviewError("Managed resources changed; preview again")
             if (
                 await self.secret_store_fingerprint(snapshot)
                 != prepared.secret_store_fingerprint
@@ -614,10 +690,9 @@ class DurableSyncService(WorkspaceSyncService):
                 snapshot,
                 sync_schedules=params.sync_schedules,
                 mapping_targets=projection.mapping_targets,
-                changed_resources={
-                    (diff.resource_type, diff.source_id)
-                    for diff in prepared.preview.resource_diffs or []
-                }
+                changed_resources=set(
+                    first_diff_per_resource(prepared.preview.resource_diffs or [])
+                )
                 | {("workflow", source_id) for source_id in snapshot.spec.workflows},
             )
             if not result.success:

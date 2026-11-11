@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import check_scopes, require_scope
 from tracecat.db.models import (
     BaseSecret,
     OrganizationSecret,
@@ -28,6 +28,15 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import (
+    ensure_unmanaged,
+    hold_for_customer_write,
+    refresh_for_customer_write,
+)
+from tracecat.managed_resources.values import (
+    changed_fields,
+    ensure_values_only_update,
+)
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
@@ -51,6 +60,14 @@ from tracecat.secrets.schemas import (
 )
 from tracecat.secrets.types import ExternalSecretReference
 from tracecat.service import BaseOrgService
+from tracecat.workspace_sync.enums import SyncResourceType
+
+REGISTRY_SSH_KEY_SCOPES = (
+    "org:secret:read",
+    "org:registry:read",
+    "org:registry:update",
+)
+"""Any one of these scopes lets a caller use the registry SSH key internally."""
 
 
 def is_external_reference(secret: BaseSecret) -> TypeGuard[Secret]:
@@ -189,10 +206,9 @@ class SecretsService(BaseOrgService):
             raise ValueError(
                 "CA certificate secrets must be created with their key values. Delete and recreate the secret instead."
             )
-        set_fields = params.model_dump(exclude_unset=True)
-        keys = set_fields.pop("keys", None)
+        set_fields = params.model_dump(exclude_unset=True, exclude={"keys"})
 
-        if keys is None:
+        if params.keys is None:
             try:
                 self.decrypt_keys(secret.encrypted_keys)
             except (InvalidToken, ValidationError, ValueError) as e:
@@ -205,40 +221,8 @@ class SecretsService(BaseOrgService):
                 ) from e
 
         # Handle keys separately
-        if keys:
-            existing_keys: dict[str, SecretStr] = {}
-            try:
-                # Decrypt existing keys to a dictionary for easy lookup.
-                existing_keys = {
-                    kv.key: kv.value for kv in self.decrypt_keys(secret.encrypted_keys)
-                }
-            except (InvalidToken, ValidationError, ValueError) as e:
-                # Allow recovery from a corrupted encryption key by requiring callers
-                # to provide all key values, rather than preserving blanks.
-                if any(not kv["value"] for kv in keys):
-                    raise ValueError(
-                        "Stored secret values cannot be decrypted. Re-enter all key values to recover this secret."
-                    ) from e
-                self.logger.warning(
-                    "Failed to decrypt existing secret keys during update; proceeding with full key replacement",
-                    secret_id=str(secret.id),
-                    secret_name=secret.name,
-                    error=str(e),
-                )
-
-            # Create new key-value pairs, preserving existing values when the new value is empty
-            merged_keyvalues = []
-            for kv in keys:
-                key = kv["key"]
-                value = kv["value"]
-
-                # If value is empty and the key already exists, keep the existing value
-                if not value and key in existing_keys:
-                    merged_keyvalues.append(
-                        SecretKeyValue(key=key, value=existing_keys[key])
-                    )
-                else:
-                    merged_keyvalues.append(SecretKeyValue(**kv))
+        if params.keys:
+            merged_keyvalues = self.merge_key_values(secret, params.keys)
 
             if existing_type == SecretType.MTLS:
                 validate_mtls_key_values(merged_keyvalues)
@@ -253,6 +237,39 @@ class SecretsService(BaseOrgService):
             setattr(secret, field, value)
         self.session.add(secret)
         await self.session.commit()
+
+    def merge_key_values(
+        self, secret: BaseSecret, keys: Sequence[SecretKeyValue]
+    ) -> list[SecretKeyValue]:
+        """Return ``keys`` with each blank value replaced by the stored value.
+
+        Raises:
+            ValueError: A value is blank and the stored values cannot be decrypted.
+        """
+        existing_keys: dict[str, SecretStr] = {}
+        try:
+            existing_keys = {
+                kv.key: kv.value for kv in self.decrypt_keys(secret.encrypted_keys)
+            }
+        except (InvalidToken, ValidationError, ValueError) as e:
+            # Allow recovery from a corrupted encryption key by requiring callers
+            # to provide all key values, rather than preserving blanks.
+            if any(not kv.value for kv in keys):
+                raise ValueError(
+                    "Stored secret values cannot be decrypted. Re-enter all key values to recover this secret."
+                ) from e
+            self.logger.warning(
+                "Failed to decrypt existing secret keys during update; proceeding with full key replacement",
+                secret_id=str(secret.id),
+                secret_name=secret.name,
+                error=str(e),
+            )
+        return [
+            SecretKeyValue(key=kv.key, value=existing_keys[kv.key])
+            if not kv.value and kv.key in existing_keys
+            else kv
+            for kv in keys
+        ]
 
     async def _delete_secret(self, secret: BaseSecret) -> None:
         """Delete a base secret."""
@@ -354,6 +371,7 @@ class SecretsService(BaseOrgService):
     async def create_secret(self, params: SecretCreate) -> Secret:
         """Create a workspace secret."""
         workspace_id = self._require_workspace_id()
+        await hold_for_customer_write(self.session, workspace_id)
         if params.type == SecretType.SSH_KEY:
             validate_ssh_key_values(params.keys)
         elif params.type == SecretType.MTLS:
@@ -376,8 +394,34 @@ class SecretsService(BaseOrgService):
     @require_scope("secret:update")
     @audit_log(resource_type="secret", action="update")
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> Secret:
-        """Update a workspace secret."""
+        """Update a workspace secret.
 
+        A managed secret only accepts new values for its existing keys.
+        """
+        # Compare against the secret as it is once no rollout can be changing
+        # it, not as the caller loaded it.
+        await refresh_for_customer_write(self.session, self.role.workspace_id, secret)
+        await ensure_values_only_update(
+            self.session,
+            workspace_id=self.role.workspace_id,
+            resource_type=SyncResourceType.SECRET_METADATA,
+            local_id=secret.id,
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True),
+                {
+                    "type": secret.type,
+                    "name": secret.name,
+                    "description": secret.description,
+                    "environment": secret.environment,
+                    "tags": secret.tags,
+                },
+            ),
+            allowed_fields={"keys"},
+            current_keys=lambda: self.secret_key_names(secret),
+            requested_keys=(
+                [kv.key for kv in params.keys] if params.keys is not None else None
+            ),
+        )
         await self._update_secret(secret=secret, params=params)
         return secret
 
@@ -386,6 +430,12 @@ class SecretsService(BaseOrgService):
     async def delete_secret(self, secret: Secret) -> None:
         """Delete a workspace secret."""
 
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.role.workspace_id,
+            resource_type=SyncResourceType.SECRET_METADATA,
+            local_id=secret.id,
+        )
         await self._delete_secret(secret)
 
     async def search_secrets(self, params: SecretSearch) -> Sequence[Secret]:
@@ -535,7 +585,7 @@ class SecretsService(BaseOrgService):
         """Delete an organization secret for callers with their own access gate."""
         await self._delete_secret(org_secret)
 
-    @require_scope("org:secret:read")
+    @require_scope(*REGISTRY_SSH_KEY_SCOPES, require_all=False)
     async def get_ssh_key(
         self,
         key_name: str | None = None,
@@ -548,13 +598,31 @@ class SecretsService(BaseOrgService):
             case _:
                 raise ValueError(f"Invalid target: {target}")
 
-    @require_scope("org:secret:read")
+    @require_scope(*REGISTRY_SSH_KEY_SCOPES, require_all=False)
+    async def get_registry_ssh_key_secret(
+        self, environment: str | None = None
+    ) -> OrganizationSecret:
+        """Get the registry Git SSH key secret.
+
+        Registry scopes are enough: the key is only used to clone the registry
+        and is never returned to the caller.
+        """
+        return await self._get_org_secret_by_name(
+            REGISTRY_GIT_SSH_KEY_SECRET_NAME, environment
+        )
+
+    @require_scope(*REGISTRY_SSH_KEY_SCOPES, require_all=False)
     async def get_registry_ssh_key(
         self, key_name: str | None = None, environment: str | None = None
     ) -> SecretStr:
+        key_name = key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME
         try:
-            key_name = key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME
-            secret = await self.get_org_secret_by_name(key_name, environment)
+            if key_name == REGISTRY_GIT_SSH_KEY_SECRET_NAME:
+                secret = await self.get_registry_ssh_key_secret(environment)
+            else:
+                # Any other org secret still needs secret read access.
+                check_scopes(self.role, "org:secret:read")
+                secret = await self._get_org_secret_by_name(key_name, environment)
             kv = self.decrypt_keys(secret.encrypted_keys)[0]
             logger.debug("SSH key found", key_name=key_name, key_length=len(kv.value))
             raw_value = kv.value.get_secret_value()

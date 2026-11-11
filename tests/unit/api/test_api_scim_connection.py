@@ -10,7 +10,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from tracecat_ee.scim.connections import IssuedScimConnection
+from tracecat_ee.scim.connections import (
+    IssuedScimConnection,
+    ScimTokenOwnerRequiredError,
+)
 
 from tracecat.auth.api_keys import SCIM_API_KEY_PREFIX
 from tracecat.auth.types import Role
@@ -58,6 +61,27 @@ async def test_issue_returns_the_raw_token_once(
     body = response.json()
     assert body["token"] == raw
     assert body["connection"]["preview"].startswith(SCIM_API_KEY_PREFIX)
+
+
+@pytest.mark.anyio
+async def test_issue_by_a_non_owner_is_403_naming_owners(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    message = "Only organization owners can issue or rotate the SCIM token."
+    with (
+        patch(
+            "tracecat_ee.scim.router.check_entitlement",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat_ee.scim.connections.ScimConnectionService.issue_token",
+            new=AsyncMock(side_effect=ScimTokenOwnerRequiredError(message)),
+        ),
+    ):
+        response = client.post(BASE)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json()["detail"] == message
 
 
 @pytest.mark.anyio

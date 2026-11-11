@@ -35,12 +35,13 @@ from sqlalchemy.pool import NullPool
 from tests.integration.test_case_text_search_postgres import (
     INDEX_NAMES,
     WORKSPACE,
-    apply_search_migration,
+    apply_case_search_migrations,
     parse_fixture_query,
     search_statement,
     seed_case,
 )
 from tracecat.cases.text_search import get_case_search_excerpts
+from tracecat.cases.text_search_indexes import CASE_SEARCH_VECTOR_INDEXES
 from tracecat.db.models import Case
 
 pytest_plugins = ["tests.integration.test_case_text_search_postgres"]
@@ -248,11 +249,13 @@ async def test_synthetic_search_measurements(search_database: Engine) -> None:
     count = int(os.environ.get("TRACECAT_CASE_TEXT_BENCHMARK_CASES") or 20000)
     assert 1000 <= count <= 200000
     # Compare identical final predicates with/without indexes; retain their
-    # localized functions when measuring the unindexed baseline.
+    # localized functions and the stored-vector trigger when measuring the
+    # unindexed baseline.
+    index_names = sorted(INDEX_NAMES | set(CASE_SEARCH_VECTOR_INDEXES))
     with search_database.connect().execution_options(
         isolation_level="AUTOCOMMIT"
     ) as conn:
-        for name in sorted(INDEX_NAMES):
+        for name in index_names:
             conn.execute(sa.text(f'DROP INDEX public."{name}"'))
     with search_database.begin() as conn:
         conn.execute(
@@ -271,7 +274,8 @@ async def test_synthetic_search_measurements(search_database: Engine) -> None:
     queries = _measure_queries(search_database, indexed=False)
     writes = _measure_writes(search_database, indexed=False, count=count)
     started = time.perf_counter()
-    apply_search_migration(search_database)
+    # Includes the stored-vector migration's idempotent backfill.
+    apply_case_search_migrations(search_database)
     index_build_ms = (time.perf_counter() - started) * 1000
     with search_database.begin() as conn:
         conn.execute(sa.text('ANALYZE "case"'))
@@ -279,7 +283,7 @@ async def test_synthetic_search_measurements(search_database: Engine) -> None:
             conn.execute(
                 sa.text("""SELECT c.relname, pg_relation_size(c.oid)
             FROM pg_class c WHERE c.relname = ANY(:names)"""),
-                {"names": sorted(INDEX_NAMES)},
+                {"names": index_names},
             )
             .tuples()
             .all()

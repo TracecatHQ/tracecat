@@ -1,4 +1,4 @@
-"""Platform-owned OpenTelemetry tracing.
+"""Platform-owned OpenTelemetry tracing and metrics.
 
 This module intentionally does not read or reuse tenant-configurable agent OTel
 settings. Platform services export to the operator-controlled OTLP endpoint.
@@ -15,14 +15,21 @@ from dataclasses import dataclass
 from enum import StrEnum
 from threading import Lock
 from typing import TYPE_CHECKING, Final, Protocol
-from uuid import UUID
+from urllib.parse import urlsplit
+from uuid import UUID, uuid4
 
 import sentry_sdk
 from opentelemetry import context as otel_context
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.propagate import set_global_textmap
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import (
+    MetricReader,
+    PeriodicExportingMetricReader,
+)
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import (
@@ -131,6 +138,7 @@ class PlatformTracing:
 
 _runtime: PlatformTracing | None = None
 _runtime_lock = Lock()
+_meter_provider: MeterProvider | None = None
 
 
 def platform_otel_collector_env() -> dict[str, str]:
@@ -231,6 +239,94 @@ def shutdown_platform_tracing(*, timeout_millis: int = 5_000) -> None:
         runtime.tracer_provider.shutdown()
     except Exception:
         logger.exception("Failed to shut down platform tracing")
+
+
+def _otlp_metric_exporter() -> OTLPMetricExporter | None:
+    """Export to the configured metrics or base endpoint, else beside traces.
+
+    Deployments may set only the traces endpoint; metrics then go to the same
+    collector's ``/v1/metrics``. None when that path cannot be derived.
+    """
+    traces_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+    if (
+        os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+        or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+        or not traces_endpoint
+    ):
+        return OTLPMetricExporter()
+    url = urlsplit(traces_endpoint)
+    path = url.path.rstrip("/")
+    if not path.endswith("/v1/traces"):
+        logger.warning("No OTLP metrics endpoint is set or derivable; metrics are off")
+        return None
+    path = path.removesuffix("/v1/traces") + "/v1/metrics"
+    return OTLPMetricExporter(endpoint=url._replace(path=path).geturl())
+
+
+def initialize_platform_metrics(
+    *, reader: MetricReader | None = None
+) -> MeterProvider | None:
+    """Export platform metrics from this process alongside platform tracing.
+
+    Call after ``initialize_platform_tracing``; metrics stay off when tracing
+    is. Each process adds its own ``service.instance.id`` so cumulative series
+    from replicas of one service stay distinct. Passing a reader is intended
+    for tests.
+    """
+    global _meter_provider
+
+    runtime = get_platform_tracing()
+    if runtime is None:
+        return None
+
+    with _runtime_lock:
+        if _meter_provider is not None:
+            return _meter_provider
+        try:
+            if reader is None:
+                if (exporter := _otlp_metric_exporter()) is None:
+                    return None
+                reader = PeriodicExportingMetricReader(exporter)
+            provider = MeterProvider(
+                resource=runtime.tracer_provider.resource.merge(
+                    Resource({"service.instance.id": str(uuid4())})
+                ),
+                metric_readers=[reader],
+            )
+            metrics.set_meter_provider(provider)
+            if metrics.get_meter_provider() is not provider:
+                # The global provider can be set once; another owner got there
+                # first, so platform instruments report through its exporter.
+                provider.shutdown()
+                logger.warning(
+                    "A MeterProvider is already installed; platform metrics use it"
+                )
+                return None
+        except Exception:
+            logger.exception(
+                "Platform metrics initialization failed; continuing without metrics"
+            )
+            return None
+        _meter_provider = provider
+
+    logger.info("Platform metrics initialized for %s", runtime.service_name)
+    return provider
+
+
+def shutdown_platform_metrics(*, timeout_millis: int = 5_000) -> None:
+    """Flush and shut down metrics without affecting process shutdown."""
+    global _meter_provider
+
+    with _runtime_lock:
+        provider, _meter_provider = _meter_provider, None
+
+    if provider is None:
+        return
+
+    try:
+        provider.shutdown(timeout_millis=timeout_millis)
+    except Exception:
+        logger.exception("Failed to shut down platform metrics")
 
 
 def temporal_tracing_interceptor() -> TracingInterceptor | None:
@@ -439,6 +535,42 @@ def platform_span(
             span.set_status(Status(status_code=StatusCode.ERROR))
             span.set_attribute("error.type", type(exc).__name__)
             raise
+
+
+def record_platform_span(
+    name: str,
+    *,
+    start_time_ns: int,
+    end_time_ns: int,
+    parent: Span | None = None,
+    attributes: Mapping[str, str] | None = None,
+) -> None:
+    """Record a finished span from timestamps measured elsewhere.
+
+    For work timed where no span can be open while it runs, such as phases in
+    a sandboxed runner, or cleanup that must not depend on tracing. The span
+    is a child of ``parent``, or of the active span when none is given.
+
+    Callers record after the work has finished, so a tracing fault is logged
+    and never raised: it must not turn finished work into a failure or replace
+    an error already propagating.
+    """
+    runtime = get_platform_tracing()
+    if runtime is None:
+        return
+
+    try:
+        span = runtime.tracer(_PLATFORM_INSTRUMENTATION_NAME).start_span(
+            name,
+            context=trace.set_span_in_context(parent) if parent is not None else None,
+            start_time=start_time_ns,
+            attributes=attributes,
+            record_exception=False,
+            set_status_on_exception=False,
+        )
+        span.end(end_time=end_time_ns)
+    except Exception:
+        logger.warning("Failed to record platform span %s", name, exc_info=True)
 
 
 def current_trace_id() -> str | None:

@@ -396,6 +396,42 @@ class TestS3Operations:
         mock_s3.create_bucket.assert_called_once_with(Bucket="test-bucket")
 
     @pytest.mark.anyio
+    async def test_ensure_bucket_exists_once_checks_each_bucket_once(
+        self, mock_s3: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Externalized results stop paying a HEAD request per upload."""
+        monkeypatch.setattr(blob_module, "_verified_buckets", set())
+
+        for _ in range(3):
+            await blob_module.ensure_bucket_exists_once("results")
+        await blob_module.ensure_bucket_exists_once("other")
+
+        assert mock_s3.head_bucket.call_args_list == [
+            call(Bucket="results"),
+            call(Bucket="other"),
+        ]
+
+    @pytest.mark.anyio
+    async def test_ensure_bucket_exists_once_retries_after_failure(
+        self, mock_s3: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(blob_module, "_verified_buckets", set())
+        mock_s3.head_bucket.side_effect = [
+            ClientError(
+                error_response={"Error": {"Code": "403"}},
+                operation_name="head_bucket",
+            ),
+            None,
+        ]
+
+        with pytest.raises(ClientError):
+            await blob_module.ensure_bucket_exists_once("results")
+        await blob_module.ensure_bucket_exists_once("results")
+        await blob_module.ensure_bucket_exists_once("results")
+
+        assert mock_s3.head_bucket.call_count == 2
+
+    @pytest.mark.anyio
     async def test_get_storage_client_minio_uses_endpoint_and_env(self, monkeypatch):
         """get_storage_client for MinIO uses endpoint and AWS env vars"""
 

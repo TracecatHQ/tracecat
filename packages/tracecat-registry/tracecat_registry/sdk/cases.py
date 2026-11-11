@@ -1085,6 +1085,30 @@ class CasesClient:
 
         return await self._client.patch(f"/cases/tasks/{task_id}", json=data)
 
+    async def run_task(
+        self,
+        case_id: str,
+        task_id: str,
+        *,
+        inputs: dict[str, Any] | None | Unset = UNSET,
+    ) -> types.CaseTaskRunRead:
+        """Run the workflow linked to a case task.
+
+        Args:
+            case_id: The case UUID or short ID.
+            task_id: The task UUID.
+            inputs: Trigger inputs that override the task's default trigger values.
+
+        Returns:
+            The started workflow run.
+        """
+        data: dict[str, Any] = {}
+        if is_set(inputs):
+            data["inputs"] = inputs
+        return await self._client.post(
+            f"/cases/{case_id}/tasks/{task_id}/run", json=data
+        )
+
     async def delete_task(self, task_id: str) -> None:
         """Delete a case task.
 

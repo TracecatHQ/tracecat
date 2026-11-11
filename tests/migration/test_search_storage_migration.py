@@ -176,3 +176,68 @@ def test_search_migration_enables_vector_and_preserves_source_data(
             conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
             conn.execute(text(f'DROP ROLE IF EXISTS "{restricted_role}"'))
         admin.dispose()
+
+
+@pytest.mark.parametrize(
+    ("preinstalled", "schema", "column_type"),
+    [
+        # The migration's IBM branch runs its plain CREATE EXTENSION. IBM
+        # redirects that into ibm_extension; stock PostgreSQL uses the first
+        # schema on the migration's pinned path, public.
+        (False, "public", "vector"),
+        # Already in ibm_extension, as IBM's provider installs it: the pinned
+        # path keeps it visible to the migration's version check.
+        (True, "ibm_extension", "ibm_extension.vector"),
+    ],
+)
+def test_search_migration_installs_vector_in_ibm_extension_schema(
+    preinstalled: bool, schema: str, column_type: str
+) -> None:
+    """IBM Cloud only allows extensions in its read-only ibm_extension schema."""
+    name = f"test_search_migration_{uuid.uuid4().hex}"
+    admin = create_engine(
+        TEST_DB_CONFIG.sys_url_sync, isolation_level="AUTOCOMMIT", poolclass=NullPool
+    )
+    url = TEST_DB_CONFIG.test_url_sync.replace(TEST_DB_CONFIG.test_db_name, name)
+    engine = create_engine(url, poolclass=NullPool)
+    try:
+        with admin.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{name}"'))
+        previous = run_alembic(url, "upgrade", "a7c3e9f1b2d4")
+        assert previous.returncode == 0, previous.stderr
+        with engine.begin() as conn:  # as a superuser, like IBM's provider
+            conn.execute(text("CREATE SCHEMA ibm_extension"))
+            if preinstalled:
+                conn.execute(text("CREATE EXTENSION vector WITH SCHEMA ibm_extension"))
+        upgraded = run_alembic(url, "upgrade", "9680c861644a")
+        assert upgraded.returncode == 0, upgraded.stderr
+        with engine.begin() as conn:
+            assert (
+                conn.scalar(
+                    text(
+                        "SELECT extnamespace::regnamespace::text FROM pg_extension "
+                        "WHERE extname = 'vector'"
+                    )
+                )
+                == schema
+            )
+            assert (
+                conn.scalar(
+                    text(
+                        "SELECT atttypid::regtype::text FROM pg_attribute "
+                        "WHERE attrelid = 'search_chunk'::regclass AND attname = 'embedding'"
+                    )
+                )
+                == column_type  # ibm_extension isn't on this connection's path
+            )
+    finally:
+        engine.dispose()
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :name"
+                ),
+                {"name": name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()

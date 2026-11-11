@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Get RTR active responder command status
+  description: >-
+    Get the status and output of an executed RTR active responder command. Requires
+    the Real time response: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-checkactiverespondercommandstatus
+  namespace: tools.crowdstrike
+  name: get_rtr_active_responder_command_status
+  expects:
+    cloud_request_id:
+      type: str
+      description: Cloud request ID returned when the command was run.
+    sequence_id:
+      type: int
+      description: Sequence ID to retrieve. Command responses are chunked across sequences.
+      default: 0
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_rtr_active_responder_command_status
+      action: tools.falconpy.call_command
+      args:
+        operation_id: RTR_CheckActiveResponderCommandStatus
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          cloud_request_id: ${{ inputs.cloud_request_id }}
+          sequence_id: ${{ inputs.sequence_id }}
+  returns: ${{ steps.get_rtr_active_responder_command_status.result }}

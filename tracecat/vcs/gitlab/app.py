@@ -31,8 +31,7 @@ class GitLabApiError(GitLabError):
     """GitLab REST API operation error with structured status code."""
 
     def __init__(self, message: str, *, status_code: int, detail: Any | None = None):
-        super().__init__(message, detail=detail)
-        self.status_code = status_code
+        super().__init__(message, status_code=status_code, detail=detail)
 
 
 class GitLabTokenSecretState(StrEnum):

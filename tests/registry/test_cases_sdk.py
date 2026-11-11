@@ -466,3 +466,30 @@ def test_case_search_sdk_stub_signatures_match_client() -> None:
             )
         assert declaration.returns is not None
         assert ast.unparse(declaration.returns) == source_signature.return_annotation
+
+
+@pytest.mark.anyio
+async def test_run_task_posts_inputs(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    case_id = str(uuid4())
+    task_id = str(uuid4())
+    mock_tracecat_client.post.return_value = {"workflow_execution_id": "exec"}
+
+    result = await cases_client.run_task(case_id, task_id, inputs={"host": "h1"})
+
+    assert result == {"workflow_execution_id": "exec"}
+    mock_tracecat_client.post.assert_awaited_once_with(
+        f"/cases/{case_id}/tasks/{task_id}/run", json={"inputs": {"host": "h1"}}
+    )
+
+
+@pytest.mark.anyio
+async def test_run_task_omits_unset_inputs(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    await cases_client.run_task("CASE-0001", "task")
+
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/cases/CASE-0001/tasks/task/run", json={}
+    )

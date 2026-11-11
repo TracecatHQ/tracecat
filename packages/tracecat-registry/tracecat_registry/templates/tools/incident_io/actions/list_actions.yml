@@ -1,0 +1,98 @@
+type: action
+definition:
+  title: List actions
+  description: >-
+    List actions for an organisation. Calls GET /v3/actions directly. Requires API key scope:
+    actions.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/actions-v3/list
+  namespace: tools.incident_io
+  name: list_actions
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    page_size:
+      type: int | None
+      description: Integer number of records to return. Maximum 250.
+      default: null
+    after:
+      type: str | None
+      description: >-
+        An action's ID. This endpoint will return a list of actions after this ID in relation to
+        the API response order.
+      default: null
+    incident_id:
+      type: str | None
+      description: Find actions related to this incident
+      default: null
+    incident_mode:
+      type: str | None
+      description: >-
+        Filter to actions from incidents of the given mode. If not set, only actions from
+        `standard` and `retrospective` incidents are returned. Allowed values: `standard`,
+        `retrospective`, `test`, `tutorial`, `stream`.
+      default: null
+    created_at_gte:
+      type: str | None
+      description: >-
+        Filter on action created at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `gte` operator.
+      default: null
+    created_at_lte:
+      type: str | None
+      description: >-
+        Filter on action created at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `lte` operator.
+      default: null
+    created_at_date_range:
+      type: str | None
+      description: >-
+        Filter on action created at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example
+        `2024-12-02~2024-12-08`.
+      default: null
+    updated_at_gte:
+      type: str | None
+      description: >-
+        Filter on action updated at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `gte` operator.
+      default: null
+    updated_at_lte:
+      type: str | None
+      description: >-
+        Filter on action updated at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `lte` operator.
+      default: null
+    updated_at_date_range:
+      type: str | None
+      description: >-
+        Filter on action updated at timestamp. Accepted operators are 'gte', 'lte' and
+        'date_range'. Value for the `date_range` operator. Two dates joined by `~`, for example
+        `2024-12-02~2024-12-08`.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/actions
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          page_size: ${{ inputs.page_size }}
+          after: ${{ inputs.after }}
+          incident_id: ${{ inputs.incident_id }}
+          incident_mode: ${{ inputs.incident_mode }}
+          created_at[gte]: ${{ inputs.created_at_gte }}
+          created_at[lte]: ${{ inputs.created_at_lte }}
+          created_at[date_range]: ${{ inputs.created_at_date_range }}
+          updated_at[gte]: ${{ inputs.updated_at_gte }}
+          updated_at[lte]: ${{ inputs.updated_at_lte }}
+          updated_at[date_range]: ${{ inputs.updated_at_date_range }}
+  returns: ${{ steps.request.result }}

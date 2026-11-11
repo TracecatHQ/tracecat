@@ -38,14 +38,6 @@ def stub_case_side_effects() -> Iterator[None]:
             "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             return_value=None,
         ),
-        patch(
-            "tracecat.cases.events.publish_case_event_payload",
-            new=AsyncMock(return_value=None),
-        ),
-        patch(
-            "tracecat.cases.service.publish_case_event_payload",
-            new=AsyncMock(return_value=None),
-        ),
         patch.object(AuditService, "create_event", new_callable=AsyncMock),
         patch.object(CasesService, "has_entitlement", new=AsyncMock(return_value=True)),
         patch.object(

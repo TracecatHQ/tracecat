@@ -68,12 +68,11 @@ def _build_test_auth(
         lambda: "https://issuer.example.com/.well-known/openid-configuration",
     )
     # Use in-memory store instead of Redis for tests
-    monkeypatch.setattr(mcp_auth, "REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setattr(
         "tracecat.config.TRACECAT__DB_ENCRYPTION_KEY",
         Fernet.generate_key().decode() if enable_refresh_tokens else "",
     )
-    monkeypatch.setattr(mcp_auth.AsyncRedis, "from_url", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr(mcp_auth, "create_redis_client", lambda *a, **kw: MagicMock())
 
     def _patched_create_oidc_auth(
         _orig=mcp_auth._create_oidc_auth,
@@ -389,6 +388,7 @@ async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
         "openid",
         "profile",
         "email",
+        "offline_access",
     ]
 
 
@@ -426,7 +426,83 @@ async def test_create_mcp_auth_authorize_merges_required_scopes_into_custom(
     forwarded = captured["params"]
     assert isinstance(forwarded, AuthorizationParams)
     assert forwarded.scopes is not None
-    assert forwarded.scopes == ["custom:scope", "openid", "profile", "email"]
+    assert forwarded.scopes == [
+        "custom:scope",
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("requested_scopes", "enable_refresh_tokens", "expected_scopes"),
+    [
+        pytest.param(
+            None,
+            True,
+            ["openid", "profile", "email", "offline_access"],
+            id="no-scope-refresh-enabled",
+        ),
+        pytest.param(
+            [],
+            True,
+            ["openid", "profile", "email", "offline_access"],
+            id="empty-scope-refresh-enabled",
+        ),
+        pytest.param(
+            ["openid", "offline_access"],
+            True,
+            ["openid", "offline_access", "profile", "email"],
+            id="explicit-offline-access-not-duplicated",
+        ),
+        pytest.param(
+            None,
+            False,
+            ["openid", "profile", "email"],
+            id="no-scope-refresh-disabled",
+        ),
+    ],
+)
+async def test_create_mcp_auth_authorize_requests_offline_access_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    requested_scopes: list[str] | None,
+    enable_refresh_tokens: bool,
+    expected_scopes: list[str],
+) -> None:
+    """Clients that omit ``offline_access`` still get a refresh token upstream."""
+    captured: dict[str, object] = {}
+
+    async def _capture_authorize(self, client, params):
+        captured["params"] = params
+        return "https://issuer.example.com/oauth2/authorize?state=txn"
+
+    with patch.object(mcp_auth.OIDCProxy, "authorize", _capture_authorize):
+        auth = _build_test_auth(
+            monkeypatch, enable_refresh_tokens=enable_refresh_tokens
+        )
+        client = OAuthClientInformationFull(
+            client_id="scopeless-client",
+            redirect_uris=[AnyUrl("http://localhost:3333/callback")],
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            token_endpoint_auth_method="none",
+        )
+        params = AuthorizationParams(
+            state="txn",
+            scopes=requested_scopes,
+            code_challenge="challenge",
+            redirect_uri=AnyUrl("http://localhost:3333/callback"),
+            redirect_uri_provided_explicitly=True,
+            resource="https://mcp.example.com/mcp",
+        )
+
+        await auth.authorize(client, params)
+
+    forwarded = captured["params"]
+    assert isinstance(forwarded, AuthorizationParams)
+    assert forwarded.scopes == expected_scopes
 
 
 @pytest.mark.anyio

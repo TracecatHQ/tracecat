@@ -10,6 +10,8 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.managed_resources.dependencies import ManagedWorkflowWriteGuard
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.workflow.actions.dependencies import AnyActionIDPath
@@ -24,11 +26,16 @@ from tracecat.workflow.actions.schemas import (
     BatchPositionUpdate,
 )
 from tracecat.workflow.actions.service import WorkflowActionService
+from tracecat.workspace_sync.enums import SyncResourceType
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 
 
-@router.post("/batch-positions", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/batch-positions",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[ManagedWorkflowWriteGuard],
+)
 @require_scope("workflow:update")
 async def batch_update_positions(
     role: WorkspaceActorRouteRole,
@@ -124,6 +131,12 @@ async def create_action(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
+    await ensure_unmanaged(
+        session,
+        workspace_id=role.workspace_id,
+        resource_type=SyncResourceType.WORKFLOW,
+        local_id=WorkflowUUID.new(params.workflow_id),
+    )
     _clamp_agent_timeout(params.type, params.control_flow)
     svc = WorkflowActionService(session, role=role)
     try:
@@ -209,7 +222,7 @@ async def get_action(
     )
 
 
-@router.post("/{action_id}")
+@router.post("/{action_id}", dependencies=[ManagedWorkflowWriteGuard])
 @require_scope("workflow:update")
 async def update_action(
     role: WorkspaceActorRouteRole,
@@ -236,7 +249,11 @@ async def update_action(
     return ActionRead.model_validate(action)
 
 
-@router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{action_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[ManagedWorkflowWriteGuard],
+)
 @require_scope("workflow:delete")
 async def delete_action(
     role: WorkspaceActorRouteRole,

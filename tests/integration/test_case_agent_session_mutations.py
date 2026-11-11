@@ -57,14 +57,6 @@ def isolate_case_side_effects() -> Iterator[None]:
             "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             return_value=None,
         ),
-        patch(
-            "tracecat.cases.events.publish_case_event_payload",
-            new=AsyncMock(return_value=None),
-        ),
-        patch(
-            "tracecat.cases.service.publish_case_event_payload",
-            new=AsyncMock(return_value=None),
-        ),
     ):
         yield
 

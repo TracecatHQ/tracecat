@@ -270,6 +270,15 @@ class CaseTaskRead(TypedDict):
     default_trigger_values: dict[str, Any] | None
 
 
+class CaseTaskRunRead(TypedDict):
+    """A started workflow run for a case task."""
+
+    task_id: UUID
+    workflow_id: str
+    workflow_execution_id: str
+    message: str
+
+
 class CaseDurationMetric(TypedDict):
     """OTEL-aligned Gauge metric for case durations."""
 

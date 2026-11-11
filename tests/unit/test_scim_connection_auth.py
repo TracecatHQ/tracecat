@@ -17,12 +17,14 @@ from tracecat_ee.scim.credentials import (
 )
 from tracecat_ee.scim.service import SCIMService
 
+from tests.support.membership import grant_org_membership
 from tracecat.auth import ip_allowlist_enforcement
 from tracecat.auth.api_keys import SCIM_API_KEY_PREFIX
 from tracecat.auth.ip_allowlist import OrgIPAllowlist, compile_allowlist
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
-from tracecat.authz.scopes import ORG_ADMIN_SCOPES
+from tracecat.authz.scopes import ORG_OWNER_SCOPES
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.contexts import RequestAuditContext, ctx_request_audit
 from tracecat.db.engine import AuthSession
 from tracecat.db.models import Organization, User
@@ -68,25 +70,31 @@ def auth_session(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.fixture
-async def admin_user(session: AsyncSession, org: Organization) -> User:
+async def owner_user(session: AsyncSession, org: Organization) -> User:
     user = User(
         id=uuid.uuid4(),
-        email=f"admin-{uuid.uuid4().hex[:8]}@example.com",
+        email=f"owner-{uuid.uuid4().hex[:8]}@example.com",
         hashed_password="x",
     )
     session.add(user)
+    await session.flush()
+    # Token issuance reads the caller's scopes live, so the owner must exist.
+    await seed_system_scopes(session)
+    await grant_org_membership(
+        session, user_id=user.id, organization_id=org.id, slug="organization-owner"
+    )
     await session.commit()
     return user
 
 
 @pytest.fixture
-def admin_role(org: Organization, admin_user: User) -> Role:
+def owner_role(org: Organization, owner_user: User) -> Role:
     return Role(
         type="user",
-        user_id=admin_user.id,
+        user_id=owner_user.id,
         organization_id=org.id,
         service_id="tracecat-api",
-        scopes=ORG_ADMIN_SCOPES,
+        scopes=ORG_OWNER_SCOPES,
     )
 
 
@@ -98,11 +106,11 @@ def _bearer(token: str) -> HTTPAuthorizationCredentials:
 async def test_valid_token_yields_scim_role(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     auth_session: None,
 ) -> None:
     """A verified token resolves to a scim role bound to its organization."""
-    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+    issued = await ScimConnectionService(session, role=owner_role).issue_token()
     connection_id = issued.connection.id
 
     role = await authenticate_scim_connection(_bearer(issued.token))
@@ -122,11 +130,11 @@ async def test_valid_token_yields_scim_role(
 async def test_scim_role_holds_only_the_removal_scope(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     auth_session: None,
 ) -> None:
     """The role reaches delete_member and nothing else."""
-    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+    issued = await ScimConnectionService(session, role=owner_role).issue_token()
     role = await authenticate_scim_connection(_bearer(issued.token))
 
     assert role.scopes is not None
@@ -166,11 +174,11 @@ async def test_unknown_key_id_rejected(auth_session: None) -> None:
 async def test_wrong_secret_rejected(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     auth_session: None,
 ) -> None:
     """A real key_id with the wrong secret fails hash verification."""
-    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+    issued = await ScimConnectionService(session, role=owner_role).issue_token()
     forged = f"{SCIM_API_KEY_PREFIX}{issued.connection.key_id}_{uuid.uuid4().hex}"
 
     with pytest.raises(HTTPException) as exc:
@@ -182,12 +190,12 @@ async def test_wrong_secret_rejected(
 async def test_disconnected_token_rejected(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     auth_session: None,
 ) -> None:
-    service = ScimConnectionService(session, role=admin_role)
+    service = ScimConnectionService(session, role=owner_role)
     issued = await service.issue_token()
-    await SCIMService(session, role=admin_role).disconnect()
+    await SCIMService(session, role=owner_role).disconnect()
 
     with pytest.raises(HTTPException) as exc:
         await authenticate_scim_connection(_bearer(issued.token))
@@ -198,12 +206,12 @@ async def test_disconnected_token_rejected(
 async def test_unentitled_org_rejected(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     monkeypatch: pytest.MonkeyPatch,
     auth_session: None,
 ) -> None:
     """An organization without the RBAC entitlement cannot authenticate."""
-    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+    issued = await ScimConnectionService(session, role=owner_role).issue_token()
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
@@ -219,10 +227,10 @@ async def test_unentitled_org_rejected(
 async def test_last_used_at_is_recorded(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     auth_session: None,
 ) -> None:
-    service = ScimConnectionService(session, role=admin_role)
+    service = ScimConnectionService(session, role=owner_role)
     issued = await service.issue_token()
     assert issued.connection.last_used_at is None
 
@@ -236,10 +244,10 @@ async def test_last_used_at_is_recorded(
 async def test_allowlist_cache_miss_does_not_nest_auth_sessions(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+    issued = await ScimConnectionService(session, role=owner_role).issue_token()
     auth_session_open = False
 
     @asynccontextmanager
@@ -273,12 +281,12 @@ async def test_allowlist_cache_miss_does_not_nest_auth_sessions(
 async def test_org_ip_allowlist_applies_to_scim(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     monkeypatch: pytest.MonkeyPatch,
     auth_session: None,
 ) -> None:
     """An enforced allowlist rejects an IdP push from outside it, before use is recorded."""
-    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+    issued = await ScimConnectionService(session, role=owner_role).issue_token()
 
     async def allowlist(organization_id: uuid.UUID) -> OrgIPAllowlist:
         assert organization_id == org.id

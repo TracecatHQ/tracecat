@@ -1,7 +1,7 @@
 "use client"
 
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { LockKeyhole, Minus, Search } from "lucide-react"
+import { LockKeyhole, Search } from "lucide-react"
 import {
   type KeyboardEvent,
   memo,
@@ -828,22 +828,13 @@ function GroupCheckbox({
   tabIndex?: number
 }) {
   return (
-    <span className="relative flex">
-      <Checkbox
-        className={checked === "indeterminate" ? "[&_svg]:hidden" : undefined}
-        aria-label={`Select all in ${group.title}`}
-        checked={checked}
-        onCheckedChange={onToggle}
-        disabled={disabled}
-        tabIndex={tabIndex}
-      />
-      {checked === "indeterminate" && (
-        <Minus
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 m-auto size-3"
-        />
-      )}
-    </span>
+    <Checkbox
+      aria-label={`Select all in ${group.title}`}
+      checked={checked}
+      onCheckedChange={onToggle}
+      disabled={disabled}
+      tabIndex={tabIndex}
+    />
   )
 }
 

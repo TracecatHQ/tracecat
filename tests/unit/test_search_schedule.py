@@ -1,4 +1,4 @@
-"""Schedule registration must never take the shared DSL worker down."""
+"""Schedule registration must never take the background worker down."""
 
 import asyncio
 from unittest.mock import AsyncMock, Mock
@@ -52,6 +52,9 @@ async def test_schedule_failure_retries_without_exiting_worker(monkeypatch, fail
 
     client.create_schedule = AsyncMock(side_effect=create)
     client.get_schedule_handle.return_value.update = AsyncMock(side_effect=update)
+    client.get_schedule_handle.return_value.describe = AsyncMock(
+        return_value=Mock(info=Mock(running_actions=[]))
+    )
     monkeypatch.setattr(schedule, "_RECONCILE_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(schedule, "_RETRY_DELAY_SECONDS", 0)
     warning = Mock()
@@ -63,6 +66,25 @@ async def test_schedule_failure_retries_without_exiting_worker(monkeypatch, fail
         "Search schedule reconciliation failed; retrying in 30 seconds",
         error_type="TimeoutError" if failure == "timeout" else "RuntimeError",
     )
+
+
+@pytest.mark.anyio
+async def test_schedule_is_reconciled_again_after_success(monkeypatch):
+    # An older worker restarting mid-rollout may retarget the schedule; the
+    # periodic pass points it back without waiting for a background restart.
+    queues: list[str] = []
+    reconciled_twice = asyncio.Event()
+
+    async def ensure(client, task_queue):
+        queues.append(task_queue)
+        if len(queues) == 2:
+            reconciled_twice.set()
+
+    monkeypatch.setattr(schedule, "ensure_search_schedule", ensure)
+    monkeypatch.setattr(schedule, "_RECONCILE_INTERVAL_SECONDS", 0)
+    async with schedule.search_schedule_lifespan(Mock(spec=Client), "synthetic-queue"):
+        await asyncio.wait_for(reconciled_twice.wait(), 1)
+    assert queues[:2] == ["synthetic-queue", "synthetic-queue"]
 
 
 @pytest.mark.anyio

@@ -23,8 +23,8 @@ import {
 } from "@/hooks/use-workspace-sync"
 import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
 
-jest.mock("@/components/workspace-sync/sync-operation-history", () => ({
-  SyncOperationHistory: () => <div data-testid="sync-operation-history" />,
+jest.mock("@/components/workspace-sync/sync-operation-status", () => ({
+  SyncOperationStatus: () => <div data-testid="sync-operation-status" />,
 }))
 
 const mockUpdateWorkspace = jest.fn()
@@ -795,7 +795,7 @@ describe("GitSyncView connection", () => {
     )
 
     expect(screen.getByText("No repository connected")).toBeInTheDocument()
-    expect(screen.getByTestId("sync-operation-history")).toBeInTheDocument()
+    expect(screen.getByTestId("sync-operation-status")).toBeInTheDocument()
     expect(
       screen.getByText(
         "Ask a workspace admin to connect one. Once it's connected, you can push and pull here."
@@ -810,7 +810,7 @@ describe("GitSyncView connection", () => {
     )
 
     expect(
-      screen.queryByTestId("sync-operation-history")
+      screen.queryByTestId("sync-operation-status")
     ).not.toBeInTheDocument()
   })
 

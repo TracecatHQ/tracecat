@@ -112,7 +112,15 @@ class EffectiveEntitlements(Schema):
         default=False,
         title="Agent runtime preview",
         description="Whether agent backends other than the built-in one may be"
-        " listed and used to create or fork agent sessions",
+        " listed, used to create or fork agent sessions, and used to run"
+        " new turns in existing sessions",
+    )
+    agent_runtime_workflows: bool = Field(
+        default=False,
+        title="Agent runtime for workflows",
+        description="Whether workflow agent actions may run on agent backends"
+        " other than the built-in one. Takes effect only together with"
+        " agent_runtime_preview",
     )
 
 

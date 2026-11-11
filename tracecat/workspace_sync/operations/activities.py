@@ -49,10 +49,12 @@ from tracecat.workspace_sync.operations.storage import (
     store_prepared,
 )
 from tracecat.workspace_sync.operations.types import (
+    VALIDATION_FAILED_MESSAGE,
     StaleSyncPreviewError,
     SyncFailure,
     SyncOperationRef,
     lock_key,
+    validation_message,
 )
 from tracecat.workspace_sync.types import SyncCommitConflictError
 
@@ -65,6 +67,7 @@ def safe_activity[**P, T](
     @wraps(function)
     async def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
         error_type = "SyncActivityError"
+        message = "Background sync activity failed"
         non_retryable = True
         try:
             return await function(*args, **kwargs)
@@ -72,8 +75,11 @@ def safe_activity[**P, T](
             error_type = "StaleSyncPreviewError"
         except TracecatAuthorizationError:
             error_type = "TracecatAuthorizationError"
-        except (TracecatValidationError, EntitlementRequired):
+        except (TracecatValidationError, EntitlementRequired) as exc:
+            # These messages are written for users, so the failure can say
+            # what to fix instead of a generic validation error.
             error_type = "SyncValidationError"
+            message = validation_message(exc)
         except ApplicationError as exc:
             non_retryable = exc.non_retryable
         except Exception:
@@ -81,7 +87,7 @@ def safe_activity[**P, T](
         # Raise after leaving the handler: suppressing __cause__ inside it still
         # retains the original, potentially sensitive exception in __context__.
         raise ApplicationError(
-            "Background sync activity failed",
+            message,
             type=error_type,
             non_retryable=non_retryable,
         )
@@ -190,7 +196,9 @@ async def workspace_sync_prepare(ref: SyncOperationRef) -> None:
                 return
             if (
                 await sync.repository_fingerprint() != prepared.repository_fingerprint
-                or await sync.local_fingerprint(inputs)
+                or await sync.local_fingerprint(
+                    inputs, package_include=prepared.package_include
+                )
                 != prepared.workspace_fingerprint
             ):
                 raise StaleSyncPreviewError("Workspace changed during preparation")
@@ -304,7 +312,7 @@ async def workspace_sync_fail(failure: SyncFailure) -> bool:
         operation.error = {
             "stale": "Workspace, repository, or preview validity changed. Start a fresh preview.",
             "authorization": "Access changed. Restore access and start a fresh preview.",
-            "validation": "Validation failed. Review the inputs and start a fresh preview.",
+            "validation": failure.message or VALIDATION_FAILED_MESSAGE,
             "transient": "Sync failed at this stage. Retry to resume the operation.",
         }[failure.reason]
         await service.session.commit()

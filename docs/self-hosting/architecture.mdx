@@ -16,7 +16,7 @@ The Docker Compose stack runs 18 containers. Only `caddy` is exposed externally;
 | `api` | 8000 | REST API and webhook receiver |
 | `ui` | 3000 | Next.js frontend |
 | `worker` | — | Workflow orchestrator |
-| `background-worker` | — | Git sync and platform background tasks |
+| `background-worker` | — | Case triggers, Git sync, semantic-search indexing, and platform background tasks |
 | `executor` | — | Action executor with optional sandbox |
 | `agent-worker` | — | AI agent orchestrator |
 | `agent-executor` | — | AI agent action executor |
@@ -53,7 +53,7 @@ External systems send webhooks to `/api/webhooks/...`, which Caddy forwards to t
 
 The API submits workflow runs to the Temporal server on port 7233. Workers pull tasks from Temporal's task queue and dispatch actions to executors. Executors run individual action steps, optionally inside an nsjail sandbox.
 
-Git sync requires `background-worker`, which polls `shared-background-queue` by default. Set `TRACECAT__BACKGROUND_QUEUE` to the same value on the API and background worker when overriding it.
+Case triggers, Git sync, and semantic-search indexing require `background-worker`, which polls `shared-background-queue` by default. Set `TRACECAT__BACKGROUND_QUEUE` to the same value on the API and background worker when overriding it.
 
 Agent workers and agent executors follow the same Temporal-based pattern for AI agent workflows.
 
@@ -99,6 +99,8 @@ See [SAML configuration](/authentication/saml) for provider-specific setup instr
 <AccordionGroup>
   <Accordion title="Can I use an external PostgreSQL or Redis?">
     Yes. Update `TRACECAT__DB_URI` to point to your managed PostgreSQL 15 or newer instance and `REDIS_URL` for Redis. For Temporal, update the Temporal PostgreSQL credentials in your `.env` file.
+
+    Tracecat uses the single database user in `TRACECAT__DB_URI` by default. To give the services, the migrations and people separate roles, set them up as the database admin with `tracecat db roles upgrade`, then point the migrations at `migrator` and the services at `app`. Once the roles are set up, the migrations container refuses any login but `migrator`. See [Database roles](/self-hosting/database-roles).
 
     See [Security](/self-hosting/security) for production credential recommendations.
   </Accordion>

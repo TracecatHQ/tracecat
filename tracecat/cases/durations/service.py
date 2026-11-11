@@ -58,9 +58,11 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import coerce_to_utc_datetime
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.enums import SyncResourceType
 
 type _DurationEventMatch = tuple[uuid.UUID, datetime]
 
@@ -106,6 +108,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         self, params: CaseDurationDefinitionCreate
     ) -> CaseDurationDefinitionRead:
         """Create a new case duration definition."""
+        await hold_for_customer_write(self.session, self.workspace_id)
 
         await self._ensure_unique_name(params.name)
 
@@ -139,6 +142,12 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         self, duration_id: uuid.UUID, params: CaseDurationDefinitionUpdate
     ) -> CaseDurationDefinitionRead:
         """Update an existing case duration definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_DURATION,
+            local_id=duration_id,
+        )
 
         entity = await self._get_definition_entity(duration_id)
         updates = params.model_dump(exclude_unset=True)
@@ -193,6 +202,12 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_definition(self, duration_id: uuid.UUID) -> None:
         """Delete a case duration definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_DURATION,
+            local_id=duration_id,
+        )
 
         entity = await self._get_definition_entity(duration_id)
         await self.session.delete(entity)

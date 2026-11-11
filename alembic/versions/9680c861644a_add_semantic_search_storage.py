@@ -1,7 +1,10 @@
 """Add disabled semantic search storage; no source tables or rows are modified.
 
 Install pgvector server files before upgrading. The migration enables the
-extension if needed; its role needs permission to do so. Downgrade removes only
+extension if needed; its role needs permission to do so. An existing extension
+stays in its schema, which must be on the search_path. A new one goes in public,
+or in ibm_extension on IBM Cloud Databases for PostgreSQL, which only allows
+extensions in that read-only, provider-managed schema. Downgrade removes only
 derived search data and retains the extension; stop search workers first.
 Revision ID: 9680c861644a
 Revises: bc3124ad3437
@@ -30,7 +33,14 @@ SEARCH_TABLES = (
 def upgrade() -> None:
     op.execute("""
         DO $$ BEGIN
-            CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+            IF EXISTS (SELECT FROM pg_extension WHERE extname = 'vector') THEN
+                NULL;
+            ELSIF to_regnamespace('ibm_extension') IS NOT NULL THEN
+                -- IBM's documented form; IBM places it in ibm_extension.
+                CREATE EXTENSION IF NOT EXISTS vector;
+            ELSE
+                CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+            END IF;
         EXCEPTION WHEN OTHERS THEN
             RAISE EXCEPTION USING
                 ERRCODE = SQLSTATE,
@@ -42,10 +52,10 @@ def upgrade() -> None:
         DO $$ BEGIN
             IF NOT EXISTS (
                 SELECT FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
-                WHERE e.extname = 'vector' AND n.nspname = 'public'
+                WHERE e.extname = 'vector' AND n.nspname = ANY(current_schemas(false))
                   AND string_to_array(e.extversion, '.')::int[] >= ARRAY[0,8,0]
             ) THEN
-                RAISE EXCEPTION 'Tracecat requires pgvector >= 0.8.0 in the public schema'
+                RAISE EXCEPTION 'Tracecat requires pgvector >= 0.8.0 in a schema on the search_path'
                     USING HINT = 'For pgvector version and schema requirements, see https://docs.tracecat.com/self-hosting/pgvector';
             END IF;
         END $$;

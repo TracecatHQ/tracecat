@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
 from typing import cast
@@ -292,6 +293,18 @@ def _make_handler() -> LoopbackHandler:
     )
 
 
+def _tenant_session_for(
+    expected_workspace_id: UUID, session: object
+) -> Callable[..., _FakeSessionContext]:
+    """Tenant-session stub that only accepts the handler's own workspace."""
+
+    def factory(*, workspace_id: UUID) -> _FakeSessionContext:
+        assert workspace_id == expected_workspace_id
+        return _FakeSessionContext(session)
+
+    return factory
+
+
 @pytest.mark.anyio
 async def test_persist_session_line_preserves_raw_nul_content(
     monkeypatch: pytest.MonkeyPatch,
@@ -300,8 +313,8 @@ async def test_persist_session_line_preserves_raw_nul_content(
     handler._sdk_session_id = "sdk-session"
     session = _FakeHistoryPersistenceSession()
     monkeypatch.setattr(
-        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
-        lambda: _FakeSessionContext(session),
+        "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
+        _tenant_session_for(handler.input.workspace_id, session),
     )
     raw_line = (
         r'{"type":"user","uuid":"line-uuid","message":{"role":"user",'
@@ -530,8 +543,8 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
             self.apply_artifact_side_effects = apply_artifact_side_effects
 
     monkeypatch.setattr(
-        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
-        lambda: _FakeSessionContext(fake_session),
+        "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
+        _tenant_session_for(handler.input.workspace_id, fake_session),
     )
     monkeypatch.setattr(
         "tracecat.agent.executor.loopback.AgentSessionService",
@@ -1482,6 +1495,41 @@ async def test_duplicate_approval_request_events_are_deduped() -> None:
 
     result = handler.build_result()
     assert [item.id for item in result.approval_items] == ["call-1"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "first_output",
+    [
+        UnifiedStreamEvent(type=StreamEventType.THINKING_DELTA, thinking="hm"),
+        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hi"),
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            tool_call_id="call-1",
+            tool_name="core.http_request",
+        ),
+    ],
+    ids=["thinking", "text", "tool_call"],
+)
+async def test_first_token_at_marks_first_model_output_only(
+    first_output: UnifiedStreamEvent,
+) -> None:
+    handler = _make_handler()
+    handler._stream_sink = _FakeStream()
+
+    await handler._handle_stream_event(
+        UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
+    )
+    assert handler.build_result().first_token_at is None
+
+    await handler._handle_stream_event(first_output)
+    first_token_at = handler.build_result().first_token_at
+    assert first_token_at is not None
+
+    await handler._handle_stream_event(
+        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hi")
+    )
+    assert handler.build_result().first_token_at == first_token_at
 
 
 @pytest.mark.anyio

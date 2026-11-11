@@ -50,7 +50,7 @@ from tracecat.workspace_sync.schemas import (
     SecretMetadataResourceSpec,
     WorkspaceSpec,
 )
-from tracecat.workspace_sync.types import CorrelatedSecretStores
+from tracecat.workspace_sync.types import CorrelatedSecretStores, PathsByType
 
 
 class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
@@ -162,6 +162,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         workspace_service: SyncMappingService,
         secret_metadata: dict[str, SecretMetadataResourceSpec],
         *,
+        paths: PathsByType,
         requested_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
     ) -> CorrelatedSecretStores:
         """Point AWS-backed specs at authorized stores before preview or import.
@@ -176,7 +177,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         existing = await self._existing_secrets(
             workspace_service, secret_metadata, batch_source_ids=secret_metadata
         )
-        source_conflicts = self._source_conflicts(secret_metadata, existing)
+        source_conflicts = self._source_conflicts(secret_metadata, existing, paths)
         # Specs exported before references were synced keep the reference
         # import preserves, so preview and apply see the same secret.
         secret_metadata = {
@@ -219,7 +220,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         ):
             diagnostics.append(
                 PullDiagnostic(
-                    workflow_path=self.source_path(next(iter(external))),
+                    workflow_path=self.path_in(paths, next(iter(external))),
                     workflow_title=None,
                     error_type="dependency",
                     message=(
@@ -261,7 +262,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             secret = existing.get(source_id)
             if not spec.store and secret is not None and _is_linked(secret):
                 correlated[source_id] = self._kept_linked_reference(
-                    source_id, spec, secret, stores_by_id, diagnostics
+                    source_id, spec, secret, stores_by_id, diagnostics, paths
                 )
         for name, specs in sorted(by_store.items()):
             if name in requested and requested[name] is None:
@@ -269,7 +270,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                     secret = existing.get(source_id)
                     correlated[source_id] = (
                         self._kept_linked_reference(
-                            source_id, spec, secret, stores_by_id, diagnostics
+                            source_id, spec, secret, stores_by_id, diagnostics, paths
                         )
                         if secret is not None and _is_linked(secret)
                         else spec.model_copy(update={"store": None})
@@ -299,18 +300,18 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                             )
                     elif reason == "unresolved":
                         correlated[source_id] = self._kept_linked_reference(
-                            source_id, spec, secret, stores_by_id, diagnostics
+                            source_id, spec, secret, stores_by_id, diagnostics, paths
                         )
                 if not affected and reason == "unresolved":
                     continue
                 requirement = self._store_requirement(
-                    name, reason, candidates, affected or specs
+                    name, reason, candidates, affected or specs, paths=paths
                 )
                 requirements.append(requirement)
                 if reason == "invalid_selection":
                     diagnostics.append(
                         PullDiagnostic(
-                            workflow_path=self.source_path(specs[0][0]),
+                            workflow_path=self.path_in(paths, specs[0][0]),
                             workflow_title=None,
                             error_type="dependency",
                             message=requirement.message,
@@ -323,7 +324,9 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 continue
             incompatible: list[tuple[str, SecretMetadataResourceSpec]] = []
             for source_id, spec in specs:
-                if diagnostic := self._reference_diagnostic(source_id, spec, store):
+                if diagnostic := self._reference_diagnostic(
+                    source_id, spec, store, paths
+                ):
                     diagnostics.append(diagnostic)
                     incompatible.append((source_id, spec))
                     continue
@@ -338,6 +341,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                         "invalid_selection",
                         candidates,
                         incompatible,
+                        paths=paths,
                         message=(
                             f"Store {store.name!r} can't read every secret that "
                             f"uses {name!r}. Choose another store."
@@ -353,6 +357,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         self,
         secret_metadata: Mapping[str, SecretMetadataResourceSpec],
         existing: Mapping[str, Secret],
+        paths: PathsByType,
     ) -> list[PullDiagnostic]:
         """Report specs whose target secret import rejects for its source."""
         diagnostics: list[PullDiagnostic] = []
@@ -378,7 +383,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             if message is not None:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=self.source_path(source_id),
+                        workflow_path=self.path_in(paths, source_id),
                         workflow_title=None,
                         error_type="validation",
                         message=message,
@@ -394,12 +399,15 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         secret: Secret,
         stores_by_id: Mapping[uuid.UUID, OrganizationSecretStore],
         diagnostics: list[PullDiagnostic],
+        paths: PathsByType,
     ) -> SecretMetadataResourceSpec:
         """Return the reference import keeps for ``secret``, checking it."""
         kept = _kept_reference_spec(spec, secret)
         linked_store = stores_by_id.get(secret.store_id) if secret.store_id else None
         if linked_store is not None and (
-            diagnostic := self._reference_diagnostic(source_id, kept, linked_store)
+            diagnostic := self._reference_diagnostic(
+                source_id, kept, linked_store, paths
+            )
         ):
             diagnostics.append(diagnostic)
         return kept
@@ -411,6 +419,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         candidates: list[SecretStoreMappingCandidate],
         specs: list[tuple[str, SecretMetadataResourceSpec]],
         *,
+        paths: PathsByType,
         message: str | None = None,
     ) -> SecretStoreMappingRequirement:
         if message is None and reason == "invalid_selection":
@@ -428,7 +437,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 SecretStoreMappingAffectedSecret(
                     secret_name=spec.name,
                     environment=spec.environment,
-                    path=self.source_path(source_id),
+                    path=self.path_in(paths, source_id),
                 )
                 for source_id, spec in specs
             ],
@@ -439,6 +448,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         source_id: str,
         spec: SecretMetadataResourceSpec,
         store: OrganizationSecretStore,
+        paths: PathsByType,
     ) -> PullDiagnostic | None:
         """Return why ``store`` can't read ``spec``'s reference, if it can't."""
         if spec.remote_reference is None:
@@ -447,7 +457,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             SecretReferencesService.validate_reference(store, spec.remote_reference)
         except ValueError as e:
             return PullDiagnostic(
-                workflow_path=self.source_path(source_id),
+                workflow_path=self.path_in(paths, source_id),
                 workflow_title=None,
                 error_type="validation",
                 message=f"Secret {spec.name!r} can't use store {store.name!r}: {e}",

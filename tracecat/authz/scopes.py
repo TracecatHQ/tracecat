@@ -149,6 +149,7 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:rbac:delete",
         # SCIM provisioning administration
         "org:scim:manage",
+        "org:scim:token",  # OWNER-only
         # Service account management
         "org:service_account:read",
         "org:service_account:create",

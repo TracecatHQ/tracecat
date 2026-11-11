@@ -1,6 +1,6 @@
 """Contracts shared by built-in and separately installed agent backends."""
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -77,6 +77,19 @@ class TurnResult:
     error: str | None = None
 
 
+# Runs once a session's delete has committed; see `AgentBackend.prepare_delete`.
+type SessionCleanup = Callable[[], Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionDeleteContext:
+    """Authorized session about to be deleted, for backend-specific cleanup."""
+
+    db: AsyncSession
+    session: AgentSession
+    role: Role
+
+
 @dataclass(frozen=True, slots=True)
 class SessionForkContext:
     """Authorized parent and new session for backend-specific fork preparation."""
@@ -110,6 +123,11 @@ class SessionWorkflowContext:
     prompt: str
     run_id: UUID
     stream_id: UUID
+    # Limits a workflow agent action sets for its turn. None leaves the
+    # backend's default; chat turns never set them.
+    timeout_seconds: int | None = None
+    max_requests: int | None = None
+    max_tool_calls: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

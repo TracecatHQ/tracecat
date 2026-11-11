@@ -22,9 +22,9 @@ import GenerateSecrets from "/snippets/generate-secrets.mdx";
 - S3-compatible object storage (e.g., Amazon S3, MinIO)
 - `openssl` (for generating secrets)
 
-## Git sync background worker
+## Background worker
 
-For releases that support durable Git sync, use the companion Helm chart with a released app image that contains `tracecat.background.worker`. The companion chart enables this worker by default and rejects app versions below its supported minimum. Keep `backgroundWorker.enabled: true`.
+Case triggers, Git sync, and semantic-search indexing run on the background worker. Use the companion Helm chart with a released app image that contains `tracecat.background.worker`. The companion chart enables this worker by default and rejects app versions below its supported minimum. Keep `backgroundWorker.enabled: true`.
 
 ```yaml
 backgroundWorker:
@@ -32,7 +32,7 @@ backgroundWorker:
   queue: shared-background-queue
 ```
 
-The chart applies the queue name to both the API and worker. Git sync operations remain queued until this worker is running.
+The chart applies the queue name to both the API and worker. Case triggers and Git sync operations remain queued until this worker is running.
 
 ## Core secrets
 
@@ -156,6 +156,10 @@ externalPostgres:
 ```
 
 For Amazon RDS, download the global CA bundle from the [AWS trust store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
+
+To log in with RDS IAM tokens instead of a password, set `externalPostgres.auth.mode: awsIam`. See [Database IAM login](/self-hosting/database-iam) for the database and IAM setup and the PgDog settings it needs.
+
+To run the services and the migrations Job on separate roles instead of this one login, see [Database roles](/self-hosting/database-roles). You set the roles up as the database admin, from a machine or a one-off pod that can reach the database, before you deploy a release that changes them; the Job then logs in as `migrator` (`migrations.migrator`).
 
 #### CloudNativePG
 

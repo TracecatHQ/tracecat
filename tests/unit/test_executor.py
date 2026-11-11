@@ -1,12 +1,15 @@
 import asyncio
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
@@ -18,6 +21,7 @@ from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.executor import secret_preprocessors
 from tracecat.executor import service as executor_service
 from tracecat.executor.schemas import ActionImplementation, ExecutorActionErrorInfo
 from tracecat.executor.service import (
@@ -42,8 +46,11 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
 from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
+from tracecat.secrets.constants import MASK_VALUE
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+from tracecat.variables.schemas import VariableCreate
+from tracecat.variables.service import VariablesService
 
 TEST_VERSION = "test-version"
 
@@ -731,6 +738,7 @@ async def test_dispatch_action_for_each_uses_configured_worker_limit(
         input: RunActionInput,
         ctx: Any,
         iteration: int | None = None,
+        loop_context: Any = None,
     ) -> int:
         nonlocal active_iterations, max_active_iterations
 
@@ -781,6 +789,7 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
         input: RunActionInput,
         ctx: Any,
         iteration: int | None = None,
+        loop_context: Any = None,
     ) -> int:
         assert iteration is not None
         local_vars = input.exec_context.get("var")
@@ -822,6 +831,126 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
     assert len(e.value.loop_errors) == 1
     assert e.value.loop_errors[0].info.loop_iteration == 1
     assert e.value.loop_errors[0].info.loop_vars is None
+
+
+@pytest.mark.anyio
+async def test_for_each_resolves_credentials_once_per_loop(
+    monkeypatch,
+    test_role,
+    mock_run_context,
+    db_session_with_repo,
+):
+    """A loop's database reads and STS calls do not grow with its item count.
+
+    Secrets, OAuth tokens, workspace variables and the STS session are resolved
+    once for the loop, and every item's result is still masked.
+    """
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", False)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 4)
+    session, db_repo_id = db_session_with_repo
+
+    await SecretsService(session, role=test_role).create_secret(
+        SecretCreate(
+            name="test",
+            environment="default",
+            keys=[SecretKeyValue(key="KEY", value=SecretStr("__LOOP_SECRET__"))],
+        )
+    )
+    await SecretsService(session, role=test_role).create_secret(
+        SecretCreate(
+            name="amazon_s3",
+            environment="default",
+            keys=[
+                SecretKeyValue(
+                    key="AWS_ROLE_ARN",
+                    value=SecretStr("arn:aws:iam::123456789012:role/loop-role"),
+                ),
+                SecretKeyValue(key="AWS_REGION", value=SecretStr("__LOOP_REGION__")),
+            ],
+        )
+    )
+    await IntegrationService(session, role=test_role).store_integration(
+        provider_key=ProviderKey(
+            id="microsoft_teams", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        ),
+        access_token=SecretStr("__LOOP_OAUTH_TOKEN__"),
+        refresh_token=None,
+        expires_in=3600,
+    )
+    await VariablesService(session, role=test_role).create_variable(
+        VariableCreate(name="cfg", values={"label": "loop-label"})
+    )
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [], test_role.organization_id
+    )
+
+    assume_role = AsyncMock(
+        return_value={
+            "AccessKeyId": "ASIA_LOOP_KEY",
+            "SecretAccessKey": "loop-secret-access-key",
+            "SessionToken": "loop-session-token",
+            "Expiration": datetime.now(UTC) + timedelta(hours=1),
+        }
+    )
+    monkeypatch.setattr(secret_preprocessors, "_assume_role_via_irsa", assume_role)
+
+    statements = 0
+
+    def count_statement(*_: Any) -> None:
+        nonlocal statements
+        statements += 1
+
+    async def run_loop(n: int) -> tuple[list[Any], int, int]:
+        nonlocal statements
+        statements = 0
+        assume_role.reset_mock()
+        input = RunActionInput(
+            task=ActionStatement(
+                ref="loop",
+                action="core.transform.reshape",
+                args={
+                    "value": {
+                        "item": "${{ var.x }}",
+                        "label": "${{ VARS.cfg.label }}",
+                        "secret": "${{ SECRETS.test.KEY }}",
+                        "region": "${{ SECRETS.amazon_s3.AWS_REGION }}",
+                        "oauth": (
+                            "${{ SECRETS.microsoft_teams_oauth"
+                            ".MICROSOFT_TEAMS_USER_TOKEN }}"
+                        ),
+                    }
+                },
+                for_each=f"${{{{ for var.x in FN.range(0, {n}) }}}}",
+            ),
+            exec_context=create_default_execution_context(),
+            run_context=mock_run_context,
+            registry_lock=registry_lock,
+        )
+        event.listen(Engine, "before_cursor_execute", count_statement)
+        try:
+            result = await run_action_test(input, test_role)
+        finally:
+            event.remove(Engine, "before_cursor_execute", count_statement)
+        return result, statements, assume_role.await_count
+
+    # Warm the registry caches so both measured loops start from the same state.
+    await run_loop(1)
+    _, single_statements, single_sts_calls = await run_loop(1)
+    results, loop_statements, loop_sts_calls = await run_loop(100)
+
+    assert single_statements > 0
+    assert loop_statements == single_statements
+    assert single_sts_calls == loop_sts_calls == 1
+    assert results == [
+        {
+            "item": i,
+            "label": "loop-label",
+            "secret": MASK_VALUE,
+            "region": MASK_VALUE,
+            "oauth": MASK_VALUE,
+        }
+        for i in range(100)
+    ]
 
 
 @pytest.fixture

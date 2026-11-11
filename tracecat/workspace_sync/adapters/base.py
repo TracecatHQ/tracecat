@@ -31,7 +31,21 @@ from tracecat.sync import PullDiagnostic
 from tracecat.tables.enums import SqlType
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
-from tracecat.workspace_sync.schemas import WorkspaceManifestResources, WorkspaceSpec
+from tracecat.workspace_sync.schemas import (
+    SecretMetadataResourceSpec,
+    VariableResourceSpec,
+    WorkspaceManifestResources,
+    WorkspaceSpec,
+)
+from tracecat.workspace_sync.serialization import serialize_yaml_model
+from tracecat.workspace_sync.types import PathsByType
+
+MANAGED_MAPPING_NAMESPACE = "managed"
+"""Sync mapping namespace of managed rollouts in a target workspace.
+
+It is not a VCS provider value, so a rollout's source-to-local identities can
+never be read or adopted by the workspace's own Git sync.
+"""
 
 # Attribute on ``WorkspaceSpec`` and ``WorkspaceManifestResources`` that holds a
 # given resource type's specs/root. Each adapter binds to exactly one of these
@@ -59,8 +73,6 @@ class ProjectedResource:
     source_id: str
     """Portable, Git-owned identity, e.g. ``my-table`` (or the compound
     ``prod/api-key`` for environment-scoped resources)."""
-    source_path: str
-    """Where the resource's primary file lives in the repository."""
     local_id: uuid.UUID
     """Workspace-local database UUID this ``source_id`` maps to."""
 
@@ -78,8 +90,6 @@ class ImportedResource:
     """The kind of resource being synced (workflow, table, ...)."""
     source_id: str
     """Portable, Git-owned identity that maps to ``local_id``."""
-    source_path: str
-    """Where the resource's primary file lives in the repository."""
     local_id: uuid.UUID
     """Workspace-local database UUID this ``source_id`` maps to."""
 
@@ -187,15 +197,27 @@ class SyncMappingService(BaseWorkspaceService):
         role: Role | None = None,
         *,
         mapping_provider: VcsProvider = VcsProvider.GITHUB,
+        mapping_namespace: str | None = None,
     ) -> None:
-        """Initialize with the provider namespace for sync resource mappings."""
+        """Initialize with the provider namespace for sync resource mappings.
+
+        ``mapping_namespace`` replaces the provider as the mapping namespace.
+        Managed rollouts pass :data:`MANAGED_MAPPING_NAMESPACE` so their
+        identities never mix with the workspace's own Git sync mappings.
+        """
         super().__init__(session=session, role=role)
         self._mapping_provider = mapping_provider
+        self._mapping_namespace = mapping_namespace
 
     @property
     def _mapping_provider_value(self) -> str:
-        """Provider value used for workspace sync resource mappings."""
-        return self._mapping_provider.value
+        """Namespace value used for workspace sync resource mappings."""
+        return self._mapping_namespace or self._mapping_provider.value
+
+    @property
+    def is_managed_rollout(self) -> bool:
+        """Whether this service applies a managed rollout, not a Git sync."""
+        return self._mapping_namespace == MANAGED_MAPPING_NAMESPACE
 
 
 def find_duplicates(values: Iterable[str]) -> list[str]:
@@ -366,43 +388,107 @@ class ResourceAdapter(ABC):
     """Spec attributes that form the import-time unique target identity."""
     import_identity_noun: ClassVar[str] = "identity"
     """Human-readable noun for duplicate import identity diagnostics."""
+    root: ClassVar[str]
+    """Top-level repository directory for this resource type."""
+    path_name_attr: ClassVar[str] = "name"
+    """Spec attribute whose current value names the resource's folder or file."""
+    owns_directory: ClassVar[bool] = False
+    """Whether each resource owns a whole folder rather than a single file."""
 
     # -- paths and serialization ------------------------------------------
     @abstractmethod
-    def source_path(self, source_id: str) -> str:
-        """Repository path for the resource's primary file."""
+    def path_for_key(self, path_key: str) -> str:
+        """Repository path of the primary file stored under ``path_key``.
+
+        ``path_key`` is the resource's folder name or file stem, such as the
+        readable key from :meth:`path_key`.
+        """
+
+    def legacy_id_path(self, source_id: str) -> str:
+        """Return where repositories written before readable paths kept it.
+
+        Those repositories named each folder or file after the source id, e.g.
+        ``workflows/wf_abc/definition.yml``. The path never changes, so it also
+        serves as a rename-proof alias for package include patterns.
+        """
+        return self.path_for_key(source_id)
+
+    def path_in(self, paths: PathsByType, source_id: str) -> str:
+        """Look up a resource's primary file path in a complete path map.
+
+        Raises:
+            KeyError: ``paths`` has no entry for the resource. Callers plan a
+                complete map first, so a missing entry is a bug rather than
+                something to paper over with a guessed path.
+        """
+        return paths[self.resource_type][source_id]
+
+    def location(self, primary_path: str) -> str:
+        """Return the folder a resource owns, or its single file.
+
+        Pushes delete a stale location as a whole, so a moved skill also drops
+        its old companion files.
+        """
+        if self.owns_directory:
+            return primary_path.rsplit("/", 1)[0]
+        return primary_path
 
     @abstractmethod
-    def source_id_from_path(
+    def path_key_from_path(
         self,
         path: str,
         roots: WorkspaceManifestResources,
     ) -> str | None:
-        """Return the source id a primary file path maps to, or ``None``.
+        """Return the path key of a primary file path, or ``None``.
 
-        Inverse of :meth:`source_path`. ``None`` means the path is not a primary
-        file for this resource type.
+        Inverse of :meth:`path_for_key`. ``None`` means the path is not a primary
+        file for this resource type. The key is only a location: the resource's
+        identity is the ``id`` written inside the file.
         """
 
-    def extra_path_from_path(
+    def is_bundle_file(self, path: str) -> bool:
+        """Return whether ``path``, a location of this type, holds many resources.
+
+        Only bundled types have one; every other type keeps one resource per
+        file.
+        """
+        return False
+
+    def path_key(self, source_id: str, spec: BaseModel) -> str:
+        """Return the readable folder or file name for a resource.
+
+        Derived from the resource's current name, so it follows renames. Falls
+        back to the source id when the name has no path-safe characters.
+        """
+        # The name attribute differs per resource type (``name``, ``slug``).
+        # No default: a wrong ``path_name_attr`` must fail, not fall back to
+        # id-named folders unnoticed.
+        name: str = getattr(spec, self.path_name_attr)
+        return path_segment(name, fallback=path_segment(source_id))
+
+    def companion_relpath(
         self,
         path: str,
         roots: WorkspaceManifestResources,
-    ) -> tuple[str, str] | None:
-        """Map a companion file path to ``(source_id, relative_path)``.
+    ) -> str | None:
+        """Return a companion file's path inside its resource folder.
 
         Companion files are everything beyond the primary file, such as skill
-        blobs. Returns ``None`` when ``path`` is not such a file; the default
-        has no companion files.
+        blobs, e.g. ``files/SKILL.md``. Returns ``None`` when ``path`` is not
+        such a file; the default has no companion files.
         """
         return None
 
+    def serialize_primary(self, spec: BaseModel) -> str:
+        """Serialize a resource's primary file, such as ``table.yml``."""
+        return serialize_yaml_model(spec)
+
     def serialize_extra_files(
         self,
-        source_id: str,
+        primary_path: str,
         spec: BaseModel,
     ) -> dict[str, str]:
-        """Serialize companion files such as skill files."""
+        """Serialize companion files, such as skill files, next to ``primary_path``."""
         return {}
 
     def attach_extra_files(
@@ -410,8 +496,13 @@ class ResourceAdapter(ABC):
         specs: dict[str, BaseModel],
         extra_files: Mapping[tuple[str, str], str],
         diagnostics: list[PullDiagnostic],
+        *,
+        paths: PathsByType,
     ) -> dict[str, BaseModel]:
-        """Fold parsed companion files back into their resource specs."""
+        """Fold parsed companion files back into their resource specs.
+
+        ``paths`` holds where each resource was read, for diagnostics.
+        """
         return specs
 
     # -- database projection and import -----------------------------------
@@ -504,11 +595,10 @@ class ResourceAdapter(ABC):
         source_id: str,
         local_id: uuid.UUID,
     ) -> ProjectedResource:
-        """Build a :class:`ProjectedResource` with this adapter's type and path."""
+        """Build a :class:`ProjectedResource` with this adapter's type."""
         return ProjectedResource(
             resource_type=self.resource_type,
             source_id=source_id,
-            source_path=self.source_path(source_id),
             local_id=local_id,
         )
 
@@ -517,11 +607,10 @@ class ResourceAdapter(ABC):
         source_id: str,
         local_id: uuid.UUID,
     ) -> ImportedResource:
-        """Build an :class:`ImportedResource` with this adapter's type and path."""
+        """Build an :class:`ImportedResource` with this adapter's type."""
         return ImportedResource(
             resource_type=self.resource_type,
             source_id=source_id,
-            source_path=self.source_path(source_id),
             local_id=local_id,
         )
 
@@ -824,29 +913,29 @@ class ResourceAdapter(ABC):
 class DirectoryManifestAdapter(ResourceAdapter):
     """Directory layout with one primary manifest file.
 
-    Each resource owns ``<root>/<source_id>/``. ``<filename>`` is the primary
-    manifest file that anchors identity and parsing, while companion files can
-    live alongside it (agent presets, skills, tables).
+    Each resource owns ``<root>/<path_key>/``, a folder named after the
+    resource (or after its source id in legacy repositories). ``<filename>``
+    is the primary manifest file, whose ``id`` anchors identity, while
+    companion files can live alongside it (agent presets, skills, tables).
     """
 
-    root: ClassVar[str]
-    """Top-level repository directory for this resource type."""
     filename: ClassVar[str]
     """Primary file name inside each resource directory."""
+    owns_directory = True
 
-    def source_path(self, source_id: str) -> str:
-        """Build ``<root>/<source_id>/<filename>``."""
-        return f"{self.root}/{source_id}/{self.filename}"
+    def path_for_key(self, path_key: str) -> str:
+        """Build ``<root>/<path_key>/<filename>``."""
+        return f"{self.root}/{path_key}/{self.filename}"
 
-    def source_id_from_path(
+    def path_key_from_path(
         self,
         path: str,
         roots: WorkspaceManifestResources,
     ) -> str | None:
-        """Recover the source id from a ``<root>/<source_id>/<filename>`` path."""
+        """Recover the folder name from a ``<root>/<path_key>/<filename>`` path."""
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
-        # Must be exactly <root>/<source_id>/<filename>.
+        # Must be exactly <root>/<path_key>/<filename>.
         if len(parts) != len(root_parts) + 2:
             return None
         if parts[: len(root_parts)] != root_parts or parts[-1] != self.filename:
@@ -857,23 +946,20 @@ class DirectoryManifestAdapter(ResourceAdapter):
 class FlatManifestAdapter(ResourceAdapter):
     """Flat layout with one manifest file per resource.
 
-    One flat file per resource, with no companion files (case tags, fields,
+    One flat file per resource, with no companion files (case fields,
     dropdowns, durations).
     """
 
-    root: ClassVar[str]
-    """Top-level repository directory for this resource type."""
+    def path_for_key(self, path_key: str) -> str:
+        """Build ``<root>/<path_key>.yml``."""
+        return f"{self.root}/{path_key}.yml"
 
-    def source_path(self, source_id: str) -> str:
-        """Build ``<root>/<source_id>.yml``."""
-        return f"{self.root}/{source_id}.yml"
-
-    def source_id_from_path(
+    def path_key_from_path(
         self,
         path: str,
         roots: WorkspaceManifestResources,
     ) -> str | None:
-        """Recover the source id from a ``<root>/<source_id>.yml`` path."""
+        """Recover the file stem from a ``<root>/<path_key>.yml`` path."""
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
         # Must be exactly <root>/<filename>.yml.
@@ -890,24 +976,26 @@ class FlatManifestAdapter(ResourceAdapter):
 class EnvironmentScopedManifestAdapter(ResourceAdapter):
     """Environment-scoped layout with one manifest file per resource.
 
-    The source id is the compound ``<environment>/<name>`` segment, so its
+    The path key is the compound ``<environment>/<name>`` segment, so its
     single embedded ``/`` expands into the environment subdirectory on disk.
     """
 
-    root: ClassVar[str]
-    """Top-level repository directory for this resource type."""
+    def path_for_key(self, path_key: str) -> str:
+        """Build ``<root>/<environment>/<name>.yml`` from the compound key."""
+        # path_key is "<environment>/<name>", yielding <root>/<env>/<name>.yml.
+        return f"{self.root}/{path_key}.yml"
 
-    def source_path(self, source_id: str) -> str:
-        """Build ``<root>/<environment>/<name>.yml`` from the compound source id."""
-        # source_id is "<environment>/<name>", yielding <root>/<env>/<name>.yml.
-        return f"{self.root}/{source_id}.yml"
+    def path_key(self, source_id: str, spec: BaseModel) -> str:
+        """Return ``<environment>/<name>`` from the resource's current values."""
+        scoped = cast(VariableResourceSpec | SecretMetadataResourceSpec, spec)
+        return environment_source_id(scoped.environment, scoped.name)
 
-    def source_id_from_path(
+    def path_key_from_path(
         self,
         path: str,
         roots: WorkspaceManifestResources,
     ) -> str | None:
-        """Recover the compound ``<environment>/<name>`` source id from a path."""
+        """Recover the compound ``<environment>/<name>`` key from a path."""
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
         # Must be exactly <root>/<environment>/<name>.yml.

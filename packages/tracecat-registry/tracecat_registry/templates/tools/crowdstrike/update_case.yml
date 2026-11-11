@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Update case
+  description: >-
+    Update fields on a Falcon case. Requires the Cases: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/case-management/#entitiescasespatchv2
+  namespace: tools.crowdstrike
+  name: update_case
+  expects:
+    id:
+      type: str
+      description: Case ID.
+    fields:
+      type: dict[str, Any]
+      description: >-
+        Fields to update. Documented fields include name, description, description_format,
+        status, severity, assigned_to_user_uuid, remove_user_assignment, and template.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: update_case
+      action: tools.falconpy.call_command
+      args:
+        operation_id: entities_cases_patch_v2
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            id: ${{ inputs.id }}
+            fields: ${{ inputs.fields }}
+  returns: ${{ steps.update_case.result }}

@@ -8,6 +8,7 @@ import json
 import tarfile
 import uuid
 from collections import Counter
+from collections.abc import Iterator
 from math import ceil
 from types import SimpleNamespace
 from typing import Any, cast
@@ -16,7 +17,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import httpx
 import pytest
 import respx
-from github.GithubException import GithubException
+from github.GithubException import GithubException, RateLimitExceededException
 
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat.auth.types import Role
@@ -45,9 +46,11 @@ from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     SECRET_METADATA_RESOURCE_ADAPTER,
     VARIABLE_RESOURCE_ADAPTER,
+    WORKFLOW_RESOURCE_ADAPTER,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
+from tracecat.workspace_sync.layout import plan_resource_paths
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     AgentPresetResourceSpec,
@@ -82,10 +85,20 @@ from tracecat.workspace_sync.transport import (
 from tracecat.workspace_sync.types import PreparedSnapshot, SyncCommitConflictError
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
-    workflow_source_path,
     workflow_spec_to_remote,
     workflow_spec_with_source_workflow_ids,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_managed_resources() -> Iterator[None]:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    with patch.object(
+        WorkspaceSyncService,
+        "_managed_ids_by_type",
+        AsyncMock(return_value={}),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -134,7 +147,7 @@ async def test_pull_does_not_sync_schedules_by_default(
     )
     files = {
         "tracecat.json": canonical_json_text(WorkspaceManifest()),
-        workflow_source_path(spec.id): serialize_workflow_spec(spec),
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key(spec.id): serialize_workflow_spec(spec),
     }
     transport = AsyncMock()
     transport.read_files.return_value = VcsTreeSnapshot(
@@ -235,7 +248,7 @@ async def test_pull_dry_run_returns_resource_diffs_without_import(
     assert result.files == sorted(incoming_files)
     assert result.resources is not None
     assert [(resource.name, resource.path) for resource in result.resources] == [
-        ("sync-me", workflow_source_path(source_id))
+        ("sync-me", WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id))
     ]
     diff = result.resource_diffs[0]
     assert diff.change_type == "modified"
@@ -394,7 +407,7 @@ async def test_parse_files_rejects_legacy_workflow_tree_without_manifest(
 
     snapshot, diagnostics = await workspace_sync_service.parse_files(
         {
-            workflow_source_path(source_id): _legacy_workflow_yaml(
+            WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id): _legacy_workflow_yaml(
                 source_id,
                 title="Legacy workflow",
             )
@@ -416,7 +429,7 @@ async def test_parse_files_rejects_legacy_string_version_manifest(
     snapshot, diagnostics = await workspace_sync_service.parse_files(
         {
             MANIFEST_FILENAME: '{"version":"1"}',
-            workflow_source_path(source_id): _legacy_workflow_yaml(
+            WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id): _legacy_workflow_yaml(
                 source_id,
                 title="Legacy manifest workflow",
             ),
@@ -532,6 +545,7 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
             manifest=WorkspaceManifest(),
             spec=spec,
             files={"b.json": "{}", "a.json": "{}"},
+            paths=plan_resource_paths(spec),
         )
     )
 
@@ -549,17 +563,19 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
         (resource.resource_type, resource.source_id, resource.name, resource.path)
         for resource in preview.resources
     ] == [
+        # Both workflows are titled "Sync me". The lower source id gets the
+        # plain folder; the other gets its source id appended. Sorted by path.
         (
             SyncResourceType.WORKFLOW,
-            "wf-1",
-            "wf-1",
-            "workflows/wf-1/definition.yml",
+            "wf-2",
+            "wf-2",
+            "workflows/Sync-me-wf-2/definition.yml",
         ),
         (
             SyncResourceType.WORKFLOW,
-            "wf-2",
-            "wf-2",
-            "workflows/wf-2/definition.yml",
+            "wf-1",
+            "wf-1",
+            "workflows/Sync-me/definition.yml",
         ),
     ]
     # Preview must never create sync mappings as a side effect.
@@ -618,6 +634,12 @@ async def test_preview_export_reports_resource_diffs_against_compare_ref(
                     ),
                 }
             ),
+            paths={
+                SyncResourceType.WORKFLOW: {
+                    "fresh": "workflows/fresh/definition.yml",
+                    "stale": "workflows/stale/definition.yml",
+                }
+            },
             files={
                 MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
                 "workflows/fresh/definition.yml": "version: 1\n",
@@ -839,12 +861,17 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
             manifest=projection_manifest,
             spec=projection_spec,
         ),
+        paths=plan_resource_paths(projection_spec),
     )
     service._workspace_git_url = AsyncMock(
         return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
     )
     service.project_workspace = AsyncMock(return_value=projection)
     transport = AsyncMock()
+    transport.branch_exists.return_value = True
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="b" * 40, tree_sha="tree-sha", files={}
+    )
     transport.write_files.return_value = CommitInfo(
         status=PushStatus.COMMITTED,
         sha="a" * 40,
@@ -874,9 +901,10 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
     transport.write_files.assert_awaited_once()
     expected_paths = {
         MANIFEST_FILENAME,
-        workflow_source_path("parent"),
-        VARIABLE_RESOURCE_ADAPTER.source_path("default/api_token"),
-        SECRET_METADATA_RESOURCE_ADAPTER.source_path("default/vendor_api"),
+        # The folder is named after the workflow title, not its source id.
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key("Sync-me"),
+        VARIABLE_RESOURCE_ADAPTER.path_for_key("default/api_token"),
+        SECRET_METADATA_RESOURCE_ADAPTER.path_for_key("default/vendor_api"),
     }
     written_files = transport.write_files.await_args.kwargs["files"]
     assert set(written_files) == expected_paths
@@ -1686,6 +1714,11 @@ async def test_selected_export_deletes_stale_companion_files_under_selected_reso
                 MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
                 "skills/qa-enrichment-skill/skill.yml": "version: 1\nname: current\n",
             },
+            paths={
+                SyncResourceType.SKILL: {
+                    "qa-enrichment-skill": "skills/qa-enrichment-skill/skill.yml"
+                }
+            },
         )
     )
 
@@ -2334,6 +2367,183 @@ async def test_github_list_branches_includes_default_beyond_limit(
     assert [(b.name, b.is_default) for b in branches] == expected
 
 
+_TAG_URL = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+
+
+def _gh_commit(oid: str, date: str) -> dict[str, Any]:
+    return {"__typename": "Commit", "oid": oid, "committedDate": date}
+
+
+def _gh_refs_page(
+    nodes: list[dict[str, Any]], *, end_cursor: str | None = None
+) -> dict[str, Any]:
+    page_info = {"hasNextPage": end_cursor is not None, "endCursor": end_cursor}
+    return {"data": {"repository": {"refs": {"pageInfo": page_info, "nodes": nodes}}}}
+
+
+def _github_graphql_service(gh: Mock) -> AsyncMock:
+    gh_service = AsyncMock()
+    gh_service.get_github_client_for_repo.return_value = gh
+    return gh_service
+
+
+@pytest.mark.anyio
+async def test_github_list_tags_pages_one_graphql_query_per_page(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    gh = Mock()
+    gh.requester.graphql_query.side_effect = [
+        (
+            {},
+            _gh_refs_page(
+                [
+                    # Annotated: dated by the tagger.
+                    {
+                        "name": "v3",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": {"date": "2026-03-02T00:00:00Z"},
+                            "target": _gh_commit("c" * 40, "2026-03-01T00:00:00Z"),
+                        },
+                    },
+                    # Annotated with no tagger: falls back to the commit date.
+                    {
+                        "name": "v2",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": None,
+                            "target": _gh_commit("b" * 40, "2026-02-01T00:00:00Z"),
+                        },
+                    },
+                ],
+                end_cursor="Y3Vyc29yOjI=",
+            ),
+        ),
+        (
+            {},
+            _gh_refs_page(
+                [
+                    {
+                        "name": "v1",
+                        "target": _gh_commit("a" * 40, "2026-01-01T00:00:00Z"),
+                    },
+                    # A tag on a tree, and a chain deeper than the query
+                    # follows (its innermost target has no fields), are skipped.
+                    {"name": "tree", "target": {"__typename": "Tree"}},
+                    {
+                        "name": "too-deep",
+                        "target": {
+                            "__typename": "Tag",
+                            "tagger": {"date": "2026"},
+                            "target": {"__typename": "Tag"},
+                        },
+                    },
+                ]
+            ),
+        ),
+    ]
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=_github_graphql_service(gh),
+    ):
+        first, cursor = await transport.list_tags(url=_TAG_URL, limit=2)
+        second, last_cursor = await transport.list_tags(
+            url=_TAG_URL, limit=2, cursor=cursor
+        )
+
+    assert [(t.name, t.commit_sha, t.date) for t in [*first, *second]] == [
+        ("v3", "c" * 40, "2026-03-02T00:00:00Z"),
+        ("v2", "b" * 40, "2026-02-01T00:00:00Z"),
+        ("v1", "a" * 40, "2026-01-01T00:00:00Z"),
+    ]
+    assert (cursor, last_cursor) == ("Y3Vyc29yOjI=", None)
+    calls = gh.requester.graphql_query.call_args_list
+    assert [call.args[1] for call in calls] == [
+        {"owner": "TracecatHQ", "name": "sync", "first": 2, "after": None},
+        {"owner": "TracecatHQ", "name": "sync", "first": 2, "after": "Y3Vyc29yOjI="},
+    ]
+    assert "orderBy: {field: TAG_COMMIT_DATE, direction: DESC}" in calls[0].args[0]
+    assert gh.close.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_github_list_tags_follows_a_two_level_tag_chain(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    chained = {
+        "name": "release",
+        "target": {
+            "__typename": "Tag",
+            "tagger": {"date": "2026-05-02T00:00:00Z"},
+            "target": {
+                "__typename": "Tag",
+                "tagger": {"date": "2026-05-01T00:00:00Z"},
+                "target": _gh_commit("e" * 40, "2026-04-01T00:00:00Z"),
+            },
+        },
+    }
+    gh = Mock()
+    gh.requester.graphql_query.return_value = ({}, _gh_refs_page([chained]))
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=_github_graphql_service(gh),
+    ):
+        tags, _cursor = await transport.list_tags(url=_TAG_URL)
+
+    # Peeled to the commit, dated by the outermost tagger.
+    assert [(t.name, t.commit_sha, t.date) for t in tags] == [
+        ("release", "e" * 40, "2026-05-02T00:00:00Z")
+    ]
+    query = gh.requester.graphql_query.call_args.args[0]
+    assert query.count("... on Tag") == 3
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (GithubException(502, "bad gateway"), 502),
+        # Primary GraphQL limits arrive as HTTP 200 + RATE_LIMITED; PyGithub
+        # raises them as 400, which must not look like a bad request.
+        (
+            GithubException(
+                400, {"errors": [{"type": "RATE_LIMITED", "message": "limited"}]}
+            ),
+            429,
+        ),
+        # Secondary limits arrive as 403s.
+        (RateLimitExceededException(403, {"message": "secondary rate limit"}), 429),
+    ],
+)
+async def test_github_list_tags_reports_upstream_status(
+    workspace_sync_service: WorkspaceSyncService,
+    error: GithubException,
+    expected_status: int,
+) -> None:
+    gh = Mock()
+    gh.requester.graphql_query.side_effect = error
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+    with (
+        patch(
+            "tracecat.workspace_sync.transport.GitHubAppService",
+            return_value=_github_graphql_service(gh),
+        ),
+        pytest.raises(GitHubAppError) as exc,
+    ):
+        await transport.list_tags(url=_TAG_URL)
+    assert exc.value.status_code == expected_status
+
+
 _ARCHIVE_URL = "https://codeload.github.com/TracecatHQ/sync/legacy.tar.gz/archive"
 _ARCHIVE_GIT_URL = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
 
@@ -2617,7 +2827,7 @@ definition:
 def _workspace_files(spec: WorkflowResourceSpec) -> dict[str, str]:
     return {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
-        workflow_source_path(spec.id): serialize_workflow_spec(spec),
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key(spec.id): serialize_workflow_spec(spec),
     }
 
 
@@ -3422,3 +3632,231 @@ async def test_parse_diagnostics_stop_preview_before_partial_spec_processing(
             )
         entitlements.assert_awaited_once_with(snapshot.spec)
         correlate.assert_not_awaited()
+
+
+def _publish_service(
+    sample_dsl: DSLInput,
+) -> tuple[WorkspaceSyncService, AsyncMock, Any]:
+    """Build a service whose single-workflow push writes to a mocked transport."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update", "workflow:sync"}),
+    )
+    session = AsyncMock()
+    session.add = Mock()
+    service = WorkspaceSyncService(session=session, role=role)
+    spec = WorkspaceSpec(
+        workflows={
+            "parent": WorkflowResourceSpec(
+                id="parent", alias="parent", definition=sample_dsl
+            )
+        }
+    )
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=spec,
+            files=service._files_from_spec(manifest=WorkspaceManifest(), spec=spec),
+            paths={
+                SyncResourceType.WORKFLOW: {
+                    "parent": WORKFLOW_RESOURCE_ADAPTER.path_for_key("Sync-me")
+                }
+            },
+        )
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    transport = AsyncMock()
+    transport.branch_exists.return_value = True
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="b" * 40, tree_sha="tree-sha", files={}
+    )
+    workflow = cast(Any, SimpleNamespace(id=WorkflowUUID.new_uuid4()))
+    return service, transport, workflow
+
+
+@pytest.mark.anyio
+async def test_publish_reports_a_branch_that_moved_as_push_again(
+    sample_dsl: DSLInput,
+) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    transport.write_files.side_effect = SyncCommitConflictError(
+        "Target branch changed; create a new preview"
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(SyncCommitConflictError, match="Push again"),
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    # The write was pinned to the commit the cleanup was planned against.
+    assert transport.write_files.await_args.kwargs["expected_commit_sha"] == "b" * 40
+
+
+@pytest.mark.anyio
+async def test_publish_reports_a_branch_deleted_mid_push(sample_dsl: DSLInput) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    # The branch exists when the push reads it, then disappears.
+    transport.branch_exists.side_effect = [True, False]
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(SyncCommitConflictError, match="was deleted"),
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    transport.write_files.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_publish_reads_primary_files_and_owns_workflow_folders(
+    sample_dsl: DSLInput,
+) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    transport.write_files.return_value = CommitInfo(
+        status=PushStatus.COMMITTED,
+        sha="a" * 40,
+        ref="main",
+        base_ref="main",
+        pr_url=None,
+        pr_number=None,
+        pr_reused=False,
+        message="Committed workspace sync changes.",
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    resource_filter = transport.read_files.await_args.kwargs["resource_filter"]
+    assert resource_filter("workflows/Other/definition.yml")
+    # Types the push does not write, and companion files, are not read.
+    assert not resource_filter("tables/iocs/table.yml")
+    assert not resource_filter("workflows/Other/notes.md")
+    # The push owns the workflow folder, so it deletes the script files of
+    # actions the workflow no longer has.
+    delete_roots = transport.write_files.await_args.kwargs["delete_missing_paths_under"]
+    assert "workflows/Sync-me" in delete_roots
+
+
+_TRIAGE_PATHS = {
+    SyncResourceType.WORKFLOW: {
+        "wf_a": WORKFLOW_RESOURCE_ADAPTER.path_for_key("Triage")
+    }
+}
+
+
+@pytest.mark.anyio
+async def test_partial_push_owns_each_pushed_workflow_folder(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    spec = WorkspaceSpec(
+        workflows={
+            "wf_a": WorkflowResourceSpec(id="wf_a", alias="a", definition=sample_dsl)
+        }
+    )
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(), spec=spec, files={}, paths=_TRIAGE_PATHS
+    )
+
+    roots = await workspace_sync_service._export_delete_roots(
+        projection,
+        full_workspace_export=False,
+        resource_ids={SyncResourceType.WORKFLOW: {uuid.uuid4()}},
+        base=None,
+    )
+
+    # So the push deletes script files of actions the workflow no longer has.
+    assert roots == ("workflows/Triage",)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("current_args", "incoming_args"),
+    [
+        pytest.param({"script": "x = 1"}, {}, id="script-file-deleted-in-git"),
+        pytest.param({}, {"script": "x = 1"}, id="script-file-added-in-git"),
+    ],
+)
+async def test_pull_preview_shows_a_changed_script_file_as_modified(
+    workspace_sync_service: WorkspaceSyncService,
+    current_args: dict[str, object],
+    incoming_args: dict[str, object],
+) -> None:
+    def workflow(
+        args: dict[str, object], source_id: str = "wf_a", title: str = "Triage"
+    ) -> WorkflowResourceSpec:
+        return WorkflowResourceSpec(
+            id=source_id,
+            alias=source_id,
+            definition=DSLInput(
+                title=title,
+                description="Pull preview test workflow",
+                entrypoint=DSLEntrypoint(ref="score", expects={}),
+                actions=[
+                    ActionStatement(
+                        ref="score", action="core.script.run_python", args=args
+                    )
+                ],
+            ),
+        )
+
+    # A local-only workflow is not in Git, so the preview must not list it.
+    current = WorkspaceSpec(
+        workflows={
+            "wf_a": workflow(current_args),
+            "wf_local": workflow({"script": "y = 2"}, "wf_local", "Local"),
+        }
+    )
+    incoming = WorkspaceSpec(workflows={"wf_a": workflow(incoming_args)})
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(), spec=current, files={}, paths=_TRIAGE_PATHS
+        )
+    )
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="a" * 40, files={}, spec=incoming, paths=_TRIAGE_PATHS
+    )
+
+    diffs = await workspace_sync_service._resource_diffs_for_pull(
+        snapshot, sync_schedules=False
+    )
+
+    # definition.yml is unchanged, so only the script file shows the change.
+    # The workflow already exists, so it is modified, not added.
+    assert [(d.source_path, d.change_type) for d in diffs] == [
+        ("workflows/Triage/scripts/score.py", "modified")
+    ]
+    assert "x = 1" in diffs[0].diff

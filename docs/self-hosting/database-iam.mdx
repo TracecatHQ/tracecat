@@ -1,0 +1,190 @@
+---
+title: Database IAM login
+description: "Log Tracecat in to PostgreSQL with Amazon RDS IAM or Microsoft Entra ID tokens instead of a stored database password."
+keywords: ["rds iam", "entra", "workload identity", "postgres", "pgdog", "passwordless"]
+---
+
+With `TRACECAT__DB_AUTH_MODE` set to `aws_iam` or `azure_entra`, each Tracecat service signs a short-lived token with its own cloud identity and sends it as the database password. Every new connection gets a valid token, so no service holds a database password. The default, `password`, keeps the existing password login.
+
+## Settings
+
+A token mode connects with these variables and refuses to start if `TRACECAT__DB_PASS`, `TRACECAT__DB_PASS__ARN` or `TRACECAT__DB_URI` is set:
+
+| Variable | Value |
+|----------|-------|
+| `TRACECAT__DB_AUTH_MODE` | `aws_iam` or `azure_entra` |
+| `TRACECAT__DB_USER` | The database user, such as `app` |
+| `TRACECAT__DB_ENDPOINT` | The host Tracecat connects to: the database, or PgDog |
+| `TRACECAT__DB_PORT` | Its port, such as `5432` (or `6432` for PgDog) |
+| `TRACECAT__DB_NAME` | The database name, such as `tracecat` |
+| `TRACECAT__DB_SSLMODE` | `require`, `verify-ca` or `verify-full` |
+
+`require` encrypts the connection without checking the server's certificate, and `verify-ca` checks the certificate's CA but not the host name, so any certificate from that CA passes. Only `verify-full` checks that the server is the host you named. For a direct connection to the database, use `verify-full` and point `PGSSLROOTCERT` at the CA bundle, such as the [RDS global bundle](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem) or `/etc/ssl/certs/ca-certificates.crt` for Azure.
+
+`aws_iam` also reads `TRACECAT__DB_AWS_REGION` (default `AWS_REGION`) and `TRACECAT__DB_AWS_IAM_HOST` / `TRACECAT__DB_AWS_IAM_PORT`, the RDS endpoint the token is signed for (default `TRACECAT__DB_ENDPOINT` / `TRACECAT__DB_PORT`). `azure_entra` reads `TRACECAT__DB_AZURE_CLIENT_ID`, the managed identity's client ID (default `AZURE_CLIENT_ID`).
+
+## Amazon RDS
+
+<Steps>
+  <Step title="Turn on IAM database authentication">
+    ```bash
+    aws rds modify-db-instance --db-instance-identifier <instance-id> \
+      --enable-iam-database-authentication --apply-immediately
+    ```
+  </Step>
+  <Step title="Create the database user">
+    As the master user, create the login and grant it `rds_iam`:
+
+    ```sql
+    CREATE ROLE app LOGIN;
+    GRANT rds_iam TO app;
+    ```
+
+    `rds_iam` turns off a role's password login, so never grant it to the master user. With [database roles](/self-hosting/database-roles), `tracecat db roles upgrade --login aws_iam` creates `app`, `migrator` and `agent_runtime` and grants them `rds_iam` for you.
+  </Step>
+  <Step title="Allow each service's IAM role to connect">
+    Look up the instance's resource ID, which looks like `db-ABCDEFGHIJKLMNOPQRSTUVWXYZ`:
+
+    ```bash
+    aws rds describe-db-instances --db-instance-identifier <instance-id> \
+      --query 'DBInstances[0].DbiResourceId' --output text
+    ```
+
+    Attach this statement to every IAM role a Tracecat service runs as (IRSA or Pod Identity on EKS, the task role on ECS). The resource is the `rds-db` user ARN, not the instance ARN:
+
+    ```json
+    {
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:<region>:<account-id>:dbuser:<DbiResourceId>/app"
+    }
+    ```
+
+    Every pod or task on that role can then log in as `app`, including executors that run workflow actions. Never grant it to the node's instance role: every pod on the node could then log in as `app`. On EKS, set `AWS_EC2_METADATA_DISABLED=true` on Tracecat's pods so a pod without its own identity fails instead of signing with the node role (the Helm chart sets it).
+  </Step>
+  <Step title="Configure Tracecat">
+    Download the RDS CA bundle and mount it into every Tracecat container, here at `/etc/tracecat/rds-global-bundle.pem` (a Kubernetes ConfigMap or Secret volume, or an ECS bind mount):
+
+    ```bash
+    curl -fsSLo rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+    ```
+
+    ```bash
+    TRACECAT__DB_AUTH_MODE=aws_iam
+    TRACECAT__DB_USER=app
+    TRACECAT__DB_ENDPOINT=<instance-id>.<hash>.<region>.rds.amazonaws.com
+    TRACECAT__DB_PORT=5432
+    TRACECAT__DB_NAME=tracecat
+    TRACECAT__DB_SSLMODE=verify-full
+    PGSSLROOTCERT=/etc/tracecat/rds-global-bundle.pem
+    TRACECAT__DB_AWS_REGION=<region>
+    ```
+  </Step>
+</Steps>
+
+Tracecat signs each token locally with the service's AWS credentials and reuses it for 10 minutes of its 15-minute life. RDS checks the token only at login, so open connections outlive it.
+
+## Azure Database for PostgreSQL
+
+<Steps>
+  <Step title="Turn on Microsoft Entra authentication">
+    On the flexible server, enable Microsoft Entra authentication and set an Entra administrator.
+  </Step>
+  <Step title="Create a managed identity for Tracecat">
+    Create a user-assigned managed identity and federate it with each Kubernetes service account that Tracecat runs as (Workload Identity):
+
+    Run this once per service account, with a credential name unique to each:
+
+    ```bash
+    az identity federated-credential create --name <service-account> \
+      --identity-name <identity-name> --resource-group <resource-group> \
+      --issuer <aks-oidc-issuer-url> \
+      --subject system:serviceaccount:<namespace>:<service-account>
+    ```
+
+    Annotate those service accounts with `azure.workload.identity/client-id: <client-id>` and label the pods `azure.workload.identity/use: "true"`.
+  </Step>
+  <Step title="Create the database users">
+    As the Entra administrator, connected to the `postgres` database, map each database role to the object ID of the identity that logs in as it:
+
+    ```sql
+    SELECT * FROM pgaadauth_create_principal_with_oid('app', '<app-object-id>', 'service', false, false);
+    ```
+
+    With [database roles](/self-hosting/database-roles) (`tracecat db roles upgrade --login azure_entra`), create all three login roles first; role setup then grants their privileges. `migrator` maps to the migrations Job's identity, `app` to the services' identity, and `agent_runtime` to an identity of its own (Tracecat doesn't log in as it yet):
+
+    ```sql
+    SELECT * FROM pgaadauth_create_principal_with_oid('migrator', '<migrations-object-id>', 'service', false, false);
+    SELECT * FROM pgaadauth_create_principal_with_oid('app', '<app-object-id>', 'service', false, false);
+    SELECT * FROM pgaadauth_create_principal_with_oid('agent_runtime', '<runtime-object-id>', 'service', false, false);
+    ```
+  </Step>
+  <Step title="Configure Tracecat">
+    ```bash
+    TRACECAT__DB_AUTH_MODE=azure_entra
+    TRACECAT__DB_USER=app
+    TRACECAT__DB_ENDPOINT=<server-name>.postgres.database.azure.com
+    TRACECAT__DB_PORT=5432
+    TRACECAT__DB_NAME=tracecat
+    TRACECAT__DB_SSLMODE=verify-full
+    PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt
+    TRACECAT__DB_AZURE_CLIENT_ID=<client-id>
+    ```
+  </Step>
+</Steps>
+
+Tracecat gets tokens from `DefaultAzureCredential`, which caches each token and renews it before it expires.
+
+## Kubernetes with PgDog
+
+With the Helm chart's `externalPostgres.auth.mode: awsIam`, the Tracecat services sign their own tokens and log in to PgDog, which passes the token through to RDS. Two connections keep other logins: the migrations Job (the admin, or `migrator` with [database roles](/self-hosting/database-roles)) and the agent runtime's own connections (below). PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to RDS with it, as `pgdog.serverUser`. The chart signs the tokens for `externalPostgres.host`, so set it to the RDS endpoint.
+
+```yaml
+externalPostgres:
+  host: <instance-id>.<hash>.<region>.rds.amazonaws.com
+  sslMode: require
+  auth:
+    existingSecret: tracecat-postgres-credentials  # the migrations Job's admin, without database roles
+    appSecret: tracecat-db-runtime                 # the agent runtime's PgDog-only login
+    mode: awsIam
+    awsIam:
+      username: app
+  tls:
+    verifyCA: true
+    caCert: |
+      ...RDS CA bundle...
+
+pgdog:
+  enabled: true
+  serverAuth: rds_iam
+  serverUser: app
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/tracecat-pgdog
+```
+
+The agent runtime's own connections can't sign tokens, so they log in to a second PgDog database entry, `<database>_runtime`, with `appSecret`'s password, which only PgDog accepts. Create `appSecret` for this purpose, with keys `username` (`app`), `password` and `dsn`, and point `agentRuntime.durable.database.dsnSecret` at it:
+
+```text
+postgresql://app:<password>@<release>-pgdog:6432/tracecat_runtime?sslmode=require
+```
+
+The two entries pool separately, so split `pgdog.pool.size` and `pgdog.passwordDatabase.poolSize` between them. PgDog needs a build with the token-cache fix from PgDog main (pgdog#1989).
+
+Clients reach PgDog over TLS that doesn't verify PgDog's certificate. A token taken from that hop is accepted by RDS until it expires, and PgDog accepts it for 15 minutes after it first sees it.
+
+## Migrations
+
+Without database roles, the migrations Job logs in with `externalPostgres.auth.existingSecret`. With them, it logs in as `migrator` (`migrations.migrator`, with `login: aws_iam` for an IAM token of its own) and never as the admin; see [Database roles](/self-hosting/database-roles). The `tracecat-admin migrate` commands take a password URI only.
+
+## Limitations
+
+- The AWS Fargate Terraform doesn't set `TRACECAT__DB_AUTH_MODE` yet; Fargate deployments keep password login.
+- The Helm chart configures `aws_iam` only.
+- Self-hosted Temporal still logs in to its own database with a password.
+
+## Related pages
+
+- See [Kubernetes](/self-hosting/kubernetes) for the rest of the Helm chart's PostgreSQL settings.
+- See [Database roles](/self-hosting/database-roles) to set up `app`, `migrator` and read-only roles.
+- See [Environment variables](/self-hosting/environment-variables) for every database setting.

@@ -44,6 +44,7 @@ from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_DIR
 from tracecat.logger import logger
 
 _TRUSTED_MCP_BRIDGE_PATH = "/mcp"
+_SYSTEM_PROMPT_FILE_NAME = "system-prompt.md"
 
 # How long a broken write waits for the shim to be reaped before giving up on
 # recording its exit code. Short enough not to stall the error path.
@@ -168,6 +169,9 @@ class SandboxedCLITransport(Transport):
                 runtime_options
             )
             runtime_options = self._options_with_platform_skills(runtime_options)
+            runtime_options = await self._options_with_system_prompt_file(
+                runtime_options
+            )
             original_options = self._options
             if runtime_options is not original_options:
                 original_options.mcp_servers = runtime_options.mcp_servers
@@ -536,6 +540,30 @@ class SandboxedCLITransport(Transport):
         )
         return replace(
             options, plugins=[{"type": "local", "path": str(runtime_plugin_dir)}]
+        )
+
+    async def _options_with_system_prompt_file(
+        self, options: ClaudeAgentOptions
+    ) -> ClaudeAgentOptions:
+        """Pass the system prompt by file so its size is not bound by argv limits.
+
+        Linux rejects any single exec argument of 128 KiB or more, so a large
+        ``--system-prompt`` value (e.g. a case copilot prompt embedding a big
+        case) would make spawning the CLI fail with E2BIG.
+        """
+        system_prompt = options.system_prompt
+        if not isinstance(system_prompt, str) or not system_prompt:
+            return options
+        host_path = self._job_dir / _SYSTEM_PROMPT_FILE_NAME
+        await asyncio.to_thread(host_path.write_text, system_prompt, encoding="utf-8")
+        runtime_path = (
+            JAILED_AGENT_JOB_DIR / _SYSTEM_PROMPT_FILE_NAME
+            if self._use_jailed_paths
+            else host_path
+        )
+        return replace(
+            options,
+            system_prompt={"type": "file", "path": str(runtime_path)},
         )
 
     def _options_with_protected_runtime_settings(

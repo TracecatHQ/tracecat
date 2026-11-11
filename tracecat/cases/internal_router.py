@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Literal, NoReturn
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError, NoResultFound
 from starlette.status import (
     HTTP_200_OK,
@@ -74,6 +75,11 @@ from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.errors import is_data_error
 from tracecat.db.models import Case
+from tracecat.dsl.common import DSLInput
+from tracecat.dsl.validation import (
+    format_input_schema_validation_error,
+    normalize_trigger_inputs,
+)
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatAuthorizationError,
@@ -85,7 +91,12 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeoutError
 from tracecat.query.lexical_types import LexicalSearchError, SearchMode
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.tiers.enums import Entitlement
+from tracecat.validation.schemas import ValidationDetail
+from tracecat.workflow.executions.correlation import build_case_task_correlation_id
+from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
 router = APIRouter(
     prefix="/internal/cases", tags=["internal-cases"], include_in_schema=False
@@ -1154,6 +1165,105 @@ async def delete_task(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete task",
         ) from e
+
+
+class CaseTaskRunRequest(Schema):
+    """Request body for running a case task's workflow."""
+
+    inputs: dict[str, Any] | None = None
+
+
+class CaseTaskRunResponse(Schema):
+    """A started case task workflow run."""
+
+    task_id: uuid.UUID
+    workflow_id: str
+    workflow_execution_id: str
+    message: str
+
+
+@task_router.post("/{case_id}/tasks/{task_id}/run", status_code=HTTP_201_CREATED)
+@require_scope("case:read", "workflow:execute")
+async def run_task(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    case_id: ExecutorCaseIDPath,
+    task_id: uuid.UUID,
+    params: CaseTaskRunRequest,
+) -> CaseTaskRunResponse:
+    """Run a case task's workflow, linked to the task like a run from the UI."""
+    service = CaseTasksService(session, role)
+    try:
+        task = await service.get_task(task_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND, detail="Task not found"
+        ) from e
+    if task.case_id != case_id:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
+    if task.workflow_id is None:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Task has no associated workflow. Set a workflow on the task first.",
+        )
+
+    wf_id = WorkflowUUID.new(task.workflow_id)
+    defn = await WorkflowDefinitionsService(
+        session, role=role
+    ).get_definition_by_workflow_id(wf_id, load_relationships=False)
+    if defn is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Workflow {wf_id.short()} has no published definition. "
+            "Publish the workflow first.",
+        )
+    dsl = DSLInput(**defn.content)
+
+    inputs: dict[str, Any] = {
+        **(task.default_trigger_values or {}),
+        **(params.inputs or {}),
+        "case_id": str(case_id),
+        "task_id": str(task_id),
+    }
+    if expects := dsl.entrypoint.expects:
+        try:
+            normalize_trigger_inputs(expects, inputs)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=format_input_schema_validation_error(
+                    ValidationDetail.list_from_pydantic(e)
+                ),
+            ) from e
+
+    exec_service = await WorkflowExecutionsService.connect(role=role)
+    try:
+        response = await exec_service.create_workflow_execution_wait_for_start(
+            dsl=dsl,
+            wf_id=wf_id,
+            payload=inputs,
+            registry_lock=(
+                RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None
+            ),
+            correlation_id=build_case_task_correlation_id(task_id),
+        )
+    except TracecatValidationError as e:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    logger.info(
+        "Case task workflow run started via internal API",
+        task_id=task_id,
+        workflow_id=wf_id,
+        workflow_execution_id=response["wf_exec_id"],
+    )
+    return CaseTaskRunResponse(
+        task_id=task_id,
+        workflow_id=WorkflowUUID.new(response["wf_id"]).short(),
+        workflow_execution_id=response["wf_exec_id"],
+        message=response["message"],
+    )
 
 
 @task_router.get("/tasks/{task_id}", status_code=HTTP_200_OK)

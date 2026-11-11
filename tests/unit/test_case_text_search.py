@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from tracecat import config
 from tracecat.cases.text_search import (
     MAX_EXCERPT_LENGTH,
     build_case_text_expressions,
@@ -18,6 +19,8 @@ from tracecat.cases.text_search import (
 from tracecat.db.models import Case
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.query.lexical_types import SearchMode
+
+WORKSPACE = uuid.UUID("00000000-0000-4000-8000-000000000001")
 
 
 @pytest.mark.parametrize(
@@ -94,12 +97,13 @@ def test_words_phrases_indicators_and_fuzzy_budget() -> None:
 
 @pytest.mark.parametrize("value", ["CASE-0001", "case-1"])
 def test_identifiers_match_exact_columns_and_indexed_text_mentions(value: str) -> None:
-    expression = build_case_text_expressions(parse_case_text_query(value))
+    expression = build_case_text_expressions(parse_case_text_query(value), WORKSPACE)
     statement = sa.select(Case.id).where(expression.predicate)
     sql = str(statement.compile(dialect=postgresql.dialect()))
     assert "case_number =" in sql
     assert "LIKE" not in sql
-    assert "tracecat_case_safe_vector_v1" in sql
+    assert '"case".summary_tsv' in sql
+    assert "tracecat_case_safe_vector_v1" not in sql
     assert "@@" in sql
 
 
@@ -139,7 +143,7 @@ def test_short_exact_words_are_allowed_with_a_selective_clause(value: str) -> No
 
 def test_phrase_sql_uses_separate_source_vectors() -> None:
     expression = build_case_text_expressions(
-        parse_case_text_query('"powershell encoded"')
+        parse_case_text_query('"powershell encoded"'), WORKSPACE
     )
     sql = str(
         sa.select(Case.id)
@@ -147,30 +151,32 @@ def test_phrase_sql_uses_separate_source_vectors() -> None:
         .compile(dialect=postgresql.dialect())
     )
     assert sql.count("phraseto_tsquery(") == 2
-    assert 'tracecat_case_safe_vector_v1(coalesce(CAST("case".summary AS TEXT)' in sql
-    assert (
-        'tracecat_case_safe_vector_v1(coalesce(CAST("case".description AS TEXT)' in sql
-    )
+    assert '"case".summary_tsv @@ phraseto_tsquery(' in sql
+    assert '"case".description_tsv @@ phraseto_tsquery(' in sql
     assert "pg_catalog.simple" in sql
     assert "||" not in sql
     assert "%>>" not in sql
 
 
 def test_fuzzy_operator_matches_index_expression_and_literals_are_bound() -> None:
-    expression = build_case_text_expressions(parse_case_text_query("powershel"))
+    expression = build_case_text_expressions(
+        parse_case_text_query("powershel"), WORKSPACE
+    )
     sql = str(
         sa.select(Case.id)
         .where(expression.predicate)
         .compile(dialect=postgresql.dialect())
     )
     # psycopg doubles percent signs in compiled SQL, preserving the %>> operator.
-    assert "lower(CASE WHEN" in sql
     assert 'CAST("case".summary AS TEXT)' in sql
     assert "%%>>" in sql
     assert "EXISTS (SELECT" in sql
     assert "strict_word_similarity(" in sql
+    # Typo words come from the workspace vocabulary, matched to stored lists.
+    assert '"case".summary_words && array((SELECT case_search_word.word' in sql
+    assert "case_search_word.workspace_id = %(workspace_id_1)s" in sql
     literal = build_case_text_expressions(
-        parse_case_text_query("abc%_\\' OR true", mode=SearchMode.LITERAL)
+        parse_case_text_query("abc%_\\' OR true", mode=SearchMode.LITERAL), WORKSPACE
     )
     compiled = (
         sa.select(Case.id)
@@ -218,13 +224,16 @@ async def test_excerpt_batch_skips_empty_inputs_and_bounds_returned_ids() -> Non
 
 
 @pytest.mark.anyio
-async def test_execution_settings_are_transaction_local_and_restored() -> None:
+async def test_execution_settings_are_transaction_local_and_restored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 12_345)
     session = AsyncMock()
     session.scalar.side_effect = ["0", "0.5"]
     async with case_search_execution_context(session):
         pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
-    assert "SET LOCAL statement_timeout = 1500" in statements
+    assert "SET LOCAL statement_timeout = 12345" in statements
     parameters = [
         call.args[1] for call in session.execute.await_args_list if len(call.args) > 1
     ]
@@ -234,7 +243,10 @@ async def test_execution_settings_are_transaction_local_and_restored() -> None:
 
 
 @pytest.mark.anyio
-async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings() -> None:
+async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 12_345)
     session = AsyncMock()
     session.scalar.return_value = "0"
     async with case_search_execution_context(session, use_trigram_threshold=False):
@@ -243,7 +255,7 @@ async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings() -> No
         "SHOW statement_timeout"
     ]
     assert [str(call.args[0]) for call in session.execute.await_args_list] == [
-        "SET LOCAL statement_timeout = 1500",
+        "SET LOCAL statement_timeout = 12345",
         "SELECT set_config('statement_timeout', :timeout, true)",
     ]
 
@@ -256,7 +268,7 @@ async def test_nested_fuzzy_execution_changes_and_restores_threshold_once() -> N
         async with case_search_execution_context(session):
             pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
-    assert statements.count("SELECT public.strict_word_similarity('', '')") == 2
+    assert statements.count("SELECT strict_word_similarity('', '')") == 2
     threshold_parameters = [
         call.args[1]
         for call in session.execute.await_args_list

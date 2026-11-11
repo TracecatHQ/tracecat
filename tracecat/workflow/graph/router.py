@@ -12,6 +12,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
+from tracecat.managed_resources.dependencies import ManagedWorkflowWriteGuard
 from tracecat.workflow.graph.service import WorkflowGraphService
 from tracecat.workflow.management.schemas import (
     GraphOperationsRequest,
@@ -21,6 +22,7 @@ from tracecat.workflow.management.schemas import (
 router = APIRouter(
     prefix="/workflows/{workflow_id}/graph",
     tags=["graph"],
+    dependencies=[ManagedWorkflowWriteGuard],
 )
 
 

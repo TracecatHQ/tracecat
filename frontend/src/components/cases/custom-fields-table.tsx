@@ -10,6 +10,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +30,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { getCaseFieldTypeConfig } from "@/lib/data-type"
 
 interface CustomFieldsTableProps {
@@ -47,6 +49,9 @@ export function CustomFieldsTable({
   const [editingField, setEditingField] = useState<CaseFieldReadMinimal | null>(
     null
   )
+  // Managed case fields keep their definition; values on cases stay editable.
+  // A case field's id is its field name, which managed records key on.
+  const { isManaged } = useManagedResources()
 
   return (
     <>
@@ -70,10 +75,16 @@ export function CustomFieldsTable({
                 />
               ),
               cell: ({ row }) => (
-                <div className="text-xs text-foreground/80">
+                <div className="flex items-center gap-2 text-xs text-foreground/80">
                   {row.getValue<CaseFieldReadMinimal["display_name"]>(
                     "display_name"
                   )}
+                  <ManagedResourceStatus
+                    resourceType="case_field"
+                    id={row.original.id}
+                    name={row.original.id}
+                    showDetach
+                  />
                 </div>
               ),
               enableSorting: true,
@@ -210,6 +221,7 @@ export function CustomFieldsTable({
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                const isLocked = isManaged("case_field", row.original.id)
                 return (
                   <div className="flex justify-end">
                     <DropdownMenu>
@@ -228,15 +240,17 @@ export function CustomFieldsTable({
                           Copy reference
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          disabled={isLocked}
                           onClick={() => {
                             setEditingField(row.original)
                           }}
                         >
                           Edit field
                         </DropdownMenuItem>
-                        <AlertDialogTrigger asChild>
+                        <AlertDialogTrigger asChild disabled={isLocked}>
                           <DropdownMenuItem
                             className="text-rose-500 focus:text-rose-600"
+                            disabled={isLocked}
                             onClick={() => {
                               setSelectedField(row.original)
                             }}

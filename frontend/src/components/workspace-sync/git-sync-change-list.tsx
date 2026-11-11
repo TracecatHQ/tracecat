@@ -5,11 +5,7 @@ import {
   EyeIcon,
   Loader2Icon,
   LockIcon,
-  type LucideIcon,
   SearchIcon,
-  SquareDotIcon,
-  SquareMinusIcon,
-  SquarePlusIcon,
 } from "lucide-react"
 import { type ReactNode, useState } from "react"
 import type { PullResourceDiff, SyncResourceType } from "@/client"
@@ -18,8 +14,15 @@ import {
   WORKSPACE_SYNC_RESOURCE_TYPE_META,
   WORKSPACE_SYNC_RESOURCE_TYPE_ORDER,
 } from "@/components/workspace-sync/resource-metadata"
-import { OperationDiffs } from "@/components/workspace-sync/sync-operation-diffs"
-import { UnifiedDiff } from "@/components/workspace-sync/unified-diff"
+import {
+  CHANGE_META,
+  ChangeIcon,
+  FileDiff,
+  LoadMoreDiffsButton,
+  type OperationDiff,
+  type OperationDiffSource,
+  useOperationDiffs,
+} from "@/components/workspace-sync/sync-operation-diffs"
 import { cn } from "@/lib/utils"
 
 type ChangeType = PullResourceDiff["change_type"]
@@ -37,7 +40,7 @@ interface ChangeItem {
   name: string
   path: string
   /** One per changed file; a resource can span several files. */
-  diffs: PullResourceDiff[]
+  diffs: OperationDiff[]
   changeType: ChangeType | undefined
 }
 
@@ -46,30 +49,6 @@ interface ChangeGroup {
   label: string
   abbr: string
   items: ChangeItem[]
-}
-
-const CHANGE_META: Record<
-  ChangeType,
-  { label: string; icon: LucideIcon; className: string; order: number }
-> = {
-  added: {
-    label: "New",
-    icon: SquarePlusIcon,
-    className: "text-green-700 dark:text-green-500",
-    order: 0,
-  },
-  modified: {
-    label: "Modified",
-    icon: SquareDotIcon,
-    className: "text-amber-700 dark:text-amber-500",
-    order: 1,
-  },
-  deleted: {
-    label: "Deleted",
-    icon: SquareMinusIcon,
-    className: "text-red-700 dark:text-red-500",
-    order: 2,
-  },
 }
 
 /**
@@ -179,12 +158,12 @@ function getResourceChangeType(diffs: PullResourceDiff[]): ChangeType {
     : "modified"
 }
 
-/** Full-width strip above the list for a blocked, failed, or stale state. */
+/** Full-width strip for a background, blocked, failed, or stale state. */
 export function GitSyncNotice({
   tone,
   children,
 }: {
-  tone: "warning" | "error"
+  tone: "info" | "warning" | "error"
   children: ReactNode
 }) {
   return (
@@ -192,9 +171,11 @@ export function GitSyncNotice({
       role={tone === "error" ? "alert" : "status"}
       className={cn(
         "border-b px-5 py-2.5 text-xs",
-        tone === "warning"
-          ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-          : "border-destructive/20 bg-destructive/5 text-destructive"
+        tone === "info" && "bg-muted/40 text-muted-foreground",
+        tone === "warning" &&
+          "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300",
+        tone === "error" &&
+          "border-destructive/20 bg-destructive/5 text-destructive"
       )}
     >
       {children}
@@ -230,7 +211,17 @@ export function GitSyncChangeList({
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const [openItem, setOpenItem] = useState<string | null>(null)
   const displayedCount = operationId ? (diffCount ?? 0) : fileCount
-  const groups = buildChangeGroups(resources, diffs)
+  // Durable previews list their files page by page instead of inline.
+  const pagedOperationId =
+    operationId && diffs.length === 0 ? operationId : undefined
+  const paged = useOperationDiffs(workspaceId, pagedOperationId)
+  const source = pagedOperationId
+    ? { workspaceId, operationId: pagedOperationId }
+    : undefined
+  const groups = buildChangeGroups(
+    resources,
+    pagedOperationId ? paged.diffs : diffs
+  )
   const hasSensitive = groups.some(
     (group) => group.type === "secret_metadata" || group.type === "variable"
   )
@@ -259,12 +250,15 @@ export function GitSyncChangeList({
           {displayedCount} {displayedCount === 1 ? "file" : "files"}
         </span>
       </div>
-      {operationId && diffs.length === 0 ? (
-        <OperationDiffs
-          workspaceId={workspaceId}
-          operationId={operationId}
-          count={diffCount ?? 0}
-        />
+      {pagedOperationId && paged.isLoading ? (
+        <p className="flex items-center gap-2 px-5 py-6 text-xs text-muted-foreground">
+          <Loader2Icon className="size-3.5 animate-spin" />
+          Loading changes...
+        </p>
+      ) : pagedOperationId && paged.error ? (
+        <p className="px-5 py-6 text-xs text-destructive">
+          Could not load changes. Preview again to refresh them.
+        </p>
       ) : groups.length === 0 ? (
         <p className="px-5 py-6 text-xs text-muted-foreground">
           Nothing to {direction}.
@@ -306,6 +300,7 @@ export function GitSyncChangeList({
                       <ChangeRow
                         key={item.key}
                         item={item}
+                        source={source}
                         isOpen={openItem === item.key}
                         onToggle={() =>
                           setOpenItem((current) =>
@@ -320,6 +315,14 @@ export function GitSyncChangeList({
             )
           })}
         </ul>
+      )}
+      {paged.hasMore && (
+        <div className="border-b px-3 py-1">
+          <LoadMoreDiffsButton
+            isLoading={paged.isLoadingMore}
+            onClick={paged.loadMore}
+          />
+        </div>
       )}
       {hasSensitive && (
         <div className="flex items-start gap-2 border-b px-5 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
@@ -336,10 +339,12 @@ export function GitSyncChangeList({
 
 function ChangeRow({
   item,
+  source,
   isOpen,
   onToggle,
 }: {
   item: ChangeItem
+  source?: OperationDiffSource
   isOpen: boolean
   onToggle: () => void
 }) {
@@ -396,68 +401,11 @@ function ChangeRow({
             key={diff.source_path}
             diff={diff}
             showPath={diffs.length > 1 || diff.source_path !== item.path}
+            source={source}
+            className="mb-2.5 ml-[74px] mr-5"
           />
         ))}
     </li>
-  )
-}
-
-function FileDiff({
-  diff,
-  showPath,
-}: {
-  diff: PullResourceDiff
-  showPath: boolean
-}) {
-  const { additions, deletions } = countDiffLines(diff.diff)
-  const lineTotal = additions + deletions
-  return (
-    <div className="mb-2.5 ml-[74px] mr-5 overflow-hidden rounded-md border">
-      <div className="flex items-center gap-2 border-b bg-muted/40 px-2.5 py-1 font-mono text-[11px]">
-        {showPath && (
-          <span className="min-w-0 truncate text-foreground">
-            {diff.source_path}
-          </span>
-        )}
-        {additions > 0 && (
-          <span className="text-green-700 dark:text-green-500">
-            +{additions}
-          </span>
-        )}
-        {deletions > 0 && (
-          <span className="text-red-700 dark:text-red-500">−{deletions}</span>
-        )}
-        <span className="text-muted-foreground">
-          {lineTotal === 1 ? "line" : "lines"}
-        </span>
-      </div>
-      <div className="max-h-80 overflow-auto">
-        <UnifiedDiff diff={diff.diff} />
-      </div>
-      {diff.truncated && (
-        <p className="border-t px-2.5 py-1 text-[11px] text-muted-foreground">
-          Diff truncated for preview.
-        </p>
-      )}
-    </div>
-  )
-}
-
-function ChangeIcon({ changeType }: { changeType: ChangeType | undefined }) {
-  if (!changeType) {
-    return <span aria-hidden className="size-[15px] shrink-0" />
-  }
-  const meta = CHANGE_META[changeType]
-  const Icon = meta.icon
-  return (
-    <span
-      role="img"
-      aria-label={meta.label}
-      title={meta.label}
-      className={cn("inline-flex shrink-0", meta.className)}
-    >
-      <Icon aria-hidden className="size-[15px]" />
-    </span>
   )
 }
 
@@ -558,32 +506,6 @@ function formatGroupSummary(items: ChangeItem[]): string {
   ]
     .filter(Boolean)
     .join(" · ")
-}
-
-/** Counts added and removed lines in a unified diff, skipping file headers. */
-function countDiffLines(diff: string): {
-  additions: number
-  deletions: number
-} {
-  let additions = 0
-  let deletions = 0
-  // File headers only come before the first hunk; later "+++ " lines are content.
-  let inHunk = false
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("@@")) {
-      inHunk = true
-      continue
-    }
-    if (!inHunk) {
-      continue
-    }
-    if (line.startsWith("+")) {
-      additions += 1
-    } else if (line.startsWith("-")) {
-      deletions += 1
-    }
-  }
-  return { additions, deletions }
 }
 
 function isKnownType(type: string): type is SyncResourceType {

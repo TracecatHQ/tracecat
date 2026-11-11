@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Export endpoints
+  description: >-
+    Export information about endpoints. Generates a CSV file with the information about your
+    endpoints in Endpoint Inventory. The CSV file is compressed into a ZIP file for download.
+    Calls POST /v3.0/endpointSecurity/endpoints/export.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint-Security/paths/~1v3.0~1endpointSecurity~1endpoints~1export/post
+  namespace: tools.trend_vision_one
+  name: export_endpoints
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    payload:
+      # Generic: a literal payload map would send null for unset optional fields,
+      # which this partial-update style body does not document as accepted.
+      type: dict[str, Any]
+      description: >-
+        API-native JSON request body. Documented fields for POST
+        /v3.0/endpointSecurity/endpoints/export: filter, orderBy.
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/endpointSecurity/endpoints/export
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

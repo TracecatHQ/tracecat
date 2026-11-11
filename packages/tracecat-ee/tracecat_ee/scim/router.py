@@ -13,7 +13,10 @@ from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.pagination import Page, PageParams
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
-from tracecat_ee.scim.connections import ScimConnectionService
+from tracecat_ee.scim.connections import (
+    ScimConnectionService,
+    ScimTokenOwnerRequiredError,
+)
 from tracecat_ee.scim.schemas import (
     ExternalGroupMappingCreate,
     ExternalGroupMappingRead,
@@ -44,18 +47,29 @@ connections_router = APIRouter(
 )
 
 
-@connections_router.post("", response_model=ScimConnectionTokenRead)
+@connections_router.post(
+    "",
+    response_model=ScimConnectionTokenRead,
+    responses={
+        status.HTTP_403_FORBIDDEN: {
+            "description": "Only organization owners can issue or rotate the token."
+        },
+    },
+)
 async def issue_scim_token(
     *,
     role: OrgActorRole,
     session: AsyncDBSession,
 ) -> ScimConnectionTokenRead:
-    """Create or rotate the SCIM connection token.
+    """Create or rotate the SCIM connection token. Owners only.
 
     The raw token is returned only in this response.
     """
     service = ScimConnectionService(session, role=role)
-    issued = await service.issue_token()
+    try:
+        issued = await service.issue_token()
+    except ScimTokenOwnerRequiredError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
     return ScimConnectionTokenRead(
         connection=ScimConnectionRead.model_validate(issued.connection),
         token=issued.token,

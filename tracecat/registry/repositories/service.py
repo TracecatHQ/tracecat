@@ -8,9 +8,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
-from tracecat.authz.controls import require_scope
+from tracecat.auth.types import Role
+from tracecat.authz.controls import check_scopes, has_scope, require_scope
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.exceptions import RegistryError, RegistryNotFound
+from tracecat.managed_resources.guard import ensure_registry_repository_unmanaged
+from tracecat.parse import safe_url
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
@@ -23,6 +26,22 @@ from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
 from tracecat.tiers.entitlements import Entitlement, check_entitlement
+
+
+async def ensure_registry_ssh_origin_allowed(role: Role, origin: str) -> None:
+    """Check that ``role`` may use the org registry SSH key for ``origin``.
+
+    Registry scopes only cover the origin configured in Git settings, which
+    requires ``org:settings:update`` to change. Any other origin still needs
+    ``org:secret:read``, so registry roles cannot point the key elsewhere.
+    """
+    if has_scope(role.scopes or frozenset(), "org:secret:read"):
+        return
+    configured_url = await get_setting("git_repo_url", role=role)
+    if isinstance(configured_url, str) and configured_url:
+        if safe_url(configured_url) == origin:
+            return
+    check_scopes(role, "org:secret:read")
 
 
 class RegistryReposService(BaseOrgService):
@@ -81,6 +100,12 @@ class RegistryReposService(BaseOrgService):
         self, repository: RegistryRepository, params: RegistryRepositoryUpdate
     ) -> RegistryRepository:
         """Update a registry repository."""
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
+        return await self._apply_update(repository, params)
+
+    async def _apply_update(
+        self, repository: RegistryRepository, params: RegistryRepositoryUpdate
+    ) -> RegistryRepository:
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(repository, key, value)
         self.session.add(repository)
@@ -122,6 +147,9 @@ class RegistryReposService(BaseOrgService):
         # the same as "not found" so this check cannot enable probing.
         if repository.organization_id != self.organization_id:
             raise RegistryNotFound("Registry repository not found")
+        # After the org check, so another org's managed repository is still
+        # reported as not found.
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
 
         if repository.origin != DEFAULT_REGISTRY_ORIGIN:
             await check_entitlement(
@@ -136,6 +164,7 @@ class RegistryReposService(BaseOrgService):
         is_git_ssh = repository.origin.startswith("git+ssh://")
         git_repo_package_name: str | None = None
         if is_git_ssh:
+            await ensure_registry_ssh_origin_allowed(self.role, repository.origin)
             git_repo_package_name = await get_setting(
                 "git_repo_package_name", role=self.role
             )
@@ -198,8 +227,10 @@ class RegistryReposService(BaseOrgService):
             force=force,
         )
 
+        # Guarded above; update_repository would re-read the id of the expired
+        # instance, which is implicit IO on an async session.
         self.session.expire(repository)
-        await self.update_repository(
+        await self._apply_update(
             repository,
             RegistryRepositoryUpdate(
                 last_synced_at=last_synced_at, commit_sha=sync_outcome.commit_sha
@@ -222,6 +253,7 @@ class RegistryReposService(BaseOrgService):
 
     async def delete_repository(self, repository: RegistryRepository) -> None:
         """Delete a registry repository."""
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
         if repository.current_version_id is not None:
             repository.current_version_id = None
             await self.session.flush()
@@ -249,6 +281,7 @@ class RegistryReposService(BaseOrgService):
         Raises:
             RegistryError: If version not found, doesn't belong to repo, or missing artifact
         """
+        await ensure_registry_repository_unmanaged(self.session, repository.id)
         # Fetch the version and verify it belongs to this repository
         statement = select(RegistryVersion).where(
             RegistryVersion.id == version_id,

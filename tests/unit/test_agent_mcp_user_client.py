@@ -205,6 +205,7 @@ async def test_discovery_servers_share_total_budget(
         return {}
 
     monkeypatch.setattr(UserMCPClient, "_discover_server_tools", hang)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_CONCURRENCY", 1)
     monkeypatch.setattr(
         user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 1, raising=False
     )
@@ -235,6 +236,7 @@ async def test_budget_timeout_firing_early_skips_remaining_servers(
         return {}
 
     monkeypatch.setattr(UserMCPClient, "_discover_server_tools", hang)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_CONCURRENCY", 1)
     monkeypatch.setattr(
         user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 1, raising=False
     )
@@ -833,6 +835,7 @@ async def test_discovery_respects_fired_timeout_before_clock_deadline(
 
     monkeypatch.setattr(user_client.asyncio, "timeout_at", timeout_at)
     monkeypatch.setattr(UserMCPClient, "_discover_server_tools", discover)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_CONCURRENCY", 1)
     monkeypatch.setattr(user_client, "MCP_DISCOVERY_TIMEOUT_SECONDS", 60)
     monkeypatch.setattr(
         user_client,
@@ -876,8 +879,136 @@ async def test_discovery_isolates_deadline_setup_failure(
             await client.discover_tools_detailed(fail_on_error=True)
         assert raised.value.server_name == "first"
         assert isinstance(raised.value.__cause__, OverflowError)
-        assert contacted == []
     else:
         result = await client.discover_tools_detailed()
         assert result.failed_servers == {"first": "OverflowError"}
         assert contacted == ["second"]
+
+
+def _named_tool(server_name: str) -> dict[str, MCPToolDefinition]:
+    name = f"mcp__{server_name}__search"
+    return {
+        name: MCPToolDefinition(
+            name=name, description="Search", parameters_json_schema={"type": "object"}
+        )
+    }
+
+
+@pytest.mark.anyio
+async def test_discovery_contacts_servers_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every server is in flight at once; tools still merge in config order."""
+    names = ["first", "second", "third"]
+    in_flight = 0
+    all_started = asyncio.Event()
+
+    async def discover(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        nonlocal in_flight
+        in_flight += 1
+        if in_flight == len(names):
+            all_started.set()
+        # Sequential discovery would never get past the first server.
+        await all_started.wait()
+        # Finish in reverse order.
+        await asyncio.sleep(0.01 * (len(names) - names.index(name)))
+        return _named_tool(name)
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", discover)
+    result = await asyncio.wait_for(
+        UserMCPClient([_mcp_server(n) for n in names]).discover_tools_detailed(),
+        timeout=1,
+    )
+    assert list(result.definitions) == [f"mcp__{n}__search" for n in names]
+    assert result.failed_servers == {}
+
+
+@pytest.mark.anyio
+async def test_concurrent_discovery_keeps_per_server_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung server times out on its own budget without delaying the rest."""
+
+    async def discover(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        if name == "hung":
+            await asyncio.Event().wait()
+        return _named_tool(name)
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", discover)
+    monkeypatch.setattr(
+        user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 0.02, raising=False
+    )
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    result = await asyncio.wait_for(
+        UserMCPClient(
+            [_mcp_server("hung"), _mcp_server("healthy")]
+        ).discover_tools_detailed(),
+        timeout=1,
+    )
+    assert loop.time() - started < 0.5
+    assert list(result.definitions) == ["mcp__healthy__search"]
+    assert set(result.failed_servers) == {"hung"}
+
+
+@pytest.mark.anyio
+async def test_strict_discovery_first_failure_cancels_other_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With fail_on_error, the first typed failure is raised and the slow
+    sibling is cancelled instead of being waited on."""
+    cancelled = asyncio.Event()
+
+    async def discover(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        if name == "broken":
+            await asyncio.sleep(0)
+            raise httpx.ConnectError("refused")
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return {}
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", discover)
+    client = UserMCPClient([_mcp_server("slow"), _mcp_server("broken")])
+    with pytest.raises(UserMCPDiscoveryUnavailableError) as raised:
+        await asyncio.wait_for(client.discover_tools(fail_on_error=True), timeout=1)
+    assert raised.value.server_name == "broken"
+    assert isinstance(raised.value.__cause__, httpx.ConnectError)
+    assert cancelled.is_set()
+
+
+@pytest.mark.anyio
+async def test_discovery_caps_servers_in_flight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Response caps are per response, so only a few servers run at once."""
+    names = [f"s{i}" for i in range(6)]
+    in_flight = 0
+    peak = 0
+
+    async def discover(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.01)
+        in_flight -= 1
+        return _named_tool(name)
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", discover)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_CONCURRENCY", 2)
+    result = await asyncio.wait_for(
+        UserMCPClient([_mcp_server(n) for n in names]).discover_tools_detailed(),
+        timeout=1,
+    )
+    assert peak == 2
+    assert list(result.definitions) == [f"mcp__{n}__search" for n in names]

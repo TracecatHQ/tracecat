@@ -490,6 +490,29 @@ async def update_comment(
 
 
 @registry.register(
+    default_title="Delete case comment",
+    display_group="Cases",
+    description="Delete a case comment. Only the comment author can delete it.",
+    namespace="core.cases",
+)
+async def delete_comment(
+    case_id: Annotated[
+        str,
+        Doc("The ID or short ID (e.g. CASE-0042) of the case containing the comment."),
+    ],
+    comment_id: Annotated[
+        str,
+        Doc("The ID of the comment to delete."),
+    ],
+) -> None:
+    """Delete a case comment.
+
+    Top-level comments with replies are soft-deleted so the thread is kept.
+    """
+    await ctx.cases.aio.delete_comment(case_id, comment_id)
+
+
+@registry.register(
     default_title="Get case",
     display_group="Cases",
     description="Get details of a specific case by ID.",

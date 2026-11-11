@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: List host groups
+  description: >-
+    Search for host groups by FQL filter. Requires the Host groups: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/host-group/#querycombinedhostgroups
+  namespace: tools.crowdstrike
+  name: list_host_groups
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter, for example `name:'Servers'`.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of host groups to return. Maximum 5000.
+      default: null
+    offset:
+      type: int | None
+      description: Offset to start retrieving records from.
+      default: null
+    sort:
+      type: str | None
+      description: Property to sort by, for example `name.asc`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_host_groups
+      action: tools.falconpy.call_command
+      args:
+        operation_id: queryCombinedHostGroups
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_host_groups.result }}

@@ -42,6 +42,7 @@ from tracecat.cases.schemas import (
     CaseCreate,
 )
 from tracecat.cases.service import CaseCommentsService, CasesService
+from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
@@ -52,6 +53,7 @@ from tracecat.db.models import (
     CaseCommentAgentInvocation,
     CaseCommentMention,
     CaseEvent,
+    CaseTriggerOutbox,
     User,
     Workflow,
 )
@@ -1237,13 +1239,19 @@ class TestCaseCommentsService:
         assert serialized.workflow.status == CaseCommentWorkflowStatus.RUNNING
 
     @pytest.mark.parametrize("reply", [False, True])
-    async def test_create_workflow_backed_comment_publishes_explicit_trigger(
+    async def test_create_workflow_backed_comment_writes_outbox_row(
         self,
         case_comments_service: CaseCommentsService,
+        session: AsyncSession,
         test_case: Case,
         workflow: Workflow,
         reply: bool,
     ) -> None:
+        """The picked workflow commits with the comment, as one outbox row.
+
+        The row is written even without an online case trigger, and nothing is
+        published after commit, so a crash after the commit cannot lose it.
+        """
         parent_id = None
         if reply:
             parent_comment = await case_comments_service.create_comment(
@@ -1253,13 +1261,7 @@ class TestCaseCommentsService:
             parent_id = parent_comment.id
         callbacks: list[object] = []
 
-        with (
-            patch("tracecat.cases.service.AfterCommitQueue.of") as queue_of_mock,
-            patch(
-                "tracecat.cases.service.publish_case_event_payload",
-                new=AsyncMock(),
-            ) as publish_mock,
-        ):
+        with patch("tracecat.cases.service.AfterCommitQueue.of") as queue_of_mock:
             queue_of_mock.return_value.add.side_effect = callbacks.append
             created_comment = await case_comments_service.create_comment(
                 test_case,
@@ -1270,70 +1272,40 @@ class TestCaseCommentsService:
                 ),
             )
 
-        # Only the duration sync publish is deferred; the workflow trigger
-        # below is published explicitly rather than after commit.
+        # Only the duration sync is deferred; no trigger work runs after commit.
         assert [getattr(cb, "__qualname__", None) for cb in callbacks] == [
             "enqueue_case_duration_sync_after_commit.<locals>._publish"
         ]
-        workflow_publish = next(
-            kwargs
-            for _, kwargs in publish_mock.await_args_list
-            if kwargs.get("extra_fields", {}).get("workflow_id") == str(workflow.id)
-        )
-        assert workflow_publish["event_id"]
-        assert workflow_publish["case_id"] == str(test_case.id)
-        assert workflow_publish["workspace_id"] == str(test_case.workspace_id)
-        assert workflow_publish["extra_fields"]["comment_id"] == str(created_comment.id)
-        assert workflow_publish["extra_fields"]["comment"] == "Run this workflow"
-        assert workflow_publish["extra_fields"]["parent_id"] == (
-            str(parent_id) if parent_id else None
-        )
-        assert workflow_publish["extra_fields"]["wf_exec_id"] == (
-            created_comment.workflow_wf_exec_id
-        )
-        assert workflow_publish["extra_fields"]["text"] == "Run this workflow"
-
-    async def test_create_workflow_backed_comment_marks_failed_when_publish_fails(
-        self,
-        case_comments_service: CaseCommentsService,
-        test_case: Case,
-        workflow: Workflow,
-        audit_event_calls: list[SimpleNamespace],
-    ) -> None:
-        existing_audit_count = len(audit_event_calls)
-
-        with (
-            patch("tracecat.cases.service.AfterCommitQueue.of"),
-            patch(
-                "tracecat.cases.service.publish_case_event_payload",
-                new=AsyncMock(side_effect=RuntimeError("redis unavailable")),
-            ),
-        ):
-            created_comment = await case_comments_service.create_comment(
-                test_case,
-                CaseCommentCreate(
-                    content="Run this workflow",
-                    workflow_id=WorkflowUUID.new(workflow.id),
-                ),
+        rows = (
+            await session.scalars(
+                select(CaseTriggerOutbox).where(
+                    CaseTriggerOutbox.case_id == test_case.id,
+                    CaseTriggerOutbox.extras.is_not(None),
+                )
             )
-
-        assert created_comment.workflow_status == CaseCommentWorkflowStatus.FAILED.value
-
-        refreshed_comment = await case_comments_service.get_comment(created_comment.id)
-        assert refreshed_comment is not None
-        assert (
-            refreshed_comment.workflow_status == CaseCommentWorkflowStatus.FAILED.value
+        ).all()
+        assert len(rows) == 1
+        row = rows[0]
+        event = await session.scalar(
+            select(CaseEvent).where(CaseEvent.id == row.event_id)
         )
-
-        workflow_audits = [
-            event
-            for event in audit_event_calls[existing_audit_count:]
-            if event.resource_type == "workflow_execution"
-        ]
-        assert [event.status for event in workflow_audits] == [
-            AuditEventStatus.ATTEMPT.value,
-            AuditEventStatus.FAILURE.value,
-        ]
+        assert event is not None
+        assert event.data["comment_id"] == str(created_comment.id)
+        assert created_comment.workflow_wf_exec_id is not None
+        trigger = CaseCommentWorkflowTrigger.model_validate(row.extras)
+        assert trigger == CaseCommentWorkflowTrigger(
+            workflow_id=workflow.id,
+            wf_exec_id=created_comment.workflow_wf_exec_id,
+            comment_id=created_comment.id,
+            parent_id=parent_id,
+            comment="Run this workflow",
+            triggered_by_type=case_comments_service.role.type,
+            triggered_by_user_id=case_comments_service.role.user_id,
+            triggered_by_service_id=case_comments_service.role.service_id,
+        )
+        assert created_comment.workflow_status == (
+            CaseCommentWorkflowStatus.RUNNING.value
+        )
 
     async def test_create_workflow_backed_comment_rejects_draft_workflow(
         self,
