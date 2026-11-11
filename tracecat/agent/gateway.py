@@ -464,6 +464,24 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
     return False
 
 
+def _anthropic_error_message(error_type: str, message: str) -> str:
+    """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
+    return orjson.dumps(
+        {"type": "error", "error": {"type": error_type, "message": message}}
+    ).decode()
+
+
+def _trace_request_id(data: dict[str, Any]) -> str | None:
+    """Return the LLM socket proxy's ``X-Request-ID`` for log correlation."""
+    match data.get("proxy_server_request"):
+        case {"headers": {"x-request-id": str() as trace_request_id}}:
+            # The LLM socket proxy only forwards IDs up to 128 characters, so
+            # this cap bounds the log field without breaking the exact join.
+            return trace_request_id[:128]
+        case _:
+            return None
+
+
 # Bounds a provider-supplied wait hint; the LLM socket proxy applies its own cap.
 _MAX_RETRY_AFTER_SECONDS = 300
 
@@ -484,6 +502,10 @@ def _retry_after_seconds(error: Exception) -> int | None:
     LiteLLM's ``/v1/messages`` error path drops upstream response headers, so
     the hint is carried in the error body instead.
     """
+    wrapped = getattr(error, "original_exception", None)
+    if isinstance(wrapped, Exception) and getattr(error, "status_code", None) == 429:
+        # MidStreamFallbackError wrapping provider throttling.
+        error = wrapped
     if isinstance(error, RouterRateLimitError):
         seconds: float | None = float(error.cooldown_time)
     else:
@@ -499,25 +521,22 @@ def _retry_after_seconds(error: Exception) -> int | None:
     return min(math.ceil(seconds), _MAX_RETRY_AFTER_SECONDS)
 
 
-def _anthropic_error_message(
-    error_type: str, message: str, *, retry_after: int | None = None
+def _anthropic_error_message_with_retry_after(
+    error_type: str, message: str, retry_after: int | None
 ) -> str:
-    """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
-    error: dict[str, str | int] = {"type": error_type, "message": message}
-    if retry_after is not None:
-        error["retry_after"] = retry_after
-    return orjson.dumps({"type": "error", "error": error}).decode()
-
-
-def _trace_request_id(data: dict[str, Any]) -> str | None:
-    """Return the LLM socket proxy's ``X-Request-ID`` for log correlation."""
-    match data.get("proxy_server_request"):
-        case {"headers": {"x-request-id": str() as trace_request_id}}:
-            # The LLM socket proxy only forwards IDs up to 128 characters, so
-            # this cap bounds the log field without breaking the exact join.
-            return trace_request_id[:128]
-        case _:
-            return None
+    """Like ``_anthropic_error_message``, plus the socket proxy's retry hint."""
+    if retry_after is None:
+        return _anthropic_error_message(error_type, message)
+    return orjson.dumps(
+        {
+            "type": "error",
+            "error": {
+                "type": error_type,
+                "message": message,
+                "retry_after": retry_after,
+            },
+        }
+    ).decode()
 
 
 class TracecatCallbackHandler(CustomLogger):
@@ -603,8 +622,8 @@ class TracecatCallbackHandler(CustomLogger):
         )
         original_exception.__dict__.update(
             type=replacement.type,
-            message=_anthropic_error_message(
-                replacement.type, str(replacement.detail), retry_after=retry_after
+            message=_anthropic_error_message_with_retry_after(
+                replacement.type, str(replacement.detail), retry_after
             ),
             status_code=replacement.status_code,
         )
