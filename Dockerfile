@@ -13,11 +13,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/nsjail/nstun-bounded-memory.patch /tmp/nstun-bounded-memory.patch
+# Applies on top of nstun-bounded-memory.patch: flush the rest of a partial
+# host write via EPOLLOUT instead of waiting for more guest data.
+COPY docker/nsjail/nstun-partial-write-flush.patch /tmp/nstun-partial-write-flush.patch
 
 RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
     cd /tmp/nsjail && git checkout "${NSJAIL_COMMIT}" && \
     git apply --check /tmp/nstun-bounded-memory.patch && \
     git apply /tmp/nstun-bounded-memory.patch && \
+    git apply --check /tmp/nstun-partial-write-flush.patch && \
+    git apply /tmp/nstun-partial-write-flush.patch && \
     git submodule update --init --recursive && \
     make -j"$(nproc)" && \
     install -m 0755 nsjail /usr/local/bin/nsjail && \
