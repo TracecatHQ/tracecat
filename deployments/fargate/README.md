@@ -199,8 +199,10 @@ logging is a separate diagnostic feature.
 
 ### WAF ownership (legacy)
 
-Manage AWS WAF separately through CloudFormation or your own security tooling,
-using the `alb_arn` output. With Terraform 1.7+, the bundled `waf-handoff.tf`
+Manage AWS WAF rules, ALB associations, event logging, and monitoring through a
+separate CloudFormation stack or your own security tooling. Use the `alb_arn`
+output to associate a `REGIONAL` web ACL in the ALB's AWS account and region.
+With Terraform 1.7+, the bundled `waf-handoff.tf`
 forgets legacy WAF state entries while preserving the live protection.
 Keep that migration file in the shared module for users upgrading from older releases.
 See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145)
