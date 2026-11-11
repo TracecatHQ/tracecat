@@ -28,6 +28,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.channel_publisher import ApprovalDecided
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.stream.feed import SessionFeedEventType
+from tracecat.agent.types import ToolDenied
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession, Approval, User
@@ -161,6 +162,21 @@ class TestApprovalManager:
         else:
             with pytest.raises(ValueError, match=error):
                 approval_manager.validate_responses(approvals)
+
+    async def test_validate_responses_keeps_the_first_decision(
+        self,
+        approval_manager: ApprovalManager,
+        sample_tool_calls: list[ToolCallContent],
+    ) -> None:
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
+        approval_manager.set({"call_123": ToolDenied(message="no")})
+
+        # The same outcome from another surface, with its own deny message.
+        approval_manager.validate_responses(
+            {"call_123": ToolDenied(message="denied"), "call_456": True}
+        )
+        with pytest.raises(ValueError, match="already decided differently"):
+            approval_manager.validate_responses({"call_123": True})
 
     async def test_is_ready(
         self,

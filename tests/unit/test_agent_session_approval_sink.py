@@ -257,8 +257,7 @@ async def test_stream_resume_distinguishes_pause_from_rotated_continuation(
 
     service = AgentSessionService(session=session, role=svc_role)
     stream = SimpleNamespace(
-        is_open_approval_continuation=AsyncMock(return_value=continuation_is_open),
-        is_stalled_approval_continuation=AsyncMock(return_value=False),
+        is_open_approval_continuation=AsyncMock(return_value=continuation_is_open)
     )
     with (
         patch.object(
@@ -274,9 +273,7 @@ async def test_stream_resume_distinguishes_pause_from_rotated_continuation(
         state = await service.get_stream_resume_state(external_agent_session)
 
     assert state.has_live_stream is expected_live
-    # One read for the stall check, one for the continuation check.
-    assert stream_new.await_count == 2
-    stream_new.assert_awaited_with(
+    stream_new.assert_awaited_once_with(
         session_id=external_agent_session.id,
         workspace_id=svc_role.workspace_id,
         stream_id=stream_id,
@@ -1007,12 +1004,11 @@ async def _partial_batch_session(
 
 
 @pytest.mark.anyio
-async def test_run_turn_continue_matching_resubmission_redelivers_without_writing(
+async def test_run_turn_continue_matching_resubmission_is_a_noop(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """A replay writes nothing, retries delivery under its update id, and
-    returns the current segment."""
+    """A recorded decision is one the run has: a replay sends and writes nothing."""
     agent_session, service = await _partial_batch_session(session, svc_role)
     first = await session.scalar(
         select(Approval).where(
@@ -1037,20 +1033,9 @@ async def test_run_turn_continue_matching_resubmission_redelivers_without_writin
             ),
         )
 
-    execute_update.assert_awaited_once()
-    assert execute_update.await_args is not None
-    assert agent_session.curr_run_id is not None
-    stream_id = _approval_continuation_stream_id(
-        agent_session.curr_run_id, ["tool_call_123"]
-    )
-    assert result is not None
-    assert result.active_stream_id == stream_id
-    publish.assert_awaited_once()
-    assert publish.await_args is not None
-    assert publish.await_args.kwargs["type"] is SessionFeedEventType.RUN_PAUSED
-    assert publish.await_args.kwargs["stream_id"] == stream_id
-    assert execute_update.await_args.kwargs["id"] == f"set-approvals:{stream_id}"
-    assert set(execute_update.await_args.args[1].approvals) == {"tool_call_123"}
+    assert result is None
+    execute_update.assert_not_awaited()
+    publish.assert_not_awaited()
 
     await session.refresh(first)
     assert first.approved_at == recorded_at
@@ -1120,11 +1105,8 @@ async def test_run_turn_continue_deny_replay_across_surfaces_is_noop(
     execute_update.assert_awaited_once()
     submitted = execute_update.await_args
     assert submitted is not None
-    # The run receives the recorded winner, not the replay's reason.
-    assert submitted.args[1].approvals == {
-        "tool_call_123": ToolDenied(message="Tool denied by user"),
-        "tool_call_456": True,
-    }
+    # The run has the recorded deny; only the new decision goes out.
+    assert submitted.args[1].approvals == {"tool_call_456": True}
 
 
 @pytest.mark.anyio
@@ -1162,11 +1144,11 @@ async def test_run_turn_continue_conflicting_resubmission_raises(
 
 
 @pytest.mark.anyio
-async def test_run_turn_continue_delivers_every_recorded_decision_of_the_batch(
+async def test_run_turn_continue_submits_only_the_new_decision(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """The last decision carries earlier ones, so a lost earlier delivery recovers."""
+    """The run holds earlier decisions, so a click carries only its own."""
     agent_session, service = await _partial_batch_session(session, svc_role)
 
     execute_update = AsyncMock(return_value=True)
@@ -1187,11 +1169,8 @@ async def test_run_turn_continue_delivers_every_recorded_decision_of_the_batch(
     execute_update.assert_awaited_once()
     assert execute_update.await_args is not None
     submitted = execute_update.await_args.args[1]
-    assert set(submitted.approvals) == {"tool_call_123", "tool_call_456"}
-    assert submitted.decision_metadata == {
-        "tool_call_123": {"source": "inbox"},
-        "tool_call_456": {"source": "inbox"},
-    }
+    assert submitted.approvals == {"tool_call_456": True}
+    assert submitted.decision_metadata == {"tool_call_456": {"source": "inbox"}}
 
 
 @pytest.mark.anyio
@@ -1290,19 +1269,27 @@ async def test_run_turn_continue_old_worker_none_defaults_to_resumed(
     execute_update.assert_awaited_once()
 
 
-def test_approval_continuation_stream_id_names_the_run_and_recorded_set() -> None:
+def test_approval_continuation_stream_id_names_the_run_and_decisions() -> None:
     run_id = uuid.uuid4()
+    both: dict[str, Any] = {
+        "tool_call_123": True,
+        "tool_call_456": ToolDenied(message="no"),
+    }
 
-    first = _approval_continuation_stream_id(run_id, ["tool_call_123", "tool_call_456"])
-    reordered = _approval_continuation_stream_id(
-        run_id, ["tool_call_456", "tool_call_123"]
+    first = _approval_continuation_stream_id(run_id, both)
+
+    assert first == _approval_continuation_stream_id(
+        run_id, dict(reversed(both.items()))
     )
-
-    assert first == reordered
-    assert first != _approval_continuation_stream_id(run_id, ["tool_call_123"])
+    # Each surface supplies its own deny message; the outcome is the same.
+    assert first == _approval_continuation_stream_id(
+        run_id, {**both, "tool_call_456": ToolDenied(message="other")}
+    )
     assert first != _approval_continuation_stream_id(
-        uuid.uuid4(), ["tool_call_123", "tool_call_456"]
+        run_id, {**both, "tool_call_123": False}
     )
+    assert first != _approval_continuation_stream_id(run_id, {"tool_call_123": True})
+    assert first != _approval_continuation_stream_id(uuid.uuid4(), both)
 
 
 @pytest.mark.anyio
@@ -1441,7 +1428,7 @@ async def test_approval_continuation_retry_reuses_stream_after_ambiguous_failure
 
 
 @pytest.mark.anyio
-async def test_approval_continuation_rejection_reverts_and_retry_reopens_stream(
+async def test_approval_continuation_rejection_restores_the_stream_and_retry_reopens_it(
     session: AsyncSession,
     svc_role: Role,
     pending_approval_session: tuple[AgentSession, ContinueRunRequest, uuid.UUID],
@@ -1463,7 +1450,7 @@ async def test_approval_continuation_rejection_reverts_and_retry_reopens_stream(
     ) as publish:
         with pytest.raises(AgentControlRejected):
             await service.run_turn(agent_session.id, continuation)
-        # A rejected decision is undone and tells no one.
+        # A refused decision is never recorded and tells no one.
         publish.assert_not_awaited()
         rejected_stream_id = execute_update.await_args_list[0].args[1].new_stream_id
         await session.refresh(agent_session)
@@ -1796,7 +1783,7 @@ async def test_recorded_decision_nulls_approved_by_for_unknown_user(
 
 
 @pytest.mark.anyio
-async def test_approval_connection_failure_keeps_the_decision_and_allows_retry(
+async def test_approval_connection_failure_keeps_the_stream_and_allows_retry(
     session: AsyncSession,
     svc_role: Role,
     pending_approval_session: tuple[AgentSession, ContinueRunRequest, uuid.UUID],
@@ -1825,7 +1812,8 @@ async def test_approval_connection_failure_keeps_the_decision_and_allows_retry(
                 Approval.tool_call_id == "tool_call_123",
             )
         )
-        assert approval_status is ApprovalStatus.APPROVED
+        # Nothing is recorded until the run accepts it.
+        assert approval_status is ApprovalStatus.PENDING
         result = await service.run_turn(agent_session.id, continuation)
     assert result is not None
     assert result.active_stream_id == continuation_stream_id

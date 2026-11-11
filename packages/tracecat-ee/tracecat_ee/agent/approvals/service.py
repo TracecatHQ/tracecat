@@ -12,6 +12,7 @@ from sqlalchemy import func, null, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
 
+from tracecat.agent.approvals.decisions import decision_outcome
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.channel_publisher import (
     ApprovalDecided,
@@ -469,6 +470,15 @@ class ApprovalManager:
                 raise ValueError(
                     f"Approval response for tool call '{tool_name}' (ID: {tool_call_id}) "
                     f"cannot be None. Please provide a valid approval decision."
+                )
+
+        # The run holds the decisions; the first one for a tool call stands.
+        for tool_call_id in sorted(provided_ids & self._approvals.keys()):
+            if decision_outcome(approvals[tool_call_id]) != decision_outcome(
+                self._approvals[tool_call_id]
+            ):
+                raise ValueError(
+                    f"Tool call {tool_call_id} was already decided differently"
                 )
 
     async def handle_decisions(self, *, publish: bool = True) -> None:

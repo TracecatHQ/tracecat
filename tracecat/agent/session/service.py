@@ -35,7 +35,6 @@ from tracecat.agent.approvals.decisions import (
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.submission import (
-    STALLED_SUBMISSION_SECONDS,
     ApprovalDecisionInvalidError,
     ApprovalNoLongerActiveError,
     ApprovalSubmissionService,
@@ -51,6 +50,7 @@ from tracecat.agent.backends.registry import (
 )
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
+    AgentControlRejected,
     SessionCleanup,
     SessionDeleteContext,
     SessionForkContext,
@@ -299,8 +299,6 @@ def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
 
 # How long a backend's post-delete cleanup may run; it should only start work.
 SESSION_CLEANUP_TIMEOUT_SECONDS = 10
-# How long a stream attach waits on resubmitting a stalled approval submission.
-_RESUBMIT_TIMEOUT_SECONDS = 5
 
 
 async def _run_session_cleanup(cleanup: SessionCleanup, session_id: uuid.UUID) -> None:
@@ -2005,52 +2003,12 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return False
 
-    async def _resubmit_stalled_decisions(
-        self, session_id: uuid.UUID, *, run_id: uuid.UUID, stream_id: uuid.UUID
-    ) -> None:
-        """Finish a submission that crashed after recording, without stalling the read."""
-        try:
-            async with asyncio.timeout(_RESUBMIT_TIMEOUT_SECONDS):
-                stream = await AgentStream.new(
-                    session_id=session_id,
-                    workspace_id=self.workspace_id,
-                    stream_id=stream_id,
-                )
-                if not await stream.is_stalled_approval_continuation(
-                    older_than=STALLED_SUBMISSION_SECONDS
-                ):
-                    return
-                # Its own transaction: a timeout must not leave this one mid-flight.
-                async with ApprovalSubmissionService.with_session(
-                    role=self.role
-                ) as submissions:
-                    await submissions.resubmit_stalled(
-                        session_id=session_id, run_id=run_id, stream_id=stream_id
-                    )
-        except Exception as exc:
-            # Best effort: the next read tries again.
-            logger.warning(
-                "Failed to resubmit stalled approval decisions",
-                session_id=str(session_id),
-                error=repr(exc),
-            )
-
     async def get_stream_resume_state(
         self, agent_session: AgentSession
     ) -> StreamResumeState:
         """Resolve whether the session has a live stream a client can attach to."""
         lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
         has_live_stream = lifecycle is TurnLifecycle.RUNNING
-        if (
-            has_live_stream
-            and curr_run_id is not None
-            and agent_session.active_stream_id is not None
-        ):
-            await self._resubmit_stalled_decisions(
-                agent_session.id,
-                run_id=curr_run_id,
-                stream_id=agent_session.active_stream_id,
-            )
         if has_live_stream and await self.has_pending_approvals(agent_session.id):
             has_live_stream = await self._is_attachable_continuation(agent_session)
 
@@ -2155,11 +2113,11 @@ class AgentSessionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         request: ContinueRunRequest,
     ) -> ChatResponse | None:
-        """Record web approval decisions, then submit them to the waiting run.
+        """Submit web approval decisions to the waiting run, then record them.
 
-        Returns None when a later submission already moved the run past these
-        decisions. A matching replay of the current set resubmits it and
-        returns its stream, so a retry after a lost submission recovers.
+        Returns None when every decision is already recorded, so the run has
+        them. A retry of decisions whose outcome was unknown resubmits them
+        under the same update id and returns their stream.
 
         Raises:
             TracecatNotFoundError: If no active session exists.
@@ -2168,7 +2126,7 @@ class AgentSessionService(BaseWorkspaceService):
         """
         submission = await ApprovalSubmissionService(
             self.session, role=self.role
-        ).record_and_submit(
+        ).submit_and_record(
             session_id=session_id,
             expected_batch_id=None,
             decisions=self._continuation_decisions(request),
@@ -2198,7 +2156,7 @@ class AgentSessionService(BaseWorkspaceService):
         source: str,
         approved_by: uuid.UUID | None = None,
     ) -> DecisionResult:
-        """Record one approval click and submit it to the waiting run.
+        """Submit one approval click to the waiting run, then record it.
 
         ``batch_id`` is the paused run's ``approval_batch_id``, so a click from
         an earlier pause does not match. ``source`` names the surface clicked.
@@ -2206,15 +2164,13 @@ class AgentSessionService(BaseWorkspaceService):
         can tell its user why.
 
         Raises:
-            AgentControlRejected: If the run refused the decision. It is
-                reverted unless a newer decision set already built on it.
             AgentControlUncertain: If the submission's fate is unknown; retrying the click is
                 safe.
         """
         try:
             submission = await ApprovalSubmissionService(
                 self.session, role=self.role
-            ).record_and_submit(
+            ).submit_and_record(
                 session_id=session_id,
                 expected_batch_id=batch_id,
                 decisions={
@@ -2222,7 +2178,12 @@ class AgentSessionService(BaseWorkspaceService):
                 },
                 approved_by=await self._existing_user_id(approved_by),
             )
-        except (TracecatNotFoundError, ApprovalNoLongerActiveError):
+        except (
+            TracecatNotFoundError,
+            ApprovalNoLongerActiveError,
+            # The run refused it: decided differently first, or moved on.
+            AgentControlRejected,
+        ):
             return DecisionRejected(
                 reason="no_longer_active", tool_call_id=decision.tool_call_id
             )
@@ -2233,7 +2194,7 @@ class AgentSessionService(BaseWorkspaceService):
         return DecisionRecorded(
             pending_tool_call_ids=submission.pending_tool_call_ids,
             resumed=RunRef(run_id=submission.run_id, stream_id=submission.stream_id)
-            if submission.outcome == "resumed"
+            if submission.outcome == "resumed" and submission.stream_id is not None
             else None,
         )
 

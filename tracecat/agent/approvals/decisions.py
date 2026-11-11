@@ -167,6 +167,23 @@ def decision_matches_persisted(
     )
 
 
+def decision_outcome(result: ApprovalResult) -> list[Any]:
+    """Reduce a decision to what ``decision_matches_persisted`` compares, as JSON.
+
+    Two decisions with the same outcome are the same decision, whichever
+    surface sent them and whatever deny message it supplied.
+    """
+    match result:
+        case bool(value):
+            return ["value", value]
+        case ToolApproved(override_args=override_args):
+            return ["tool-approved", override_args]
+        case ToolDenied():
+            return ["tool-denied"]
+        case _:
+            raise ValueError(f"Unsupported approval result: {type(result)}")
+
+
 def decision_matches_row(result: ApprovalResult, approval: Approval) -> bool:
     """Return whether a resubmitted decision matches a decided row."""
     if approval.decision is None:

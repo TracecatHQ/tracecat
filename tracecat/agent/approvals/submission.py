@@ -1,4 +1,4 @@
-"""Record approval decisions on their rows, then submit them to the waiting run."""
+"""Submit approval decisions to the waiting run, then record them on their rows."""
 
 from __future__ import annotations
 
@@ -6,23 +6,22 @@ import json
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
-from sqlalchemy import exists, func, null, or_, select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.approvals.decisions import (
     SubmittedDecision,
     decision_matches_row,
+    decision_outcome,
     record_decision,
-    recorded_metadata,
-    recorded_result,
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import get_agent_backend
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
-from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
+from tracecat.agent.backends.types import AgentControlRejected
 from tracecat.agent.channel_publisher import approval_batch_id
 from tracecat.agent.common.stream_types import (
     ApprovalStreamStatus,
@@ -31,6 +30,7 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
+from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.db.models import AgentSession, Approval
 from tracecat.exceptions import (
     TracecatConflictError,
@@ -40,11 +40,8 @@ from tracecat.exceptions import (
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 
-STALLED_SUBMISSION_SECONDS = 10.0
-"""How long a continuation may hold only its marker before it is resubmitted.
-
-A healthy submission writes after the marker within a second; resubmitting
-sooner is safe, only wasteful."""
+if TYPE_CHECKING:
+    from tracecat_ee.agent.approvals.service import ApprovalResult
 
 
 class ApprovalNoLongerActiveError(TracecatConflictError):
@@ -66,48 +63,51 @@ class _LockedBatch:
 
 
 @dataclass(frozen=True, slots=True)
-class _RecordedDecisionSet:
-    """A committed decision set, ready to submit to the waiting run."""
+class _SubmissionAttempt:
+    """Undecided decisions with their continuation installed, ready to submit."""
 
     run_id: uuid.UUID
     backend: AgentBackend[Any, Any]
-    # A repeat of a set the run already moved past: submitting it is a no-op.
-    outdated: bool
     stream_id: uuid.UUID
     previous_stream_id: uuid.UUID | None
-    newly_recorded_tool_call_ids: list[str]
+    decisions: dict[str, SubmittedDecision]
     batch_tool_call_ids: list[str]
-    pending_tool_call_ids: list[str]
     submission: WorkflowApprovalSubmission
 
 
 @dataclass(frozen=True, slots=True)
 class ApprovalSubmissionResult:
-    """What one submission recorded and submitted to the waiting run."""
+    """What one submission delivered to the waiting run."""
 
     run_id: uuid.UUID
-    # The stream carrying the run's output for this caller to follow.
-    stream_id: uuid.UUID
+    # The stream carrying the run's output for this caller to follow; None
+    # when the call was a ``noop`` and the session has no stream.
+    stream_id: uuid.UUID | None
     pending_tool_call_ids: list[str]
-    # ``noop``: the set was outdated and not submitted; ``submitted``: the run
-    # took the set but this call didn't resume it; ``resumed``: this call
-    # resumed the run and owns announcing it.
+    # ``noop``: every decision was already recorded, so the run has it;
+    # ``submitted``: the run took the decisions but this call didn't resume it;
+    # ``resumed``: this call resumed the run and owns announcing it.
     outcome: Literal["noop", "submitted", "resumed"]
 
 
 def _approval_continuation_stream_id(
-    run_id: uuid.UUID, tool_call_ids: Sequence[str]
+    run_id: uuid.UUID, decisions: Mapping[str, ApprovalResult]
 ) -> uuid.UUID:
-    """Name the continuation that submits a run's recorded decisions.
+    """Name the continuation that submits one set of decisions.
 
-    Every submitter of the same recorded set derives the same stream, and so
-    the same Temporal update id: a retry or replay is applied at most once.
+    A retry of the same decisions derives the same stream, and so the same
+    Temporal update id: the run applies it at most once. A different decision
+    derives another, which the run refuses.
     """
-    return uuid.uuid5(run_id, json.dumps(sorted(tool_call_ids)))
+    outcomes = sorted(
+        (tool_call_id, decision_outcome(result))
+        for tool_call_id, result in decisions.items()
+    )
+    return uuid.uuid5(run_id, json.dumps(outcomes, sort_keys=True))
 
 
 class ApprovalSubmissionService(BaseWorkspaceService):
-    """Records approval decisions and submits them to the run waiting on them."""
+    """Submits approval decisions to the waiting run, then records them."""
 
     service_name = "approval-submission"
 
@@ -201,15 +201,18 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             agent_session=agent_session, run_id=run_id, backend=backend, rows=rows
         )
 
-    async def _record_decisions(
+    async def _begin_submission(
         self,
         *,
         session_id: uuid.UUID,
         expected_batch_id: uuid.UUID | None,
         decisions: Mapping[str, SubmittedDecision],
         approved_by: uuid.UUID | None,
-    ) -> _RecordedDecisionSet:
-        """Record pending decisions and install their continuation, in one commit."""
+    ) -> _SubmissionAttempt | ApprovalSubmissionResult:
+        """Install the continuation for the undecided decisions, in one commit.
+
+        Returns a ``noop`` result when every decision is already recorded.
+        """
         try:
             batch = await self._lock_decided_batch(
                 session_id=session_id,
@@ -217,34 +220,37 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 decisions=decisions,
             )
             by_id = {row.tool_call_id: row for row in batch.rows}
-            newly_recorded = [
-                tool_call_id
-                for tool_call_id in decisions
+            pending_ids = [
+                row.tool_call_id
+                for row in batch.rows
+                if row.status is ApprovalStatus.PENDING
+            ]
+            undecided = {
+                tool_call_id: decision
+                for tool_call_id, decision in decisions.items()
                 if by_id[tool_call_id].status is ApprovalStatus.PENDING
-            ]
-            for tool_call_id in newly_recorded:
-                record_decision(
-                    by_id[tool_call_id],
-                    decisions[tool_call_id],
-                    approved_by=approved_by,
-                )
-            decided = [
-                row for row in batch.rows if row.status is not ApprovalStatus.PENDING
-            ]
-            stream_id = _approval_continuation_stream_id(
-                batch.run_id, [row.tool_call_id for row in decided]
-            )
+            }
             previous_stream_id = batch.agent_session.active_stream_id
-            outdated = False
-            if newly_recorded:
+            if not undecided:
+                # A row is decided only after the run accepted it: a repeat.
+                await self.session.commit()
+                return ApprovalSubmissionResult(
+                    run_id=batch.run_id,
+                    stream_id=previous_stream_id,
+                    pending_tool_call_ids=pending_ids,
+                    outcome="noop",
+                )
+            stream_id = _approval_continuation_stream_id(
+                batch.run_id,
+                {
+                    tool_call_id: decision.result
+                    for tool_call_id, decision in undecided.items()
+                },
+            )
+            if previous_stream_id != stream_id:
                 await self._install_approval_continuation(
                     batch.agent_session, stream_id=stream_id
                 )
-            elif previous_stream_id != stream_id or await self._has_newer_batch(
-                session_id, [by_id[tool_call_id] for tool_call_id in decisions]
-            ):
-                # A later decision or batch already moved the run past this set.
-                outdated = True
             await self.session.commit()
         except (
             TracecatNotFoundError,
@@ -260,53 +266,30 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             await self.session.rollback()
             raise
 
-        return _RecordedDecisionSet(
+        return _SubmissionAttempt(
             run_id=batch.run_id,
             backend=batch.backend,
-            outdated=outdated,
             stream_id=stream_id,
             previous_stream_id=previous_stream_id,
-            newly_recorded_tool_call_ids=newly_recorded,
+            decisions=undecided,
             batch_tool_call_ids=[row.tool_call_id for row in batch.rows],
-            pending_tool_call_ids=[
-                row.tool_call_id
-                for row in batch.rows
-                if row.status is ApprovalStatus.PENDING
-            ],
             submission=WorkflowApprovalSubmission(
-                approvals={row.tool_call_id: recorded_result(row) for row in decided},
+                approvals={
+                    tool_call_id: decision.result
+                    for tool_call_id, decision in undecided.items()
+                },
                 approved_by=approved_by,
                 decision_metadata={
-                    row.tool_call_id: metadata
-                    for row in decided
-                    if (metadata := recorded_metadata(row)) is not None
+                    tool_call_id: decision.metadata
+                    for tool_call_id, decision in undecided.items()
+                    if decision.metadata
                 }
                 or None,
                 new_stream_id=stream_id,
             ),
         )
 
-    async def _has_newer_batch(
-        self, session_id: uuid.UUID, decided: Sequence[Approval]
-    ) -> bool:
-        """Whether the run paused on another batch after ``decided`` were decided.
-
-        Compares against decision time, not creation, so legacy siblings of one
-        pause (committed row by row) never count as a newer batch.
-        """
-        return bool(
-            await self.session.scalar(
-                select(
-                    exists().where(
-                        Approval.workspace_id == self.workspace_id,
-                        Approval.session_id == session_id,
-                        Approval.created_at > max(row.updated_at for row in decided),
-                    )
-                )
-            )
-        )
-
-    async def record_and_submit(
+    async def submit_and_record(
         self,
         *,
         session_id: uuid.UUID,
@@ -314,13 +297,15 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         decisions: Mapping[str, SubmittedDecision],
         approved_by: uuid.UUID | None,
     ) -> ApprovalSubmissionResult:
-        """Record decisions on their approval rows, then submit them to the run.
+        """Submit decisions to the waiting run, then record them on their rows.
 
-        The rows are the record: a decision commits before the run sees it.
-        A submission carries every recorded decision of the batch under an
-        update id derived from that set, so Temporal applies it once and a
-        matching replay retries a lost submission. Locking the session row orders
-        concurrent submitters, so one winner holds per tool call.
+        The run holds the decisions; the rows follow it. A row is written only
+        once the run accepted its decision, so a decided row never names a
+        decision the run lacks. A crash before the write leaves the row pending
+        until a retry or the run's own write at resume catches it up.
+        Submissions use an update id derived from their decisions, so a retry
+        is applied at most once. Submitters take turns, so the run and the
+        session agree on which submission came last.
 
         Raises:
             TracecatNotFoundError: If the session or its run is gone.
@@ -328,137 +313,137 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 current run's batch, or a decision contradicts a recorded one.
             ApprovalDecisionInvalidError: If an ID is not an approval of the
                 session.
-            AgentControlRejected: If the run refused the decisions. This call's
-                decisions are reverted.
-            AgentControlUncertain: If the outcome is unknown, or a refused set
-                could not be reverted; retry the same decisions.
+            AgentControlRejected: If the run refused the decisions, for one
+                because another decision for a tool call reached it first.
+            AgentControlUncertain: If the outcome is unknown; retry the same
+                decisions.
         """
-        decision_set = await self._record_decisions(
+        attempt = await self._begin_submission(
             session_id=session_id,
             expected_batch_id=expected_batch_id,
             decisions=decisions,
             approved_by=approved_by,
         )
-        if decision_set.outdated:
-            return ApprovalSubmissionResult(
-                run_id=decision_set.run_id,
-                stream_id=decision_set.stream_id,
-                pending_tool_call_ids=decision_set.pending_tool_call_ids,
-                outcome="noop",
-            )
+        if isinstance(attempt, ApprovalSubmissionResult):
+            return attempt
 
         logger.info(
-            "Submitting recorded approval decisions",
+            "Submitting approval decisions",
             session_id=str(session_id),
-            run_id=str(decision_set.run_id),
-            newly_recorded=decision_set.newly_recorded_tool_call_ids,
-            submitted=sorted(decision_set.submission.approvals),
+            run_id=str(attempt.run_id),
+            submitted=sorted(attempt.decisions),
         )
         try:
-            resumed = await decision_set.backend.submit_approvals(
-                decision_set.run_id, decision_set.submission
+            # Held until the decisions are recorded: the last accepted
+            # submission also names the stream the run writes to.
+            await pg_advisory_xact_lock(
+                self.session,
+                derive_lock_key_from_parts("approval-submission", str(session_id)),
+            )
+            resumed = await attempt.backend.submit_approvals(
+                attempt.run_id, attempt.submission
             )
         except AgentControlRejected:
-            if decision_set.newly_recorded_tool_call_ids:
-                await self._revert_rejected_decisions(
-                    session_id=session_id,
-                    run_id=decision_set.run_id,
-                    stream_id=decision_set.stream_id,
-                    previous_stream_id=decision_set.previous_stream_id,
-                    tool_call_ids=decision_set.newly_recorded_tool_call_ids,
-                )
+            await self.session.rollback()
+            await self._restore_rejected_stream(
+                session_id=session_id,
+                run_id=attempt.run_id,
+                stream_id=attempt.stream_id,
+                previous_stream_id=attempt.previous_stream_id,
+            )
+            raise
+        except BaseException:
+            await self.session.rollback()
             raise
 
+        await self._record_accepted_decisions(
+            session_id=session_id, attempt=attempt, approved_by=approved_by
+        )
         return await self._announce_submitted_decisions(
             session_id=session_id,
-            decision_set=decision_set,
+            attempt=attempt,
             resumed=resumed,
             tool_call_ids=list(decisions),
         )
 
-    async def resubmit_stalled(
+    async def _record_accepted_decisions(
         self,
         *,
         session_id: uuid.UUID,
-        run_id: uuid.UUID,
-        stream_id: uuid.UUID,
-    ) -> bool:
-        """Submit the recorded set of a stalled continuation again.
+        attempt: _SubmissionAttempt,
+        approved_by: uuid.UUID | None,
+    ) -> None:
+        """Point the session at the accepted stream and record its decisions.
 
-        A crash between the commit and the submission leaves the session on a
-        continuation that holds only its marker; the caller found it so. The
-        resubmission reuses the set's update id, so one still in flight
-        absorbs it.
-
-        Returns whether the set was resubmitted.
+        Best effort: the run already holds the decisions and writes every row
+        at resume.
         """
-        in_session = (
-            Approval.workspace_id == self.workspace_id,
-            Approval.session_id == session_id,
-        )
-        latest = select(func.max(Approval.created_at)).where(*in_session)
-        decided = (
-            await self.session.scalars(
-                select(Approval)
+        decisions = attempt.decisions
+        try:
+            # The run writes to the stream of the last submission it accepted.
+            await self.session.execute(
+                update(AgentSession)
                 .where(
-                    *in_session,
-                    Approval.created_at == latest.scalar_subquery(),
-                    Approval.status != ApprovalStatus.PENDING,
+                    AgentSession.id == session_id,
+                    AgentSession.workspace_id == self.workspace_id,
+                    AgentSession.curr_run_id == attempt.run_id,
                 )
-                .order_by(Approval.updated_at)
+                .values(active_stream_id=attempt.stream_id)
+                .execution_options(synchronize_session="fetch")
             )
-        ).all()
-        # Only the latest batch's decided set names this continuation.
-        if not decided or stream_id != _approval_continuation_stream_id(
-            run_id, [row.tool_call_id for row in decided]
-        ):
-            return False
-        logger.warning(
-            "Resubmitting approval decisions whose submission stalled",
-            session_id=str(session_id),
-            run_id=str(run_id),
-            tool_call_ids=[row.tool_call_id for row in decided],
-        )
-        await self.record_and_submit(
-            session_id=session_id,
-            expected_batch_id=None,
-            decisions={
-                row.tool_call_id: SubmittedDecision(
-                    result=recorded_result(row),
-                    metadata=recorded_metadata(row) or {},
+            rows = (
+                await self.session.scalars(
+                    select(Approval)
+                    .where(
+                        Approval.workspace_id == self.workspace_id,
+                        Approval.session_id == session_id,
+                        Approval.tool_call_id.in_(list(decisions)),
+                        Approval.status == ApprovalStatus.PENDING,
+                    )
+                    .order_by(Approval.tool_call_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
-                for row in decided
-            },
-            approved_by=decided[-1].approved_by,
-        )
-        return True
+            ).all()
+            for row in rows:
+                record_decision(
+                    row, decisions[row.tool_call_id], approved_by=approved_by
+                )
+            await self.session.commit()
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            logger.warning(
+                "Failed to record approval decisions the run accepted",
+                session_id=str(session_id),
+                tool_call_ids=sorted(decisions),
+                error=str(exc),
+            )
 
     async def _announce_submitted_decisions(
         self,
         *,
         session_id: uuid.UUID,
-        decision_set: _RecordedDecisionSet,
+        attempt: _SubmissionAttempt,
         resumed: bool,
         tool_call_ids: Sequence[str],
     ) -> ApprovalSubmissionResult:
         """Close a paused segment and tell open tabs which stream the run is on.
 
-        Idempotent, so a replay that resubmits also finishes what a lost
-        attempt left open. Holding the session row keeps a newer continuation
-        from committing between the check and the feed event.
+        Holding the session row keeps a newer continuation from committing
+        between the check and the feed event.
         """
-        stream_id = decision_set.stream_id
+        stream_id = attempt.stream_id
         try:
             current_stream_id = await self.session.scalar(
                 select(AgentSession.active_stream_id)
                 .where(
                     AgentSession.id == session_id,
                     AgentSession.workspace_id == self.workspace_id,
-                    AgentSession.curr_run_id == decision_set.run_id,
+                    AgentSession.curr_run_id == attempt.run_id,
                 )
                 .with_for_update(key_share=True)
             )
-            # A later submission rotated past this set; it announces the run.
+            # A later submission rotated past this one; it announces the run.
             newer_stream_id = (
                 current_stream_id
                 if current_stream_id not in (None, stream_id)
@@ -478,7 +463,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                     type=SessionFeedEventType.RUN_RESUMED
                     if resumed
                     else SessionFeedEventType.RUN_PAUSED,
-                    run_id=decision_set.run_id,
+                    run_id=attempt.run_id,
                     stream_id=stream_id,
                 )
             pending = (
@@ -487,7 +472,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                     .where(
                         Approval.workspace_id == self.workspace_id,
                         Approval.session_id == session_id,
-                        Approval.tool_call_id.in_(decision_set.batch_tool_call_ids),
+                        Approval.tool_call_id.in_(attempt.batch_tool_call_ids),
                         Approval.status == ApprovalStatus.PENDING,
                     )
                     .order_by(Approval.tool_call_id)
@@ -498,7 +483,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             await self.session.rollback()
             raise
         return ApprovalSubmissionResult(
-            run_id=decision_set.run_id,
+            run_id=attempt.run_id,
             stream_id=newer_stream_id or stream_id,
             pending_tool_call_ids=list(pending),
             outcome="resumed" if resumed and not superseded else "submitted",
@@ -582,7 +567,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             workspace_id=self.workspace_id,
             stream_id=stream_id,
         )
-        # A rejected submission of the same set may have left this stream closed.
+        # A rejected submission of the same decisions may have left this stream closed.
         await stream.clear_buffer()
         await stream.mark_approval_continuation(
             submission_key=str(stream_id),
@@ -590,19 +575,19 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         )
         agent_session.active_stream_id = stream_id
 
-    async def _revert_rejected_decisions(
+    async def _restore_rejected_stream(
         self,
         *,
         session_id: uuid.UUID,
         run_id: uuid.UUID,
         stream_id: uuid.UUID,
         previous_stream_id: uuid.UUID | None,
-        tool_call_ids: Sequence[str],
     ) -> None:
-        """Undo decisions the run refused: reopen their rows and restore the stream.
+        """Close the refused continuation and point the session back.
 
-        Only while this set's stream is still current: a later submission
-        recorded on top of these decisions and owns them now.
+        Only while this continuation is still current: a later submission
+        rotated past it and owns the pointer now. Nothing was recorded, so
+        nothing else needs undoing.
         """
         try:
             stream = await AgentStream.new(
@@ -620,8 +605,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             )
 
         try:
-            # Session row first: the same lock order as recording decisions.
-            restored = await self.session.scalar(
+            await self.session.execute(
                 update(AgentSession)
                 .where(
                     AgentSession.id == session_id,
@@ -630,39 +614,14 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                     AgentSession.active_stream_id == stream_id,
                 )
                 .values(active_stream_id=previous_stream_id)
-                .returning(AgentSession.id)
-                .execution_options(synchronize_session="fetch")
-            )
-            if restored is None:
-                await self.session.commit()
-                return
-            await self.session.execute(
-                update(Approval)
-                .where(
-                    Approval.workspace_id == self.workspace_id,
-                    Approval.session_id == session_id,
-                    Approval.tool_call_id.in_(tool_call_ids),
-                )
-                .values(
-                    status=ApprovalStatus.PENDING,
-                    reason=None,
-                    decision=null(),
-                    approved_by=None,
-                    approved_at=None,
-                    updated_at=func.now(),
-                )
                 .execution_options(synchronize_session="fetch")
             )
             await self.session.commit()
         except SQLAlchemyError as exc:
             await self.session.rollback()
-            logger.error(
-                "Failed to revert approval decisions the run rejected",
+            logger.warning(
+                "Failed to restore the stream of a rejected approval submission",
                 session_id=str(session_id),
-                tool_call_ids=list(tool_call_ids),
+                stream_id=str(stream_id),
                 error=str(exc),
             )
-            # The rows still claim a set the run refused: not a clean rejection.
-            raise AgentControlUncertain(
-                "Rejected approval decisions could not be reverted"
-            ) from None
