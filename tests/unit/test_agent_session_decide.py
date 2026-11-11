@@ -52,7 +52,8 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_engine, get_async_session_context_manager
+from tracecat.db.locks import derive_lock_key_from_parts, hold_pg_advisory_xact_lock
 from tracecat.db.models import AgentSession, Approval, User
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -938,3 +939,26 @@ async def test_a_crash_before_the_announcement_leaves_the_retry_to_announce(
     assert len(handle.received) == 1
     row = await _row(session, agent_session, "tool_call_123")
     assert row.status is ApprovalStatus.APPROVED
+
+
+@pytest.mark.anyio
+async def test_a_click_queued_behind_a_stuck_submission_is_uncertain(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """Waiting for the session's turn is bounded and sends nothing."""
+    agent_session = await _seed_batch(session, svc_role)
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+    key = derive_lock_key_from_parts("approval-submission", str(agent_session.id))
+
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), handle.execute_update
+        ),
+        patch("tracecat.agent.approvals.submission._TURN_WAIT_SECONDS", 0.2),
+        pytest.raises(AgentControlUncertain),
+    ):
+        async with hold_pg_advisory_xact_lock(get_async_engine(), key):
+            await service.decide(**_click(agent_session))
+
+    handle.execute_update.assert_not_awaited()

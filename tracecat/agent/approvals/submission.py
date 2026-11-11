@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from time import monotonic
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import or_, select, update
@@ -47,6 +49,9 @@ if TYPE_CHECKING:
 
 # Bounds how long a submission holds its connection and turn while the run answers.
 _SUBMIT_TIMEOUT_SECONDS = 10
+# Longer than one submission, so a queued click outlasts the one ahead of it.
+_TURN_WAIT_SECONDS = 15
+_TURN_POLL_SECONDS = 0.1
 
 
 class ApprovalNoLongerActiveError(TracecatConflictError):
@@ -321,12 +326,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             AgentControlUncertain: If the outcome is unknown; retry the same
                 decisions.
         """
-        # Held across commits: the run and the session agree on the last
-        # submission, and a queued repeat finds its rows recorded.
-        async with hold_pg_advisory_xact_lock(
-            get_async_engine(),
-            derive_lock_key_from_parts("approval-submission", str(session_id)),
-        ):
+        async with self._submission_turn(session_id):
             attempt = await self._begin_submission(
                 session_id=session_id,
                 expected_batch_id=expected_batch_id,
@@ -366,6 +366,34 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 resumed=resumed,
                 tool_call_ids=list(decisions),
             )
+
+    @asynccontextmanager
+    async def _submission_turn(self, session_id: uuid.UUID) -> AsyncIterator[None]:
+        """Take the session's submission turn, held across commits.
+
+        The run and the session then agree on the last submission, and a queued
+        repeat finds its rows recorded. Waiters hold no connection, so a queue
+        cannot starve the holder of the one it needs.
+
+        Raises:
+            AgentControlUncertain: If the turn stays taken; retry the decisions.
+        """
+        # Release the caller's connection: the holder needs a second one.
+        await self.session.commit()
+        key = derive_lock_key_from_parts("approval-submission", str(session_id))
+        deadline = monotonic() + _TURN_WAIT_SECONDS
+        while True:
+            async with hold_pg_advisory_xact_lock(
+                get_async_engine(), key, wait=False
+            ) as holder:
+                if holder is not None:
+                    yield
+                    return
+            if monotonic() > deadline:
+                raise AgentControlUncertain(
+                    "Another approval submission for this session is still running"
+                )
+            await asyncio.sleep(_TURN_POLL_SECONDS)
 
     async def _record_accepted_decisions(
         self,
