@@ -167,6 +167,15 @@ def decision_matches_persisted(
     )
 
 
+def decision_matches_row(result: ApprovalResult, approval: Approval) -> bool:
+    """Return whether a resubmitted decision matches a decided row."""
+    if approval.decision is None:
+        # Rows without a decision payload predate it: the status is the outcome.
+        submitted = _approval_decision_fields(result, decision_metadata=None)
+        return submitted.status is approval.status
+    return decision_matches_persisted(result, approval.decision)
+
+
 def recorded_result(approval: Approval) -> ApprovalResult:
     """Rebuild the decision to deliver from its recorded row."""
     decision = approval.decision

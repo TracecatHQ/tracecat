@@ -1855,14 +1855,30 @@ async def test_backend_approval_errors_preserve_outcome_without_sdk_context(
 
 
 @pytest.mark.anyio
-async def test_backend_connection_failure_is_definitive_before_submission():
+async def test_approvals_unsent_for_a_connection_failure_are_uncertain():
+    # An identical submission shares the update id and may still land.
     submission = WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
     with patch(
         "tracecat.agent.backends.base.get_temporal_client",
         side_effect=RPCError("connection unavailable", RPCStatusCode.UNAVAILABLE, b""),
     ):
-        with pytest.raises(AgentControlRejected):
+        with pytest.raises(AgentControlUncertain):
             await DefaultBackend().submit_approvals(uuid4(), submission)
+
+
+@pytest.mark.anyio
+async def test_cancel_unsent_for_a_connection_failure_is_definitive():
+    with (
+        patch("tracecat.agent.backends.base.signal_turn_cancel", AsyncMock()),
+        patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            side_effect=RPCError(
+                "connection unavailable", RPCStatusCode.UNAVAILABLE, b""
+            ),
+        ),
+        pytest.raises(AgentControlRejected),
+    ):
+        await DefaultBackend().cancel(uuid4())
 
 
 @pytest.mark.anyio
@@ -1887,12 +1903,12 @@ async def test_default_cancel_keeps_workflow_control_when_executor_signal_fails(
 
 
 @pytest.mark.anyio
-async def test_handle_construction_failure_is_definitive_before_submission():
+async def test_approvals_unsent_for_a_handle_failure_are_uncertain():
     client = Mock(
         get_workflow_handle_for=Mock(side_effect=ValueError("invalid workflow"))
     )
     with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
-        with pytest.raises(AgentControlRejected) as caught:
+        with pytest.raises(AgentControlUncertain) as caught:
             await DefaultBackend().submit_approvals(
                 uuid4(), WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
             )

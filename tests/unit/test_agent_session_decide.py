@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, patch
 
 import orjson
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import Update, delete, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.agent.activities import (
     PersistApprovalsActivityInputs,
@@ -25,10 +26,13 @@ from tests.unit.test_agent_session_approval_sink import (
     _mock_approval_continuation_dependencies,
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.approvals.submission import _approval_continuation_stream_id
+from tracecat.agent.approvals.submission import (
+    ApprovalSubmissionService,
+    _approval_continuation_stream_id,
+)
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
-from tracecat.agent.backends.types import AgentControlRejected
+from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
 from tracecat.agent.channel_publisher import (
     ApprovalPending,
     RunUpdate,
@@ -779,3 +783,157 @@ async def test_concurrent_contradictory_clicks_keep_one_winner(svc_role: Role) -
                 delete(AgentSession).where(AgentSession.id == agent_session.id)
             )
             await cleanup.commit()
+
+
+def _approve_all() -> ContinueRunRequest:
+    return ContinueRunRequest(
+        decisions=[
+            ApprovalDecision(tool_call_id=tool_call_id, action="approve")
+            for tool_call_id in TOOL_CALLS
+        ],
+        source="inbox",
+    )
+
+
+@pytest.mark.anyio
+async def test_a_submission_lost_after_the_commit_is_resubmitted_on_read(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """Die between the commit and set_approvals; the next read submits the set."""
+    agent_session = await _seed_batch(session, svc_role)
+    run_id = agent_session.curr_run_id
+    assert run_id is not None
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+    submit_approvals = AgentBackend.submit_approvals
+    crashed = False
+
+    @asynccontextmanager
+    async def on_test_session(role: Role | None = None):
+        yield ApprovalSubmissionService(session, role=role or svc_role)
+
+    async def crash_once(
+        self: AgentBackend[Any, Any],
+        run_id: uuid.UUID,
+        submission: WorkflowApprovalSubmission,
+    ) -> bool:
+        nonlocal crashed
+        if not crashed:
+            crashed = True
+            raise _ProcessCrash
+        return await submit_approvals(self, run_id, submission)
+
+    stream_id = _approval_continuation_stream_id(run_id, TOOL_CALLS)
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), handle.execute_update
+        ),
+        patch.object(AgentBackend, "submit_approvals", crash_once),
+        patch.object(ApprovalSubmissionService, "with_session", on_test_session),
+    ):
+        with pytest.raises(_ProcessCrash):
+            await service.run_turn(agent_session.id, _approve_all())
+        await session.refresh(agent_session)
+        assert agent_session.active_stream_id == stream_id
+        assert handle.received == []
+
+        # A marker written moments ago is a submission still in flight.
+        with patch("tracecat.agent.stream.connector.time", return_value=1.0):
+            await service._resubmit_stalled_decisions(
+                agent_session.id, run_id=run_id, stream_id=stream_id
+            )
+        fresh = list(handle.received)
+        await service._resubmit_stalled_decisions(
+            agent_session.id, run_id=run_id, stream_id=stream_id
+        )
+        # Another read repeats the update id, which the run applies once.
+        await service._resubmit_stalled_decisions(
+            agent_session.id, run_id=run_id, stream_id=stream_id
+        )
+
+    assert fresh == []
+    assert [set(sub.approvals) for sub in handle.received] == [set(TOOL_CALLS)]
+
+
+async def _raise(error: BaseException) -> bool:
+    raise error
+
+
+@pytest.mark.anyio
+async def test_a_refused_set_that_cannot_be_reverted_is_uncertain(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    agent_session = await _seed_batch(session, svc_role)
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+    scalar = session.scalar
+
+    async def fail_updates(statement: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(statement, Update):
+            raise OperationalError("UPDATE", {}, Exception("database unavailable"))
+        return await scalar(statement, *args, **kwargs)
+
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), handle.execute_update
+        ),
+        _intercept_first_delivery(
+            lambda _deliver: _raise(AgentControlRejected("run refused the decision"))
+        ),
+        patch.object(session, "scalar", fail_updates),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await service.decide(**_click(agent_session))
+
+    row = await _row(session, agent_session, "tool_call_123")
+    assert row.status is ApprovalStatus.APPROVED
+
+
+@pytest.mark.anyio
+async def test_a_submission_that_never_reached_temporal_keeps_its_decision(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """An identical click may be in flight on the same update id: never revert."""
+    agent_session = await _seed_batch(session, svc_role)
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), handle.execute_update
+        ),
+        patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            AsyncMock(side_effect=RuntimeError("temporal unavailable")),
+        ),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await service.decide(**_click(agent_session))
+
+    row = await _row(session, agent_session, "tool_call_123")
+    assert row.status is ApprovalStatus.APPROVED
+
+
+@pytest.mark.anyio
+async def test_a_replay_matches_a_legacy_row_by_its_status(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """Rows decided before decision payloads existed keep only the outcome."""
+    agent_session = await _seed_batch(session, svc_role)
+    legacy = await _row(session, agent_session, "tool_call_123")
+    legacy.status = ApprovalStatus.APPROVED
+    legacy.decision = None
+    await session.commit()
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), handle.execute_update
+    ):
+        matching = await service.decide(**_click(agent_session))
+        conflicting = await service.decide(**_click(agent_session, action="deny"))
+
+    assert isinstance(matching, DecisionRecorded)
+    assert conflicting == DecisionRejected(
+        reason="no_longer_active", tool_call_id="tool_call_123"
+    )

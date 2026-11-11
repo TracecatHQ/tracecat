@@ -35,6 +35,7 @@ from tracecat.agent.approvals.decisions import (
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.submission import (
+    STALLED_SUBMISSION_SECONDS,
     ApprovalDecisionInvalidError,
     ApprovalNoLongerActiveError,
     ApprovalSubmissionService,
@@ -298,6 +299,8 @@ def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
 
 # How long a backend's post-delete cleanup may run; it should only start work.
 SESSION_CLEANUP_TIMEOUT_SECONDS = 10
+# How long a stream attach waits on resubmitting a stalled approval submission.
+_RESUBMIT_TIMEOUT_SECONDS = 5
 
 
 async def _run_session_cleanup(cleanup: SessionCleanup, session_id: uuid.UUID) -> None:
@@ -2002,12 +2005,52 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return False
 
+    async def _resubmit_stalled_decisions(
+        self, session_id: uuid.UUID, *, run_id: uuid.UUID, stream_id: uuid.UUID
+    ) -> None:
+        """Finish a submission that crashed after recording, without stalling the read."""
+        try:
+            async with asyncio.timeout(_RESUBMIT_TIMEOUT_SECONDS):
+                stream = await AgentStream.new(
+                    session_id=session_id,
+                    workspace_id=self.workspace_id,
+                    stream_id=stream_id,
+                )
+                if not await stream.is_stalled_approval_continuation(
+                    older_than=STALLED_SUBMISSION_SECONDS
+                ):
+                    return
+                # Its own transaction: a timeout must not leave this one mid-flight.
+                async with ApprovalSubmissionService.with_session(
+                    role=self.role
+                ) as submissions:
+                    await submissions.resubmit_stalled(
+                        session_id=session_id, run_id=run_id, stream_id=stream_id
+                    )
+        except Exception as exc:
+            # Best effort: the next read tries again.
+            logger.warning(
+                "Failed to resubmit stalled approval decisions",
+                session_id=str(session_id),
+                error=repr(exc),
+            )
+
     async def get_stream_resume_state(
         self, agent_session: AgentSession
     ) -> StreamResumeState:
         """Resolve whether the session has a live stream a client can attach to."""
         lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
         has_live_stream = lifecycle is TurnLifecycle.RUNNING
+        if (
+            has_live_stream
+            and curr_run_id is not None
+            and agent_session.active_stream_id is not None
+        ):
+            await self._resubmit_stalled_decisions(
+                agent_session.id,
+                run_id=curr_run_id,
+                stream_id=agent_session.active_stream_id,
+            )
         if has_live_stream and await self.has_pending_approvals(agent_session.id):
             has_live_stream = await self._is_attachable_continuation(agent_session)
 

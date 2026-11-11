@@ -257,7 +257,8 @@ async def test_stream_resume_distinguishes_pause_from_rotated_continuation(
 
     service = AgentSessionService(session=session, role=svc_role)
     stream = SimpleNamespace(
-        is_open_approval_continuation=AsyncMock(return_value=continuation_is_open)
+        is_open_approval_continuation=AsyncMock(return_value=continuation_is_open),
+        is_stalled_approval_continuation=AsyncMock(return_value=False),
     )
     with (
         patch.object(
@@ -273,7 +274,7 @@ async def test_stream_resume_distinguishes_pause_from_rotated_continuation(
         state = await service.get_stream_resume_state(external_agent_session)
 
     assert state.has_live_stream is expected_live
-    stream_new.assert_awaited_once_with(
+    stream_new.assert_awaited_with(
         session_id=external_agent_session.id,
         workspace_id=svc_role.workspace_id,
         stream_id=stream_id,
@@ -1793,7 +1794,7 @@ async def test_recorded_decision_nulls_approved_by_for_unknown_user(
 
 
 @pytest.mark.anyio
-async def test_approval_connection_failure_rolls_back_and_allows_retry(
+async def test_approval_connection_failure_keeps_the_decision_and_allows_retry(
     session: AsyncSession,
     svc_role: Role,
     pending_approval_session: tuple[AgentSession, ContinueRunRequest, uuid.UUID],
@@ -1808,13 +1809,15 @@ async def test_approval_connection_failure_rolls_back_and_allows_retry(
                 "tracecat.agent.backends.base.get_temporal_client",
                 side_effect=RuntimeError("connect failed"),
             ),
-            pytest.raises(AgentControlRejected),
+            # An identical click may be in flight on the same update id.
+            pytest.raises(AgentControlUncertain),
         ):
             await service.run_turn(agent_session.id, continuation)
         execute_update.assert_not_awaited()
         await session.refresh(agent_session)
-        assert agent_session.active_stream_id == previous_stream_id
+        continuation_stream_id = agent_session.active_stream_id
+        assert continuation_stream_id != previous_stream_id
         result = await service.run_turn(agent_session.id, continuation)
     assert result is not None
-    assert result.active_stream_id != previous_stream_id
+    assert result.active_stream_id == continuation_stream_id
     execute_update.assert_awaited_once()

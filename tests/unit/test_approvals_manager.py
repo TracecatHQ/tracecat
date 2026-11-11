@@ -25,6 +25,7 @@ from tracecat_ee.agent.approvals.service import (
 from tracecat_ee.agent.context import AgentContext
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.channel_publisher import ApprovalDecided
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.auth.types import Role
@@ -257,6 +258,35 @@ class TestApprovalManager:
         # Last write wins, so the resubmitted deny is what persists.
         decided = {d.tool_call_id: d.approved for d in payload.decisions}
         assert decided == {"call_123": False, "call_456": True}
+
+    @pytest.mark.parametrize(
+        ("published", "kept"),
+        [(True, False), (False, True), (None, False)],
+        ids=["published", "publish-failed", "history-before-result"],
+    )
+    async def test_handle_decisions_keeps_an_unpublished_decision_for_finalize(
+        self,
+        approval_manager: ApprovalManager,
+        sample_tool_calls: list[ToolCallContent],
+        published: bool | None,
+        kept: bool,
+    ) -> None:
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
+        approval_manager.set({"call_123": True, "call_456": True})
+        decided = ApprovalDecided(
+            session_id=uuid.uuid4(), batch_id=uuid.uuid4(), pending_ref=None
+        )
+        approval_manager._unpublished_decision = decided
+
+        with patch(
+            "tracecat_ee.agent.approvals.service.workflow.execute_activity",
+            AsyncMock(return_value=published),
+        ):
+            await approval_manager.handle_decisions()
+
+        assert approval_manager.take_unpublished_decision() == (
+            [decided] if kept else []
+        )
 
 
 @pytest.mark.anyio

@@ -561,8 +561,15 @@ class AgentBackend[InputT, OutputT](ABC):
             [WorkflowHandle[AgentWorkflow[InputT, OutputT], OutputT]],
             Awaitable[ResultT],
         ],
+        *,
+        unsent_is_rejected: bool = True,
     ) -> ResultT:
-        """Resolve once, then preserve uncertainty unless execution rejects the update."""
+        """Resolve once, then preserve uncertainty unless execution rejects the update.
+
+        ``unsent_is_rejected=False`` reports a failure before the request was
+        sent as uncertain, for callers whose identical concurrent request may
+        still apply.
+        """
         started = False
         try:
             handle = await self.handle(run_id)
@@ -574,7 +581,11 @@ class AgentBackend[InputT, OutputT](ABC):
         except Exception:
             # Even decoding a successful response can fail after the update has
             # applied. Only failures before handle acquisition are safe to undo.
-            error = AgentControlUncertain if started else AgentControlRejected
+            error = (
+                AgentControlUncertain
+                if started or not unsent_is_rejected
+                else AgentControlRejected
+            )
         # Leave the handler before raising so SDK exception context cannot leak.
         # Task cancellation propagates unchanged: it never proves rejection.
         if error is AgentControlUncertain:
@@ -601,6 +612,8 @@ class AgentBackend[InputT, OutputT](ABC):
                 submission,
                 id=f"set-approvals:{submission.new_stream_id}",
             ),
+            # An identical submission shares this update id and may still land.
+            unsent_is_rejected=False,
         )
         return resumed is not False
 

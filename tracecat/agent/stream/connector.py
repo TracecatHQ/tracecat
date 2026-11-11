@@ -11,7 +11,7 @@ from collections.abc import (
     Sequence,
 )
 from dataclasses import dataclass
-from time import monotonic
+from time import monotonic, time
 from typing import Any
 
 import orjson
@@ -163,6 +163,15 @@ class AgentStream:
             return False
         last_data = orjson.loads(last_entries[0][1][tokens.DATA_KEY])
         return last_data != {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}
+
+    async def is_stalled_approval_continuation(self, *, older_than: float) -> bool:
+        """Return whether the marker is this continuation's only entry, ``older_than`` seconds on."""
+        entries = await self.client.xrange(self._stream_key, count=2)
+        if len(entries) != 1 or await self.approval_continuation_marker() is None:
+            return False
+        # Stream entry ids start with their append time in milliseconds.
+        appended_ms = int(entries[0][0].split("-", 1)[0])
+        return time() - appended_ms / 1000 > older_than
 
     async def finish_idle_segment(self) -> None:
         """Emit a non-terminal boundary for a paused live turn.

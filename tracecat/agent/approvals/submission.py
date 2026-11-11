@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.approvals.decisions import (
     SubmittedDecision,
-    decision_matches_persisted,
+    decision_matches_row,
     record_decision,
     recorded_metadata,
     recorded_result,
@@ -21,7 +22,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import get_agent_backend
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
-from tracecat.agent.backends.types import AgentControlRejected
+from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
 from tracecat.agent.channel_publisher import approval_batch_id
 from tracecat.agent.common.stream_types import (
     ApprovalStreamStatus,
@@ -38,6 +39,12 @@ from tracecat.exceptions import (
 )
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
+
+STALLED_SUBMISSION_SECONDS = 10.0
+"""How long a continuation may hold only its marker before it is resubmitted.
+
+A healthy submission writes after the marker within a second; resubmitting
+sooner is safe, only wasteful."""
 
 
 class ApprovalNoLongerActiveError(TracecatConflictError):
@@ -96,7 +103,7 @@ def _approval_continuation_stream_id(
     Every submitter of the same recorded set derives the same stream, and so
     the same Temporal update id: a retry or replay is applied at most once.
     """
-    return uuid.uuid5(run_id, "\n".join(sorted(tool_call_ids)))
+    return uuid.uuid5(run_id, json.dumps(sorted(tool_call_ids)))
 
 
 class ApprovalSubmissionService(BaseWorkspaceService):
@@ -184,7 +191,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         for tool_call_id, submitted in decisions.items():
             row = by_id[tool_call_id]
             if row.status is not ApprovalStatus.PENDING and (
-                not decision_matches_persisted(submitted.result, row.decision)
+                not decision_matches_row(submitted.result, row)
             ):
                 raise ApprovalNoLongerActiveError(
                     "Approval decision conflicts with a decision already"
@@ -323,8 +330,8 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 session.
             AgentControlRejected: If the run refused the decisions. This call's
                 decisions are reverted.
-            AgentControlUncertain: If the outcome is unknown; retry the same
-                decisions.
+            AgentControlUncertain: If the outcome is unknown, or a refused set
+                could not be reverted; retry the same decisions.
         """
         decision_set = await self._record_decisions(
             session_id=session_id,
@@ -368,6 +375,63 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             resumed=resumed,
             tool_call_ids=list(decisions),
         )
+
+    async def resubmit_stalled(
+        self,
+        *,
+        session_id: uuid.UUID,
+        run_id: uuid.UUID,
+        stream_id: uuid.UUID,
+    ) -> bool:
+        """Submit the recorded set of a stalled continuation again.
+
+        A crash between the commit and the submission leaves the session on a
+        continuation that holds only its marker; the caller found it so. The
+        resubmission reuses the set's update id, so one still in flight
+        absorbs it.
+
+        Returns whether the set was resubmitted.
+        """
+        in_session = (
+            Approval.workspace_id == self.workspace_id,
+            Approval.session_id == session_id,
+        )
+        latest = select(func.max(Approval.created_at)).where(*in_session)
+        decided = (
+            await self.session.scalars(
+                select(Approval)
+                .where(
+                    *in_session,
+                    Approval.created_at == latest.scalar_subquery(),
+                    Approval.status != ApprovalStatus.PENDING,
+                )
+                .order_by(Approval.updated_at)
+            )
+        ).all()
+        # Only the latest batch's decided set names this continuation.
+        if not decided or stream_id != _approval_continuation_stream_id(
+            run_id, [row.tool_call_id for row in decided]
+        ):
+            return False
+        logger.warning(
+            "Resubmitting approval decisions whose submission stalled",
+            session_id=str(session_id),
+            run_id=str(run_id),
+            tool_call_ids=[row.tool_call_id for row in decided],
+        )
+        await self.record_and_submit(
+            session_id=session_id,
+            expected_batch_id=None,
+            decisions={
+                row.tool_call_id: SubmittedDecision(
+                    result=recorded_result(row),
+                    metadata=recorded_metadata(row) or {},
+                )
+                for row in decided
+            },
+            approved_by=decided[-1].approved_by,
+        )
+        return True
 
     async def _announce_submitted_decisions(
         self,
@@ -592,9 +656,13 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             await self.session.commit()
         except SQLAlchemyError as exc:
             await self.session.rollback()
-            logger.warning(
+            logger.error(
                 "Failed to revert approval decisions the run rejected",
                 session_id=str(session_id),
                 tool_call_ids=list(tool_call_ids),
                 error=str(exc),
             )
+            # The rows still claim a set the run refused: not a clean rejection.
+            raise AgentControlUncertain(
+                "Rejected approval decisions could not be reverted"
+            ) from None

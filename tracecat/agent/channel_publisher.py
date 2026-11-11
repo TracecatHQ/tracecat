@@ -11,12 +11,13 @@ send it, since unknown fields stay rejected.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from collections.abc import Iterable, Sequence
 from datetime import timedelta
 from functools import lru_cache
 from importlib.metadata import entry_points
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal, NamedTuple, Protocol
 
 from pydantic import ConfigDict, Field
 from temporalio.exceptions import ApplicationError
@@ -57,8 +58,9 @@ def approval_batch_id(run_id: uuid.UUID, tool_call_ids: Iterable[str]) -> uuid.U
     Callers must pass the same set: the pause's approval items, or the rows
     persisted for them.
     """
-    # Prefixed so it never equals the continuation stream id derived from the same run.
-    ids = ",".join(sorted(set(tool_call_ids)))
+    # JSON keeps distinct sets distinct whatever the ids contain. Prefixed so it
+    # never equals the continuation stream id derived from the same run.
+    ids = json.dumps(sorted(set(tool_call_ids)))
     return uuid.uuid5(run_id, f"approval-batch:{ids}")
 
 
@@ -150,10 +152,20 @@ def publish_budget(updates: Sequence[RunUpdate]) -> timedelta:
 
 async def publish_updates(role: Role, updates: Sequence[RunUpdate]) -> list[str | None]:
     """Publish in order, after the host's own writes; never fails the host."""
-    return [await _publish(role, update) for update in updates]
+    return [(await _publish(role, update)).ref for update in updates]
 
 
-async def _publish(role: Role, update: RunUpdate) -> str | None:
+async def publish_all(role: Role, updates: Sequence[RunUpdate]) -> bool:
+    """Publish in order like ``publish_updates``; return whether every one went out."""
+    return all([(await _publish(role, update)).sent for update in updates])
+
+
+class _Published(NamedTuple):
+    sent: bool
+    ref: str | None
+
+
+async def _publish(role: Role, update: RunUpdate) -> _Published:
     try:
         async with asyncio.timeout(PUBLISH_BUDGET.total_seconds()):
             publisher = get_channel_publisher()
@@ -162,7 +174,7 @@ async def _publish(role: Role, update: RunUpdate) -> str | None:
                 raise RuntimeError("No channel publisher is installed")
             for attempt in range(1, _PUBLISH_ATTEMPTS + 1):
                 try:
-                    return await publisher.publish(role, update)
+                    return _Published(True, await publisher.publish(role, update))
                 except Exception as e:
                     definitive = isinstance(e, ApplicationError) and e.non_retryable
                     if definitive or attempt == _PUBLISH_ATTEMPTS:
@@ -179,4 +191,4 @@ async def _publish(role: Role, update: RunUpdate) -> str | None:
             update=update.kind,
             error=repr(e),
         )
-    return None
+    return _Published(False, None)

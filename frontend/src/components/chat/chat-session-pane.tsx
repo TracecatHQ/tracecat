@@ -381,10 +381,11 @@ export function ChatSessionPane({
     chat && "can_decide_approvals" in chat
       ? chat.can_decide_approvals !== false
       : !isReadonly
-  const cannotDecideApprovals = !canDecideApprovals || approvalsDisabled
   // Sending, retrying and approving all run the agent. `undefined` means the
   // scopes are still loading, which must not disable anything.
   const cannotExecuteAgents = useScopeCheck("agent:execute") === false
+  const cannotDecideApprovals =
+    !canDecideApprovals || approvalsDisabled || cannotExecuteAgents
   let readonlyDescription =
     chat && "user_id" in chat
       ? "This legacy conversation is read-only."
