@@ -1855,26 +1855,14 @@ async def test_backend_approval_errors_preserve_outcome_without_sdk_context(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("control", ["submit_approvals", "cancel"])
-async def test_controls_unsent_for_a_connection_failure_are_uncertain(control: str):
-    # Controls use fixed update ids, so another attempt may still apply.
-    backend = DefaultBackend()
-    with (
-        patch("tracecat.agent.backends.base.signal_turn_cancel", AsyncMock()),
-        patch(
-            "tracecat.agent.backends.base.get_temporal_client",
-            side_effect=RPCError(
-                "connection unavailable", RPCStatusCode.UNAVAILABLE, b""
-            ),
-        ),
-        pytest.raises(AgentControlUncertain),
+async def test_backend_connection_failure_is_definitive_before_submission():
+    submission = WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
+    with patch(
+        "tracecat.agent.backends.base.get_temporal_client",
+        side_effect=RPCError("connection unavailable", RPCStatusCode.UNAVAILABLE, b""),
     ):
-        if control == "cancel":
-            await backend.cancel(uuid4())
-        else:
-            await backend.submit_approvals(
-                uuid4(), WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
-            )
+        with pytest.raises(AgentControlRejected):
+            await DefaultBackend().submit_approvals(uuid4(), submission)
 
 
 @pytest.mark.anyio
@@ -1899,12 +1887,12 @@ async def test_default_cancel_keeps_workflow_control_when_executor_signal_fails(
 
 
 @pytest.mark.anyio
-async def test_approvals_unsent_for_a_handle_failure_are_uncertain():
+async def test_handle_construction_failure_is_definitive_before_submission():
     client = Mock(
         get_workflow_handle_for=Mock(side_effect=ValueError("invalid workflow"))
     )
     with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
-        with pytest.raises(AgentControlUncertain) as caught:
+        with pytest.raises(AgentControlRejected) as caught:
             await DefaultBackend().submit_approvals(
                 uuid4(), WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
             )

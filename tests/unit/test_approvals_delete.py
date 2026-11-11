@@ -8,6 +8,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from tracecat_ee.agent.approvals.router import delete_approval
 
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -171,7 +172,13 @@ async def test_delete_approval_keeps_records_a_live_run_still_waits_on(
             role=_execute_role(uuid.uuid4()), session_id=session_id, session=AsyncMock()
         )
         if keeps_rows:
-            with pytest.raises(type(error)):
+            # An unanswered run is a retryable 503, not an unhandled error.
+            expected = (
+                HTTPException
+                if isinstance(error, AgentControlUncertain)
+                else type(error)
+            )
+            with pytest.raises(expected):
                 await call
         else:
             await call

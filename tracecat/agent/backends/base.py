@@ -563,15 +563,18 @@ class AgentBackend[InputT, OutputT](ABC):
         ],
     ) -> ResultT:
         """Resolve once, then preserve uncertainty unless execution rejects the update."""
+        started = False
         try:
-            return await operation(await self.handle(run_id))
+            handle = await self.handle(run_id)
+            started = True
+            return await operation(handle)
         except WorkflowUpdateFailedError:
             # The server returned a failed update outcome, not a lost response.
             error = AgentControlRejected
         except Exception:
-            # Controls use fixed update ids: even an unsent request has a twin
-            # (a retry, another tab) that may still apply.
-            error = AgentControlUncertain
+            # Even decoding a successful response can fail after the update has
+            # applied. Only failures before handle acquisition are safe to undo.
+            error = AgentControlUncertain if started else AgentControlRejected
         # Leave the handler before raising so SDK exception context cannot leak.
         # Task cancellation propagates unchanged: it never proves rejection.
         if error is AgentControlUncertain:

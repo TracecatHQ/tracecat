@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.backends.types import AgentControlUncertain
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import TurnLifecycle
 from tracecat.agent.types import ToolApproved, ToolDenied
@@ -227,6 +228,11 @@ async def delete_approval(
         except Exception:
             lifecycle = TurnLifecycle.UNAVAILABLE
         if lifecycle in (TurnLifecycle.RUNNING, TurnLifecycle.UNAVAILABLE):
+            if isinstance(exc, AgentControlUncertain):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="The run did not answer; retry the dismissal",
+                ) from exc
             raise exc
         logger.warning(
             "run_turn failed; deleting approval records directly",

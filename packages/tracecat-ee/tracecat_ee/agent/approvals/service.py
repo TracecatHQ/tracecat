@@ -606,7 +606,7 @@ class ApprovalManager:
                     }
                 )
 
-            # Lock rows in the session service's order (tool call id).
+            # Lock rows in ApprovalSubmissionService's order (tool call id).
             rows.sort(key=lambda row: row["tool_call_id"])
             stmt = pg_insert(Approval).values(rows)
             stmt = stmt.on_conflict_do_update(
@@ -658,7 +658,7 @@ class ApprovalManager:
         """Persist pending approval records for deferred tool calls.
 
         The batch is written in one transaction, so its new rows share
-        ``created_at`` (transaction time): the session service groups a batch
+        ``created_at`` (transaction time): ApprovalSubmissionService groups a batch
         by it. Re-persisting refreshes pending rows only; recorded decisions
         and approvers stay.
 
@@ -701,7 +701,7 @@ class ApprovalManager:
                     "status": ApprovalStatus.PENDING,
                 }
 
-            # Lock rows in the session service's order (tool call id).
+            # Lock rows in ApprovalSubmissionService's order (tool call id).
             stmt = pg_insert(Approval).values([rows[key] for key in sorted(rows)])
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_approval_workspace_session_tool",

@@ -70,6 +70,8 @@ class RunRef(BaseModel):
 
 
 class DecisionRecorded(BaseModel):
+    """The run has the click's decision; ``resumed`` is set once the batch resumed it."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     pending_tool_call_ids: Sequence[str]
@@ -77,7 +79,7 @@ class DecisionRecorded(BaseModel):
 
 
 class DecisionRejected(BaseModel):
-    """A click the approval row did not accept; the caller tells the clicker why.
+    """A click the waiting run did not take; the caller tells the clicker why.
 
     ``no_longer_active``: decided differently, or the run moved on.
     ``not_valid``: the tool call is not an approval of this session.

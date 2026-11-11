@@ -1783,7 +1783,7 @@ async def test_recorded_decision_nulls_approved_by_for_unknown_user(
 
 
 @pytest.mark.anyio
-async def test_approval_connection_failure_keeps_the_stream_and_allows_retry(
+async def test_approval_connection_failure_rolls_back_and_allows_retry(
     session: AsyncSession,
     svc_role: Role,
     pending_approval_session: tuple[AgentSession, ContinueRunRequest, uuid.UUID],
@@ -1798,23 +1798,13 @@ async def test_approval_connection_failure_keeps_the_stream_and_allows_retry(
                 "tracecat.agent.backends.base.get_temporal_client",
                 side_effect=RuntimeError("connect failed"),
             ),
-            # An identical click may be in flight on the same update id.
-            pytest.raises(AgentControlUncertain),
+            pytest.raises(TracecatConflictError),
         ):
             await service.run_turn(agent_session.id, continuation)
         execute_update.assert_not_awaited()
         await session.refresh(agent_session)
-        continuation_stream_id = agent_session.active_stream_id
-        assert continuation_stream_id != previous_stream_id
-        approval_status = await session.scalar(
-            select(Approval.status).where(
-                Approval.session_id == agent_session.id,
-                Approval.tool_call_id == "tool_call_123",
-            )
-        )
-        # Nothing is recorded until the run accepts it.
-        assert approval_status is ApprovalStatus.PENDING
+        assert agent_session.active_stream_id == previous_stream_id
         result = await service.run_turn(agent_session.id, continuation)
     assert result is not None
-    assert result.active_stream_id == continuation_stream_id
+    assert result.active_stream_id != previous_stream_id
     execute_update.assert_awaited_once()

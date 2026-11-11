@@ -103,8 +103,8 @@ class _SubmissionAttempt:
 
 
 @dataclass(frozen=True, slots=True)
-class ApprovalAlreadyRecorded:
-    """Every decision was already recorded, so the run has it."""
+class ApprovalAlreadyApplied:
+    """The run already had these decisions; there is no new stream to watch."""
 
     run_id: uuid.UUID
     pending_tool_call_ids: list[str]
@@ -120,7 +120,7 @@ class ApprovalDelivered:
     resumed: bool
 
 
-type ApprovalSubmissionResult = ApprovalAlreadyRecorded | ApprovalDelivered
+type ApprovalSubmissionResult = ApprovalAlreadyApplied | ApprovalDelivered
 
 
 def _approval_continuation_stream_id(
@@ -245,7 +245,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         expected_batch_id: uuid.UUID | None,
         decisions: Mapping[str, SubmittedDecision],
-    ) -> _SubmissionAttempt | ApprovalAlreadyRecorded:
+    ) -> _SubmissionAttempt | ApprovalAlreadyApplied:
         """Install the continuation for the undecided decisions, in one commit."""
         try:
             batch = await self._lock_decided_batch(
@@ -263,7 +263,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             if not undecided:
                 # A row is decided only after the run accepted it: a repeat.
                 await self.session.commit()
-                return ApprovalAlreadyRecorded(
+                return ApprovalAlreadyApplied(
                     run_id=batch.run_id,
                     pending_tool_call_ids=[
                         row.tool_call_id
@@ -328,8 +328,8 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 current run's batch, or a decision contradicts a recorded one.
             ApprovalDecisionInvalidError: If an ID is not an approval of the
                 session.
-            AgentControlRejected: If the run refused the decisions, for one
-                because another decision for a tool call reached it first.
+            ApprovalNoLongerActiveError: Also if the run refused the decisions,
+                for one because another decision for a tool call reached it first.
             AgentControlUncertain: If the outcome is unknown; retry the same
                 decisions.
         """
@@ -339,7 +339,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 expected_batch_id=expected_batch_id,
                 decisions=decisions,
             )
-            if isinstance(attempt, ApprovalAlreadyRecorded):
+            if isinstance(attempt, ApprovalAlreadyApplied):
                 return attempt
             logger.info(
                 "Submitting approval decisions",
@@ -352,14 +352,18 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                     resumed = await attempt.backend.submit_approvals(
                         attempt.run_id, attempt.submission(approved_by)
                     )
-            except AgentControlRejected:
-                await self._restore_previous_stream(
-                    session_id=session_id,
-                    run_id=attempt.run_id,
-                    stream_id=attempt.stream_id,
-                    previous_stream_id=attempt.previous_stream_id,
-                )
-                raise
+            except AgentControlRejected as exc:
+                # A retry finds its stream installed: an earlier attempt may still land.
+                if attempt.previous_stream_id != attempt.stream_id:
+                    await self._restore_previous_stream(
+                        session_id=session_id,
+                        run_id=attempt.run_id,
+                        stream_id=attempt.stream_id,
+                        previous_stream_id=attempt.previous_stream_id,
+                    )
+                raise ApprovalNoLongerActiveError(
+                    "The run no longer accepts these approval decisions"
+                ) from exc
             except TimeoutError:
                 # The update may still land; it reuses this id on retry.
                 raise AgentControlUncertain("Approval submission timed out") from None
@@ -370,13 +374,14 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             if attempt.completes_batch and not resumed:
                 # Temporal replayed an earlier partial update under this id; a
                 # later one resumed the run, on its own stream.
+                await self.session.commit()
                 await self._restore_previous_stream(
                     session_id=session_id,
                     run_id=attempt.run_id,
                     stream_id=attempt.stream_id,
                     previous_stream_id=attempt.previous_stream_id,
                 )
-                return ApprovalAlreadyRecorded(
+                return ApprovalAlreadyApplied(
                     run_id=attempt.run_id, pending_tool_call_ids=[]
                 )
             return await self._announce_submitted_decisions(

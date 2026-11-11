@@ -35,7 +35,7 @@ from tracecat.agent.approvals.decisions import (
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.submission import (
-    ApprovalAlreadyRecorded,
+    ApprovalAlreadyApplied,
     ApprovalDecisionInvalidError,
     ApprovalDelivered,
     ApprovalNoLongerActiveError,
@@ -52,7 +52,6 @@ from tracecat.agent.backends.registry import (
 )
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
-    AgentControlRejected,
     SessionCleanup,
     SessionDeleteContext,
     SessionForkContext,
@@ -2133,21 +2132,15 @@ class AgentSessionService(BaseWorkspaceService):
                 the run refused it.
             ValueError: If the decisions do not match the session's approvals.
         """
-        try:
-            submission = await ApprovalSubmissionService(
-                self.session, role=self.role
-            ).submit_and_record(
-                session_id=session_id,
-                expected_batch_id=None,
-                decisions=self._continuation_decisions(request),
-                approved_by=await self._existing_user_id(self.role.user_id),
-            )
-        except AgentControlRejected as exc:
-            # The run refused it: decided differently first, or moved on.
-            raise TracecatConflictError(
-                "The run no longer accepts these approval decisions"
-            ) from exc
-        if isinstance(submission, ApprovalAlreadyRecorded):
+        submission = await ApprovalSubmissionService(
+            self.session, role=self.role
+        ).submit_and_record(
+            session_id=session_id,
+            expected_batch_id=None,
+            decisions=self._continuation_decisions(request),
+            approved_by=await self._existing_user_id(self.role.user_id),
+        )
+        if isinstance(submission, ApprovalAlreadyApplied):
             logger.info(
                 "Ignoring approval continuation the run already has",
                 session_id=str(session_id),
@@ -2193,12 +2186,7 @@ class AgentSessionService(BaseWorkspaceService):
                 },
                 approved_by=await self._existing_user_id(approved_by),
             )
-        except (
-            TracecatNotFoundError,
-            ApprovalNoLongerActiveError,
-            # The run refused it: decided differently first, or moved on.
-            AgentControlRejected,
-        ):
+        except (TracecatNotFoundError, ApprovalNoLongerActiveError):
             return DecisionRejected(
                 reason="no_longer_active", tool_call_id=decision.tool_call_id
             )

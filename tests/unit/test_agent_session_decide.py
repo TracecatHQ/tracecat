@@ -11,11 +11,15 @@ from types import SimpleNamespace
 from typing import Any, Literal
 from unittest.mock import AsyncMock, patch
 
+import orjson
 import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
-from temporalio.client import WorkflowUpdateFailedError
+from temporalio.client import (
+    WorkflowUpdateFailedError,
+    WorkflowUpdateRPCTimeoutOrCancelledError,
+)
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.activities import (
     PersistApprovalsActivityInputs,
@@ -52,6 +56,7 @@ from tracecat.agent.session.results import (
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
+from tracecat.chat import tokens
 from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.db.locks import derive_lock_key_from_parts, hold_pg_advisory_xact_lock
@@ -792,34 +797,36 @@ async def test_a_refused_decision_records_nothing_and_restores_the_stream(
 
 
 @pytest.mark.anyio
-async def test_a_submission_that_never_reached_temporal_keeps_its_stream(
+async def test_a_refused_retry_keeps_the_stream_an_earlier_attempt_may_land_on(
     session: AsyncSession, svc_role: Role
 ) -> None:
-    """An identical click may be in flight on the same update id: never restore."""
+    """The first click's update is still in flight; its retry must not close its stream."""
     agent_session = await _seed_batch(session, svc_role)
     run_id = agent_session.curr_run_id
     assert run_id is not None
     service = AgentSessionService(session=session, role=svc_role)
-    handle = _FakeTemporalHandle()
+    redis = _ApprovalContinuationRedis()
+    execute_update = AsyncMock(side_effect=WorkflowUpdateRPCTimeoutOrCancelledError())
+    stream_id = _approval_continuation_stream_id(run_id, {"tool_call_123": True})
 
-    with (
-        _mock_approval_continuation_dependencies(
-            _ApprovalContinuationRedis(), handle.execute_update
-        ),
-        patch(
+    with _mock_approval_continuation_dependencies(redis, execute_update):
+        with pytest.raises(AgentControlUncertain):
+            await service.decide(**_click(agent_session))
+        with patch(
             "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(side_effect=RuntimeError("temporal unavailable")),
-        ),
-        pytest.raises(AgentControlUncertain),
-    ):
-        await service.decide(**_click(agent_session))
+        ):
+            refused = await service.decide(**_click(agent_session))
 
-    await session.refresh(agent_session)
-    row = await _row(session, agent_session, "tool_call_123")
-    assert row.status is ApprovalStatus.PENDING
-    assert agent_session.active_stream_id == _approval_continuation_stream_id(
-        run_id, {"tool_call_123": True}
+    assert refused == DecisionRejected(
+        reason="no_longer_active", tool_call_id="tool_call_123"
     )
+    await session.refresh(agent_session)
+    assert agent_session.active_stream_id == stream_id
+    key = f"agent-stream:{svc_role.workspace_id}:{agent_session.id}:{stream_id}"
+    assert {tokens.END_TOKEN: tokens.END_TOKEN_VALUE} not in [
+        orjson.loads(fields[tokens.DATA_KEY]) for _, fields in redis.streams[key]
+    ]
 
 
 @pytest.mark.anyio
