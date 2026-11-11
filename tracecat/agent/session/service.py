@@ -2277,6 +2277,7 @@ class AgentSessionService(BaseWorkspaceService):
         next attempt's run.
 
         Raises:
+            TracecatValidationError: If ``request_id`` is blank.
             TracecatNotFoundError: If no session exists with this ID.
             SessionAwaitingApprovalsError: If the session waits for approvals.
             EntitlementRequired: If the session's backend is no longer entitled.
@@ -2284,6 +2285,9 @@ class AgentSessionService(BaseWorkspaceService):
                 the message is safe.
             TracecatConflictError: If no attempt could be admitted.
         """
+        # Every blank ID would share one run and read as a retry.
+        if not request_id.strip():
+            raise TracecatValidationError("request_id must not be blank")
         agent_session = await self.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
