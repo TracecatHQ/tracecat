@@ -82,6 +82,8 @@ class _SubmissionAttempt:
     previous_stream_id: uuid.UUID | None
     decisions: dict[str, SubmittedDecision]
     batch_tool_call_ids: list[str]
+    # Every other row of the batch is decided, so the run resumes on this one.
+    completes_batch: bool
 
     def submission(self, approved_by: uuid.UUID | None) -> WorkflowApprovalSubmission:
         return WorkflowApprovalSubmission(
@@ -296,6 +298,11 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             previous_stream_id=previous_stream_id,
             decisions=undecided,
             batch_tool_call_ids=[row.tool_call_id for row in batch.rows],
+            completes_batch=all(
+                row.status is not ApprovalStatus.PENDING
+                or row.tool_call_id in undecided
+                for row in batch.rows
+            ),
         )
 
     async def submit_and_record(
@@ -346,7 +353,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                         attempt.run_id, attempt.submission(approved_by)
                     )
             except AgentControlRejected:
-                await self._restore_rejected_stream(
+                await self._restore_previous_stream(
                     session_id=session_id,
                     run_id=attempt.run_id,
                     stream_id=attempt.stream_id,
@@ -360,6 +367,18 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             await self._record_accepted_decisions(
                 session_id=session_id, attempt=attempt, approved_by=approved_by
             )
+            if attempt.completes_batch and not resumed:
+                # Temporal replayed an earlier partial update under this id; a
+                # later one resumed the run, on its own stream.
+                await self._restore_previous_stream(
+                    session_id=session_id,
+                    run_id=attempt.run_id,
+                    stream_id=attempt.stream_id,
+                    previous_stream_id=attempt.previous_stream_id,
+                )
+                return ApprovalAlreadyRecorded(
+                    run_id=attempt.run_id, pending_tool_call_ids=[]
+                )
             return await self._announce_submitted_decisions(
                 session_id=session_id,
                 attempt=attempt,
@@ -483,8 +502,10 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         return ApprovalDelivered(
             run_id=attempt.run_id,
             stream_id=stream_id,
-            # The run has these even if recording them failed.
-            pending_tool_call_ids=[
+            # The run has these even if their rows lag; a resumed run has all.
+            pending_tool_call_ids=[]
+            if resumed
+            else [
                 tool_call_id
                 for tool_call_id in pending
                 if tool_call_id not in attempt.decisions
@@ -578,7 +599,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         )
         agent_session.active_stream_id = stream_id
 
-    async def _restore_rejected_stream(
+    async def _restore_previous_stream(
         self,
         *,
         session_id: uuid.UUID,
@@ -586,10 +607,9 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         stream_id: uuid.UUID,
         previous_stream_id: uuid.UUID | None,
     ) -> None:
-        """Close the refused continuation and point the session back.
+        """Close a continuation the run is not on and point the session back.
 
-        Only while this continuation is still current; nothing was recorded, so
-        nothing else needs undoing.
+        Only while this continuation is still current. Commits the session.
         """
         try:
             stream = await AgentStream.new(
@@ -600,7 +620,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             await stream.done()
         except Exception as exc:
             logger.warning(
-                "Failed to close rejected approval continuation stream",
+                "Failed to close an approval continuation stream",
                 session_id=str(session_id),
                 stream_id=str(stream_id),
                 error=str(exc),
@@ -622,7 +642,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         except SQLAlchemyError as exc:
             await self.session.rollback()
             logger.warning(
-                "Failed to restore the stream of a rejected approval submission",
+                "Failed to point the session back at its previous stream",
                 session_id=str(session_id),
                 stream_id=str(stream_id),
                 error=str(exc),

@@ -217,17 +217,17 @@ async def delete_approval(
             ContinueRunRequest(decisions=decisions, source="inbox"),
         )
         return
-    except TracecatConflictError:
-        # A live run refused the denial: it holds a decision these rows lack.
-        lifecycle = await session_service.get_turn_lifecycle(agent_session)
-        if lifecycle.lifecycle in (TurnLifecycle.RUNNING, TurnLifecycle.UNAVAILABLE):
-            raise
-        logger.warning(
-            "run_turn refused; deleting approval records directly",
-            session_id=str(session_id),
-            exc_info=True,
-        )
-    except Exception:
+    except Exception as exc:
+        # Delete only once the run is over: a live or unknown run may still
+        # wait on these rows, or hold decisions they have not caught up to.
+        try:
+            lifecycle = (
+                await session_service.get_turn_lifecycle(agent_session)
+            ).lifecycle
+        except Exception:
+            lifecycle = TurnLifecycle.UNAVAILABLE
+        if lifecycle in (TurnLifecycle.RUNNING, TurnLifecycle.UNAVAILABLE):
+            raise exc
         logger.warning(
             "run_turn failed; deleting approval records directly",
             session_id=str(session_id),

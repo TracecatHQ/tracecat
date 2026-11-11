@@ -962,3 +962,53 @@ async def test_a_click_queued_behind_a_stuck_submission_is_uncertain(
             await service.decide(**_click(agent_session))
 
     handle.execute_update.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_a_replayed_partial_click_keeps_the_stream_the_run_resumed_on(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """A crashed partial click is retried after a sibling resumed the run."""
+    agent_session = await _seed_batch(session, svc_role)
+    run_id = agent_session.curr_run_id
+    assert run_id is not None
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+    record = ApprovalSubmissionService._record_accepted_decisions
+    crashed = False
+
+    async def crash_once(self: ApprovalSubmissionService, **kwargs: Any) -> None:
+        nonlocal crashed
+        if not crashed:
+            crashed = True
+            raise _ProcessCrash
+        await record(self, **kwargs)
+
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), handle.execute_update
+        ),
+        patch.object(
+            ApprovalSubmissionService, "_record_accepted_decisions", crash_once
+        ),
+    ):
+        with pytest.raises(_ProcessCrash):
+            await service.decide(**_click(agent_session))
+        await session.rollback()
+        resumed = await service.decide(
+            **_click(agent_session, tool_call_id="tool_call_456")
+        )
+        retried = await service.decide(**_click(agent_session))
+
+    resumed_stream_id = _approval_continuation_stream_id(
+        run_id, {"tool_call_456": True}
+    )
+    assert resumed == DecisionRecorded(
+        pending_tool_call_ids=[],
+        resumed=RunRef(run_id=run_id, stream_id=resumed_stream_id),
+    )
+    assert retried == DecisionRecorded(pending_tool_call_ids=[], resumed=None)
+    await session.refresh(agent_session)
+    assert agent_session.active_stream_id == resumed_stream_id
+    row = await _row(session, agent_session, "tool_call_123")
+    assert row.status is ApprovalStatus.APPROVED
