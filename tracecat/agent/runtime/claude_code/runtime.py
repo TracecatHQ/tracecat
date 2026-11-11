@@ -1624,6 +1624,11 @@ class ClaudeAgentRuntime:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
+        # Claude Code adds an attribution block (x-anthropic-billing-header) with
+        # a per-request hash to the system prompt. That breaks prompt caching on
+        # non-Anthropic providers, so turn it off there.
+        if payload.config.model_provider != "anthropic":
+            env["CLAUDE_CODE_ATTRIBUTION_HEADER"] = "0"
         # Bedrock does not consistently support tool search across APIs, models,
         # and opaque inference profiles. Explicitly disable it for Bedrock roots
         # so the CLI sends full tool definitions without tool_reference blocks.
