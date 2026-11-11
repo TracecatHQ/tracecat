@@ -24,8 +24,9 @@ module "network" {
 module "ecs" {
   source = "./modules/ecs"
 
-  enable_alb_logging  = var.enable_alb_logging
-  alb_log_bucket_name = var.alb_log_bucket_name
+  iam_role_permissions_boundary = var.iam_role_permissions_boundary
+  enable_alb_logging            = var.enable_alb_logging
+  alb_log_bucket_name           = var.alb_log_bucket_name
 
   # AWS provider
   aws_region                       = var.aws_region

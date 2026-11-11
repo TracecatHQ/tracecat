@@ -205,3 +205,19 @@ forgets legacy WAF state entries while preserving the live protection.
 Keep that migration file in the shared module for users upgrading from older releases.
 See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145)
 for migration, manual setup, and troubleshooting.
+
+## Workload IAM permissions boundary
+
+Set `iam_role_permissions_boundary` to the managed-policy ARN maintained by your
+platform administrator to apply one ceiling to every task and execution role,
+including optional services. For example:
+
+```hcl
+iam_role_permissions_boundary = "arn:aws:iam::123456789012:policy/WorkloadBoundary"
+```
+
+The default is `null` for installations without a boundary. Setting the input
+updates existing roles in place and preserves their names and ARNs. Review the
+full plan and reject any deletion or replacement before applying. Manage the boundary policy separately from this workload stack.
+Add service permissions to workload identity policies within that ceiling; keep
+the boundary ARN stable when extending its approved scopes.

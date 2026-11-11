@@ -110,7 +110,7 @@ terraform apply
 
 <Info>
   Manage AWS WAF separately through CloudFormation or your own security tooling.
-  Use `terraform output -raw alb_arn` to attach your regional web ACL.
+  Get the ALB ARN with `terraform output -raw alb_arn`, then use your security tooling to associate a `REGIONAL` web ACL in the ALB's AWS account and region.
   Existing deployments keep their WAF when upgrading with Terraform 1.7+ and the bundled `waf-handoff.tf`.
   See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145) for migration, manual setup, and troubleshooting.
 </Info>
