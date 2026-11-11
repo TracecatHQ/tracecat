@@ -183,7 +183,7 @@ export const WorkflowCanvas = React.forwardRef<
     workflowId ?? ""
   )
   const canUpdateWorkflow = useScopeCheck("workflow:update")
-  const isReadOnly = canUpdateWorkflow === false
+  const lacksUpdateScope = canUpdateWorkflow === false
   const [graphVersion, setGraphVersion] = useState<number>(1)
   const [hydratedWorkflowId, setHydratedWorkflowId] = useState<string | null>(
     null
@@ -776,7 +776,7 @@ export const WorkflowCanvas = React.forwardRef<
         })
       }
 
-      if (operations.length === 0 || isReadOnly) return
+      if (operations.length === 0 || lacksUpdateScope) return
 
       try {
         const result = await applyGraphOperations({
@@ -807,12 +807,12 @@ export const WorkflowCanvas = React.forwardRef<
         }
       }
     },
-    [graphVersion, applyGraphOperations, refetchGraph, isReadOnly]
+    [graphVersion, applyGraphOperations, refetchGraph, lacksUpdateScope]
   )
 
   const onLayout = useCallback(async () => {
     if (!workflowId) return
-    if (isReadOnly) {
+    if (lacksUpdateScope) {
       // Read-only users get a local-only layout; nothing is saved.
       try {
         const preview = await graphPreviewAutoLayout({
@@ -858,7 +858,7 @@ export const WorkflowCanvas = React.forwardRef<
   }, [
     workflowId,
     workspaceId,
-    isReadOnly,
+    lacksUpdateScope,
     graphVersion,
     applyGraphOperations,
     refetchGraph,
@@ -879,7 +879,7 @@ export const WorkflowCanvas = React.forwardRef<
   // Save viewport when panning/zooming stops
   const onMoveEnd = useCallback(
     async (_event: unknown, viewport: Viewport) => {
-      if (!workflowId || isReadOnly) return
+      if (!workflowId || lacksUpdateScope) return
 
       const operation: GraphOperation = {
         type: "update_viewport",
@@ -919,7 +919,13 @@ export const WorkflowCanvas = React.forwardRef<
         }
       }
     },
-    [workflowId, isReadOnly, graphVersion, applyGraphOperations, refetchGraph]
+    [
+      workflowId,
+      lacksUpdateScope,
+      graphVersion,
+      applyGraphOperations,
+      refetchGraph,
+    ]
   )
 
   // Add this function to center on a node
