@@ -14,10 +14,11 @@ import asyncio
 import json
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import timedelta
 from functools import lru_cache
 from importlib.metadata import entry_points
-from typing import Annotated, Literal, NamedTuple, Protocol
+from typing import Annotated, Literal, Protocol
 
 from pydantic import ConfigDict, Field
 from temporalio.exceptions import ApplicationError
@@ -160,7 +161,8 @@ async def publish_all(role: Role, updates: Sequence[RunUpdate]) -> bool:
     return all([(await _publish(role, update)).sent for update in updates])
 
 
-class _Published(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class _Published:
     sent: bool
     ref: str | None
 
