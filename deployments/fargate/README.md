@@ -199,33 +199,9 @@ logging is a separate diagnostic feature.
 
 ### WAF ownership (legacy)
 
-This application stack creates no WAF resources. Manage protection in a separate
-security stack or with customer-owned tooling, using the `alb_arn` output to
-associate a regional web ACL. The security stack also owns WAF rules, request
-redaction, and WAF event logging independently of the ALB logging switch.
-
-Upgrading an existing deployment requires Terraform 1.7 or later. The module's
-`waf-handoff.tf` declarations remove the former ACL, three regex pattern sets,
-association, and any logging configuration from Terraform state without deleting
-them. Existing protection remains attached; arrange an explicit ownership
-handoff, such as CloudFormation resource import, before changing those resources.
-Do not replace these declarations with an ordinary resource deletion or a destroy
-plan. New deployments need a separately provisioned WAF if protection is required.
-
-For the standard module, a normal plan/apply performs this state migration;
-`terraform state rm` is not required. Remove the retired `enable_waf` and WAF
-pattern-name inputs from variable files, workspace variables, environment, and
-wrapper module calls. Check that no former `module.ecs.aws_wafv2_` addresses
-remain in state and that the live ALB association is preserved. Importing retained
-resources into CloudFormation is a separate operation.
-
-Keep `waf-handoff.tf` in the shared module so older deployments can upgrade
-directly. In a private checkout, it is safe to remove only after every state using
-that checkout has completed the handoff. Deleting it before migration can turn
-the upgrade into a WAF destroy plan. Adapt the declarations if you customized
-the original module or resource addresses.
-
-See the [legacy WAF upgrade guide](https://docs.tracecat.com/self-hosting/aws-fargate#waf-legacy)
-for the migration steps and cleanup conditions, [manual WAF setup](https://docs.tracecat.com/self-hosting/aws-fargate#enable-waf-outside-terraform)
-for association commands, and the [FAQ](https://docs.tracecat.com/self-hosting/aws-fargate#faq)
-for upgrade errors and recovery steps.
+Manage AWS WAF separately through CloudFormation or your own security tooling,
+using the `alb_arn` output. With Terraform 1.7+, the bundled `waf-handoff.tf`
+forgets legacy WAF state entries while preserving the live protection.
+Keep that migration file in the shared module for users upgrading from older releases.
+See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145)
+for migration, manual setup, and troubleshooting.
