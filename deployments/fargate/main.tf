@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.2.0"
+  required_version = ">= 1.7.0"
 }
 
 locals {
@@ -25,18 +25,17 @@ module "ecs" {
   source = "./modules/ecs"
 
   iam_role_permissions_boundary = var.iam_role_permissions_boundary
+  enable_alb_logging            = var.enable_alb_logging
+  alb_log_bucket_name           = var.alb_log_bucket_name
 
   # AWS provider
-  aws_region                            = var.aws_region
-  name_prefix                           = var.name_prefix
-  iam_name_prefix                       = var.iam_name_prefix
-  core_db_identifier                    = var.core_db_identifier
-  temporal_db_identifier                = var.temporal_db_identifier
-  temporal_db_parameter_group_name      = var.temporal_db_parameter_group_name
-  redis_default_user_id                 = var.redis_default_user_id
-  waf_attachments_endpoint_pattern_name = var.waf_attachments_endpoint_pattern_name
-  waf_mcp_oauth_endpoints_pattern_name  = var.waf_mcp_oauth_endpoints_pattern_name
-  waf_mcp_public_endpoint_pattern_name  = var.waf_mcp_public_endpoint_pattern_name
+  aws_region                       = var.aws_region
+  name_prefix                      = var.name_prefix
+  iam_name_prefix                  = var.iam_name_prefix
+  core_db_identifier               = var.core_db_identifier
+  temporal_db_identifier           = var.temporal_db_identifier
+  temporal_db_parameter_group_name = var.temporal_db_parameter_group_name
+  redis_default_user_id            = var.redis_default_user_id
 
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
