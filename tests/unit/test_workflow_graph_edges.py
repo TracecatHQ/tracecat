@@ -422,3 +422,45 @@ async def test_auto_layout_includes_changes_from_same_batch(
     assert positions["Added in batch"] != (5000, 5000)
     assert positions["Action B"][1] > positions["Action A"][1]
     assert positions["Added in batch"][1] == positions["Action A"][1]
+
+
+@pytest.mark.anyio
+async def test_preview_auto_layout_does_not_persist(
+    session: AsyncSession,
+    svc_role: Role,
+    workflow_pair: tuple[Workflow, Action, Action],
+) -> None:
+    """Previewing auto-layout returns laid-out positions without saving them."""
+    workflow, action_a, action_b = workflow_pair
+    service = WorkflowGraphService(session, role=svc_role)
+    await service.apply_operations(
+        WorkflowUUID.new(workflow.id),
+        workflow.graph_version,
+        [_add_edge_op(action_a.id, action_b.id, "success")],
+    )
+    await session.refresh(action_a)
+    await session.refresh(action_b)
+    await session.refresh(workflow)
+    stored = {
+        action.id: (action.position_x, action.position_y)
+        for action in (action_a, action_b)
+    }
+    stored_trigger = (workflow.trigger_position_x, workflow.trigger_position_y)
+    version = workflow.graph_version
+
+    preview = await service.preview_auto_layout(WorkflowUUID.new(workflow.id))
+
+    assert preview is not None
+    assert preview.version == version
+    positions = {str(node["id"]): node["position"] for node in preview.nodes}
+    trigger = next(node for node in preview.nodes if node["type"] == "trigger")
+    assert trigger["position"] == {"x": 0, "y": 0}
+    assert positions[str(action_b.id)]["y"] > positions[str(action_a.id)]["y"]
+
+    await session.refresh(action_a)
+    await session.refresh(action_b)
+    await session.refresh(workflow)
+    assert (action_a.position_x, action_a.position_y) == stored[action_a.id]
+    assert (action_b.position_x, action_b.position_y) == stored[action_b.id]
+    assert (workflow.trigger_position_x, workflow.trigger_position_y) == stored_trigger
+    assert workflow.graph_version == version
