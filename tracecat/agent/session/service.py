@@ -2307,7 +2307,11 @@ class AgentSessionService(BaseWorkspaceService):
                     attempt += 1
                     continue
                 case "missing":
-                    pass
+                    # A retry of a message a finished turn took as a steer.
+                    if backend.steering and (
+                        steered := await backend.steered_into(session_id, run_id)
+                    ):
+                        return RunSteered(run_id=steered)
             if not admitted:
                 await self._admit_message(agent_session)
                 admitted = True
