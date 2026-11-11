@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Literal
 from unittest.mock import AsyncMock, patch
 
@@ -1012,3 +1013,32 @@ async def test_a_replayed_partial_click_keeps_the_stream_the_run_resumed_on(
     assert agent_session.active_stream_id == resumed_stream_id
     row = await _row(session, agent_session, "tool_call_123")
     assert row.status is ApprovalStatus.APPROVED
+
+
+@pytest.mark.anyio
+async def test_waiting_for_a_pooled_connection_counts_against_the_turn_bound(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    agent_session = await _seed_batch(session, svc_role)
+    service = AgentSessionService(session=session, role=svc_role)
+    handle = _FakeTemporalHandle()
+
+    @asynccontextmanager
+    async def exhausted_pool() -> AsyncIterator[None]:
+        await asyncio.Event().wait()
+        yield
+
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), handle.execute_update
+        ),
+        patch("tracecat.agent.approvals.submission._TURN_WAIT_SECONDS", 0.2),
+        patch(
+            "tracecat.agent.approvals.submission.get_async_engine",
+            return_value=SimpleNamespace(connect=exhausted_pool),
+        ),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await asyncio.wait_for(service.decide(**_click(agent_session)), timeout=5)
+
+    handle.execute_update.assert_not_awaited()

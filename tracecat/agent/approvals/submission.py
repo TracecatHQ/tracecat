@@ -6,7 +6,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from time import monotonic
 from typing import TYPE_CHECKING, Any, cast
@@ -402,13 +402,21 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         key = derive_lock_key_from_parts("approval-submission", str(session_id))
         deadline = monotonic() + _TURN_WAIT_SECONDS
         while True:
-            async with hold_pg_advisory_xact_lock(
-                get_async_engine(), key, wait=False
-            ) as holder:
+            async with AsyncExitStack() as stack:
+                try:
+                    # The bound covers checking out a pooled connection too.
+                    async with asyncio.timeout(max(deadline - monotonic(), 0)):
+                        holder = await stack.enter_async_context(
+                            hold_pg_advisory_xact_lock(
+                                get_async_engine(), key, wait=False
+                            )
+                        )
+                except TimeoutError:
+                    holder = None
                 if holder is not None:
                     yield
                     return
-            if monotonic() > deadline:
+            if monotonic() >= deadline:
                 raise AgentControlUncertain(
                     "Another approval submission for this session is still running"
                 )
