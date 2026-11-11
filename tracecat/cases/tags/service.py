@@ -376,7 +376,7 @@ class CaseTagsService(BaseWorkspaceService):
                 select(CaseTag.id)
                 .where(CaseTag.id.in_({tag.id for tag in resolved.values()}))
                 .order_by(CaseTag.id)
-                .with_for_update(key_share=True)
+                .with_for_update(read=True, key_share=True)
             )
         return [resolved[identifier] for identifier in tag_identifiers]
 

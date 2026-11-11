@@ -33,6 +33,7 @@ from tracecat.cases.event_schemas import (
 from tracecat.cases.events import CaseEventsService
 from tracecat.cases.schemas import CaseCommentWorkflowStatus, CaseCreate
 from tracecat.cases.service import CasesService
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.triggers.dispatch import (
     OUTBOX_RETRY_DELAY,
     CaseTriggerOutboxDispatcher,
@@ -1212,6 +1213,36 @@ async def test_tagged_create_waits_for_an_import_that_renames_its_tag(
                     f'ALTER TABLE "{schema}".case_fields DROP COLUMN IF EXISTS {column}'
                 )
             )
+            await session.commit()
+
+
+@pytest.mark.anyio
+async def test_creates_sharing_a_tag_do_not_wait_on_each_other(svc_role: Role) -> None:
+    """Two open creates can both lock the same existing tag.
+
+    The lock is `FOR KEY SHARE`, which doesn't conflict with itself, so a
+    popular tag never serializes otherwise independent creates.
+    """
+    async with get_async_session_bypass_rls_context_manager() as session:
+        tag = await CaseTagsService(session=session, role=svc_role).create_tag(
+            TagCreate(name=f"Shared {uuid.uuid4().hex[:8]}")
+        )
+        tag_id = tag.id
+    try:
+        async with (
+            get_async_session_bypass_rls_context_manager() as first,
+            get_async_session_bypass_rls_context_manager() as second,
+        ):
+            await CaseTagsService(session=first, role=svc_role).resolve_tags(
+                [str(tag_id)]
+            )
+            await second.execute(text("SET LOCAL lock_timeout = '1s'"))
+            await CaseTagsService(session=second, role=svc_role).resolve_tags(
+                [str(tag_id)]
+            )
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await session.execute(delete(CaseTag).where(CaseTag.id == tag_id))
             await session.commit()
 
 
