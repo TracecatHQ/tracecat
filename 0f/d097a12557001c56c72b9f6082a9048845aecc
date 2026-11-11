@@ -1,0 +1,28 @@
+deployments/fargate/README.md
+  s_28b5e1d0991a70::t_41412b10f86323 214-228
+  s_28b5e1d0991a70::t_ec426425d3a1f5 229-231
+  s_28b5e1d0991a70::t_a3463520a61fa9 200
+docs/self-hosting/aws-fargate.mdx
+  s_28b5e1d0991a70::t_efec403962b7c3 154,166-169,172
+  s_28b5e1d0991a70::t_fb5404fb80db9d 123-124,146-153,155-165,170,173-174,212-236,238-239
+  s_28b5e1d0991a70::t_41412b10f86323 18,93-94,109-122,126-145
+  s_28b5e1d0991a70::t_ec426425d3a1f5 237
+  s_28b5e1d0991a70::t_a3463520a61fa9 125
+  s_28b5e1d0991a70::t_8458a1f4d056ef 171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0fd097a12557001c56c72b9f6082a9048845aecc",
+  "prompts": {},
+  "sessions": {
+    "s_28b5e1d0991a70": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c773-bf8e-79c3-b123-586e18d5970c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
