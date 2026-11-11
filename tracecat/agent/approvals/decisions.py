@@ -24,21 +24,14 @@ if TYPE_CHECKING:
 
 DEFAULT_DENY_MESSAGE = "Tool denied by user"
 
-type ApprovalDecisionMetadata = dict[str, Any]
-"""Submission metadata persisted alongside a decision.
-
-Always carries ``source``; client-supplied keys are merged over it, so the
-value type stays open. ``decision_outcome`` ignores this entirely so the
-same decision replayed from another surface is not a conflict.
-"""
-
 
 @dataclass(frozen=True, slots=True)
 class SubmittedDecision:
     """One decision as a caller submitted it, before it is recorded."""
 
     result: ApprovalResult
-    metadata: ApprovalDecisionMetadata
+    # Persisted with the decision; always has ``source``. Not part of its outcome.
+    metadata: dict[str, Any]
 
     @classmethod
     def of(cls, decision: ApprovalDecision, *, source: str) -> SubmittedDecision:
@@ -65,7 +58,7 @@ class _ApprovalDecisionFields:
 def _approval_decision_fields(
     result: ApprovalResult,
     *,
-    decision_metadata: ApprovalDecisionMetadata | None,
+    decision_metadata: dict[str, Any] | None,
 ) -> _ApprovalDecisionFields:
     """Map a deferred approval result into Approval row update fields."""
     status: ApprovalStatus
