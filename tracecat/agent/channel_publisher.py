@@ -162,12 +162,15 @@ async def publish_all(role: Role, updates: Sequence[RunUpdate]) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
-class _Published:
+class _PublishResult:
+    """Whether the update went out, and the posted message's ref (None when the
+    publisher returned none, even if sent)."""
+
     sent: bool
     ref: str | None
 
 
-async def _publish(role: Role, update: RunUpdate) -> _Published:
+async def _publish(role: Role, update: RunUpdate) -> _PublishResult:
     try:
         async with asyncio.timeout(PUBLISH_BUDGET.total_seconds()):
             publisher = get_channel_publisher()
@@ -176,7 +179,9 @@ async def _publish(role: Role, update: RunUpdate) -> _Published:
                 raise RuntimeError("No channel publisher is installed")
             for attempt in range(1, _PUBLISH_ATTEMPTS + 1):
                 try:
-                    return _Published(True, await publisher.publish(role, update))
+                    return _PublishResult(
+                        sent=True, ref=await publisher.publish(role, update)
+                    )
                 except Exception as e:
                     definitive = isinstance(e, ApplicationError) and e.non_retryable
                     if definitive or attempt == _PUBLISH_ATTEMPTS:
@@ -193,4 +198,4 @@ async def _publish(role: Role, update: RunUpdate) -> _Published:
             update=update.kind,
             error=repr(e),
         )
-    return _Published(False, None)
+    return _PublishResult(sent=False, ref=None)
