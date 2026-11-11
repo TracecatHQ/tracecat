@@ -15,7 +15,7 @@ import GenerateSecrets from "/snippets/generate-secrets.mdx";
 
 ## Prerequisites
 
-- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
+- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli) 1.7 or later
 - AWS credentials configured for your target account and role
 - A public [Route53 hosted zone](https://aws.amazon.com/route53/) (domain and hosted zone ID)
 - `openssl` and AWS CLI (if using the helper secret script)
@@ -90,6 +90,8 @@ Once deployed, access your instance at:
 
 To update an existing Tracecat deployment on Fargate:
 
+If your stack includes the legacy bundled WAF, follow [WAF (legacy)](#waf-legacy) when upgrading.
+
 1. Pull the latest Fargate stack from the Tracecat repository to ensure you have the most recent infrastructure changes.
 2. Change the `TF_VAR_tracecat_image_tag` variable to the desired image tag compatible with the stack, or remove the variable to default to the latest image tag.
 3. Run `terraform apply` to apply the updates.
@@ -103,6 +105,72 @@ export TF_VAR_tracecat_image_tag=1.1.0
 
 terraform apply
 ```
+
+## WAF (legacy)
+
+Manage AWS WAF protection in a separate CloudFormation stack or your own security tooling. Use the application's ALB ARN to associate a regional web ACL in the same AWS region:
+
+```bash
+terraform output -raw alb_arn
+```
+
+One web ACL can protect an ALB at a time. Your security tooling owns its rules, association, and WAF event logging. New installations provision WAF separately if protection is required. The application's ALB logging settings do not enable WAF logging.
+
+### Upgrade a stack with bundled WAF
+
+Earlier Fargate stacks created the web ACL, regex pattern sets, and ALB association in Terraform. The current module includes `modules/ecs/waf-handoff.tf` to release those resources from Terraform state while retaining them in AWS.
+
+This file is the upgrade guard: its `removed` blocks set `destroy = false`. Your next apply forgets the old state entries without deleting the WAF, changing its rules, or detaching it from the ALB. Later application applies leave that retained WAF alone.
+
+1. Use Terraform 1.7 or later and keep `waf-handoff.tf` in the module. Remove the retired inputs from your variable files, workspace variables, and any wrapper module calls, along with their environment variables such as `TF_VAR_enable_waf`:
+   - `enable_waf`
+   - `waf_attachments_endpoint_pattern_name`
+   - `waf_mcp_oauth_endpoints_pattern_name`
+   - `waf_mcp_public_endpoint_pattern_name`
+2. Run `terraform init` and `terraform plan` from `deployments/fargate`. Check that the WAF resources leave Terraform management without being destroyed, then run `terraform apply`. This is the state migration; you do not need to run `terraform state rm` for the standard module.
+3. Run `terraform state list` and confirm that the former `module.ecs.aws_wafv2_` addresses are gone. Check in AWS WAF that the existing web ACL remains associated with the ALB. Import the retained resources into your security stack before managing their configuration there. CloudFormation import is a separate step; Terraform does not perform it for you.
+
+If you renamed the module or customized its WAF resource addresses, review your actual state addresses and adapt the handoff before applying.
+
+<Warning>
+  Stop if the plan destroys or replaces WAF resources. Deleting the old resource declarations without the handoff can remove your protection. Setting the old `enable_waf` input to `false` is not a state migration.
+</Warning>
+
+### Can I delete the handoff file?
+
+In your own checkout, you can remove it after every state using that checkout has completed the migration. The file creates no WAF resources and has no effect when the old addresses are absent from state.
+
+The shared Fargate module retains these declarations so users can upgrade directly from older releases. Removing them would require those users to apply a migration release first or remove the old state entries manually. Keep the file when distributing the module to other deployments.
+
+See [Terraform's state-removal workflow](https://developer.hashicorp.com/terraform/language/state/remove) and [CloudFormation resource import](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resource-import-existing-stack.html).
+
+### Enable WAF outside Terraform
+
+If you upgraded with an existing WAF, it remains attached. Keep that ACL and import it into your security stack; you do not need to create or attach another one.
+
+For a new deployment, or to use a different WAF:
+
+1. Apply the Fargate stack so the ALB exists. In the same AWS account and region, [create a regional web ACL](https://docs.aws.amazon.com/waf/latest/developerguide/getting-started.html) through AWS WAF or your separate CloudFormation stack. Choose and test the managed or custom rules you want to enforce. Use `REGIONAL` scope, not `CLOUDFRONT`.
+2. Configure AWS CLI credentials for that account. Replace the example region and web ACL ARN below with your own values. Confirm the caller account and check the ALB's existing association in AWS WAF before selecting a different ACL; an ALB supports one web ACL at a time.
+
+```bash
+AWS_REGION="us-east-1"
+WEB_ACL_ARN="arn:aws:wafv2:us-east-1:123456789012:regional/webacl/example/00000000-0000-0000-0000-000000000000"
+ALB_ARN="$(terraform output -raw alb_arn)"
+
+aws sts get-caller-identity --query Account --output text
+aws wafv2 associate-web-acl \
+  --region "$AWS_REGION" \
+  --resource-arn "$ALB_ARN" \
+  --web-acl-arn "$WEB_ACL_ARN"
+
+aws wafv2 get-web-acl-for-resource \
+  --region "$AWS_REGION" --resource-arn "$ALB_ARN" \
+  --query 'WebACL.ARN' --output text
+```
+
+3. Confirm that `get-web-acl-for-resource` returns the chosen ACL ARN. Test your UI, webhooks, and MCP routes, then review WAF rule matches for false positives. If the ALB is replaced later, update the external association with its new ARN.
+4. Configure [WAF event logging](https://docs.aws.amazon.com/waf/latest/developerguide/logging.html) separately in AWS WAF or your security stack. Associating an ACL does not enable full event logs, and the application's ALB logging switch does not configure them.
 
 ## Database login
 
@@ -141,6 +209,34 @@ With the Deny off, every workspace user can assume any role in that account whos
 ## FAQ
 
 <AccordionGroup>
+  <Accordion title="Will my next Terraform apply remove the legacy WAF?">
+    With the current unmodified module and Terraform 1.7+, it removes the old entries from Terraform state, not the AWS resources. The web ACL and ALB association remain active. A plan message that the resources will no longer be managed but will not be destroyed is expected. If your deployment never created a WAF, there are no old entries to migrate.
+  </Accordion>
+
+  <Accordion title="Why does terraform init report Unsupported Terraform Core version?">
+    The handoff uses Terraform 1.7+ syntax. Upgrade your local CLI or HCP Terraform workspace's execution version to 1.7 or later, then rerun initialization and planning. Keep the handoff declarations when upgrading an old state.
+  </Accordion>
+
+  <Accordion title="Why does plan report Unsupported argument or Value for undeclared variable?">
+    Remove the retired WAF inputs listed in [the upgrade steps](#upgrade-a-stack-with-bundled-waf). Check `.tfvars`, HCP Terraform workspace variables, `TF_VAR_` environment variables, CLI `-var` arguments, and wrapper module calls. Undeclared values in variable files can produce warnings; unsupported module arguments or CLI variables can stop the plan. Removing these settings does not delete the retained WAF.
+  </Accordion>
+
+  <Accordion title="Why does the plan want to destroy or replace WAF resources?">
+    Do not apply that plan. Use the complete updated module, including `waf-handoff.tf`, at its original module address. If you renamed resources or removed the handoff in a fork, restore or adapt the `removed` declarations with `destroy = false` for the addresses still in your state. Review a fresh plan before applying; do not use a destroy operation to unblock the upgrade.
+  </Accordion>
+
+  <Accordion title="Why is the alb_arn output missing?">
+    Confirm that you are using the updated stack and the intended backend/workspace. Apply the updated configuration once to save the new output. If you call the deployment through a wrapper module, expose its `alb_arn` as a root output before using `terraform output -raw alb_arn`.
+  </Accordion>
+
+  <Accordion title="Why does manual WAF association fail?">
+    For `WAFNonexistentItemException` or an invalid ARN, check that the ACL uses `REGIONAL` scope and that the ACL, ALB, CLI region, and caller account match. For `AccessDeniedException`, use a role with the required WAF and ALB association permissions. A newly created ACL can return `WAFUnavailableEntityException` while AWS propagates it; wait a few minutes and retry. If stack creation reports `WAFDuplicateItemException`, import the retained ACL or choose a new name rather than deleting the live ACL to free its name. These AWS errors do not require Terraform state edits.
+  </Accordion>
+
+  <Accordion title="Why do requests return 403 after I attach a WAF?">
+    Confirm that WAF blocked the request by checking WAF logs or sampled requests. Tune the matching rule in your security tooling, using a scoped exception or a per-rule Count override while validating legitimate traffic. Test webhooks and MCP as well as the UI. If WAF did not block it, investigate the ALB or application response instead. The retired `enable_waf` variable cannot change an externally managed ACL.
+  </Accordion>
+
   <Accordion title="Is untrusted code execution safe on Fargate?">
     Fargate does not support the permissions model required by `nsjail`. Tracecat uses a fallback executor without `nsjail` isolation on Fargate.
     If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), [deploy Tracecat on Kubernetes](/self-hosting/kubernetes), where `nsjail` is enabled by default.
