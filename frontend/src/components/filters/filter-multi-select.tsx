@@ -60,8 +60,6 @@ interface FilterMultiSelectProps<T extends string> {
   emptyMessage?: string
   /** Enable sort controls in the dropdown */
   showSort?: boolean
-  /** Explain a sort key when it differs from the displayed option label. */
-  sortDescription?: string
   /** Current sort direction (null means no sorting applied) */
   sortDirection?: SortDirection
   /** Callback when sort direction changes */
@@ -83,7 +81,6 @@ export function FilterMultiSelect<T extends string>({
   className,
   emptyMessage = "No results found.",
   showSort = false,
-  sortDescription,
   sortDirection = null,
   onSortDirectionChange,
   allowExclude = true,
@@ -204,11 +201,6 @@ export function FilterMultiSelect<T extends string>({
               </button>
             </div>
           </div>
-        )}
-        {showSort && sortDescription && (
-          <p className="border-b px-2 py-1.5 text-[11px] text-muted-foreground">
-            {sortDescription}
-          </p>
         )}
         <Command>
           <CommandInput

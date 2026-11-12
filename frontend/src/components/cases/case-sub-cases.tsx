@@ -1,14 +1,6 @@
 "use client"
 
-import {
-  ChevronDown,
-  ChevronRight,
-  CornerDownRight,
-  ListTree,
-  Plus,
-  SearchIcon,
-  X,
-} from "lucide-react"
+import { CornerDownRight, ListTree, Plus, SearchIcon, X } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 import type { CaseParentRead, CaseRead, CaseReadMinimal } from "@/client"
@@ -22,11 +14,6 @@ import {
 } from "@/components/cases/case-task-fields"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogBody,
@@ -153,7 +140,6 @@ export function CaseSubCasesPanel({
   const canUpdate = useScopeCheck("case:update") === true
   const queryClient = useQueryClient()
   const { toast } = useToast()
-  const [isOpen, setIsOpen] = useState(true)
   const [search, setSearch] = useState("")
   const [debouncedSearch] = useDebounce(search.trim(), 300)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -213,32 +199,23 @@ export function CaseSubCasesPanel({
     )
   }
 
-  const total = caseData.num_sub_cases
-
   return (
     <>
-      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-        {/* The action sits beside the trigger, not inside it: a button
-            nested in the trigger button is invalid HTML. */}
-        <div className="flex items-center justify-between gap-2">
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              className="h-auto flex-1 justify-start gap-1.5 p-0 text-sm font-medium hover:bg-transparent"
-            >
-              {isOpen ? (
-                <ChevronDown className="size-3.5" />
-              ) : (
-                <ChevronRight className="size-3.5" />
-              )}
-              Sub-cases{total > 0 ? ` (${total})` : ""}
-            </Button>
-          </CollapsibleTrigger>
+      <div className={cn(CASE_PANEL_BOX_CLASS, "flex flex-col gap-1")}>
+        <div className="flex items-center gap-2 px-2">
+          <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search sub-cases..."
+            aria-label="Search sub-cases"
+            className="h-8 border-none bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
+          />
           {canUpdate && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 px-2 text-xs"
+              className="h-6 shrink-0 px-2 text-xs"
               onClick={() => setAddDialogOpen(true)}
             >
               <Plus className="mr-1 size-3.5" />
@@ -246,78 +223,62 @@ export function CaseSubCasesPanel({
             </Button>
           )}
         </div>
-        <CollapsibleContent className="mt-4">
-          <div className={cn(CASE_PANEL_BOX_CLASS, "flex flex-col gap-1")}>
-            <div className="flex items-center gap-2 px-2">
-              <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search sub-cases..."
-                aria-label="Search sub-cases"
-                className="h-8 border-none bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
-              />
-            </div>
-            <div className="max-h-96 overflow-y-auto">
-              {isLoading &&
-                [...Array(3)].map((_, index) => (
-                  <Skeleton key={index} className="mx-2 my-1 h-7 rounded-md" />
-                ))}
-              {error && (
-                <p className="px-2 py-2 text-sm text-muted-foreground">
-                  Failed to load sub-cases
-                </p>
+        <div className="max-h-96 overflow-y-auto">
+          {isLoading &&
+            [...Array(3)].map((_, index) => (
+              <Skeleton key={index} className="mx-2 my-1 h-7 rounded-md" />
+            ))}
+          {error && (
+            <p className="px-2 py-2 text-sm text-muted-foreground">
+              Failed to load sub-cases
+            </p>
+          )}
+          {!isLoading && !error && subCases.length === 0 && debouncedSearch && (
+            <p className="px-2 py-2 text-sm text-muted-foreground">
+              No sub-cases match your search
+            </p>
+          )}
+          {subCases.map((subCase) => (
+            <CaseSummaryRow
+              key={subCase.id}
+              caseItem={subCase}
+              workspaceId={workspaceId}
+              trailing={
+                canUpdate ? (
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(subCase)}
+                    disabled={removingId !== null}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50"
+                    aria-label={`Remove ${subCase.short_id} from this case`}
+                    title="Remove from this case"
+                  >
+                    {removingId === subCase.id ? (
+                      <Spinner className="size-3" />
+                    ) : (
+                      <X className="size-3.5" />
+                    )}
+                  </button>
+                ) : null
+              }
+            />
+          ))}
+          {hasNextPage && (
+            <button
+              type="button"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+              className={cn(
+                CASE_PANEL_ACTION_ROW_CLASS,
+                "flex w-full items-center justify-center gap-2 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground"
               )}
-              {!isLoading && !error && subCases.length === 0 && (
-                <p className="px-2 py-2 text-sm text-muted-foreground">
-                  {debouncedSearch
-                    ? "No sub-cases match your search"
-                    : "No sub-cases yet. Group related cases here from the cases list or with Add sub-cases."}
-                </p>
-              )}
-              {subCases.map((subCase) => (
-                <CaseSummaryRow
-                  key={subCase.id}
-                  caseItem={subCase}
-                  workspaceId={workspaceId}
-                  trailing={
-                    canUpdate ? (
-                      <button
-                        type="button"
-                        onClick={() => handleRemove(subCase)}
-                        disabled={removingId !== null}
-                        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50"
-                        aria-label={`Remove ${subCase.short_id} from this case`}
-                        title="Remove from this case"
-                      >
-                        {removingId === subCase.id ? (
-                          <Spinner className="size-3" />
-                        ) : (
-                          <X className="size-3.5" />
-                        )}
-                      </button>
-                    ) : null
-                  }
-                />
-              ))}
-              {hasNextPage && (
-                <button
-                  type="button"
-                  onClick={() => fetchNextPage()}
-                  disabled={isFetchingNextPage}
-                  className={cn(
-                    CASE_PANEL_ACTION_ROW_CLASS,
-                    "flex w-full items-center justify-center gap-2 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  )}
-                >
-                  {isFetchingNextPage && <Spinner className="size-3" />}
-                  Load more
-                </button>
-              )}
-            </div>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+            >
+              {isFetchingNextPage && <Spinner className="size-3" />}
+              Load more
+            </button>
+          )}
+        </div>
+      </div>
       <AddSubCasesDialog
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
