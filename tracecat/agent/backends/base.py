@@ -655,14 +655,6 @@ class AgentBackend[InputT, OutputT](ABC):
         """
         raise AgentControlRejected("This agent backend does not support steering")
 
-    async def steered_into(self, session_id: UUID, message_id: UUID) -> UUID | None:
-        """The run a turn of the session took ``message_id`` into as a steer, if any.
-
-        Must hold after that turn ends. Only backends that set ``steering``
-        implement this.
-        """
-        raise AgentControlRejected("This agent backend does not support steering")
-
     async def withdraw(
         self, run_id: UUID, request_id: UUID, target_ids: Sequence[UUID] | None
     ) -> WithdrawResult:

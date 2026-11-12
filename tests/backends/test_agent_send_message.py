@@ -474,37 +474,3 @@ async def test_a_blank_request_id_is_refused(
                     **message(context.session.id, request_id=request_id)
                 )
     assert fake.starts == []
-
-
-@pytest.mark.parametrize("steered", [True, False], ids=["steered", "never_steered"])
-async def test_a_retry_of_a_message_a_finished_turn_steered_starts_nothing(
-    connection: AsyncConnection, steered: bool
-) -> None:
-    fake = FakeTemporal()
-    steered_run = uuid4()
-    steered_into = AsyncMock(return_value=steered_run if steered else None)
-    # Patched on an instance: the registry rejects a steering class without steer().
-    backend = DefaultBackend()
-    async with AsyncSession(connection, expire_on_commit=False) as db:
-        context = await make_context(db)
-        session_id = context.session.id
-        run_id = message_run_id(session_id, "slack:Ev1", 0)
-        with (
-            temporal(fake),
-            patch.object(backend, "steering", True),
-            patch.object(backend, "steered_into", steered_into),
-            patch(
-                "tracecat.agent.session.service.get_agent_backend",
-                return_value=backend,
-            ),
-        ):
-            async with channel_service(db, context) as service:
-                retried = await service.send_message(**message(session_id))
-
-    steered_into.assert_awaited_once_with(session_id, run_id)
-    if steered:
-        assert retried == RunSteered(run_id=steered_run)
-        assert fake.starts == []
-    else:
-        assert retried == RunStarted(run_id=run_id)
-        assert fake.starts == [f"agent/{run_id}"]
