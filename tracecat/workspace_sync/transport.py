@@ -49,7 +49,11 @@ from tracecat.registry.repositories.schemas import (
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import CommitInfo, PushStatus
-from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
+from tracecat.vcs.bitbucket.app import (
+    BitbucketError,
+    BitbucketTokenService,
+    BitbucketTransportError,
+)
 from tracecat.vcs.bitbucket.git import BitbucketGit, repository_path
 from tracecat.vcs.bitbucket.types import (
     BitbucketBranch,
@@ -2206,7 +2210,16 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             or not target.path.startswith("/2.0/repositories/")
         ):
             raise BitbucketError("Invalid Bitbucket Cloud API URL")
-        response = await client.request(method, target, params=params, json=body)
+        try:
+            response = await client.request(method, target, params=params, json=body)
+        except httpx.HTTPError as e:
+            self.logger.warning(
+                "Bitbucket Cloud API request failed", error_type=type(e).__name__
+            )
+            # The exception text can name the host; keep it out of the user message.
+            raise BitbucketTransportError(
+                "Bitbucket Cloud API request failed: could not reach Bitbucket."
+            ) from e
         if not response.is_success:
             raise BitbucketError(
                 f"Bitbucket Cloud API request failed (HTTP {response.status_code}). Check token permissions and repository access.",
@@ -2583,7 +2596,17 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
             or target.fragment
         ):
             raise BitbucketError("Invalid Data Center API URL")
-        response = await client.request(method, target, params=params, json=body)
+        try:
+            response = await client.request(method, target, params=params, json=body)
+        except httpx.HTTPError as e:
+            self.logger.warning(
+                "Bitbucket Data Center API request failed", error_type=type(e).__name__
+            )
+            # The exception text can name the host; keep it out of the user message.
+            raise BitbucketTransportError(
+                "Bitbucket Data Center API request failed: could not reach the"
+                " Bitbucket host. Check the URL and network access."
+            ) from e
         if not response.is_success:
             raise BitbucketError(
                 f"Bitbucket Data Center API request failed (HTTP {response.status_code})",
@@ -2744,8 +2767,8 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
 
         A commit that is missing (404) or malformed leaves its tags undated, so
         they are skipped instead of failing the whole page. Any other failure
-        (auth, rate limit, server error) is about the request, not the tag, and
-        is raised so the page is not silently incomplete.
+        (auth, rate limit, server error, unreachable host) is about the request,
+        not the tag, and is raised so the page is not silently incomplete.
         """
         semaphore = asyncio.Semaphore(_DATA_CENTER_TAG_COMMIT_CONCURRENCY)
 
@@ -2757,6 +2780,9 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                         f"{path}/commits/{quote(sha, safe='')}",
                         DataCenterCommit,
                     )
+            except BitbucketTransportError:
+                # An unreachable host is about the request, not this commit.
+                raise
             except BitbucketError as e:
                 # Validation failures carry no status; 404 means this commit.
                 if e.status_code not in (None, 404):
