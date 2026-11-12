@@ -491,6 +491,10 @@ class TableResourceSpec(BaseModel):
         description="Stable source id. It identifies the table; its path does not.",
     )
     name: str = Field(min_length=1, description="Table name.")
+    folder_path: str | None = Field(
+        default=None,
+        description="Workspace folder the table lives under, if any.",
+    )
     columns: list[TableColumnSpec] = Field(
         default_factory=list, description="Column definitions for the table schema."
     )

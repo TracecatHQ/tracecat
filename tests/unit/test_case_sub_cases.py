@@ -582,3 +582,36 @@ async def test_parent_filter_rejects_top_level_hierarchy(
             parent_id=parent_id,
             hierarchy="top_level",
         )
+
+
+@pytest.mark.anyio
+async def test_set_parent_with_short_ids(cases_service: CasesService) -> None:
+    parent = await _create(cases_service, "Parent")
+    first = await _create(cases_service, "First duplicate")
+    second = await _create(cases_service, "Second duplicate")
+
+    case_ids = await cases_service.resolve_case_ids(
+        [first.short_id, str(second.id), first.short_id.lower()]
+    )
+    parent_id = await cases_service.resolve_case_id(parent.short_id)
+    response = await cases_service.batch_set_parent(case_ids[:2], parent_id)
+
+    assert case_ids == [first.id, second.id, first.id]
+    assert response.failed == 0
+    assert await _search_ids(cases_service, parent_id=parent.id) == {
+        first.id,
+        second.id,
+    }
+
+
+@pytest.mark.anyio
+async def test_resolve_case_ids_errors(cases_service: CasesService) -> None:
+    case = await _create(cases_service, "Known")
+
+    with pytest.raises(TracecatNotFoundError, match="CASE-9999"):
+        await cases_service.resolve_case_ids([case.short_id, "CASE-9999"])
+    # Above the integer column's range: not found rather than a bind error.
+    with pytest.raises(TracecatNotFoundError, match="CASE-9999999999"):
+        await cases_service.resolve_case_id("CASE-9999999999")
+    with pytest.raises(TracecatValidationError, match="not-a-case"):
+        await cases_service.resolve_case_ids([case.short_id, "not-a-case"])

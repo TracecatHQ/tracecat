@@ -666,6 +666,32 @@ def test_swif_row_discovers_oauth_and_takes_regional_server_uri() -> None:
     assert endpoint.secret is False
 
 
+def test_socket_row_discovers_oauth_with_read_scopes() -> None:
+    """Socket serves OAuth from api.socket.dev, so its endpoints are pinned."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "socket-mcp", include_private=True
+    )
+    assert entry is not None
+    assert entry.name == "Socket"
+    assert entry.category == "AppSec"
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_oauth2"
+    assert spec.requires_config is False
+    assert spec.credentials == []
+    # The protected resource metadata names the URI with its trailing slash.
+    assert spec.server_uri == "https://mcp.socket.dev/"
+    assert spec.scopes == ["packages:list", "alerts:list", "threat-feed:list"]
+    # Pinned only to allowlist api.socket.dev; without client credentials the
+    # connect flow still discovers the registration endpoint and runs DCR.
+    assert (
+        spec.oauth_authorization_endpoint
+        == "https://api.socket.dev/v1/oauth2/authorize"
+    )
+    assert spec.oauth_token_endpoint == "https://api.socket.dev/v1/oauth2/token"
+
+
 def test_devin_row_uses_api_key_headers() -> None:
     """Devin's OAuth server has no DCR, so the row connects with an API key."""
     _clear_catalog_cache()

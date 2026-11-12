@@ -12,6 +12,7 @@ from tracecat.cases import internal_router as internal_cases_router
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.rows.schemas import CaseTableRowRead
+from tracecat.cases.schemas import CaseBatchItemResult, CaseBatchResponse
 from tracecat.db.models import Case, CaseTag, Workspace
 from tracecat.exceptions import (
     TracecatNotFoundError,
@@ -291,7 +292,7 @@ async def test_internal_get_case_resolves_short_id(
         ),
     ):
         mock_resolver = AsyncMock()
-        mock_resolver.resolve_case_id.return_value = mock_internal_case.id
+        mock_resolver.resolve_case_ids.return_value = [mock_internal_case.id]
         mock_resolver_cls.return_value = mock_resolver
         mock_service = AsyncMock()
         mock_service.get_case.return_value = mock_internal_case
@@ -307,7 +308,7 @@ async def test_internal_get_case_resolves_short_id(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["id"] == str(mock_internal_case.id)
-    mock_resolver.resolve_case_id.assert_awaited_once_with(case_ref)
+    mock_resolver.resolve_case_ids.assert_awaited_once_with([case_ref])
     mock_service.get_case.assert_awaited_once_with(
         mock_internal_case.id, track_view=True
     )
@@ -332,7 +333,7 @@ async def test_internal_case_id_resolution_errors(
         patch.object(internal_cases_router, "CasesService") as mock_service_cls,
     ):
         mock_resolver = AsyncMock()
-        mock_resolver.resolve_case_id.side_effect = error
+        mock_resolver.resolve_case_ids.side_effect = error
         mock_resolver_cls.return_value = mock_resolver
 
         response = action_gateway_client.get(
@@ -365,3 +366,112 @@ async def test_internal_case_id_uuid_skips_lookup(
 
     assert response.status_code == status.HTTP_200_OK
     mock_service.get_case.assert_awaited_once_with(mock_internal_case.id)
+
+
+@pytest.mark.anyio
+async def test_internal_batch_set_parent_resolves_refs(
+    action_gateway_client: TestClient, test_admin_role: Role
+) -> None:
+    parent_id = uuid.uuid4()
+    child_id = uuid.uuid4()
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.resolve_case_ids.return_value = [parent_id, child_id]
+        mock_service.batch_set_parent.return_value = CaseBatchResponse(
+            results=[CaseBatchItemResult(case_id=child_id, success=True)],
+            succeeded=1,
+            failed=0,
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = action_gateway_client.post(
+            "/internal/cases/batch-set-parent",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"case_ids": ["CASE-0002"], "parent_case_id": "CASE-0001"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["succeeded"] == 1
+    mock_service.resolve_case_ids.assert_awaited_once_with(["CASE-0001", "CASE-0002"])
+    mock_service.batch_set_parent.assert_awaited_once_with([child_id], parent_id)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (TracecatNotFoundError("Case CASE-9999 not found"), 404),
+        (TracecatValidationError("Case ID 'x' must be a UUID"), 422),
+    ],
+)
+async def test_internal_batch_clear_parent_ref_errors(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.resolve_case_ids.side_effect = error
+        mock_service_cls.return_value = mock_service
+
+        response = action_gateway_client.post(
+            "/internal/cases/batch-clear-parent",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"case_ids": ["CASE-9999"]},
+        )
+
+    assert response.status_code == expected_status
+    mock_service.batch_clear_parent.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_internal_create_case_simple_resolves_parent(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    parent_id = uuid.uuid4()
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.resolve_case_ids.return_value = [parent_id]
+        mock_service.create_case.return_value = mock_internal_case
+        mock_service_cls.return_value = mock_service
+
+        response = action_gateway_client.post(
+            "/internal/cases/simple",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "summary": "Duplicate alert",
+                "description": "Duplicate alert",
+                "priority": "medium",
+                "severity": "low",
+                "status": "new",
+                "parent_case_id": "CASE-0001",
+            },
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    mock_service.resolve_case_ids.assert_awaited_once_with(["CASE-0001"])
+    assert mock_service.create_case.await_args.args[0].parent_id == parent_id
+
+
+@pytest.mark.anyio
+async def test_internal_batch_set_parent_nested_parent_returns_400(
+    action_gateway_client: TestClient, test_admin_role: Role
+) -> None:
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.resolve_case_ids.return_value = [uuid.uuid4(), uuid.uuid4()]
+        mock_service.batch_set_parent.side_effect = TracecatValidationError(
+            "CASE-0001 is a sub-case and cannot have sub-cases"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = action_gateway_client.post(
+            "/internal/cases/batch-set-parent",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"case_ids": ["CASE-0002"], "parent_case_id": "CASE-0001"},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST

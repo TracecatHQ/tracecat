@@ -161,6 +161,31 @@ async def test_update_case_simple_serializes_and_keeps_null_option(
 
 
 @pytest.mark.anyio
+async def test_batch_set_parent_uses_gateway_path(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    await cases_client.batch_set_parent(
+        case_ids=["CASE-0002"], parent_case_id="CASE-0001"
+    )
+
+    mock_tracecat_client.post.assert_called_once_with(
+        "/cases/batch-set-parent",
+        json={"case_ids": ["CASE-0002"], "parent_case_id": "CASE-0001"},
+    )
+
+
+@pytest.mark.anyio
+async def test_batch_clear_parent_uses_gateway_path(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    await cases_client.batch_clear_parent(case_ids=["CASE-0002"])
+
+    mock_tracecat_client.post.assert_called_once_with(
+        "/cases/batch-clear-parent", json={"case_ids": ["CASE-0002"]}
+    )
+
+
+@pytest.mark.anyio
 async def test_list_case_rows_uses_client_internal_prefix_once(
     cases_client: CasesClient, mock_tracecat_client: MagicMock
 ) -> None:

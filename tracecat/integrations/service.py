@@ -13,6 +13,7 @@ from typing import Any, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
+import httpx
 import orjson
 import sqlalchemy as sa
 from authlib.integrations.base_client.errors import OAuthError
@@ -244,6 +245,8 @@ class _AuthorizeUrlKwargs(TypedDict, total=False):
 
 
 _CUSTOM_MCP_OAUTH_PROVIDER_PREFIX = "custom_mcp_"
+# Some servers reserve their own name, so DCR identifies the client as Tracecat.
+_MCP_OAUTH_DCR_CLIENT_NAME = "Tracecat"
 _TUNNELED_MCP_OAUTH_PROVIDER_ERROR = (
     "MCP servers behind a tunnel must be authorized through their own OAuth "
     "flow. Reconnect the server instead of reusing an existing OAuth connection."
@@ -1218,6 +1221,38 @@ class IntegrationService(BaseWorkspaceService):
             )
         return await self._discover_mcp_oauth_endpoints(server_uri=server_uri)
 
+    async def _post_mcp_dcr_request(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        registration_endpoint: str,
+        client_name: str,
+        token_auth_method: str | None,
+        requested_scopes: list[str],
+    ) -> httpx.Response:
+        payload = build_dcr_payload(
+            client_name=client_name,
+            redirect_uris=[self._mcp_oauth_redirect_uri()],
+            token_endpoint_auth_method=token_auth_method,
+            requested_scopes=requested_scopes,
+        )
+        return await client.post(
+            registration_endpoint,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10.0,
+        )
+
+    @staticmethod
+    def _is_mcp_dcr_client_metadata_rejection(response: httpx.Response) -> bool:
+        if response.status_code != httpx.codes.BAD_REQUEST:
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        return isinstance(body, dict) and body.get("error") == "invalid_client_metadata"
+
     async def _perform_mcp_dynamic_registration(
         self,
         *,
@@ -1225,22 +1260,37 @@ class IntegrationService(BaseWorkspaceService):
         client_name: str,
         token_auth_method: str | None,
         requested_scopes: list[str],
+        public_client_supported: bool = False,
     ) -> MCPOAuthRegistrationResult:
-        payload = build_dcr_payload(
-            client_name=client_name,
-            redirect_uris=[self._mcp_oauth_redirect_uri()],
-            token_endpoint_auth_method=token_auth_method,
-            requested_scopes=requested_scopes,
-        )
-
         await self._validate_mcp_oauth_endpoint_reachable(registration_endpoint)
         async with create_mcp_oauth_http_client() as client:
-            response = await client.post(
-                registration_endpoint,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=10.0,
+            response = await self._post_mcp_dcr_request(
+                client,
+                registration_endpoint=registration_endpoint,
+                client_name=client_name,
+                token_auth_method=token_auth_method,
+                requested_scopes=requested_scopes,
             )
+            # Some servers advertise confidential token auth methods but only
+            # register public clients (RFC 7591 invalid_client_metadata).
+            if (
+                public_client_supported
+                and token_auth_method not in (None, "none")
+                and self._is_mcp_dcr_client_metadata_rejection(response)
+            ):
+                self.logger.info(
+                    "Retrying custom MCP OAuth registration as a public client",
+                    registration_endpoint_host=urlparse(registration_endpoint).hostname,
+                    rejected_token_auth_method=token_auth_method,
+                )
+                token_auth_method = "none"
+                response = await self._post_mcp_dcr_request(
+                    client,
+                    registration_endpoint=registration_endpoint,
+                    client_name=client_name,
+                    token_auth_method=token_auth_method,
+                    requested_scopes=requested_scopes,
+                )
         response.raise_for_status()
         try:
             registration_response = DCRResponse.model_validate(response.json())
@@ -1531,11 +1581,12 @@ class IntegrationService(BaseWorkspaceService):
                 )
             registration = await self._perform_mcp_dynamic_registration(
                 registration_endpoint=endpoints.registration_endpoint,
-                client_name=params.name,
+                client_name=_MCP_OAUTH_DCR_CLIENT_NAME,
                 token_auth_method=self._select_mcp_registration_auth_method(
                     endpoints.token_methods
                 ),
                 requested_scopes=requested_scopes,
+                public_client_supported="none" in endpoints.token_methods,
             )
         # RFC 7591: a DCR scope echo is the authoritative registered set.
         effective_scopes = (

@@ -2777,6 +2777,34 @@
           ]
         }
       }
+    },
+    {
+      "slug": "socket-mcp",
+      "docs": "https://docs.socket.dev/docs/guide-to-socket-mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.socket.dev/",
+        "scopes": [
+          "packages:list",
+          "alerts:list",
+          "threat-feed:list"
+        ],
+        "oauth_authorization_endpoint": "https://api.socket.dev/v1/oauth2/authorize",
+        "oauth_token_endpoint": "https://api.socket.dev/v1/oauth2/token",
+        "credentials": [],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Socket hosts a first-party remote MCP server over streamable HTTP at https://mcp.socket.dev/ (initialize returns serverInfo socket 0.3.0). Its protected resource metadata at /.well-known/oauth-protected-resource names https://mcp.socket.dev/ (with the trailing slash) as the resource, https://api.socket.dev as the authorization server, and scopes packages:list, alerts:list and threat-feed:list. The authorization server metadata advertises /v1/oauth2/authorize, /v1/oauth2/token, /v1/oauth2/register (dynamic client registration), PKCE S256, the authorization_code and refresh_token grants, and token_endpoint_auth_methods none and client_secret_basic; it does not advertise offline_access. The endpoints are pinned only to allowlist api.socket.dev during discovery (no client credentials are declared, so DCR still runs). The three scopes are pinned because Socket's README notes that clients requesting no scopes first hit invalid_scope before retrying with them. Every tool call, including package scoring, requires Socket sign-in; there is no API key to configure for the hosted server.",
+          "sources": [
+            "https://docs.socket.dev/docs/guide-to-socket-mcp",
+            "https://github.com/SocketDev/socket-mcp",
+            "https://mcp.socket.dev/.well-known/oauth-protected-resource",
+            "https://api.socket.dev/.well-known/oauth-authorization-server"
+          ]
+        }
+      }
     }
   ]
 }

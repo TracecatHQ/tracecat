@@ -74,6 +74,7 @@ from tracecat.cases.event_schemas import (
     UpdatedEvent,
 )
 from tracecat.cases.events import CaseEventsService
+from tracecat.cases.exact_search import MAX_CASE_NUMBER
 from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.mentions import MentionToken, parse_mentions
 from tracecat.cases.query import referenced_dropdown_refs
@@ -221,6 +222,25 @@ async def _validate_case_assignee(
         raise TracecatValidationError("Assignee not found")
 
 
+def _parse_case_ref(case_ref: str) -> uuid.UUID | int:
+    """Parse a case UUID or short ID (``CASE-0042`` or ``42``).
+
+    Returns the UUID, or the case number for a short ID.
+
+    Raises:
+        TracecatValidationError: If the reference is neither a UUID nor a short ID.
+    """
+    try:
+        return uuid.UUID(case_ref)
+    except ValueError:
+        pass
+    if (case_number := parse_case_short_id(case_ref)) is None:
+        raise TracecatValidationError(
+            f"Case ID {case_ref!r} must be a UUID or a short ID like CASE-0042"
+        )
+    return case_number
+
+
 class CasesService(BaseWorkspaceService):
     service_name = "cases"
 
@@ -250,24 +270,45 @@ class CasesService(BaseWorkspaceService):
         """
         if isinstance(case_ref, uuid.UUID):
             return case_ref
-        try:
-            return uuid.UUID(case_ref)
-        except ValueError:
-            pass
-        case_number = parse_case_short_id(case_ref)
-        if case_number is None:
-            raise TracecatValidationError(
-                "Case ID must be a UUID or a short ID like CASE-0042"
+        (case_id,) = await self.resolve_case_ids([case_ref])
+        return case_id
+
+    async def resolve_case_ids(self, case_refs: Sequence[str]) -> list[uuid.UUID]:
+        """Resolve UUIDs and short IDs to case UUIDs, keeping input order.
+
+        UUIDs are returned as-is. All short IDs are resolved in one query.
+
+        Raises:
+            TracecatValidationError: If a reference is neither a UUID nor a short ID.
+            TracecatNotFoundError: If any short ID matches no case in this workspace.
+        """
+        parsed = [_parse_case_ref(case_ref) for case_ref in case_refs]
+        # Numbers above the column's range cannot match and would fail to bind.
+        case_numbers = {
+            ref for ref in parsed if isinstance(ref, int) and ref <= MAX_CASE_NUMBER
+        }
+        ids_by_number: dict[int, uuid.UUID] = {}
+        if case_numbers:
+            rows = await self.session.execute(
+                select(Case.case_number, Case.id).where(
+                    Case.workspace_id == self.workspace_id,
+                    Case.case_number.in_(case_numbers),
+                )
             )
-        case_id = await self.session.scalar(
-            select(Case.id).where(
-                Case.workspace_id == self.workspace_id,
-                Case.case_number == case_number,
+            ids_by_number = dict(rows.tuples().all())
+        missing = list(
+            dict.fromkeys(
+                case_ref
+                for case_ref, ref in zip(case_refs, parsed, strict=True)
+                if isinstance(ref, int) and ref not in ids_by_number
             )
         )
-        if case_id is None:
-            raise TracecatNotFoundError(f"Case {case_ref} not found")
-        return case_id
+        if missing:
+            noun = "Case" if len(missing) == 1 else "Cases"
+            raise TracecatNotFoundError(f"{noun} {', '.join(missing)} not found")
+        return [
+            ref if isinstance(ref, uuid.UUID) else ids_by_number[ref] for ref in parsed
+        ]
 
     @require_scope("case:read")
     async def aggregate_cases(

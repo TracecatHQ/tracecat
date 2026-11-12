@@ -1,0 +1,263 @@
+import asyncio
+from collections.abc import AsyncGenerator
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from tests.database import TEST_DB_CONFIG
+from tests.support.managed_resources import mark_managed
+from tracecat.auth.types import Role
+from tracecat.db.models import Table, TableFolder, Workspace
+from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
+from tracecat.managed_resources.guard import ManagedResourceLockedError
+from tracecat.tables.folders.schemas import (
+    TableDirectoryItem,
+    TableFolderDirectoryItem,
+)
+from tracecat.tables.folders.service import TableFolderService
+from tracecat.tables.schemas import TableCreate
+from tracecat.tables.service import TablesService
+from tracecat.workspace_sync.enums import SyncResourceType
+
+pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture
+async def folder_service(
+    session: AsyncSession, svc_role: Role
+) -> AsyncGenerator[TableFolderService, None]:
+    yield TableFolderService(session=session, role=svc_role)
+
+
+def _table(service: TableFolderService, name: str, folder_id=None) -> Table:
+    return Table(workspace_id=service.workspace_id, name=name, folder_id=folder_id)
+
+
+@pytest.mark.anyio
+async def test_folder_reads_require_table_read_scope() -> None:
+    service = TableFolderService(
+        session=AsyncSession(),
+        role=Role(
+            type="user",
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            workspace_id=uuid4(),
+            service_id="tracecat-api",
+            scopes=frozenset(),
+        ),
+    )
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        await service.get_directory_items("/")
+    assert exc_info.value.missing_scopes == ["table:read"]
+
+
+@pytest.mark.anyio
+async def test_directory_lists_folders_then_tables_by_name(
+    folder_service: TableFolderService,
+) -> None:
+    parent = await folder_service.create_folder(name="detection", parent_path="/")
+    await folder_service.create_folder(name="nested", parent_path="/detection/")
+    folder_service.session.add_all(
+        [
+            _table(folder_service, "zeta_root"),
+            _table(folder_service, "alpha_root"),
+            _table(folder_service, "inside", folder_id=parent.id),
+        ]
+    )
+    await folder_service.session.commit()
+
+    root_items = await folder_service.get_directory_items("/")
+    assert [(item.type, item.name) for item in root_items] == [
+        ("folder", "detection"),
+        ("table", "alpha_root"),
+        ("table", "zeta_root"),
+    ]
+    folder_item = root_items[0]
+    assert isinstance(folder_item, TableFolderDirectoryItem)
+    assert folder_item.num_items == 2
+
+    nested_items = await folder_service.get_directory_items("/detection/")
+    assert [(item.type, item.name) for item in nested_items] == [
+        ("folder", "nested"),
+        ("table", "inside"),
+    ]
+    assert isinstance(nested_items[1], TableDirectoryItem)
+    assert nested_items[1].folder_id == parent.id
+
+
+@pytest.mark.anyio
+async def test_move_table_between_folder_and_root(
+    folder_service: TableFolderService,
+) -> None:
+    folder = await folder_service.create_folder(name="slack", parent_path="/")
+    table = _table(folder_service, "slack_events")
+    folder_service.session.add(table)
+    await folder_service.session.commit()
+
+    moved = await folder_service.move_table(table.id, folder)
+    assert moved.folder_id == folder.id
+    assert moved.name == "slack_events"
+
+    moved = await folder_service.move_table(table.id, None)
+    assert moved.folder_id is None
+
+
+@pytest.mark.anyio
+async def test_rename_and_move_folder_rewrite_descendant_paths(
+    folder_service: TableFolderService,
+) -> None:
+    parent = await folder_service.create_folder(name="parent", parent_path="/")
+    child = await folder_service.create_folder(name="child", parent_path="/parent/")
+    await folder_service.create_folder(name="leaf", parent_path="/parent/child/")
+    target = await folder_service.create_folder(name="target", parent_path="/")
+    child_id, target_id = child.id, target.id
+
+    renamed = await folder_service.rename_folder(parent.id, "renamed")
+    assert renamed.path == "/renamed/"
+    # Each API request uses a fresh session; drop rows cached before the rename.
+    folder_service.session.expire_all()
+
+    moved = await folder_service.move_folder(child_id, target_id)
+    assert moved.path == "/target/child/"
+    result = await folder_service.session.execute(
+        select(TableFolder.path).where(
+            TableFolder.workspace_id == folder_service.workspace_id
+        )
+    )
+    assert set(result.scalars().all()) == {
+        "/renamed/",
+        "/target/",
+        "/target/child/",
+        "/target/child/leaf/",
+    }
+
+    with pytest.raises(TracecatValidationError):
+        await folder_service.move_folder(target_id, child_id)
+
+
+@pytest.mark.anyio
+async def test_delete_folder_never_deletes_tables(
+    folder_service: TableFolderService,
+) -> None:
+    parent = await folder_service.create_folder(name="parent", parent_path="/")
+    child = await folder_service.create_folder(name="child", parent_path="/parent/")
+    folder_service.session.add_all(
+        [
+            _table(folder_service, "parent_table", folder_id=parent.id),
+            _table(folder_service, "child_table", folder_id=child.id),
+        ]
+    )
+    await folder_service.session.commit()
+
+    with pytest.raises(TracecatValidationError):
+        await folder_service.delete_folder(parent.id)
+
+    await folder_service.delete_folder(parent.id, recursive=True)
+
+    folders = await folder_service.session.execute(
+        select(TableFolder.path).where(
+            TableFolder.workspace_id == folder_service.workspace_id
+        )
+    )
+    tables = await folder_service.session.execute(
+        select(Table.name, Table.folder_id).where(
+            Table.workspace_id == folder_service.workspace_id
+        )
+    )
+    assert folders.scalars().all() == []
+    assert dict(tables.tuples().all()) == {"parent_table": None, "child_table": None}
+
+
+@pytest.mark.anyio
+async def test_managed_table_folder_cannot_change(
+    folder_service: TableFolderService, svc_role: Role
+) -> None:
+    """A managed table's folder path is part of its spec, so customers can't change it.
+
+    That covers moving the table and renaming, moving or deleting any folder above it.
+    """
+    parent = await folder_service.create_folder(name="parent", parent_path="/")
+    child = await folder_service.create_folder(name="child", parent_path="/parent/")
+    other = await folder_service.create_folder(name="other", parent_path="/")
+    parent_id, child_id, other_id = parent.id, child.id, other.id
+    table = _table(folder_service, "managed_table", folder_id=child_id)
+    folder_service.session.add(table)
+    await folder_service.session.commit()
+    table_id = table.id
+    await mark_managed(
+        folder_service.session, svc_role, SyncResourceType.TABLE, table_id
+    )
+
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.move_table(table_id, None)
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.rename_folder(parent_id, "renamed")
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.move_folder(parent_id, other_id)
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.delete_folder(parent_id, recursive=True)
+
+    # Folders with no managed tables below them stay editable.
+    renamed = await folder_service.rename_folder(other_id, "renamed_other")
+    assert renamed.path == "/renamed_other/"
+
+
+@pytest.mark.anyio
+async def test_create_table_in_folder_commits_once(
+    folder_service: TableFolderService, svc_role: Role
+) -> None:
+    """Creating a table in a folder needs only table:create, not a later move."""
+    folder = await folder_service.create_folder(name="feeds", parent_path="/")
+    role = svc_role.model_copy(update={"scopes": frozenset({"table:create"})})
+    tables = TablesService(session=folder_service.session, role=role)
+
+    table = await tables.create_table(TableCreate(name="feed"), folder_id=folder.id)
+
+    assert table.folder_id == folder.id
+
+
+@pytest.mark.anyio
+async def test_parent_delete_waits_for_a_child_create(svc_role: Role) -> None:
+    """A parent can't be deleted out from under a child being created.
+
+    Two real sessions: the create holds the parent row, so the delete waits,
+    then sees the new child and refuses instead of orphaning it.
+    """
+    role = svc_role.model_copy(update={"workspace_id": uuid4()}, deep=True)
+    assert role.workspace_id is not None
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        async with sessions() as seed:
+            seed.add(
+                Workspace(
+                    id=role.workspace_id,
+                    name="folder-race-workspace",
+                    organization_id=role.organization_id,
+                )
+            )
+            await seed.commit()
+            parent = await TableFolderService(seed, role=role).create_folder(
+                name="parent"
+            )
+        async with sessions() as creator, sessions() as deleter:
+            await TableFolderService(creator, role=role).create_folder(
+                name="child", parent_path="/parent/", commit=False
+            )
+            delete_parent = asyncio.create_task(
+                TableFolderService(deleter, role=role).delete_folder(parent.id)
+            )
+            await asyncio.sleep(0.5)
+            assert not delete_parent.done()
+            await creator.commit()
+            with pytest.raises(TracecatValidationError, match="not empty"):
+                await asyncio.wait_for(delete_parent, timeout=10)
+    finally:
+        async with sessions() as cleanup:
+            await cleanup.execute(
+                delete(Workspace).where(Workspace.id == role.workspace_id)
+            )
+            await cleanup.commit()
+        await engine.dispose()
