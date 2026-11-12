@@ -28,6 +28,7 @@ from tracecat.agent.channel_bots.schemas import (
     ChannelBotProvider,
     ChannelBotRunState,
     ChannelBotStatus,
+    ChannelBotTransport,
     SlackBotDetails,
     SlackBotInstall,
     oauth_callback_path,
@@ -172,6 +173,7 @@ def bot_read() -> AgentChannelBotRead:
         updated_at=now,
         details=SlackBotDetails(
             provider=ChannelBotProvider.SLACK,
+            transport=ChannelBotTransport.HTTP,
             provider_enterprise_id=None,
             provider_bot_user_id="UBOT",
             granted_scopes=["chat:write"],
@@ -295,21 +297,38 @@ def test_routes_hand_the_request_to_the_installed_admin(
     )
 
 
+@pytest.mark.parametrize(
+    "body",
+    [INSTALL_BODY, {**INSTALL_BODY, "app_token": "xapp-1"}],
+    ids=["http", "socket"],
+)
 def test_install_hands_the_parsed_provider_request_to_the_admin(
-    client: TestClient, admin: AsyncMock
+    client: TestClient, admin: AsyncMock, body: dict[str, str]
 ) -> None:
     expected = ChannelBotInstallResult(
         bot=bot_read(), authorization_url="https://slack.com/oauth/v2/authorize?x=1"
     )
     admin.install.return_value = expected
 
-    response = client.post("/agent/channel-bots/install", json=INSTALL_BODY)
+    response = client.post("/agent/channel-bots/install", json=body)
 
     assert response.status_code == 200
     assert response.json() == expected.model_dump(mode="json")
     admin.install.assert_awaited_once_with(
-        SESSION, ROLE, SlackBotInstall.model_validate(INSTALL_BODY)
+        SESSION, ROLE, SlackBotInstall.model_validate(body)
     )
+
+
+def test_install_refuses_a_blank_app_token(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    response = client.post(
+        "/agent/channel-bots/install", json={**INSTALL_BODY, "app_token": ""}
+    )
+
+    assert response.status_code == 422
+    assert [e["loc"][-1] for e in response.json()["detail"]] == ["app_token"]
+    assert admin.mock_calls == []
 
 
 @pytest.mark.parametrize(
