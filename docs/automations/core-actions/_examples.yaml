@@ -534,6 +534,27 @@ examples:
         args:
           case_id: ${{ TRIGGER.case_id }}
 
+  cases-add-sub-cases:
+    title: Group duplicate cases under a primary case
+    language: yaml
+    code: |
+      - ref: group_duplicates
+        action: core.cases.add_sub_cases
+        args:
+          parent_case_id: ${{ TRIGGER.case_id }}
+          case_ids: ${{ ACTIONS.find_duplicates.result[*].id }}
+
+  cases-remove-sub-cases:
+    title: Remove cases from their parent case
+    language: yaml
+    code: |
+      - ref: ungroup_cases
+        action: core.cases.remove_sub_cases
+        args:
+          case_ids:
+            - CASE-0042
+            - CASE-0043
+
   cases-create-comment:
     title: Create a comment
     language: yaml

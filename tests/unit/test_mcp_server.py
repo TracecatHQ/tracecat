@@ -8040,8 +8040,9 @@ def test_dsl_reference_documents_action_description() -> None:
 
 
 def test_dsl_reference_text_stays_within_context_budget() -> None:
-    # Raised from 15500 for the "Form Trigger" section.
-    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 17900
+    # Raised from 15500 for the "Form Trigger" section, then from 17900 for the
+    # sub-case actions in the action catalog.
+    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 17960
 
 
 @pytest.mark.anyio

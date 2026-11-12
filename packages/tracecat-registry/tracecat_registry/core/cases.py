@@ -289,6 +289,13 @@ async def create_case(
         bool,
         Doc("If true, create any tags that do not already exist."),
     ] = False,
+    parent_case_id: Annotated[
+        str | None,
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of a top-level case to create "
+            "this case under as a sub-case. Requires the case add-ons entitlement."
+        ),
+    ] = None,
 ) -> types.Case:
     params: dict[str, Any] = {}
     if summary is not None:
@@ -311,6 +318,8 @@ async def create_case(
         params["tags"] = tags
     if create_missing_tags:
         params["create_missing_tags"] = create_missing_tags
+    if parent_case_id is not None:
+        params["parent_case_id"] = parent_case_id
     return await ctx.cases.aio.create_case_simple(**params)
 
 
@@ -932,6 +941,67 @@ async def search_cases(
     if paginate:
         return response
     return response["items"]
+
+
+@registry.register(
+    default_title="Add sub-cases",
+    display_group="Cases",
+    description=(
+        "Group cases as sub-cases of a top-level parent case, e.g. to collect "
+        "duplicates under one primary case. Returns a result for each case."
+    ),
+    namespace="core.cases",
+    required_entitlements=["case_addons"],
+)
+async def add_sub_cases(
+    parent_case_id: Annotated[
+        str,
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the parent case. "
+            "It must not be a sub-case itself."
+        ),
+    ],
+    case_ids: Annotated[
+        list[str],
+        Doc(
+            "IDs or short IDs of the cases to group under the parent (max 1000). "
+            "An empty list does nothing. "
+            "Cases under another parent are moved. Cases with their own "
+            "sub-cases fail and are reported in the results."
+        ),
+    ],
+) -> types.CaseBatchResponse:
+    # A dedup search that finds nothing yields []; the API requires at least one ID.
+    if not case_ids:
+        return {"results": [], "succeeded": 0, "failed": 0}
+    return await ctx.cases.aio.batch_set_parent(
+        case_ids=case_ids, parent_case_id=parent_case_id
+    )
+
+
+@registry.register(
+    default_title="Remove sub-cases",
+    display_group="Cases",
+    description=(
+        "Remove cases from their parent case, returning them to the top level. "
+        "Returns a result for each case."
+    ),
+    namespace="core.cases",
+    required_entitlements=["case_addons"],
+)
+async def remove_sub_cases(
+    case_ids: Annotated[
+        list[str],
+        Doc(
+            "IDs or short IDs of the sub-cases to remove from their parent "
+            "(max 1000). An empty list does nothing."
+        ),
+    ],
+) -> types.CaseBatchResponse:
+    # The API requires at least one ID; an empty list is a no-op here.
+    if not case_ids:
+        return {"results": [], "succeeded": 0, "failed": 0}
+    return await ctx.cases.aio.batch_clear_parent(case_ids=case_ids)
 
 
 @registry.register(

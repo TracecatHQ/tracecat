@@ -2872,7 +2872,8 @@ Tables: `core.table.aggregate_rows`, `core.table.create_column`, `core.table.cre
 `core.table.lookup`, `core.table.lookup_many`, `core.table.search`, `core.table.search_rows`,
 `core.table.update_column`, `core.table.update_row`, `core.table.update_table`
 
-Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assign_user`,
+Cases: `core.cases.add_case_tag`, `core.cases.add_sub_cases`,
+`core.cases.aggregate_cases`, `core.cases.assign_user`,
 `core.cases.assign_user_by_email`, `core.cases.create_case`,
 `core.cases.create_comment`, `core.cases.create_task`,
 `core.cases.delete_attachment`, `core.cases.delete_case`,
@@ -2885,7 +2886,8 @@ Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assi
 `core.cases.list_cases`, `core.cases.list_cases_by_row`,
 `core.cases.list_comment_threads`, `core.cases.list_comments`,
 `core.cases.list_tasks`,
-`core.cases.remove_case_tag`, `core.cases.reply_to_comment`,
+`core.cases.remove_case_tag`, `core.cases.remove_sub_cases`,
+`core.cases.reply_to_comment`,
 `core.cases.run_task`, `core.cases.search_cases`, `core.cases.unlink_row`,
 `core.cases.update_case`, `core.cases.update_comment`,
 `core.cases.update_task`, `core.cases.upload_attachment`,

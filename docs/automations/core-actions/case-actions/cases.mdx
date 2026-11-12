@@ -46,6 +46,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="parent_case_id" type="string | null">
+
+The ID or short ID (e.g. CASE-0042) of a top-level case to create this case under as a sub-case. Requires the case add-ons entitlement.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="payload" type="object | null">
 
 Payload for the case.
@@ -821,6 +829,73 @@ The ID or short ID (e.g. CASE-0042) of the case to delete.
   action: core.cases.delete_case
   args:
     case_id: ${{ TRIGGER.case_id }}
+```
+
+## `core.cases.add_sub_cases`
+
+Group cases as sub-cases of a top-level parent case, e.g. to collect duplicates under one primary case. Returns a result for each case.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+The result has one item per case with `success` and `error`, plus
+`succeeded` and `failed` counts. A case that fails does not stop the others.
+If `case_ids` includes the parent case, that one item fails with
+"A case cannot be its own parent" and the other cases are still grouped.
+
+### Inputs
+
+<ParamField path="case_ids" type="array[string]" required>
+
+IDs or short IDs of the cases to group under the parent (max 1000). An empty list does nothing. Cases under another parent are moved. Cases with their own sub-cases fail and are reported in the results.
+
+</ParamField>
+
+<ParamField path="parent_case_id" type="string" required>
+
+The ID or short ID (e.g. CASE-0042) of the parent case. It must not be a sub-case itself.
+
+</ParamField>
+
+### Examples
+
+**Group duplicate cases under a primary case**
+
+```yaml
+- ref: group_duplicates
+  action: core.cases.add_sub_cases
+  args:
+    parent_case_id: ${{ TRIGGER.case_id }}
+    case_ids: ${{ ACTIONS.find_duplicates.result[*].id }}
+```
+
+## `core.cases.remove_sub_cases`
+
+Remove cases from their parent case, returning them to the top level. Returns a result for each case.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+The result has one item per case with `success` and `error`, plus
+`succeeded` and `failed` counts. A case that fails does not stop the others.
+
+### Inputs
+
+<ParamField path="case_ids" type="array[string]" required>
+
+IDs or short IDs of the sub-cases to remove from their parent (max 1000). An empty list does nothing.
+
+</ParamField>
+
+### Examples
+
+**Remove cases from their parent case**
+
+```yaml
+- ref: ungroup_cases
+  action: core.cases.remove_sub_cases
+  args:
+    case_ids:
+      - CASE-0042
+      - CASE-0043
 ```
 
 ## `core.cases.get_case_metrics`
