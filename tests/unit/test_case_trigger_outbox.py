@@ -10,7 +10,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
@@ -32,6 +33,7 @@ from tracecat.cases.event_schemas import (
 from tracecat.cases.events import CaseEventsService
 from tracecat.cases.schemas import CaseCommentWorkflowStatus, CaseCreate
 from tracecat.cases.service import CasesService
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.triggers.dispatch import (
     OUTBOX_RETRY_DELAY,
     CaseTriggerOutboxDispatcher,
@@ -51,12 +53,14 @@ from tracecat.db.models import (
     Case,
     CaseComment,
     CaseEvent,
+    CaseTag,
     CaseTrigger,
     CaseTriggerOutbox,
     Workflow,
     Workspace,
 )
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
+from tracecat.tags.schemas import TagCreate
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -329,6 +333,106 @@ async def _comment_status(session: AsyncSession, comment_id: uuid.UUID) -> str |
     return await session.scalar(
         select(CaseComment.workflow_status).where(CaseComment.id == comment_id)
     )
+
+
+def _tagged_case_create(summary: str = "Tagged case") -> CaseCreate:
+    return CaseCreate(
+        summary=summary,
+        description="Case trigger outbox test",
+        status=CaseStatus.NEW,
+        priority=CasePriority.MEDIUM,
+        severity=CaseSeverity.LOW,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("bypass_session")
+class TestCreateCaseWithTags:
+    async def test_case_created_matches_the_tags_given_at_create(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """A `case_created` trigger filtered on X fires for a case created with X.
+
+        A trigger filtered only on a tag the case wasn't created with does not.
+        """
+        cases = CasesService(session=session, role=svc_role)
+        tag = await cases.tags.create_tag(TagCreate(name="Created with"))
+        matching = await _add_trigger(
+            session, svc_role, event_types=["case_created"], tag_filters=[tag.ref]
+        )
+        await _add_trigger(
+            session, svc_role, event_types=["case_created"], tag_filters=["other"]
+        )
+
+        case = await cases.create_case(_tagged_case_create(), tags=[tag.ref])
+
+        assert [t.ref for t in case.tags] == [tag.ref]
+        start = AsyncMock()
+        with _dispatch_mocks(start):
+            await _dispatch_only_row()
+        assert [call.kwargs["wf_id"] for call in start.await_args_list] == [
+            WorkflowUUID.new(matching.workflow_id)
+        ]
+
+    async def test_tags_commit_with_the_case_created_row(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """No commit separates the `CASE_CREATED` outbox row from the case's tags.
+
+        The dispatcher sees the row only once it commits, so it can never load
+        the case between the case insert and the tag inserts.
+        """
+        cases = CasesService(session=session, role=svc_role)
+        tag = await cases.tags.create_tag(TagCreate(name="Same commit"))
+        await _add_trigger(
+            session, svc_role, event_types=["case_created"], tag_filters=[tag.ref]
+        )
+        commits = 0
+        commits_at_link: list[int] = []
+        real_commit = session.commit
+        real_link_tag = cases.tags.link_tag
+
+        async def counting_commit() -> None:
+            nonlocal commits
+            commits += 1
+            await real_commit()
+
+        async def recording_link_tag(case: Case, tag: CaseTag) -> bool:
+            commits_at_link.append(commits)
+            # The row the dispatcher will pick up is already pending.
+            assert len(await _outbox_rows(session, case)) == 1
+            return await real_link_tag(case, tag)
+
+        with (
+            patch.object(session, "commit", counting_commit),
+            patch.object(cases.tags, "link_tag", recording_link_tag),
+        ):
+            await cases.create_case(_tagged_case_create(), tags=[tag.ref])
+
+        assert commits_at_link == [0]
+        assert commits == 1
+
+    async def test_unknown_tag_creates_no_case(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """An unknown tag fails the whole create, so a retry can't duplicate it."""
+        cases = CasesService(session=session, role=svc_role)
+        known = await cases.tags.create_tag(TagCreate(name="Known"))
+        await _add_trigger(session, svc_role, event_types=["case_created"])
+        summary = f"Unknown tag {uuid.uuid4().hex[:8]}"
+
+        with pytest.raises(NoResultFound):
+            await cases.create_case(
+                _tagged_case_create(summary), tags=[known.ref, "does-not-exist"]
+            )
+
+        assert (
+            await session.scalar(
+                select(func.count()).select_from(Case).where(Case.summary == summary)
+            )
+            == 0
+        )
+        assert await list_outbox_row_ids() == []
 
 
 @pytest.mark.anyio
@@ -976,6 +1080,169 @@ async def test_overlapping_batches_start_each_run_once(
                 delete(CaseTrigger).where(CaseTrigger.workflow_id == workflow_id)
             )
             await session.execute(delete(Workflow).where(Workflow.id == workflow_id))
+            await session.commit()
+
+
+@pytest.mark.anyio
+async def test_concurrent_creates_add_new_tags_in_any_order(svc_role: Role) -> None:
+    """Two creates adding the same new tags in opposite orders both succeed.
+
+    Each create holds its new tag rows until it commits. Both create them in
+    ref order, so neither holds a tag the other is waiting on. The hook lines
+    the creates up after their first new tag, which deadlocked when tags were
+    created in the order given.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    alpha, beta = f"alpha-{suffix}", f"beta-{suffix}"
+    case_ids: list[uuid.UUID] = []
+    # Set up the workspace's case fields schema before the concurrent creates.
+    async with get_async_session_bypass_rls_context_manager() as session:
+        primer = await CasesService(session=session, role=svc_role).create_case(
+            _tagged_case_create("Primer")
+        )
+        case_ids.append(primer.id)
+
+    arrived = [asyncio.Event(), asyncio.Event()]
+
+    async def create(index: int, tags: list[str]) -> list[str]:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            cases = CasesService(session=session, role=svc_role)
+            create_tag = cases.tags._create_tag_if_missing
+
+            async def lined_up_create_tag(name: str) -> CaseTag:
+                tag = await create_tag(name)
+                if not arrived[index].is_set():
+                    arrived[index].set()
+                    # The other create may be blocked on this tag, so don't wait forever.
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(arrived[1 - index].wait(), timeout=2)
+                return tag
+
+            with patch.object(
+                cases.tags, "_create_tag_if_missing", lined_up_create_tag
+            ):
+                case = await cases.create_case(
+                    _tagged_case_create(f"Concurrent {index}"),
+                    tags=tags,
+                    create_missing_tags=True,
+                )
+            case_ids.append(case.id)
+            return sorted(tag.ref for tag in case.tags)
+
+    try:
+        results = await asyncio.gather(
+            create(0, [alpha, beta]), create(1, [beta, alpha])
+        )
+        assert results == [[alpha, beta], [alpha, beta]]
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await session.execute(delete(Case).where(Case.id.in_(case_ids)))
+            await session.execute(
+                delete(CaseTag).where(
+                    CaseTag.workspace_id == svc_role.workspace_id,
+                    CaseTag.ref.in_([alpha, beta]),
+                )
+            )
+            await session.commit()
+
+
+@pytest.mark.anyio
+async def test_tagged_create_waits_for_an_import_that_renames_its_tag(
+    svc_role: Role,
+) -> None:
+    """A create and an import that renames its tag, then alters case fields, both finish.
+
+    The create locks its tags before it writes a case fields row, so it waits
+    for the import's rename. Locking them only when linking, after the fields
+    row, made the import's `ALTER TABLE` and the create wait on each other.
+    """
+    assert svc_role.workspace_id is not None
+    suffix = uuid.uuid4().hex[:8]
+    column = f"probe_{suffix}"
+    case_ids: list[uuid.UUID] = []
+    async with get_async_session_bypass_rls_context_manager() as session:
+        cases = CasesService(session=session, role=svc_role)
+        tag = await cases.tags.create_tag(TagCreate(name=f"Renamed {suffix}"))
+        primer = await cases.create_case(_tagged_case_create("Primer"))
+        case_ids.append(primer.id)
+        tag_id, schema = tag.id, cases.fields.schema_name
+
+    async def create() -> None:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            case = await CasesService(session=session, role=svc_role).create_case(
+                _tagged_case_create("Tagged during import"), tags=[str(tag_id)]
+            )
+            case_ids.append(case.id)
+
+    async def lock_waits(session: AsyncSession) -> int:
+        result = await session.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+            )
+        )
+        # pg_stat_activity keeps one snapshot per transaction; end it to poll.
+        await session.rollback()
+        return int(result or 0)
+
+    try:
+        async with (
+            get_async_session_bypass_rls_context_manager() as importer,
+            get_async_session_bypass_rls_context_manager() as observer,
+        ):
+            await importer.execute(
+                update(CaseTag)
+                .where(CaseTag.id == tag_id)
+                .values(name=f"Renamed again {suffix}")
+            )
+            creating = asyncio.create_task(create())
+            async with asyncio.timeout(10):
+                while not await lock_waits(observer):
+                    await asyncio.sleep(0.05)
+            await importer.execute(
+                text(f'ALTER TABLE "{schema}".case_fields ADD COLUMN {column} TEXT')
+            )
+            await importer.commit()
+            await asyncio.wait_for(creating, timeout=10)
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await session.execute(delete(Case).where(Case.id.in_(case_ids)))
+            await session.execute(delete(CaseTag).where(CaseTag.id == tag_id))
+            await session.execute(
+                text(
+                    f'ALTER TABLE "{schema}".case_fields DROP COLUMN IF EXISTS {column}'
+                )
+            )
+            await session.commit()
+
+
+@pytest.mark.anyio
+async def test_creates_sharing_a_tag_do_not_wait_on_each_other(svc_role: Role) -> None:
+    """Two open creates can both lock the same existing tag.
+
+    The lock is `FOR KEY SHARE`, which doesn't conflict with itself, so a
+    popular tag never serializes otherwise independent creates.
+    """
+    async with get_async_session_bypass_rls_context_manager() as session:
+        tag = await CaseTagsService(session=session, role=svc_role).create_tag(
+            TagCreate(name=f"Shared {uuid.uuid4().hex[:8]}")
+        )
+        tag_id = tag.id
+    try:
+        async with (
+            get_async_session_bypass_rls_context_manager() as first,
+            get_async_session_bypass_rls_context_manager() as second,
+        ):
+            await CaseTagsService(session=first, role=svc_role).resolve_tags(
+                [str(tag_id)]
+            )
+            await second.execute(text("SET LOCAL lock_timeout = '1s'"))
+            await CaseTagsService(session=second, role=svc_role).resolve_tags(
+                [str(tag_id)]
+            )
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await session.execute(delete(CaseTag).where(CaseTag.id == tag_id))
             await session.commit()
 
 

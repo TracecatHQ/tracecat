@@ -3741,6 +3741,50 @@ async def test_list_secrets_metadata_returns_keys_not_values(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Case tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_create_case_passes_tags_into_the_create(monkeypatch):
+    """Tags go into the case's own create so they commit with it."""
+    captured: dict[str, Any] = {}
+    case_id = uuid.uuid4()
+
+    async def _create_case(params, *, tags, create_missing_tags):
+        captured["summary"] = params.summary
+        captured["tags"] = tags
+        captured["create_missing_tags"] = create_missing_tags
+        return SimpleNamespace(id=case_id, short_id="CASE-0001")
+
+    case_service = SimpleNamespace(create_case=_create_case)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(case_service)),
+    )
+
+    result = await _tool(mcp_server.create_case)(
+        workspace_id=str(uuid.uuid4()),
+        summary="Tagged",
+        description="Created with tags",
+        status="new",
+        priority="medium",
+        severity="low",
+        tags=["phishing", "triage"],
+        create_missing_tags=True,
+    )
+
+    assert captured == {
+        "summary": "Tagged",
+        "tags": ["phishing", "triage"],
+        "create_missing_tags": True,
+    }
+    assert _payload(result)["id"] == str(case_id)
+
+
+# ---------------------------------------------------------------------------
 # Case field tests
 # ---------------------------------------------------------------------------
 
