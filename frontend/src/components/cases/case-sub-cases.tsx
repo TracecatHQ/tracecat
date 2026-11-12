@@ -249,7 +249,7 @@ export function CaseSubCasesPanel({
                     type="button"
                     onClick={() => handleRemove(subCase)}
                     disabled={removingId !== null}
-                    className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50"
+                    className="-ml-2 flex h-6 w-0 shrink-0 items-center justify-center overflow-hidden rounded-md text-muted-foreground opacity-0 transition-all hover:bg-muted hover:text-foreground focus-visible:ml-0 focus-visible:w-6 focus-visible:opacity-100 group-hover:ml-0 group-hover:w-6 group-hover:opacity-100 disabled:opacity-50"
                     aria-label={`Remove ${subCase.short_id} from this case`}
                     title="Remove from this case"
                   >
