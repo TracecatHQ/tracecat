@@ -4051,6 +4051,12 @@ export function useUpdateCase({
         exact: false,
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
+      if (params.status === "closed" || params.status === "resolved") {
+        // Closing a parent can also close its sub-cases on the server.
+        queryClient.invalidateQueries({
+          queryKey: ["cases", "search-infinite", workspaceId],
+        })
+      }
       if (params.summary !== undefined || params.description !== undefined) {
         queryClient.invalidateQueries({
           queryKey: ["case-versions", workspaceId, caseId],

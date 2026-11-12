@@ -12,17 +12,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
+from tracecat.cases.dropdowns.schemas import (
+    CaseDropdownDefinitionCreate,
+    CaseDropdownOptionCreate,
+    CaseDropdownValueInput,
+)
+from tracecat.cases.dropdowns.service import (
+    CaseDropdownDefinitionsService,
+    CaseDropdownValuesService,
+)
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.hierarchy import CaseHierarchyService
-from tracecat.cases.schemas import CaseCreate
-from tracecat.cases.service import CasesService
-from tracecat.db.models import Case, CaseEvent
+from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
+from tracecat.cases.service import CaseFieldsService, CasesService
+from tracecat.db.models import Case, CaseEvent, Workspace
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.pagination import CursorPaginationParams
+from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -387,3 +397,181 @@ async def test_parent_filter_rejects_top_level_hierarchy(
             parent_id=parent_id,
             hierarchy="top_level",
         )
+
+
+async def _set_close_sub_cases_setting(
+    session: AsyncSession, workspace_id: uuid.UUID | None, enabled: bool
+) -> None:
+    await session.execute(
+        sa.update(Workspace)
+        .where(Workspace.id == workspace_id)
+        .values(settings={"close_sub_cases_with_parent": enabled})
+    )
+    await session.commit()
+
+
+async def _status(session: AsyncSession, case_id: uuid.UUID) -> CaseStatus | None:
+    return await session.scalar(sa.select(Case.status).where(Case.id == case_id))
+
+
+@pytest.mark.anyio
+async def test_closing_parent_closes_open_sub_cases(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    parent = await _create(cases_service, "Parent")
+    first = await _create(cases_service, "Alert 1", parent.id)
+    second = await _create(cases_service, "Alert 2", parent.id)
+    resolved = await _create(cases_service, "Alert 3", parent.id)
+    other = await _create(cases_service, "Other")
+    await cases_service.update_case(resolved, CaseUpdate(status=CaseStatus.RESOLVED))
+
+    await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.CLOSED))
+
+    assert await _status(session, first.id) == CaseStatus.CLOSED
+    assert await _status(session, second.id) == CaseStatus.CLOSED
+    assert await _status(session, resolved.id) == CaseStatus.RESOLVED
+    assert await _status(session, other.id) == CaseStatus.NEW
+    for sub_case in (first, second):
+        [event] = await _events(session, sub_case.id, CaseEventType.CASE_CLOSED)
+        assert event.data["old"] == CaseStatus.NEW
+        assert event.data["new"] == CaseStatus.CLOSED
+    assert await _events(session, resolved.id, CaseEventType.CASE_CLOSED) == []
+
+
+@pytest.mark.anyio
+async def test_resolving_parent_resolves_sub_cases(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    parent = await _create(cases_service, "Parent")
+    sub_case = await _create(cases_service, "Alert", parent.id)
+
+    await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.RESOLVED))
+
+    assert await _status(session, sub_case.id) == CaseStatus.RESOLVED
+    [event] = await _events(session, sub_case.id, CaseEventType.STATUS_CHANGED)
+    assert event.data["new"] == CaseStatus.RESOLVED
+
+
+@pytest.mark.anyio
+async def test_closing_parent_leaves_sub_cases_when_setting_disabled(
+    cases_service: CasesService, session: AsyncSession, svc_role: Role
+) -> None:
+    await _set_close_sub_cases_setting(session, svc_role.workspace_id, False)
+    parent = await _create(cases_service, "Parent")
+    sub_case = await _create(cases_service, "Alert", parent.id)
+
+    await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.CLOSED))
+
+    assert await _status(session, parent.id) == CaseStatus.CLOSED
+    assert await _status(session, sub_case.id) == CaseStatus.NEW
+
+
+@pytest.mark.anyio
+async def test_closing_parent_without_case_addons_leaves_sub_cases(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    parent = await _create(cases_service, "Parent")
+    sub_case = await _create(cases_service, "Alert", parent.id)
+
+    with patch.object(
+        CaseHierarchyService, "has_entitlement", new=AsyncMock(return_value=False)
+    ):
+        await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.CLOSED))
+
+    assert await _status(session, sub_case.id) == CaseStatus.NEW
+
+
+@pytest.mark.anyio
+async def test_closing_parent_fills_sub_case_resolution_from_parent(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    definitions = CaseDropdownDefinitionsService(
+        session=session, role=cases_service.role
+    )
+    definition = await definitions.create_definition(
+        CaseDropdownDefinitionCreate(
+            name="Resolution",
+            ref="resolution",
+            is_ordered=False,
+            options=[],
+            required_on_closure=True,
+        )
+    )
+    false_positive = await definitions.add_option(
+        definition.id,
+        CaseDropdownOptionCreate(label="False positive", ref="fp", position=0),
+    )
+    true_positive = await definitions.add_option(
+        definition.id,
+        CaseDropdownOptionCreate(label="True positive", ref="tp", position=1),
+    )
+    fields = CaseFieldsService(session=session, role=cases_service.role)
+    await fields.create_field(
+        CaseFieldCreate(name="root_cause", type=SqlType.TEXT, required_on_closure=True)
+    )
+    parent = await _create(cases_service, "Parent")
+    empty = await _create(cases_service, "Alert 1", parent.id)
+    preset = await _create(cases_service, "Alert 2", parent.id)
+    await cases_service.update_case(
+        preset,
+        CaseUpdate(
+            fields={"root_cause": "Own cause"},
+            dropdown_values=[
+                CaseDropdownValueInput(
+                    definition_id=definition.id, option_id=true_positive.id
+                )
+            ],
+        ),
+    )
+
+    await cases_service.update_case(
+        parent,
+        CaseUpdate(
+            status=CaseStatus.CLOSED,
+            fields={"root_cause": "Benign scanner"},
+            dropdown_values=[
+                CaseDropdownValueInput(
+                    definition_id=definition.id, option_id=false_positive.id
+                )
+            ],
+        ),
+    )
+
+    dropdowns = CaseDropdownValuesService(session=session, role=cases_service.role)
+    for sub_case, option_id, cause in (
+        (empty, false_positive.id, "Benign scanner"),
+        (preset, true_positive.id, "Own cause"),
+    ):
+        assert await _status(session, sub_case.id) == CaseStatus.CLOSED
+        [value] = await dropdowns.list_values_for_case(sub_case.id)
+        assert value.option_id == option_id
+        assert (await fields.get_fields(sub_case) or {})["root_cause"] == cause
+
+    [dropdown_event] = await _events(
+        session, empty.id, CaseEventType.DROPDOWN_VALUE_CHANGED
+    )
+    assert dropdown_event.data["new_option_label"] == "False positive"
+    [fields_event] = await _events(session, empty.id, CaseEventType.FIELDS_CHANGED)
+    assert fields_event.data["changes"] == [
+        {"field": "root_cause", "old": None, "new": "Benign scanner"}
+    ]
+    assert (
+        len(await _events(session, preset.id, CaseEventType.DROPDOWN_VALUE_CHANGED))
+        == 1
+    )
+
+
+@pytest.mark.anyio
+async def test_batch_closing_parent_closes_sub_cases(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    parent = await _create(cases_service, "Parent")
+    sub_case = await _create(cases_service, "Alert", parent.id)
+
+    response = await cases_service.batch_update_cases(
+        [parent.id, sub_case.id], CaseUpdate(status=CaseStatus.CLOSED)
+    )
+
+    assert response.succeeded == 2
+    assert await _status(session, sub_case.id) == CaseStatus.CLOSED
+    assert len(await _events(session, sub_case.id, CaseEventType.CASE_CLOSED)) == 1

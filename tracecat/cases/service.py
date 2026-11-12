@@ -1,3 +1,4 @@
+import itertools
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
@@ -58,6 +59,7 @@ from tracecat.cases.event_schemas import (
     CommentReplyUpdatedEvent,
     CommentUpdatedEvent,
     CreatedEvent,
+    DropdownValueChangedEvent,
     FieldDiff,
     FieldsChangedEvent,
     PayloadChangedEvent,
@@ -130,6 +132,7 @@ from tracecat.db.models import (
     CaseCommentMention,
     CaseDropdownDefinition,
     CaseDropdownOption,
+    CaseDropdownValue,
     CaseFields,
     CaseTask,
     User,
@@ -946,10 +949,13 @@ class CasesService(BaseWorkspaceService):
                 )
 
         # Check for status changes
+        closed_status: CaseStatus | None = None
         if new_status := set_fields.pop("status", None):
             old_status = case.status
             if old_status != new_status:
                 case.status = new_status
+                if new_status in (CaseStatus.CLOSED, CaseStatus.RESOLVED):
+                    closed_status = new_status
                 # Record status change with detailed information about previous and new status
                 if new_status == CaseStatus.CLOSED:
                     event = ClosedEvent(
@@ -1069,6 +1075,164 @@ class CasesService(BaseWorkspaceService):
         # If there are any remaining changed fields, record a general update activity
         for event in events:
             await self.events.create_event(case=case, event=event)
+
+        if closed_status is not None and case.parent_id is None:
+            await self._close_sub_cases_with_parent(case, closed_status, wf_exec_id)
+
+    async def _close_sub_cases_with_parent(
+        self, parent: Case, status: CaseStatus, wf_exec_id: str | None
+    ) -> None:
+        """Close a parent's open sub-cases with the parent's closing status.
+
+        Empty required-on-closure fields and dropdowns on each sub-case are
+        filled from the parent, so sub-cases carry the parent's resolution.
+        Runs in the caller's transaction; skipped when the workspace setting
+        ``close_sub_cases_with_parent`` is false.
+        """
+        if not await self.hierarchy.enabled():
+            return
+        settings = await self.session.scalar(
+            select(Workspace.settings).where(Workspace.id == self.workspace_id)
+        )
+        if (settings or {}).get("close_sub_cases_with_parent") is False:
+            return
+        sub_cases = await self.hierarchy.lock_open_sub_cases(parent.id)
+        if not sub_cases:
+            return
+
+        events: list[tuple[Case, CaseEventVariant]] = []
+        events.extend(
+            await self._fill_sub_case_closure_fields(parent, sub_cases, wf_exec_id)
+        )
+        events.extend(
+            await self._fill_sub_case_closure_dropdowns(parent, sub_cases, wf_exec_id)
+        )
+        for sub_case in sub_cases:
+            old_status = sub_case.status
+            sub_case.status = status
+            event: CaseEventVariant = (
+                ClosedEvent(old=old_status, new=status, wf_exec_id=wf_exec_id)
+                if status == CaseStatus.CLOSED
+                else StatusChangedEvent(
+                    old=old_status, new=status, wf_exec_id=wf_exec_id
+                )
+            )
+            events.append((sub_case, event))
+        await self.events.create_events(events)
+
+    async def _fill_sub_case_closure_fields(
+        self, parent: Case, sub_cases: Sequence[Case], wf_exec_id: str | None
+    ) -> list[tuple[Case, CaseEventVariant]]:
+        """Copy the parent's required-on-closure field values into empty sub-case fields."""
+        field_schema = await self.fields.get_field_schema()
+        required = [
+            name
+            for name, meta in field_schema.items()
+            if meta.get("required_on_closure")
+        ]
+        if not required:
+            return []
+        parent_fields = await self.fields.get_fields(parent) or {}
+        source = {
+            name: parent_fields[name]
+            for name in required
+            if not _is_field_value_empty(parent_fields.get(name))
+        }
+        if not source:
+            return []
+        current = await self.fields.batch_get_fields(
+            [sub_case.id for sub_case in sub_cases], list(source)
+        )
+        events: list[tuple[Case, CaseEventVariant]] = []
+        for sub_case in sub_cases:
+            values = current.get(sub_case.id, {})
+            missing = {
+                name: value
+                for name, value in source.items()
+                if _is_field_value_empty(values.get(name))
+            }
+            if not missing:
+                continue
+            await self.fields.upsert_field_values(sub_case, missing)
+            diffs = [
+                FieldDiff(field=name, old=values.get(name), new=value)
+                for name, value in missing.items()
+            ]
+            events.append(
+                (sub_case, FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id))
+            )
+        return events
+
+    async def _fill_sub_case_closure_dropdowns(
+        self, parent: Case, sub_cases: Sequence[Case], wf_exec_id: str | None
+    ) -> list[tuple[Case, CaseEventVariant]]:
+        """Copy the parent's required-on-closure dropdown selections into unset sub-case dropdowns."""
+        result = await self.session.execute(
+            select(
+                CaseDropdownDefinition.id,
+                CaseDropdownDefinition.ref,
+                CaseDropdownDefinition.name,
+                CaseDropdownOption.id,
+                CaseDropdownOption.label,
+            )
+            .join(
+                CaseDropdownValue,
+                CaseDropdownValue.definition_id == CaseDropdownDefinition.id,
+            )
+            .join(
+                CaseDropdownOption,
+                CaseDropdownOption.id == CaseDropdownValue.option_id,
+            )
+            .where(
+                CaseDropdownDefinition.workspace_id == self.workspace_id,
+                CaseDropdownDefinition.required_on_closure.is_(True),
+                CaseDropdownValue.case_id == parent.id,
+            )
+        )
+        parent_values = result.tuples().all()
+        if not parent_values:
+            return []
+
+        sub_cases_by_id = {sub_case.id: sub_case for sub_case in sub_cases}
+        definitions = {row[0]: row for row in parent_values}
+        rows = [
+            {
+                "id": uuid.uuid4(),
+                "case_id": case_id,
+                "definition_id": definition_id,
+                "option_id": option_id,
+            }
+            for case_id in sub_cases_by_id
+            for definition_id, _, _, option_id, _ in parent_values
+        ]
+        written: list[tuple[uuid.UUID, uuid.UUID]] = []
+        # Keep each statement well under the PostgreSQL bind parameter limit.
+        for chunk in itertools.batched(rows, 1000):
+            stmt = insert(CaseDropdownValue).values(list(chunk))
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_case_dropdown_value_case_definition",
+                set_={"option_id": stmt.excluded.option_id},
+                where=CaseDropdownValue.option_id.is_(None),
+            ).returning(CaseDropdownValue.case_id, CaseDropdownValue.definition_id)
+            written.extend((await self.session.execute(stmt)).tuples().all())
+
+        events: list[tuple[Case, CaseEventVariant]] = []
+        for case_id, definition_id in written:
+            _, ref, name, option_id, label = definitions[definition_id]
+            events.append(
+                (
+                    sub_cases_by_id[case_id],
+                    DropdownValueChangedEvent(
+                        definition_id=str(definition_id),
+                        definition_ref=ref,
+                        definition_name=name,
+                        new_option_id=str(option_id),
+                        new_option_label=label,
+                        wf_exec_id=wf_exec_id,
+                    ),
+                )
+            )
+        return events
 
     async def _audit_batch_event(
         self,
