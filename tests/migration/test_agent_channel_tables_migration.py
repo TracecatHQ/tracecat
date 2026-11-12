@@ -302,7 +302,7 @@ def test_bot_checks_match_the_api_enums(db_url: str, engine: Engine) -> None:
             for transport in ChannelBotTransport
         )
     for bogus, constraint in (
-        ({"provider": "teams"}, "ck_agent_channel_bot_provider"),
+        ({"provider": "discord"}, "ck_agent_channel_bot_provider"),
         ({"status": "deleted"}, "ck_agent_channel_bot_status"),
         ({"transport": "webhook"}, "ck_agent_channel_bot_transport"),
     ):

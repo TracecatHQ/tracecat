@@ -15,6 +15,7 @@ OAUTH_CALLBACK_ROUTE = f"{CHANNEL_BOTS_PREFIX}/{{provider}}/oauth/callback"
 
 class ChannelBotProvider(StrEnum):
     SLACK = "slack"
+    TEAMS = "teams"
 
 
 class ChannelBotTransport(StrEnum):
@@ -46,7 +47,8 @@ class ChannelBotRunState(StrEnum):
 class SlackBotCredentialsUpdate(BaseModel):
     """Slack app credentials to replace; unset fields keep their stored value.
 
-    No bot token: only OAuth sets one, together with the install it belongs to.
+    No bot token: only OAuth sets one, together with the install it belongs to. A Teams
+    bot's credentials are replaced by installing it again.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -104,7 +106,16 @@ class SlackBotDetails(BaseModel):
     oauth_redirect_url: str
 
 
-type ChannelBotDetails = Annotated[SlackBotDetails, Field(discriminator="provider")]
+class TeamsBotDetails(BaseModel):
+    """Secrets are reported only as present or not."""
+
+    provider: Literal[ChannelBotProvider.TEAMS]
+    has_client_secret: bool
+
+
+type ChannelBotDetails = Annotated[
+    SlackBotDetails | TeamsBotDetails, Field(discriminator="provider")
+]
 
 
 class AgentChannelBotRead(BaseModel):
@@ -157,7 +168,20 @@ class SlackBotInstall(ChannelBotInstallBase):
     return_url: str = Field(..., min_length=1)
 
 
-type ChannelBotInstall = Annotated[SlackBotInstall, Field(discriminator="provider")]
+class TeamsBotInstall(ChannelBotInstallBase):
+    """Connect a customer-owned Azure Bot, or replace a Teams bot's credentials."""
+
+    provider: Literal[ChannelBotProvider.TEAMS]
+    app_id: uuid.UUID = Field(..., description="The Azure Bot's Microsoft App ID.")
+    tenant_id: uuid.UUID = Field(
+        ..., description="The Microsoft Entra tenant the single-tenant app belongs to."
+    )
+    client_secret: str = Field(..., min_length=1)
+
+
+type ChannelBotInstall = Annotated[
+    SlackBotInstall | TeamsBotInstall, Field(discriminator="provider")
+]
 
 
 class ChannelBotInstallResult(BaseModel):

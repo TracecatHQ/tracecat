@@ -64,7 +64,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint(
-            "provider IN ('slack')", name=op.f("ck_agent_channel_bot_provider")
+            "provider IN ('slack', 'teams')", name=op.f("ck_agent_channel_bot_provider")
         ),
         sa.CheckConstraint(
             "status IN ('active', 'paused', 'disconnected', 'needs_reconnect')",

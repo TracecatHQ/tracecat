@@ -13023,11 +13023,15 @@ export const $ChannelBotDetails = {
     {
       $ref: "#/components/schemas/SlackBotDetails",
     },
+    {
+      $ref: "#/components/schemas/TeamsBotDetails",
+    },
   ],
   discriminator: {
     propertyName: "provider",
     mapping: {
       slack: "#/components/schemas/SlackBotDetails",
+      teams: "#/components/schemas/TeamsBotDetails",
     },
   },
 } as const
@@ -13037,11 +13041,15 @@ export const $ChannelBotInstall = {
     {
       $ref: "#/components/schemas/SlackBotInstall",
     },
+    {
+      $ref: "#/components/schemas/TeamsBotInstall",
+    },
   ],
   discriminator: {
     propertyName: "provider",
     mapping: {
       slack: "#/components/schemas/SlackBotInstall",
+      teams: "#/components/schemas/TeamsBotInstall",
     },
   },
 } as const
@@ -13072,7 +13080,7 @@ export const $ChannelBotInstallResult = {
 
 export const $ChannelBotProvider = {
   type: "string",
-  enum: ["slack"],
+  enum: ["slack", "teams"],
   title: "ChannelBotProvider",
 } as const
 
@@ -36431,7 +36439,8 @@ export const $SlackBotCredentialsUpdate = {
   title: "SlackBotCredentialsUpdate",
   description: `Slack app credentials to replace; unset fields keep their stored value.
 
-No bot token: only OAuth sets one, together with the install it belongs to.`,
+No bot token: only OAuth sets one, together with the install it belongs to. A Teams
+bot's credentials are replaced by installing it again.`,
 } as const
 
 export const $SlackBotDetails = {
@@ -39417,6 +39426,83 @@ export const $TaskWorkflowChangedEventRead = {
   required: ["task_id", "title", "old", "new", "created_at"],
   title: "TaskWorkflowChangedEventRead",
   description: "Event for when a task workflow is changed.",
+} as const
+
+export const $TeamsBotDetails = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "teams",
+      title: "Provider",
+    },
+    has_client_secret: {
+      type: "boolean",
+      title: "Has Client Secret",
+    },
+  },
+  type: "object",
+  required: ["provider", "has_client_secret"],
+  title: "TeamsBotDetails",
+  description: "Secrets are reported only as present or not.",
+} as const
+
+export const $TeamsBotInstall = {
+  properties: {
+    bot_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bot Id",
+      description:
+        "Bot to install into; it must already target agent_preset_id. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    provider: {
+      type: "string",
+      const: "teams",
+      title: "Provider",
+    },
+    app_id: {
+      type: "string",
+      format: "uuid",
+      title: "App Id",
+      description: "The Azure Bot's Microsoft App ID.",
+    },
+    tenant_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tenant Id",
+      description:
+        "The Microsoft Entra tenant the single-tenant app belongs to.",
+    },
+    client_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Client Secret",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: [
+    "agent_preset_id",
+    "provider",
+    "app_id",
+    "tenant_id",
+    "client_secret",
+  ],
+  title: "TeamsBotInstall",
+  description:
+    "Connect a customer-owned Azure Bot, or replace a Teams bot's credentials.",
 } as const
 
 export const $TemplateAction = {
