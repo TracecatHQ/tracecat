@@ -666,3 +666,21 @@ async def test_non_utf8_paths_survive_reads_and_writes(remote: Path):
         remaining = await git.entries(removed)
         assert decoded not in remaining
         assert unicode_path.decode() in remaining
+
+
+@pytest.mark.anyio
+async def test_transport_errors_are_provider_errors_without_host():
+    """An unreachable host maps to BitbucketError (400), not an unhandled 500."""
+    transport = BitbucketWorkspaceSyncTransport(session=AsyncMock(), role=role())
+
+    def response(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out connecting to api.bitbucket.org")
+
+    async with httpx.AsyncClient(
+        base_url="https://api.bitbucket.org/2.0/",
+        transport=httpx.MockTransport(response),
+    ) as client:
+        with pytest.raises(BitbucketError) as exc_info:
+            await transport._request(client, "GET", "repositories/example/repo")
+    assert "api.bitbucket.org" not in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, httpx.ConnectTimeout)
