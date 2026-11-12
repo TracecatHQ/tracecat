@@ -715,9 +715,19 @@ async def import_table_from_csv(
     session: AsyncDBSession,
     file: UploadFile = File(...),
     table_name: str | None = Form(default=None),
+    folder_path: str | None = Form(default=None),
 ) -> TableImportResponse:
     """Create a new table by importing a CSV file."""
     service = TablesService(session, role=role)
+    folder_service = TableFolderService(session, role=role)
+    folder = None
+    if folder_path and folder_path != "/":
+        folder = await folder_service.get_folder_by_path(folder_path)
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path '{folder_path}' not found",
+            )
 
     try:
         contents = await _read_csv_upload_with_limit(
@@ -727,6 +737,7 @@ async def import_table_from_csv(
             contents=contents,
             filename=file.filename,
             table_name=table_name,
+            folder_id=folder.id if folder is not None else None,
         )
         table_with_columns = await service.get_table(table.id)
         index_columns = await service.get_index(table_with_columns)

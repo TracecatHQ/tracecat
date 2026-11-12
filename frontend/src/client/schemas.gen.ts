@@ -7850,6 +7850,17 @@ export const $Body_tables_import_table_from_csv = {
       ],
       title: "Table Name",
     },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
   },
   type: "object",
   required: ["file"],

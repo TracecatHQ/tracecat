@@ -2111,6 +2111,7 @@ export type Body_tables_import_csv = {
 export type Body_tables_import_table_from_csv = {
   file: Blob | File
   table_name?: string | null
+  folder_path?: string | null
 }
 
 export type Body_workflows_create_workflow = {
