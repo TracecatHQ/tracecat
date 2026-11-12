@@ -12,10 +12,23 @@ import {
 } from "@/client"
 import { authConfig } from "@/config/auth"
 import { getCurrentUser, User } from "@/lib/auth"
-import { useQuery, useQueryClient } from "@/lib/query"
+import { type QueryClient, useQuery, useQueryClient } from "@/lib/query"
 import { getMfaStatus, isMfaPending } from "@/lib/webauthn"
 
 /* ── AUTH ACTIONS HOOK ─────────────────────────────────────────────────── */
+
+/**
+ * Drop every cached query except the current-user query so data from the
+ * previous session (workspaces, org, scopes) never renders for the next user.
+ * Run this after login, not logout: on logout the current page is still
+ * mounted, so removed queries would refetch unauthenticated and surface 403s.
+ */
+function resetSessionQueries(queryClient: QueryClient): Promise<void> {
+  queryClient.removeQueries({
+    predicate: (query) => query.queryKey[0] !== "auth",
+  })
+  return queryClient.invalidateQueries({ queryKey: ["auth"] })
+}
 
 export function useAuthActions() {
   const queryClient = useQueryClient()
@@ -24,9 +37,7 @@ export function useAuthActions() {
   const login = useCallback(
     async (data: AuthAuthDatabaseLoginData) => {
       const loginResponse = await authAuthDatabaseLogin(data)
-      await queryClient.invalidateQueries({
-        queryKey: ["auth"],
-      })
+      await resetSessionQueries(queryClient)
       // The new session reads as signed out until MFA is done, so send the
       // user to the challenge, keeping the sign-in query (returnUrl).
       const mfaStatus = await getMfaStatus().catch(() => null)
