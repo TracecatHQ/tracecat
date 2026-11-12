@@ -135,7 +135,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "1.5.0-alpha.2.1"
+  default = "1.5.0-alpha.2.2"
 }
 
 variable "tracecat_migrations_image" {
