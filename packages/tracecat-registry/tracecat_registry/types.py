@@ -143,6 +143,22 @@ class CaseParentRead(TypedDict):
     summary: str
 
 
+class CaseBatchItemResult(TypedDict):
+    """Result of a batch operation for one case."""
+
+    case_id: UUID
+    success: bool
+    error: str | None
+
+
+class CaseBatchResponse(TypedDict):
+    """Per-case results and aggregate counts for a batch operation."""
+
+    results: list[CaseBatchItemResult]
+    succeeded: int
+    failed: int
+
+
 class CaseDurationRead(TypedDict):
     """Optional materialized case duration."""
 

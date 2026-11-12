@@ -16,6 +16,7 @@ import tracecat_registry.types as registry_types
 from pydantic import TypeAdapter
 from tracecat_registry.core.cases import (
     add_case_tag,
+    add_sub_cases,
     aggregate_cases,
     assign_user,
     create_case,
@@ -33,6 +34,7 @@ from tracecat_registry.core.cases import (
     list_comment_threads,
     list_comments,
     remove_case_tag,
+    remove_sub_cases,
     reply_to_comment,
     search_cases,
     update_case,
@@ -1469,3 +1471,42 @@ async def test_search_cases_forwards_canonical_controls_and_preserves_shape(
         include_count=False,
         field_ids=["region"],
     )
+
+
+@pytest.mark.anyio
+async def test_create_case_forwards_parent_case_id(
+    mock_cases_client: AsyncMock,
+) -> None:
+    await create_case(
+        summary="Duplicate", description="Duplicate", parent_case_id="CASE-0001"
+    )
+
+    assert (
+        mock_cases_client.create_case_simple.call_args.kwargs["parent_case_id"]
+        == "CASE-0001"
+    )
+
+
+@pytest.mark.anyio
+async def test_sub_case_actions_forward_refs(mock_cases_client: AsyncMock) -> None:
+    await add_sub_cases(parent_case_id="CASE-0001", case_ids=["CASE-0002"])
+    await remove_sub_cases(case_ids=["CASE-0003"])
+
+    mock_cases_client.batch_set_parent.assert_awaited_once_with(
+        case_ids=["CASE-0002"], parent_case_id="CASE-0001"
+    )
+    mock_cases_client.batch_clear_parent.assert_awaited_once_with(
+        case_ids=["CASE-0003"]
+    )
+
+
+@pytest.mark.anyio
+async def test_sub_case_actions_skip_empty_case_ids(
+    mock_cases_client: AsyncMock,
+) -> None:
+    empty = {"results": [], "succeeded": 0, "failed": 0}
+
+    assert await add_sub_cases(parent_case_id="CASE-0001", case_ids=[]) == empty
+    assert await remove_sub_cases(case_ids=[]) == empty
+    mock_cases_client.batch_set_parent.assert_not_called()
+    mock_cases_client.batch_clear_parent.assert_not_called()
