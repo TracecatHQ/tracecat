@@ -167,6 +167,10 @@ class AgentSessionRead(BaseModel):
         default=False,
         description="Whether the requesting actor can modify this session",
     )
+    can_decide_approvals: bool = Field(
+        default=True,
+        description="Whether the requesting actor can approve or deny this session's tool calls",
+    )
     entity_type: AgentSessionEntity
     entity_id: uuid.UUID
     channel_context: dict[str, Any] | None

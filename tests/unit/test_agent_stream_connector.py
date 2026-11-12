@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 from types import SimpleNamespace
 from typing import cast
@@ -67,6 +68,17 @@ async def test_approval_continuation_marker_tracks_open_stream() -> None:
         return_value=[("2-0", {tokens.DATA_KEY: b'{"[TURN_END]":1}'})]
     )
     assert await stream.is_open_approval_continuation() is False
+
+    # A marker alone, long after it was appended: the submission never landed.
+    client.xrevrange = AsyncMock(return_value=[("1-0", marker)])
+    assert await stream.is_open_approval_continuation(unanswered_after=30) is False
+    now_ms = int(time.time() * 1000)
+    client.xrevrange = AsyncMock(return_value=[(f"{now_ms}-0", marker)])
+    assert await stream.is_open_approval_continuation(unanswered_after=30) is True
+    client.xrevrange = AsyncMock(
+        return_value=[("2-0", {tokens.DATA_KEY: b'{"type":"text"}'}), ("1-0", marker)]
+    )
+    assert await stream.is_open_approval_continuation(unanswered_after=30) is True
 
 
 @pytest.mark.anyio

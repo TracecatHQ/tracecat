@@ -1280,6 +1280,10 @@ export type AgentSessionRead = {
    * Whether the requesting actor can modify this session
    */
   is_readonly?: boolean
+  /**
+   * Whether the requesting actor can approve or deny this session's tool calls
+   */
+  can_decide_approvals?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -1315,6 +1319,10 @@ export type AgentSessionReadVercel = {
    * Whether the requesting actor can modify this session
    */
   is_readonly?: boolean
+  /**
+   * Whether the requesting actor can approve or deny this session's tool calls
+   */
+  can_decide_approvals?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -1354,6 +1362,10 @@ export type AgentSessionReadWithMessages = {
    * Whether the requesting actor can modify this session
    */
   is_readonly?: boolean
+  /**
+   * Whether the requesting actor can approve or deny this session's tool calls
+   */
+  can_decide_approvals?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {

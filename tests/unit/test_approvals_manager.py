@@ -1,6 +1,7 @@
 """Tests for ApprovalManager and Temporal activities."""
 
 import asyncio
+import typing
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -25,8 +26,10 @@ from tracecat_ee.agent.approvals.service import (
 from tracecat_ee.agent.context import AgentContext
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.channel_publisher import ApprovalDecided
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.stream.feed import SessionFeedEventType
+from tracecat.agent.types import ToolDenied
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession, Approval, User
@@ -161,6 +164,24 @@ class TestApprovalManager:
             with pytest.raises(ValueError, match=error):
                 approval_manager.validate_responses(approvals)
 
+    async def test_validate_responses_keeps_the_first_decision(
+        self,
+        approval_manager: ApprovalManager,
+        sample_tool_calls: list[ToolCallContent],
+    ) -> None:
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
+        approval_manager.set({"call_123": ToolDenied(message="no")})
+
+        # The same outcome from another surface, with its own deny message.
+        approval_manager.validate_responses(
+            {"call_123": ToolDenied(message="denied"), "call_456": True}
+        )
+        with pytest.raises(ValueError, match="already decided differently"):
+            approval_manager.validate_responses({"call_123": True})
+        # Nothing new: the run must not move to the caller's stream.
+        with pytest.raises(ValueError, match="already decided"):
+            approval_manager.validate_responses({"call_123": ToolDenied(message="x")})
+
     async def test_is_ready(
         self,
         approval_manager: ApprovalManager,
@@ -257,6 +278,33 @@ class TestApprovalManager:
         # Last write wins, so the resubmitted deny is what persists.
         decided = {d.tool_call_id: d.approved for d in payload.decisions}
         assert decided == {"call_123": False, "call_456": True}
+
+    async def test_handle_decisions_publishes_the_decision_once(
+        self,
+        approval_manager: ApprovalManager,
+        sample_tool_calls: list[ToolCallContent],
+    ) -> None:
+        approval_manager._expected_tool_calls = {tc.id: tc for tc in sample_tool_calls}
+        approval_manager.set({"call_123": True, "call_456": True})
+        decided = ApprovalDecided(
+            session_id=uuid.uuid4(), batch_id=uuid.uuid4(), pending_ref=None
+        )
+        approval_manager._unpublished_decision = decided
+
+        with patch(
+            "tracecat_ee.agent.approvals.service.workflow.execute_activity",
+            AsyncMock(return_value=None),
+        ) as execute_activity:
+            await approval_manager.handle_decisions()
+
+        assert execute_activity.await_args is not None
+        assert execute_activity.await_args.kwargs["arg"].channel_updates == [decided]
+        assert approval_manager.take_unpublished_decision() == []
+
+    def test_apply_approval_decisions_result_stays_none(self) -> None:
+        # Workers before this result decode it as None; any other value fails replay.
+        hints = typing.get_type_hints(ApprovalManager.apply_approval_decisions)
+        assert hints["return"] is type(None)
 
 
 @pytest.mark.anyio
@@ -401,18 +449,59 @@ class TestRecordApprovalRequestsActivity:
 
         await ApprovalManager.record_approval_requests(input_data)
 
-        # Verify record was updated and reset to pending
+        # A recorded decision is the record: re-persisting never reopens it.
         async with ApprovalService.with_session(role=svc_role) as service:
-            updated = await service.get_approval_by_session_and_tool(
+            kept = await service.get_approval_by_session_and_tool(
                 session_id=mock_agent_session.id,
                 tool_call_id="call_123",
             )
-            assert updated is not None
-            assert updated.tool_name == "updated_tool"
-            assert updated.tool_call_args == {"new": "args"}
-            assert updated.status == ApprovalStatus.PENDING
-            assert updated.reason is None
-            assert updated.approved_at is None
+            assert kept is not None
+            await service.session.refresh(kept)
+            assert kept.tool_name == "old_tool"
+            assert kept.tool_call_args == {"old": "args"}
+            assert kept.status == ApprovalStatus.APPROVED
+            assert kept.reason == "Previously approved"
+
+    async def test_record_approvals_refreshes_pending_rows(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+    ) -> None:
+        async with ApprovalService.with_session(role=svc_role) as service:
+            await service.create_approval(
+                ApprovalCreate(
+                    session_id=mock_agent_session.id,
+                    tool_call_id="call_123",
+                    tool_name="old_tool",
+                    tool_call_args={"old": "args"},
+                )
+            )
+
+        await ApprovalManager.record_approval_requests(
+            PersistApprovalsActivityInputs(
+                role=svc_role,
+                session_id=mock_agent_session.id,
+                approvals=[
+                    ToolApprovalPayload(
+                        tool_call_id="call_123",
+                        tool_name="updated_tool",
+                        args={"new": "args"},
+                    )
+                ],
+            )
+        )
+
+        async with ApprovalService.with_session(role=svc_role) as service:
+            refreshed = await service.get_approval_by_session_and_tool(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_123",
+            )
+            assert refreshed is not None
+            await service.session.refresh(refreshed)
+            assert refreshed.tool_name == "updated_tool"
+            assert refreshed.tool_call_args == {"new": "args"}
+            assert refreshed.status == ApprovalStatus.PENDING
 
     async def test_record_approvals_string_args(
         self,
@@ -782,6 +871,150 @@ class TestApplyApprovalDecisionsUpsert:
         assert approval.status == ApprovalStatus.REJECTED
         assert approval.reason == "revoked"
         assert approval.decision is False
+
+    async def test_apply_approval_keeps_recorded_approver_for_same_outcome(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+        test_user: User,
+    ) -> None:
+        """The run re-applies recorded decisions; it must not overwrite who decided."""
+        service = ApprovalService(session=session, role=svc_role)
+        approval = await service.create_approval(
+            ApprovalCreate(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_attributed",
+                tool_name="tool_1",
+                tool_call_args={},
+            )
+        )
+        recorded = {"value": True, "metadata": {"source": "channel"}}
+        approval = await service.update_approval(
+            approval,
+            ApprovalUpdate(
+                status=ApprovalStatus.APPROVED,
+                decision=recorded,
+                approved_by=test_user.id,
+            ),
+        )
+
+        await ApprovalManager.apply_approval_decisions(
+            ApplyApprovalResultsActivityInputs(
+                role=svc_role,
+                session_id=mock_agent_session.id,
+                decisions=[
+                    ApprovalDecisionPayload(
+                        tool_call_id="call_attributed",
+                        approved=True,
+                        decision=True,
+                        approved_by=None,
+                    )
+                ],
+            )
+        )
+
+        await session.refresh(approval)
+        assert approval.status == ApprovalStatus.APPROVED
+        assert approval.approved_by == test_user.id
+        assert approval.decision == recorded
+
+    async def test_apply_approval_restores_the_run_approver_over_a_retrier(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+        test_user: User,
+    ) -> None:
+        """A deduplicated retry recorded its own approver; the run's first stands."""
+        retrier = User(
+            id=uuid.uuid4(),
+            email=f"retrier-{uuid.uuid4()}@example.com",
+            hashed_password="test_password",
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+        )
+        session.add(retrier)
+        await session.commit()
+        service = ApprovalService(session=session, role=svc_role)
+        approval = await service.create_approval(
+            ApprovalCreate(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_retried",
+                tool_name="tool_1",
+                tool_call_args={},
+            )
+        )
+        approval = await service.update_approval(
+            approval,
+            ApprovalUpdate(
+                status=ApprovalStatus.APPROVED,
+                decision={"value": True, "metadata": {"source": "web"}},
+                approved_by=retrier.id,
+            ),
+        )
+        recorded_at = approval.approved_at
+
+        await ApprovalManager.apply_approval_decisions(
+            ApplyApprovalResultsActivityInputs(
+                role=svc_role,
+                session_id=mock_agent_session.id,
+                decisions=[
+                    ApprovalDecisionPayload(
+                        tool_call_id="call_retried",
+                        approved=True,
+                        decision=True,
+                        approved_by=test_user.id,
+                        decision_metadata={"source": "channel"},
+                    )
+                ],
+            )
+        )
+
+        await session.refresh(approval)
+        assert approval.approved_by == test_user.id
+        assert approval.decision == {"value": True, "metadata": {"source": "channel"}}
+        assert approval.approved_at == recorded_at
+
+    async def test_apply_approval_never_restores_a_deleted_approver(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+        test_user: User,
+    ) -> None:
+        service = ApprovalService(session=session, role=svc_role)
+        approval = await service.create_approval(
+            ApprovalCreate(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_deleted_actor",
+                tool_name="tool_1",
+                tool_call_args={},
+            )
+        )
+        approval = await service.update_approval(
+            approval,
+            ApprovalUpdate(status=ApprovalStatus.APPROVED, approved_by=test_user.id),
+        )
+
+        await ApprovalManager.apply_approval_decisions(
+            ApplyApprovalResultsActivityInputs(
+                role=svc_role,
+                session_id=mock_agent_session.id,
+                decisions=[
+                    ApprovalDecisionPayload(
+                        tool_call_id="call_deleted_actor",
+                        approved=True,
+                        decision=True,
+                        approved_by=uuid.uuid4(),
+                    )
+                ],
+            )
+        )
+
+        await session.refresh(approval)
+        assert approval.approved_by == test_user.id
 
     async def test_apply_approval_sets_updated_at_on_conflict(
         self,

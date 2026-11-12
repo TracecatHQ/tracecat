@@ -8,10 +8,11 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import func, null, select
+from sqlalchemy import and_, case, exists, func, literal_column, null, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
 
+from tracecat.agent.approvals.decisions import decision_outcome
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.channel_publisher import (
     ApprovalDecided,
@@ -329,12 +330,16 @@ class ApprovalManager:
         manager only becomes READY (resuming the run) once every expected
         tool call has a decision.
         """
+        new_ids = approvals.keys() - self._approvals.keys()
+        # Cancellation overwrites outcomes; provenance stays with the first decision.
         self._approvals.update(approvals)
-        if approved_by is not None:
-            for tool_call_id in approvals:
+        for tool_call_id in new_ids:
+            if approved_by is not None:
                 self._approved_by_by_tool_call_id[tool_call_id] = approved_by
-        if decision_metadata:
-            self._decision_metadata_by_tool_call_id.update(decision_metadata)
+            if decision_metadata and tool_call_id in decision_metadata:
+                self._decision_metadata_by_tool_call_id[tool_call_id] = (
+                    decision_metadata[tool_call_id]
+                )
 
         expected_ids = set(self._expected_tool_calls.keys())
         if expected_ids.issubset(self._approvals.keys()):
@@ -465,6 +470,18 @@ class ApprovalManager:
                     f"cannot be None. Please provide a valid approval decision."
                 )
 
+        # The run holds the decisions; the first one for a tool call stands.
+        for tool_call_id in sorted(provided_ids & self._approvals.keys()):
+            if decision_outcome(approvals[tool_call_id]) != decision_outcome(
+                self._approvals[tool_call_id]
+            ):
+                raise ValueError(
+                    f"Tool call {tool_call_id} was already decided differently"
+                )
+        # An update must decide something new: each one moves the run's stream.
+        if provided_ids <= self._approvals.keys():
+            raise ValueError("Every tool call in the response was already decided")
+
     async def handle_decisions(self, *, publish: bool = True) -> None:
         """Record the decisions; ``publish=False`` keeps the message open for later."""
         decisions: list[ApprovalDecisionPayload] = []
@@ -585,6 +602,8 @@ class ApprovalManager:
                     }
                 )
 
+            # Lock rows in ApprovalSubmissionService's order (tool call id).
+            rows.sort(key=lambda row: row["tool_call_id"])
             stmt = pg_insert(Approval).values(rows)
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_approval_workspace_session_tool",
@@ -592,13 +611,36 @@ class ApprovalManager:
                     "status": stmt.excluded.status,
                     "reason": stmt.excluded.reason,
                     "approved_by": stmt.excluded.approved_by,
-                    "approved_at": stmt.excluded.approved_at,
+                    # Keep when the API recorded the same outcome.
+                    "approved_at": case(
+                        (
+                            Approval.status == stmt.excluded.status,
+                            Approval.approved_at,
+                        ),
+                        else_=stmt.excluded.approved_at,
+                    ),
                     "decision": func.coalesce(
                         stmt.excluded.decision, Approval.decision
                     ),
                     # onupdate does not fire for ON CONFLICT DO UPDATE.
                     "updated_at": func.now(),
                 },
+                # The run holds the accepted decision's approver; the API's record
+                # of a deduplicated retry may name the retrier instead. Never
+                # restore a deleted user or replace an anonymized approver.
+                where=or_(
+                    Approval.status == ApprovalStatus.PENDING,
+                    Approval.status != stmt.excluded.status,
+                    and_(
+                        Approval.approved_by.is_not(None),
+                        Approval.approved_by != stmt.excluded.approved_by,
+                        # Literal: a column of excluded would add it as a FROM.
+                        exists().where(
+                            User.__table__.c.id
+                            == literal_column("excluded.approved_by")
+                        ),
+                    ),
+                ),
             )
             await service.session.execute(stmt)
             await service.session.commit()
@@ -611,25 +653,22 @@ class ApprovalManager:
     ) -> str | None:
         """Persist pending approval records for deferred tool calls.
 
+        The batch is written in one transaction, so its new rows share
+        ``created_at`` (transaction time): ApprovalSubmissionService groups a batch
+        by it. Re-persisting refreshes pending rows only; recorded decisions
+        and approvers stay.
+
         Returns the posted approval message's ref; None when nothing was
         published, which workflow code from before publishing also decodes.
-
-        Handles business logic:
-        - Upserts approvals (updates existing or creates new)
-        - Resets approval state to PENDING if record already exists
         """
 
         if not input.approvals:
             return None
 
         async with ApprovalService.with_session(role=input.role) as service:
+            # Untyped: SQLAlchemy insert values keyed by column name.
+            rows: dict[str, dict[str, Any]] = {}
             for payload in input.approvals:
-                # Check if approval already exists
-                existing = await service.get_approval_by_session_and_tool(
-                    session_id=input.session_id,
-                    tool_call_id=payload.tool_call_id,
-                )
-
                 # Normalize tool args to a dict
                 approval_args: dict[str, Any] | None = None
                 if payload.args is not None:
@@ -649,32 +688,29 @@ class ApprovalManager:
                     approval_args = approval_args or {}
                     approval_args["_tracecat"] = payload.metadata
 
-                if existing:
-                    # TODO: Do we need this path?
-                    # Update existing record and reset to pending state
-                    await service.update_approval(
-                        existing,
-                        ApprovalUpdate(
-                            status=ApprovalStatus.PENDING,
-                            tool_name=payload.tool_name,
-                            tool_call_args=approval_args,
-                            reason=None,
-                            approved_by=None,
-                            decision=None,
-                        ),
-                    )
-                    # Reset approved_at manually
-                    existing.approved_at = None
-                else:
-                    # Create new approval record
-                    await service.create_approval(
-                        ApprovalCreate(
-                            session_id=input.session_id,
-                            tool_call_id=payload.tool_call_id,
-                            tool_name=payload.tool_name,
-                            tool_call_args=approval_args,
-                        )
-                    )
+                rows[payload.tool_call_id] = {
+                    "workspace_id": service.workspace_id,
+                    "session_id": input.session_id,
+                    "tool_call_id": payload.tool_call_id,
+                    "tool_name": payload.tool_name,
+                    "tool_call_args": approval_args,
+                    "status": ApprovalStatus.PENDING,
+                }
+
+            # Lock rows in ApprovalSubmissionService's order (tool call id).
+            stmt = pg_insert(Approval).values([rows[key] for key in sorted(rows)])
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_approval_workspace_session_tool",
+                set_={
+                    "tool_name": stmt.excluded.tool_name,
+                    "tool_call_args": stmt.excluded.tool_call_args,
+                    # onupdate does not fire for ON CONFLICT DO UPDATE.
+                    "updated_at": func.now(),
+                },
+                where=Approval.status == ApprovalStatus.PENDING,
+            )
+            await service.session.execute(stmt)
+            await service.session.commit()
             owner = (
                 await service.session.execute(
                     select(

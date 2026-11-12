@@ -8,10 +8,14 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from tracecat_ee.agent.approvals.router import delete_approval
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.backends.types import AgentControlUncertain
+from tracecat.agent.session.types import TurnLifecycle, TurnLifecycleResult
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatConflictError
 
 
 def _execute_role(workspace_id: uuid.UUID) -> Role:
@@ -88,6 +92,9 @@ async def test_delete_approval_deletes_records_when_workflow_dead() -> None:
     fake_session_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
         run_turn=AsyncMock(side_effect=RuntimeError("Temporal workflow not found")),
+        get_turn_lifecycle=AsyncMock(
+            return_value=TurnLifecycleResult(TurnLifecycle.FAILED, uuid.uuid4())
+        ),
     )
     fake_approval_svc = SimpleNamespace(
         list_approvals_for_session=AsyncMock(return_value=[pending]),
@@ -114,3 +121,72 @@ async def test_delete_approval_deletes_records_when_workflow_dead() -> None:
     fake_session_svc.run_turn.assert_awaited_once()
     # Falls back to direct approval record deletion
     fake_approval_svc.delete_approval.assert_awaited_once_with(pending)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("lifecycle", "keeps_rows"),
+    [
+        (TurnLifecycle.RUNNING, True),
+        (TurnLifecycle.UNAVAILABLE, True),
+        (TurnLifecycle.COMPLETED, False),
+    ],
+)
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(TracecatConflictError("refused"), id="refused"),
+        pytest.param(AgentControlUncertain("turn taken"), id="uncertain"),
+    ],
+)
+async def test_delete_approval_keeps_records_a_live_run_still_waits_on(
+    lifecycle: TurnLifecycle, keeps_rows: bool, error: Exception
+) -> None:
+    """Rows go only once the run is over; a live run may still need them."""
+    session_id = uuid.uuid4()
+    pending = _approval_stub("tool_call_1", ApprovalStatus.PENDING)
+    fake_session_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=SimpleNamespace(id=session_id)),
+        run_turn=AsyncMock(side_effect=error),
+        get_turn_lifecycle=AsyncMock(
+            return_value=TurnLifecycleResult(lifecycle, uuid.uuid4())
+        ),
+    )
+    fake_approval_svc = SimpleNamespace(
+        list_approvals_for_session=AsyncMock(return_value=[pending]),
+        delete_approval=AsyncMock(return_value=None),
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.approvals.router.AgentSessionService",
+            return_value=fake_session_svc,
+        ),
+        patch(
+            "tracecat_ee.agent.approvals.router.ApprovalService",
+            return_value=fake_approval_svc,
+        ),
+    ):
+        raw = cast(Any, delete_approval).__wrapped__
+        call = raw(
+            role=_execute_role(uuid.uuid4()), session_id=session_id, session=AsyncMock()
+        )
+        if keeps_rows:
+            # An unanswered run is a retryable 503, not an unhandled error.
+            expected = (
+                HTTPException
+                if isinstance(error, AgentControlUncertain)
+                else type(error)
+            )
+            with pytest.raises(expected) as exc_info:
+                await call
+            if isinstance(error, AgentControlUncertain):
+                assert isinstance(exc_info.value, HTTPException)
+                assert exc_info.value.status_code == 503
+        else:
+            await call
+
+    if keeps_rows:
+        fake_approval_svc.delete_approval.assert_not_awaited()
+    else:
+        fake_approval_svc.delete_approval.assert_awaited_once_with(pending)

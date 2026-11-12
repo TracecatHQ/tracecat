@@ -105,6 +105,8 @@ def test_update_round_trip_decodes_with_alias_hint(update: RunUpdate) -> None:
 def test_approval_batch_id_ignores_tool_call_order() -> None:
     first = approval_batch_id(RUN_ID, ["call-b", "call-a"])
     assert first == approval_batch_id(RUN_ID, ["call-a", "call-b"])
+    # Approval rows are unique per tool call id.
+    assert first == approval_batch_id(RUN_ID, ["call-a", "call-b", "call-a"])
     assert first != approval_batch_id(RUN_ID, ["call-a"])
     assert first != approval_batch_id(uuid.uuid4(), ["call-a", "call-b"])
 
@@ -166,6 +168,11 @@ async def test_a_failed_publish_retries_then_gives_up_quietly(
 
     assert publisher.attempts == 2 * attempts
     assert no_backoff == delays * 2
+
+
+def test_approval_batch_id_tells_apart_ids_that_join_alike() -> None:
+    run_id = uuid.uuid4()
+    assert approval_batch_id(run_id, ["a,b"]) != approval_batch_id(run_id, ["a", "b"])
 
 
 @pytest.mark.anyio

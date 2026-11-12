@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import orjson
 from sqlalchemy import (
-    TIMESTAMP,
-    String,
     and_,
     case,
     column,
@@ -25,21 +22,25 @@ from sqlalchemy import (
     or_,
     select,
     update,
-    values,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import SQLAlchemyError
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.artifacts.projection as artifact_projection
 from tracecat.agent.adapter.vercel import is_text_ui_part
+from tracecat.agent.approvals.decisions import submitted_decision
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.submission import (
+    ApprovalDecisionInvalidError,
+    ApprovalNoLongerActiveError,
+    ApprovalSubmissionService,
+)
 from tracecat.agent.approvals.types import (
-    BooleanApprovalDecision,
-    PersistedApprovalDecision,
-    ToolApprovedDecision,
-    ToolDeniedDecision,
+    ApprovalAlreadyApplied,
+    ApprovalDelivered,
+    SubmittedDecision,
 )
 from tracecat.agent.backends.access import (
     require_backend_entitlement,
@@ -50,20 +51,13 @@ from tracecat.agent.backends.registry import (
     find_agent_backend,
     get_agent_backend,
 )
-from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.types import (
-    AgentControlRejected,
     SessionCleanup,
     SessionDeleteContext,
     SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnContext,
-)
-from tracecat.agent.common.stream_types import (
-    ApprovalStreamStatus,
-    ToolCallContent,
-    UnifiedStreamEvent,
 )
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.control.schemas import (
@@ -94,6 +88,12 @@ from tracecat.agent.session.history import (
     decode_raw_session_line,
     prepare_session_history,
 )
+from tracecat.agent.session.results import (
+    DecisionRecorded,
+    DecisionRejected,
+    DecisionResult,
+    RunRef,
+)
 from tracecat.agent.session.schemas import (
     AgentPendingMessageRead,
     AgentSessionCancelResponse,
@@ -123,8 +123,6 @@ from tracecat.agent.subagents import (
 from tracecat.agent.types import (
     AgentConfig,
     ClaudeSDKMessageTA,
-    ToolApproved,
-    ToolDenied,
 )
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
@@ -134,6 +132,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
+    ApprovalDecision,
     ApprovalRead,
     BasicChatRequest,
     ChatMessage,
@@ -152,7 +151,6 @@ from tracecat.chat.tools import (
 )
 from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.db.models import (
-    APPROVAL_STATUS_ENUM,
     AgentSession,
     AgentSessionHistory,
     Approval,
@@ -169,18 +167,17 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
-from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts, form_page_context
 
 if TYPE_CHECKING:
-    from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalResult
-
     from tracecat.agent.executor.schemas import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
+# Past the submit timeout plus a queued turn, a marker-only continuation is lost.
+_UNANSWERED_CONTINUATION_SECONDS = 30
 AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
     {
         "action:*:execute",
@@ -190,7 +187,6 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
         "workflow:execute",
     }
 )
-APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
@@ -283,96 +279,6 @@ def _session_history_content(
     )
 
 
-class _ApprovalDecisionFields(NamedTuple):
-    """Approval row fields derived from a deferred approval result."""
-
-    status: ApprovalStatus
-    reason: str | None
-    decision: PersistedApprovalDecision
-    approved_by: uuid.UUID | None
-    approved_at: datetime
-
-
-def _approval_decision_fields(
-    result: ApprovalResult,
-    *,
-    approved_by: uuid.UUID | None,
-    decision_metadata: ApprovalDecisionMetadata | None,
-) -> _ApprovalDecisionFields:
-    """Map a deferred approval result into Approval row update fields."""
-    status: ApprovalStatus
-    reason: str | None = None
-    decision: PersistedApprovalDecision
-
-    match result:
-        case bool(value):
-            status = ApprovalStatus.APPROVED if value else ApprovalStatus.REJECTED
-            if decision_metadata:
-                boolean_decision: BooleanApprovalDecision = {
-                    "value": value,
-                    "metadata": decision_metadata,
-                }
-                decision = boolean_decision
-            else:
-                decision = value
-        case ToolApproved(override_args=override_args):
-            status = ApprovalStatus.APPROVED
-            approved_decision: ToolApprovedDecision = {"kind": "tool-approved"}
-            if override_args is not None:
-                approved_decision["override_args"] = override_args
-            if decision_metadata:
-                approved_decision["metadata"] = decision_metadata
-            decision = approved_decision
-        case ToolDenied(message=message):
-            status = ApprovalStatus.REJECTED
-            reason = message
-            denied_decision: ToolDeniedDecision = {"kind": "tool-denied"}
-            if message:
-                denied_decision["message"] = message
-            if decision_metadata:
-                denied_decision["metadata"] = decision_metadata
-            decision = denied_decision
-        case _:
-            raise ValueError(f"Unsupported approval result: {type(result)}")
-
-    return _ApprovalDecisionFields(
-        status=status,
-        reason=reason,
-        decision=decision,
-        approved_by=approved_by,
-        approved_at=datetime.now(tz=UTC),
-    )
-
-
-def _decision_matches_persisted(
-    result: ApprovalResult, persisted: PersistedApprovalDecision | None
-) -> bool:
-    """Return whether a resubmitted decision matches what was already stored.
-
-    Compares outcome and override args but not metadata, so the same decision
-    replayed from a different surface (Slack <-> inbox) is still a match.
-    """
-    if persisted is None:
-        return False
-
-    fields = _approval_decision_fields(result, approved_by=None, decision_metadata=None)
-    submitted = fields.decision
-    # A bare bool is the legacy shape; {"value": ...} is the same decision
-    # enriched with submission metadata, so the two must compare equal.
-    if isinstance(submitted, bool):
-        if isinstance(persisted, bool):
-            return submitted == persisted
-        return submitted == persisted.get("value")
-    if isinstance(persisted, bool):
-        return False
-    # Compare the outcome only. Metadata and the deny message are excluded:
-    # each surface supplies its own default reason, so including them would
-    # reject a replay of the same decision from a different surface.
-    return all(
-        submitted.get(key) == persisted.get(key) for key in ("kind", "override_args")
-    )
-
-
 @dataclass(frozen=True)
 class StreamResumeState:
     """Transport-neutral state for deciding whether a session stream is live."""
@@ -381,42 +287,6 @@ class StreamResumeState:
     curr_run_id: uuid.UUID | None
     active_stream_id: uuid.UUID | None
     has_live_stream: bool
-
-
-@dataclass(frozen=True)
-class ApprovalContinuationAttempt:
-    """A persisted, retryable approval-continuation stream attempt."""
-
-    stream: AgentStream
-    stream_id: uuid.UUID
-    previous_stream_id: uuid.UUID | None
-
-
-type ApprovalDecisionMetadata = dict[str, Any]
-"""Submission metadata persisted alongside a decision.
-
-Always carries ``source``; client-supplied keys are merged over it, so the
-value type stays open. ``_decision_matches_persisted`` ignores this entirely
-so the same decision replayed from another surface is not a conflict.
-"""
-
-
-@dataclass(frozen=True)
-class _ValidatedContinuation:
-    """Approvals resolved from a validated continuation request."""
-
-    approval_map: ApprovalMap
-    decision_metadata: dict[str, ApprovalDecisionMetadata]
-
-
-class _DecisionRow(NamedTuple):
-    """One row of the VALUES clause; field order must match the columns."""
-
-    tool_call_id: str
-    status: ApprovalStatus
-    reason: str | None
-    decision: PersistedApprovalDecision
-    approved_at: datetime
 
 
 def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
@@ -1615,109 +1485,6 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
 
-    async def _pending_approval_tool_call_ids(self, session_id: uuid.UUID) -> set[str]:
-        """Return pending approval tool-call IDs for one session."""
-        stmt = select(Approval.tool_call_id).where(
-            Approval.workspace_id == self.workspace_id,
-            Approval.session_id == session_id,
-            Approval.status == ApprovalStatus.PENDING,
-        )
-        result = await self.session.execute(stmt)
-        return set(result.scalars().all())
-
-    async def _settled_approval_decisions(
-        self, session_id: uuid.UUID
-    ) -> dict[str, PersistedApprovalDecision | None]:
-        """Return already-decided approvals so retries can be reconciled."""
-        stmt = select(Approval.tool_call_id, Approval.decision).where(
-            Approval.workspace_id == self.workspace_id,
-            Approval.session_id == session_id,
-            Approval.status != ApprovalStatus.PENDING,
-        )
-        result = await self.session.execute(stmt)
-        return {row.tool_call_id: row.decision for row in result}
-
-    async def _apply_submitted_approval_decisions(
-        self,
-        *,
-        session_id: uuid.UUID,
-        approval_map: Mapping[str, ApprovalResult],
-        decision_metadata: Mapping[str, ApprovalDecisionMetadata],
-    ) -> None:
-        """Persist accepted approval decisions before the full set resumes."""
-        if not approval_map:
-            return
-
-        approved_by = await self._existing_user_id(self.role.user_id)
-        rows: list[_DecisionRow] = []
-        for tool_call_id, approval_result in approval_map.items():
-            fields = _approval_decision_fields(
-                approval_result,
-                approved_by=approved_by,
-                decision_metadata=decision_metadata.get(tool_call_id),
-            )
-            rows.append(
-                _DecisionRow(
-                    tool_call_id=tool_call_id,
-                    status=fields.status,
-                    reason=fields.reason,
-                    decision=fields.decision,
-                    approved_at=fields.approved_at,
-                )
-            )
-
-        # Column types mirror the Approval model so values bind directly.
-        decisions = (
-            values(
-                column("tool_call_id", String),
-                column("status", APPROVAL_STATUS_ENUM),
-                column("reason", String),
-                column("decision", JSONB),
-                column("approved_at", TIMESTAMP(timezone=True)),
-                name="decisions",
-            )
-            .data(rows)
-            .alias()
-        )
-
-        stmt = (
-            update(Approval)
-            .where(
-                Approval.workspace_id == self.workspace_id,
-                Approval.session_id == session_id,
-                Approval.status == ApprovalStatus.PENDING,
-                Approval.tool_call_id == decisions.c.tool_call_id,
-            )
-            .values(
-                status=decisions.c.status,
-                reason=decisions.c.reason,
-                decision=decisions.c.decision,
-                approved_by=literal(approved_by, UUID),
-                approved_at=decisions.c.approved_at,
-                # Core-level bulk UPDATE does not fire the mapper `onupdate`.
-                updated_at=func.now(),
-            )
-            .returning(Approval.tool_call_id)
-            # "fetch" expires the updated rows in the identity map so
-            # `_emit_approval_idle_segment` re-reads them fresh. It reuses the
-            # RETURNING above, so this costs no extra query. "evaluate" cannot
-            # replay a criteria that joins a SQL-only VALUES clause.
-            .execution_options(synchronize_session="fetch")
-        )
-        result = await self.session.execute(stmt)
-        updated = set(result.scalars().all())
-
-        # Validation admits only pending IDs, so a miss here means the row was
-        # decided by a concurrent submitter in between, or is missing entirely.
-        if skipped := set(approval_map) - updated:
-            logger.warning(
-                "Accepted approval decisions were missing or no longer pending",
-                session_id=str(session_id),
-                tool_call_ids=sorted(skipped),
-            )
-
-        await self.session.commit()
-
     async def _existing_user_id(self, user_id: uuid.UUID | None) -> uuid.UUID | None:
         """Return ``user_id`` only when it can satisfy Approval.approved_by."""
         if user_id is None:
@@ -1726,229 +1493,6 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         return user.id if user else None
-
-    async def _approval_stream_items(
-        self,
-        *,
-        session_id: uuid.UUID,
-        tool_call_ids: Sequence[str],
-    ) -> list[ToolCallContent]:
-        """Return the active approval batch as stream items for UI replay.
-
-        Only pending approvals plus the just-submitted ``tool_call_ids`` are
-        replayed. Terminal approvals from earlier turns must stay out of the
-        payload: the client drops an entire ``data-approval-request`` part when
-        any contained tool call already has a terminal tool state, which would
-        hide the still-pending cards.
-        """
-        stmt = (
-            select(Approval)
-            .where(
-                Approval.workspace_id == self.workspace_id,
-                Approval.session_id == session_id,
-                or_(
-                    Approval.status == ApprovalStatus.PENDING,
-                    Approval.tool_call_id.in_(tool_call_ids),
-                ),
-            )
-            .order_by(Approval.created_at, Approval.id)
-        )
-        result = await self.session.execute(stmt)
-        return [
-            ToolCallContent(
-                id=approval.tool_call_id,
-                name=approval.tool_name,
-                input=approval.tool_call_args or {},
-                status=cast(ApprovalStreamStatus, approval.status.value),
-                decision=approval.decision,
-                reason=approval.reason,
-            )
-            for approval in result.scalars().all()
-        ]
-
-    async def _emit_approval_idle_segment(
-        self,
-        *,
-        session_id: uuid.UUID,
-        stream_id: uuid.UUID | None,
-        tool_call_ids: Sequence[str],
-    ) -> None:
-        """Emit the latest approval state and a non-terminal Redis boundary."""
-        if self.workspace_id is None:
-            return
-        stream = await AgentStream.new(
-            workspace_id=self.workspace_id,
-            session_id=session_id,
-            stream_id=stream_id,
-        )
-        if approval_items := await self._approval_stream_items(
-            session_id=session_id, tool_call_ids=tool_call_ids
-        ):
-            await stream.append(
-                UnifiedStreamEvent.approval_request_event(approval_items).to_dict()
-            )
-        await stream.finish_idle_segment()
-
-    @staticmethod
-    def _approval_submission_key(
-        *,
-        workspace_id: uuid.UUID,
-        session_id: uuid.UUID,
-        run_id: uuid.UUID,
-        tool_call_ids: Sequence[str],
-    ) -> str:
-        digest = hashlib.sha256(
-            ",".join(sorted(tool_call_ids)).encode("utf-8")
-        ).hexdigest()[:16]
-        return f"agent-approval-submit:{workspace_id}:{session_id}:{run_id}:{digest}"
-
-    async def _existing_approval_continuation_attempt(
-        self,
-        agent_session: AgentSession,
-        *,
-        submission_key: str,
-    ) -> ApprovalContinuationAttempt | None:
-        """Return the installed attempt for this approval submission, if any."""
-        stream_id = agent_session.active_stream_id
-        if stream_id is None:
-            return None
-
-        stream = await AgentStream.new(
-            session_id=agent_session.id,
-            workspace_id=self.workspace_id,
-            stream_id=stream_id,
-        )
-        marker = await stream.approval_continuation_marker()
-        if marker is None or marker.submission_key != submission_key:
-            return None
-        return ApprovalContinuationAttempt(
-            stream=stream,
-            stream_id=stream_id,
-            previous_stream_id=marker.previous_stream_id,
-        )
-
-    async def _prepare_approval_continuation_attempt(
-        self,
-        *,
-        agent_session: AgentSession,
-        curr_run_id: uuid.UUID,
-        submission_key: str,
-    ) -> ApprovalContinuationAttempt:
-        """Reuse an installed attempt or atomically install a fresh stream."""
-        if attempt := await self._existing_approval_continuation_attempt(
-            agent_session,
-            submission_key=submission_key,
-        ):
-            return attempt
-
-        previous_stream_id = agent_session.active_stream_id
-        stream_id = uuid.uuid4()
-        stream = await AgentStream.new(
-            session_id=agent_session.id,
-            workspace_id=self.workspace_id,
-            stream_id=stream_id,
-        )
-        await stream.mark_approval_continuation(
-            submission_key=submission_key,
-            previous_stream_id=previous_stream_id,
-        )
-
-        previous_stream_filter = (
-            AgentSession.active_stream_id.is_(None)
-            if previous_stream_id is None
-            else AgentSession.active_stream_id == previous_stream_id
-        )
-        stmt = (
-            update(AgentSession)
-            .where(
-                AgentSession.id == agent_session.id,
-                AgentSession.workspace_id == self.workspace_id,
-                AgentSession.curr_run_id == curr_run_id,
-                previous_stream_filter,
-            )
-            .values(active_stream_id=stream_id)
-            .returning(AgentSession.active_stream_id)
-        )
-        try:
-            result = await self.session.execute(stmt)
-            installed_stream_id = result.scalar_one_or_none()
-            await self.session.commit()
-        except SQLAlchemyError:
-            await self.session.rollback()
-            raise
-        if installed_stream_id == stream_id:
-            agent_session.active_stream_id = stream_id
-            return ApprovalContinuationAttempt(
-                stream=stream,
-                stream_id=stream_id,
-                previous_stream_id=previous_stream_id,
-            )
-
-        # Another request won the compare-and-swap. This candidate was never
-        # published, so remove it and reuse the installed attempt instead.
-        with contextlib.suppress(Exception):
-            await stream.clear_buffer()
-        await self.session.refresh(agent_session)
-        if attempt := await self._existing_approval_continuation_attempt(
-            agent_session,
-            submission_key=submission_key,
-        ):
-            return attempt
-        raise TracecatConflictError(
-            "Approval continuation changed while decisions were being submitted"
-        )
-
-    async def _rollback_rejected_approval_continuation(
-        self,
-        *,
-        agent_session: AgentSession,
-        curr_run_id: uuid.UUID,
-        attempt: ApprovalContinuationAttempt,
-    ) -> None:
-        """Close a rejected attempt and compare-and-restore its prior pointer."""
-        try:
-            await attempt.stream.done()
-        except Exception as exc:
-            logger.warning(
-                "Failed to close rejected approval continuation stream",
-                session_id=str(agent_session.id),
-                stream_id=str(attempt.stream_id),
-                error=str(exc),
-            )
-
-        stmt = (
-            update(AgentSession)
-            .where(
-                AgentSession.id == agent_session.id,
-                AgentSession.workspace_id == self.workspace_id,
-                AgentSession.curr_run_id == curr_run_id,
-                AgentSession.active_stream_id == attempt.stream_id,
-            )
-            .values(active_stream_id=attempt.previous_stream_id)
-            .returning(AgentSession.id)
-        )
-        try:
-            result = await self.session.execute(stmt)
-            restored_session_id = result.scalar_one_or_none()
-            await self.session.commit()
-            if restored_session_id is None:
-                await self.session.refresh(agent_session)
-                logger.info(
-                    "Skipped stale approval continuation rollback",
-                    session_id=str(agent_session.id),
-                    stream_id=str(attempt.stream_id),
-                    active_stream_id=str(agent_session.active_stream_id),
-                )
-            else:
-                agent_session.active_stream_id = attempt.previous_stream_id
-        except SQLAlchemyError as exc:
-            await self.session.rollback()
-            logger.warning(
-                "Failed to restore stream pointer after rejected approval continuation",
-                session_id=str(agent_session.id),
-                stream_id=str(attempt.stream_id),
-                error=str(exc),
-            )
 
     async def auto_title_session_on_first_prompt(
         self,
@@ -2442,8 +1986,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         Approval-paused runs are still RUNNING in Temporal. A freshly rotated
         continuation is the exception: its marker is written before the stream ID
-        is committed, so reconnects can safely wait on it while decisions finish
-        committing.
+        is committed, so reconnects can safely wait on it while the run takes the
+        decisions.
         """
         if agent_session.active_stream_id is None:
             return False
@@ -2453,7 +1997,11 @@ class AgentSessionService(BaseWorkspaceService):
                 workspace_id=self.workspace_id,
                 stream_id=agent_session.active_stream_id,
             )
-            return await stream.is_open_approval_continuation()
+            # Past this, a marker-only stream means the click never reached the
+            # run; its cards are still pending, so the user can click again.
+            return await stream.is_open_approval_continuation(
+                unanswered_after=_UNANSWERED_CONTINUATION_SECONDS
+            )
         except Exception as exc:
             logger.warning(
                 "Failed to inspect approval continuation stream",
@@ -2548,287 +2096,110 @@ class AgentSessionService(BaseWorkspaceService):
             case _:
                 raise ValueError(f"Unsupported request type: {type(request)}")
 
-    def _validate_continuation_decisions(
-        self,
-        *,
+    @staticmethod
+    def _continuation_decisions(
         request: ContinueRunRequest,
-        pending_tool_call_ids: set[str],
-        settled_decisions: Mapping[str, PersistedApprovalDecision | None],
-    ) -> _ValidatedContinuation:
-        """Validate decisions against pending and already-settled approvals.
-
-        Partial batches make resubmission normal: a decision that matches what
-        is already persisted is dropped as a no-op, so only still-pending
-        decisions reach the workflow.
+    ) -> dict[str, SubmittedDecision]:
+        """Map a web continuation onto submitted decisions.
 
         Raises:
-            ValueError: On duplicate submitted IDs, or IDs that are neither
-                pending nor already decided.
-            TracecatConflictError: If a decision contradicts a settled one.
+            ApprovalDecisionInvalidError: On duplicate tool call IDs.
         """
-
-        source = request.source
-        submitted_tool_call_ids = [
-            decision.tool_call_id for decision in request.decisions
-        ]
-        submitted_tool_call_id_set = set(submitted_tool_call_ids)
-        if len(submitted_tool_call_ids) != len(submitted_tool_call_id_set):
-            raise ValueError("Approval decisions contain duplicate tool call IDs")
-        unexpected = sorted(
-            submitted_tool_call_id_set
-            - pending_tool_call_ids
-            - settled_decisions.keys()
-        )
-        if not submitted_tool_call_id_set or unexpected:
-            missing = sorted(pending_tool_call_ids - submitted_tool_call_id_set)
-            raise ValueError(
-                "Approval decisions do not match pending tool calls"
-                f" (missing={missing}, unexpected={unexpected})"
+        submitted_ids = [decision.tool_call_id for decision in request.decisions]
+        if len(submitted_ids) != len(set(submitted_ids)):
+            raise ApprovalDecisionInvalidError(
+                "Approval decisions contain duplicate tool call IDs"
             )
 
-        approval_map: ApprovalMap = {}
-        decision_metadata: dict[str, ApprovalDecisionMetadata] = {}
-        for decision in request.decisions:
-            approval_result: ApprovalResult
-            if decision.action == "approve":
-                approval_result = True
-            elif decision.action == "override":
-                approval_result = ToolApproved(
-                    override_args=decision.override_args or {}
-                )
-            elif decision.action == "deny":
-                approval_result = ToolDenied(
-                    message=decision.reason or "Tool denied by user"
-                )
-            else:
-                logger.warning(
-                    "Unknown approval decision action; defaulting to deny",
-                    action=decision.action,
-                    tool_call_id=decision.tool_call_id,
-                )
-                approval_result = ToolDenied(
-                    message=decision.reason or "Tool denied by user"
-                )
-
-            if decision.tool_call_id not in pending_tool_call_ids:
-                # Already settled: identical resubmissions are dropped, but a
-                # contradicting one must not read as accepted.
-                if not _decision_matches_persisted(
-                    approval_result, settled_decisions[decision.tool_call_id]
-                ):
-                    raise TracecatConflictError(
-                        "Approval decision conflicts with a decision already"
-                        f" recorded for tool call {decision.tool_call_id}"
-                    )
-                continue
-
-            approval_map[decision.tool_call_id] = approval_result
-            merged_metadata: ApprovalDecisionMetadata = {"source": source}
-            if decision.metadata:
-                merged_metadata.update(decision.metadata)
-                merged_metadata["source"] = source
-            decision_metadata[decision.tool_call_id] = merged_metadata
-
-        return _ValidatedContinuation(
-            approval_map=approval_map,
-            decision_metadata=decision_metadata,
-        )
-
-    async def _submit_approval_update(
-        self,
-        *,
-        agent_session: AgentSession,
-        curr_run_id: uuid.UUID,
-        attempt: ApprovalContinuationAttempt,
-        validated: _ValidatedContinuation,
-        backend: AgentBackend[Any, Any],
-    ) -> bool:
-        """Preserve an uncertain attempt; roll back only a definitive rejection."""
-        try:
-            return await backend.submit_approvals(
-                curr_run_id,
-                WorkflowApprovalSubmission(
-                    approvals=validated.approval_map,
-                    approved_by=self.role.user_id,
-                    decision_metadata=validated.decision_metadata or None,
-                    new_stream_id=attempt.stream_id,
-                ),
-            )
-        except AgentControlRejected:
-            await self._rollback_rejected_approval_continuation(
-                agent_session=agent_session,
-                curr_run_id=curr_run_id,
-                attempt=attempt,
-            )
-            raise
+        return {
+            decision.tool_call_id: submitted_decision(decision, source=request.source)
+            for decision in request.decisions
+        }
 
     async def _continue_with_approvals(
         self,
         session_id: uuid.UUID,
         request: ContinueRunRequest,
     ) -> ChatResponse | None:
-        """Continue an agent workflow by submitting approval decisions.
+        """Submit web approval decisions to the waiting run, then record them.
 
-        The DB CAS on ``active_stream_id`` selects one continuation stream.
-        The backend uses that identity to deduplicate approval delivery across
-        concurrent submissions and retries.
+        Returns None when every decision is already recorded, so the run has
+        them. A retry of decisions whose outcome was unknown resubmits them
+        under the same update id and returns their stream.
 
         Raises:
             TracecatNotFoundError: If no active session exists.
+            TracecatConflictError: If a decision contradicts a recorded one, or
+                the run refused it.
+            ValueError: If the decisions do not match the session's approvals.
         """
-
-        agent_session = await self.get_session(session_id)
-        if agent_session is None:
-            raise TracecatNotFoundError(
-                f"No active agent session found with ID {session_id}"
-            )
-        curr_run_id = agent_session.curr_run_id
-        if curr_run_id is None:
-            raise TracecatNotFoundError(
-                f"No active workflow run for session {session_id}"
-            )
-
-        source: Literal["inbox", "slack"] = request.source
-
-        # Idempotency path: resubmissions are normal for partial batches, so
-        # reconcile against settled decisions instead of only pending ones.
-        # A matching replay is a no-op; a contradicting one raises.
-        pending_tool_call_ids = await self._pending_approval_tool_call_ids(session_id)
-        settled_decisions = await self._settled_approval_decisions(session_id)
-
-        validated = self._validate_continuation_decisions(
-            request=request,
-            pending_tool_call_ids=pending_tool_call_ids,
-            settled_decisions=settled_decisions,
+        submission = await ApprovalSubmissionService(
+            self.session, role=self.role
+        ).submit_and_record(
+            session_id=session_id,
+            expected_batch_id=None,
+            decisions=self._continuation_decisions(request),
+            approved_by=await self._existing_user_id(self.role.user_id),
         )
-        if not validated.approval_map:
+        if isinstance(submission, ApprovalAlreadyApplied):
             logger.info(
-                "Ignoring approval continuation with no undecided approvals",
+                "Ignoring approval continuation the run already has",
                 session_id=str(session_id),
-                run_id=str(curr_run_id),
-                source=source,
+                run_id=str(submission.run_id),
+                source=request.source,
             )
             return None
-
-        # Validate backend availability before reserving a continuation attempt.
-        backend = get_agent_backend(
-            agent_session.backend_id, harness_type=agent_session.harness_type
-        )
-
-        logger.info(
-            "Submitting approval decisions to workflow",
-            session_id=str(session_id),
-            run_id=str(curr_run_id),
-            num_decisions=len(validated.approval_map),
-        )
-
-        # Install the retryable stream; the database CAS converges concurrent
-        # setup on a single winning rotated stream. Duplicate submitters reuse
-        # the installed attempt (marker match) and its backend submission identity.
-        submission_key = self._approval_submission_key(
-            workspace_id=self.workspace_id,
-            session_id=session_id,
-            run_id=curr_run_id,
-            tool_call_ids=tuple(validated.approval_map.keys()),
-        )
-        attempt = await self._existing_approval_continuation_attempt(
-            agent_session,
-            submission_key=submission_key,
-        )
-        dedup_client: RedisClient | None = None
-        claimed_submission = False
-        if attempt is None:
-            try:
-                dedup_client = await get_redis_client()
-                claimed_submission = await dedup_client.set_if_not_exists(
-                    submission_key,
-                    source,
-                    expire_seconds=APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS,
-                )
-            except Exception as exc:
-                dedup_client = None
-                logger.warning(
-                    "Approval continuation dedup unavailable; proceeding best-effort",
-                    session_id=str(session_id),
-                    run_id=str(curr_run_id),
-                    source=source,
-                    error=str(exc),
-                )
-
-            if dedup_client is not None and not claimed_submission:
-                logger.info(
-                    "Skipping concurrent approval continuation submission",
-                    session_id=str(session_id),
-                    run_id=str(curr_run_id),
-                    source=source,
-                    submission_key=submission_key,
-                )
-                return None
-
-            try:
-                attempt = await self._prepare_approval_continuation_attempt(
-                    agent_session=agent_session,
-                    curr_run_id=curr_run_id,
-                    submission_key=submission_key,
-                )
-            except Exception:
-                if dedup_client is not None and claimed_submission:
-                    with contextlib.suppress(Exception):
-                        await dedup_client.delete(submission_key)
-                raise
-
-        try:
-            did_resume = await self._submit_approval_update(
-                agent_session=agent_session,
-                curr_run_id=curr_run_id,
-                attempt=attempt,
-                validated=validated,
-                backend=backend,
-            )
-        except AgentControlRejected:
-            if dedup_client is not None and claimed_submission:
-                with contextlib.suppress(Exception):
-                    await dedup_client.delete(submission_key)
-            raise
-
-        if not did_resume:
-            await self._apply_submitted_approval_decisions(
-                session_id=session_id,
-                approval_map=validated.approval_map,
-                decision_metadata=validated.decision_metadata,
-            )
-            await self._emit_approval_idle_segment(
-                session_id=session_id,
-                stream_id=attempt.stream_id,
-                tool_call_ids=list(validated.approval_map),
-            )
-
-        # A partial batch stays paused but moves to the new segment too.
-        event_type = (
-            SessionFeedEventType.RUN_RESUMED
-            if did_resume
-            else SessionFeedEventType.RUN_PAUSED
-        )
-        await publish_session_event(
-            workspace_id=self.workspace_id,
-            session_id=session_id,
-            type=event_type,
-            run_id=curr_run_id,
-            stream_id=attempt.stream_id,
-        )
-
-        logger.info(
-            "Approval decisions submitted successfully",
-            session_id=str(session_id),
-            new_stream_id=str(attempt.stream_id),
-            resumed=did_resume,
-        )
-
         return ChatResponse(
             stream_url=f"/api/agent/sessions/{session_id}/stream",
             chat_id=session_id,
-            active_stream_id=attempt.stream_id,
-            curr_run_id=curr_run_id,
+            active_stream_id=submission.stream_id,
+            curr_run_id=submission.run_id,
+        )
+
+    async def decide(
+        self,
+        session_id: uuid.UUID,
+        *,
+        batch_id: uuid.UUID,
+        decision: ApprovalDecision,
+        source: str,
+        approved_by: uuid.UUID | None = None,
+    ) -> DecisionResult:
+        """Submit one approval click to the waiting run, then record it.
+
+        ``batch_id`` is the paused run's ``approval_batch_id``, so a click from
+        an earlier pause does not match. ``source`` names the surface clicked.
+        A stale or contradicting click is a result, not an error, so the caller
+        can tell its user why.
+
+        Raises:
+            AgentControlUncertain: If the submission's fate is unknown; retrying the click is
+                safe.
+        """
+        try:
+            submission = await ApprovalSubmissionService(
+                self.session, role=self.role
+            ).submit_and_record(
+                session_id=session_id,
+                expected_batch_id=batch_id,
+                decisions={
+                    decision.tool_call_id: submitted_decision(decision, source=source)
+                },
+                approved_by=await self._existing_user_id(approved_by),
+            )
+        except (TracecatNotFoundError, ApprovalNoLongerActiveError):
+            return DecisionRejected(
+                reason="no_longer_active", tool_call_id=decision.tool_call_id
+            )
+        except ApprovalDecisionInvalidError:
+            return DecisionRejected(
+                reason="not_valid", tool_call_id=decision.tool_call_id
+            )
+        return DecisionRecorded(
+            pending_tool_call_ids=submission.pending_tool_call_ids,
+            resumed=RunRef(run_id=submission.run_id, stream_id=submission.stream_id)
+            if isinstance(submission, ApprovalDelivered) and submission.resumed
+            else None,
         )
 
     async def list_pending(self, session_id: uuid.UUID) -> AgentSessionPendingRead:

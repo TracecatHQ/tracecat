@@ -11,8 +11,9 @@ send it, since unknown fields stay rejected.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import timedelta
 from functools import lru_cache
 from importlib.metadata import entry_points
@@ -51,10 +52,16 @@ class TurnFinished(RunUpdateBase):
     run_id: uuid.UUID
 
 
-def approval_batch_id(run_id: uuid.UUID, tool_call_ids: list[str]) -> uuid.UUID:
-    """Identify one approval pause from the paused run and its pending tool calls."""
-    # Prefixed so it never equals the continuation stream id derived from the same run.
-    return uuid.uuid5(run_id, f"approval-batch:{','.join(sorted(tool_call_ids))}")
+def approval_batch_id(run_id: uuid.UUID, tool_call_ids: Iterable[str]) -> uuid.UUID:
+    """Identify one approval pause from the paused run and its pause's tool call ids.
+
+    Callers must pass the same set: the pause's approval items, or the rows
+    persisted for them.
+    """
+    # JSON keeps distinct sets distinct whatever the ids contain. Prefixed so it
+    # never equals the continuation stream id derived from the same run.
+    ids = json.dumps(sorted(set(tool_call_ids)))
+    return uuid.uuid5(run_id, f"approval-batch:{ids}")
 
 
 class ApprovalPending(RunUpdateBase):

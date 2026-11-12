@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import orjson
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.workflowservice.v1 import StartWorkflowExecutionRequest
 from temporalio.client import (
@@ -21,13 +21,14 @@ from temporalio.client import (
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.submission import _approval_continuation_stream_id
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
-from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
+from tracecat.agent.backends.types import AgentControlUncertain
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.stream.feed import SessionFeedEventType
-from tracecat.agent.types import AgentConfig, ToolApproved
+from tracecat.agent.types import AgentConfig, ToolApproved, ToolDenied
 from tracecat.auth.types import Role
 from tracecat.chat import tokens
 from tracecat.chat.enums import MessageKind
@@ -125,11 +126,8 @@ def _mock_approval_continuation_dependencies(
             "tracecat.agent.stream.connector.get_redis_client",
             AsyncMock(return_value=redis_client),
         ),
-        patch(
-            "tracecat.agent.session.service.get_redis_client",
-            AsyncMock(return_value=redis_client),
-        ),
         patch("tracecat.agent.session.service.publish_session_event", publish),
+        patch("tracecat.agent.approvals.submission.publish_session_event", publish),
     ):
         yield publish
 
@@ -1006,30 +1004,42 @@ async def _partial_batch_session(
 
 
 @pytest.mark.anyio
-async def test_run_turn_continue_matching_resubmission_is_noop(
+async def test_run_turn_continue_matching_resubmission_is_a_noop(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """A replayed decision for an already-decided call must not 400."""
+    """A recorded decision is one the run has: a replay sends and writes nothing."""
     agent_session, service = await _partial_batch_session(session, svc_role)
+    first = await session.scalar(
+        select(Approval).where(
+            Approval.session_id == agent_session.id,
+            Approval.tool_call_id == "tool_call_123",
+        )
+    )
+    assert first is not None
+    recorded_at = first.approved_at
 
     execute_update = AsyncMock(return_value=False)
     with _mock_approval_continuation_dependencies(
         _ApprovalContinuationRedis(), execute_update
-    ):
+    ) as publish:
         result = await service.run_turn(
             agent_session.id,
             ContinueRunRequest(
                 decisions=[
                     ApprovalDecision(tool_call_id="tool_call_123", action="approve")
                 ],
-                source="inbox",
+                source="slack",
             ),
         )
 
     assert result is None
     execute_update.assert_not_awaited()
+    publish.assert_not_awaited()
 
+    await session.refresh(first)
+    assert first.approved_at == recorded_at
+    assert first.decision == {"value": True, "metadata": {"source": "inbox"}}
     pending = await session.scalar(
         select(Approval).where(
             Approval.session_id == agent_session.id,
@@ -1095,7 +1105,8 @@ async def test_run_turn_continue_deny_replay_across_surfaces_is_noop(
     execute_update.assert_awaited_once()
     submitted = execute_update.await_args
     assert submitted is not None
-    assert set(submitted.args[1].approvals) == {"tool_call_456"}
+    # The run has the recorded deny; only the new decision goes out.
+    assert submitted.args[1].approvals == {"tool_call_456": True}
 
 
 @pytest.mark.anyio
@@ -1133,11 +1144,11 @@ async def test_run_turn_continue_conflicting_resubmission_raises(
 
 
 @pytest.mark.anyio
-async def test_run_turn_continue_mixed_resubmission_forwards_pending_only(
+async def test_run_turn_continue_submits_only_the_new_decision(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Resending a decided call alongside a pending one forwards only the latter."""
+    """The run holds earlier decisions, so a click carries only its own."""
     agent_session, service = await _partial_batch_session(session, svc_role)
 
     execute_update = AsyncMock(return_value=True)
@@ -1148,7 +1159,6 @@ async def test_run_turn_continue_mixed_resubmission_forwards_pending_only(
             agent_session.id,
             ContinueRunRequest(
                 decisions=[
-                    ApprovalDecision(tool_call_id="tool_call_123", action="approve"),
                     ApprovalDecision(tool_call_id="tool_call_456", action="approve"),
                 ],
                 source="inbox",
@@ -1159,7 +1169,8 @@ async def test_run_turn_continue_mixed_resubmission_forwards_pending_only(
     execute_update.assert_awaited_once()
     assert execute_update.await_args is not None
     submitted = execute_update.await_args.args[1]
-    assert set(submitted.approvals) == {"tool_call_456"}
+    assert submitted.approvals == {"tool_call_456": True}
+    assert submitted.decision_metadata == {"tool_call_456": {"source": "inbox"}}
 
 
 @pytest.mark.anyio
@@ -1258,32 +1269,27 @@ async def test_run_turn_continue_old_worker_none_defaults_to_resumed(
     execute_update.assert_awaited_once()
 
 
-def test_approval_submission_key_is_stable_for_tool_call_set() -> None:
-    workspace_id = uuid.uuid4()
-    session_id = uuid.uuid4()
+def test_approval_continuation_stream_id_names_the_run_and_decisions() -> None:
     run_id = uuid.uuid4()
+    both: dict[str, Any] = {
+        "tool_call_123": True,
+        "tool_call_456": ToolDenied(message="no"),
+    }
 
-    first_key = AgentSessionService._approval_submission_key(
-        workspace_id=workspace_id,
-        session_id=session_id,
-        run_id=run_id,
-        tool_call_ids=("tool_call_123", "tool_call_456"),
-    )
-    reordered_key = AgentSessionService._approval_submission_key(
-        workspace_id=workspace_id,
-        session_id=session_id,
-        run_id=run_id,
-        tool_call_ids=("tool_call_456", "tool_call_123"),
-    )
-    different_key = AgentSessionService._approval_submission_key(
-        workspace_id=workspace_id,
-        session_id=session_id,
-        run_id=run_id,
-        tool_call_ids=("tool_call_123",),
-    )
+    first = _approval_continuation_stream_id(run_id, both)
 
-    assert first_key == reordered_key
-    assert first_key != different_key
+    assert first == _approval_continuation_stream_id(
+        run_id, dict(reversed(both.items()))
+    )
+    # Each surface supplies its own deny message; the outcome is the same.
+    assert first == _approval_continuation_stream_id(
+        run_id, {**both, "tool_call_456": ToolDenied(message="other")}
+    )
+    assert first != _approval_continuation_stream_id(
+        run_id, {**both, "tool_call_123": False}
+    )
+    assert first != _approval_continuation_stream_id(run_id, {"tool_call_123": True})
+    assert first != _approval_continuation_stream_id(uuid.uuid4(), both)
 
 
 @pytest.mark.anyio
@@ -1375,14 +1381,14 @@ async def test_approval_continuation_retry_reuses_stream_after_ambiguous_failure
         with pytest.raises(expected):
             await service.run_turn(agent_session.id, continuation)
 
+        # The decision committed before delivery was attempted.
         await session.refresh(agent_session)
         continuation_stream_id = agent_session.active_stream_id
         assert continuation_stream_id is not None
         assert continuation_stream_id != previous_stream_id
 
-        # The update may have succeeded and completed its stream even though
-        # the client observed an ambiguous timeout. The retry must still attach
-        # to this attempt and reuse its Temporal update ID.
+        # The update may have applied and completed its stream even though the
+        # client saw an ambiguous outcome. A retry reuses the Temporal update id.
         stream_key = (
             f"agent-stream:{svc_role.workspace_id}:{agent_session.id}:"
             f"{continuation_stream_id}"
@@ -1398,10 +1404,11 @@ async def test_approval_continuation_retry_reuses_stream_after_ambiguous_failure
             approximate=True,
         )
 
-        result = await service.run_turn(agent_session.id, continuation)
+        # A retry replays the recorded decision and follows the same segment.
+        retry = await service.run_turn(agent_session.id, continuation)
+        assert retry is not None
+        assert retry.active_stream_id == continuation_stream_id
 
-    assert result is not None
-    assert result.active_stream_id == continuation_stream_id
     assert execute_update.await_count == 2
     first_call, retry_call = execute_update.await_args_list
     assert first_call.args[1].new_stream_id == continuation_stream_id
@@ -1410,24 +1417,18 @@ async def test_approval_continuation_retry_reuses_stream_after_ambiguous_failure
     assert first_call.kwargs["id"] == expected_update_id
     assert retry_call.kwargs["id"] == expected_update_id
 
+    # The run resumed, so the replay appends no paused boundary.
     assert len(fake_redis.streams[stream_key]) == 2
     marker = orjson.loads(fake_redis.streams[stream_key][0][1][tokens.DATA_KEY])
-    assert agent_session.curr_run_id is not None
-    submission_key = service._approval_submission_key(
-        workspace_id=service.workspace_id,
-        session_id=agent_session.id,
-        run_id=agent_session.curr_run_id,
-        tool_call_ids=("tool_call_123",),
-    )
     assert marker == {
         "kind": "approval-continuation-start",
-        "submission_key": submission_key,
+        "submission_key": str(continuation_stream_id),
         "previous_stream_id": str(previous_stream_id),
     }
 
 
 @pytest.mark.anyio
-async def test_approval_continuation_rejection_restores_and_retries_fresh_stream(
+async def test_approval_continuation_rejection_restores_the_stream_and_retry_reopens_it(
     session: AsyncSession,
     svc_role: Role,
     pending_approval_session: tuple[AgentSession, ContinueRunRequest, uuid.UUID],
@@ -1447,39 +1448,49 @@ async def test_approval_continuation_rejection_restores_and_retries_fresh_stream
     with _mock_approval_continuation_dependencies(
         fake_redis, execute_update
     ) as publish:
-        with pytest.raises(AgentControlRejected):
+        with pytest.raises(TracecatConflictError):
             await service.run_turn(agent_session.id, continuation)
-        # A rejected continuation rolls back its segment and tells no one.
+        # A refused decision is never recorded and tells no one.
         publish.assert_not_awaited()
-
         rejected_stream_id = execute_update.await_args_list[0].args[1].new_stream_id
         await session.refresh(agent_session)
         assert agent_session.active_stream_id == previous_stream_id
+        row = await session.scalar(
+            select(Approval).where(
+                Approval.session_id == agent_session.id,
+                Approval.tool_call_id == "tool_call_123",
+            )
+        )
+        assert row is not None
+        await session.refresh(row)
+        assert row.status is ApprovalStatus.PENDING
+        assert row.decision is None
+        assert row.approved_at is None
+
+        rejected_stream_key = (
+            f"agent-stream:{svc_role.workspace_id}:{agent_session.id}:"
+            f"{rejected_stream_id}"
+        )
+        assert orjson.loads(
+            fake_redis.streams[rejected_stream_key][-1][1][tokens.DATA_KEY]
+        ) == {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}
 
         result = await service.run_turn(agent_session.id, continuation)
 
+    # The same decision names the same stream; the retry reopens it.
     assert result is not None
-    assert result.active_stream_id not in {previous_stream_id, rejected_stream_id}
-    retry_stream_id = result.active_stream_id
+    assert result.active_stream_id == rejected_stream_id
     assert execute_update.await_count == 2
     publish.assert_awaited_once()
     assert publish.await_args is not None
-    assert publish.await_args.kwargs["stream_id"] == retry_stream_id
-    assert execute_update.await_args_list[0].kwargs["id"] == (
-        f"set-approvals:{rejected_stream_id}"
+    assert publish.await_args.kwargs["stream_id"] == rejected_stream_id
+    entries = fake_redis.streams[rejected_stream_key]
+    assert orjson.loads(entries[0][1][tokens.DATA_KEY])["kind"] == (
+        "approval-continuation-start"
     )
-    assert execute_update.await_args_list[1].kwargs["id"] == (
-        f"set-approvals:{retry_stream_id}"
-    )
-
-    rejected_stream_key = (
-        f"agent-stream:{svc_role.workspace_id}:{agent_session.id}:{rejected_stream_id}"
-    )
-    rejected_entries = fake_redis.streams[rejected_stream_key]
-    assert len(rejected_entries) == 2
-    assert orjson.loads(rejected_entries[-1][1][tokens.DATA_KEY]) == {
-        tokens.END_TOKEN: tokens.END_TOKEN_VALUE
-    }
+    assert {tokens.END_TOKEN: tokens.END_TOKEN_VALUE} not in [
+        orjson.loads(fields[tokens.DATA_KEY]) for _, fields in entries
+    ]
 
 
 @pytest.mark.anyio
@@ -1503,67 +1514,6 @@ async def test_approval_continuation_setup_failure_precedes_update(
     execute_update.assert_not_awaited()
     await session.refresh(agent_session)
     assert agent_session.active_stream_id == previous_stream_id
-
-
-@pytest.mark.anyio
-async def test_approval_continuation_cas_loser_reuses_winning_stream(
-    session: AsyncSession,
-    svc_role: Role,
-    pending_approval_session: tuple[AgentSession, ContinueRunRequest, uuid.UUID],
-) -> None:
-    agent_session, _, previous_stream_id = pending_approval_session
-    assert agent_session.curr_run_id is not None
-    service = AgentSessionService(session=session, role=svc_role)
-    submission_key = service._approval_submission_key(
-        workspace_id=service.workspace_id,
-        session_id=agent_session.id,
-        run_id=agent_session.curr_run_id,
-        tool_call_ids=("tool_call_123",),
-    )
-    winning_stream_id = uuid.uuid4()
-    winning_stream_key = (
-        f"agent-stream:{svc_role.workspace_id}:{agent_session.id}:{winning_stream_id}"
-    )
-    fake_redis = _ApprovalContinuationRedis()
-    fake_redis.streams[winning_stream_key] = [
-        (
-            "1-0",
-            {
-                tokens.DATA_KEY: orjson.dumps(
-                    {
-                        "kind": "approval-continuation-start",
-                        "submission_key": submission_key,
-                        "previous_stream_id": str(previous_stream_id),
-                    }
-                ).decode()
-            },
-        )
-    ]
-
-    # Simulate a concurrent request installing the winning stream without
-    # synchronizing this request's already-loaded ORM object.
-    await session.execute(
-        update(AgentSession)
-        .where(AgentSession.id == agent_session.id)
-        .values(active_stream_id=winning_stream_id)
-        .execution_options(synchronize_session=False)
-    )
-    await session.commit()
-    assert agent_session.active_stream_id == previous_stream_id
-
-    with patch(
-        "tracecat.agent.stream.connector.get_redis_client",
-        AsyncMock(return_value=fake_redis),
-    ):
-        attempt = await service._prepare_approval_continuation_attempt(
-            agent_session=agent_session,
-            curr_run_id=agent_session.curr_run_id,
-            submission_key=submission_key,
-        )
-
-    assert attempt.stream_id == winning_stream_id
-    assert agent_session.active_stream_id == winning_stream_id
-    assert list(fake_redis.streams) == [winning_stream_key]
 
 
 @pytest.mark.anyio
@@ -1701,89 +1651,6 @@ async def test_run_turn_continue_without_pending_approvals(
 
 
 @pytest.mark.anyio
-async def test_run_turn_continue_duplicate_submission_reuses_active_attempt(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    previous_stream_id = uuid.uuid4()
-    rotated_stream_id = uuid.uuid4()
-    agent_session = AgentSession(
-        id=uuid.uuid4(),
-        title="Preset chat",
-        workspace_id=svc_role.workspace_id,
-        entity_type=AgentSessionEntity.AGENT_PRESET.value,
-        entity_id=uuid.uuid4(),
-        curr_run_id=uuid.uuid4(),
-        active_stream_id=rotated_stream_id,
-    )
-    session.add(agent_session)
-    session.add(
-        Approval(
-            workspace_id=svc_role.workspace_id,
-            session_id=agent_session.id,
-            tool_call_id="tool_call_123",
-            tool_name="core.http_request",
-            tool_call_args={"url": "https://example.com"},
-            status=ApprovalStatus.PENDING,
-        )
-    )
-    await session.commit()
-    await session.refresh(agent_session)
-
-    service = AgentSessionService(session=session, role=svc_role)
-    continuation = ContinueRunRequest(
-        decisions=[
-            ApprovalDecision(
-                tool_call_id="tool_call_123",
-                action="approve",
-            )
-        ],
-        source="inbox",
-    )
-
-    assert agent_session.curr_run_id is not None
-    submission_key = service._approval_submission_key(
-        workspace_id=service.workspace_id,
-        session_id=agent_session.id,
-        run_id=agent_session.curr_run_id,
-        tool_call_ids=("tool_call_123",),
-    )
-    continuation_marker = {
-        "kind": "approval-continuation-start",
-        "submission_key": submission_key,
-        "previous_stream_id": str(previous_stream_id),
-    }
-    # A stream already carries this submission's continuation marker, so the
-    # second submitter reuses the installed attempt rather than minting a new one.
-    fake_redis = SimpleNamespace(
-        xrange=AsyncMock(
-            return_value=[
-                (
-                    "1-0",
-                    {tokens.DATA_KEY: orjson.dumps(continuation_marker).decode()},
-                )
-            ]
-        ),
-        xadd=AsyncMock(return_value="1-0"),
-    )
-    execute_update = AsyncMock(return_value=None)
-    with _mock_approval_continuation_dependencies(fake_redis, execute_update):
-        result = await service.run_turn(agent_session.id, continuation)
-
-    assert result is not None
-    assert result.active_stream_id == rotated_stream_id
-    await session.refresh(agent_session)
-    assert result.active_stream_id == agent_session.active_stream_id
-    # No fresh stream is written; the update fires on the reused stream id.
-    fake_redis.xadd.assert_not_awaited()
-    execute_update.assert_awaited_once()
-    assert execute_update.await_args is not None
-    assert execute_update.await_args.kwargs["id"] == (
-        f"set-approvals:{rotated_stream_id}"
-    )
-
-
-@pytest.mark.anyio
 async def test_run_turn_merges_basic_chat_request_instructions(
     session: AsyncSession,
     svc_role: Role,
@@ -1870,69 +1737,7 @@ async def _seed_approval_session(
 
 
 @pytest.mark.anyio
-async def test_apply_decisions_skips_already_terminal_row(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """A deny submitted against an APPROVED row must not overwrite it."""
-    agent_session = await _seed_approval_session(
-        session,
-        svc_role,
-        approvals=[
-            Approval(
-                tool_call_id="tool_call_123",
-                tool_name="core.http_request",
-                tool_call_args={"url": "https://example.com"},
-                status=ApprovalStatus.APPROVED,
-                decision={"value": True},
-            )
-        ],
-    )
-
-    service = AgentSessionService(session=session, role=svc_role)
-    await service._apply_submitted_approval_decisions(
-        session_id=agent_session.id,
-        approval_map={"tool_call_123": False},
-        decision_metadata={},
-    )
-
-    row = (
-        await session.execute(
-            select(Approval.status, Approval.decision).where(
-                Approval.session_id == agent_session.id,
-                Approval.tool_call_id == "tool_call_123",
-            )
-        )
-    ).one()
-    assert row.status is ApprovalStatus.APPROVED
-    assert row.decision == {"value": True}
-
-
-@pytest.mark.anyio
-async def test_apply_decisions_warns_on_missing_row(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """Tool call IDs with no persisted row warn once, batched, instead of raising."""
-    agent_session = await _seed_approval_session(session, svc_role, approvals=[])
-
-    service = AgentSessionService(session=session, role=svc_role)
-    with patch("tracecat.agent.session.service.logger") as mock_logger:
-        await service._apply_submitted_approval_decisions(
-            session_id=agent_session.id,
-            approval_map={"tool_call_missing": True, "tool_call_absent": False},
-            decision_metadata={},
-        )
-
-    mock_logger.warning.assert_called_once()
-    assert mock_logger.warning.call_args.kwargs["tool_call_ids"] == [
-        "tool_call_absent",
-        "tool_call_missing",
-    ]
-
-
-@pytest.mark.anyio
-async def test_apply_decisions_nulls_approved_by_for_unknown_user(
+async def test_recorded_decision_nulls_approved_by_for_unknown_user(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -1952,11 +1757,18 @@ async def test_apply_decisions_nulls_approved_by_for_unknown_user(
 
     ghost_role = svc_role.model_copy(update={"user_id": uuid.uuid4()})
     service = AgentSessionService(session=session, role=ghost_role)
-    await service._apply_submitted_approval_decisions(
-        session_id=agent_session.id,
-        approval_map={"tool_call_123": True},
-        decision_metadata={},
-    )
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), AsyncMock(return_value=True)
+    ):
+        await service.run_turn(
+            agent_session.id,
+            ContinueRunRequest(
+                decisions=[
+                    ApprovalDecision(tool_call_id="tool_call_123", action="approve")
+                ],
+                source="inbox",
+            ),
+        )
 
     row = (
         await session.execute(
@@ -1968,66 +1780,6 @@ async def test_apply_decisions_nulls_approved_by_for_unknown_user(
     ).one()
     assert row.status is ApprovalStatus.APPROVED
     assert row.approved_by is None
-
-
-@pytest.mark.anyio
-async def test_apply_decisions_visible_to_later_read_in_same_session(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """Rows already in the identity map must not read back stale after apply.
-
-    ``_emit_approval_idle_segment`` re-selects these rows in the same session
-    right after the decisions land, so a Core UPDATE must not leave the ORM
-    holding the pre-update PENDING state.
-    """
-    agent_session = await _seed_approval_session(
-        session,
-        svc_role,
-        approvals=[
-            Approval(
-                tool_call_id="tool_call_123",
-                tool_name="core.http_request",
-                tool_call_args={"url": "https://example.com"},
-                status=ApprovalStatus.PENDING,
-            )
-        ],
-    )
-
-    service = AgentSessionService(session=session, role=svc_role)
-    preloaded = await session.scalar(
-        select(Approval).where(
-            Approval.session_id == agent_session.id,
-            Approval.tool_call_id == "tool_call_123",
-        )
-    )
-    assert preloaded is not None
-    assert preloaded.status is ApprovalStatus.PENDING
-
-    await service._apply_submitted_approval_decisions(
-        session_id=agent_session.id,
-        approval_map={"tool_call_123": True},
-        decision_metadata={"tool_call_123": {"source": "inbox"}},
-    )
-
-    items = await service._approval_stream_items(
-        session_id=agent_session.id,
-        tool_call_ids=["tool_call_123"],
-    )
-    assert [item.status for item in items] == ["approved"]
-
-    reread = await session.scalar(
-        select(Approval).where(
-            Approval.session_id == agent_session.id,
-            Approval.tool_call_id == "tool_call_123",
-        )
-    )
-    assert reread is not None
-    assert reread.status is ApprovalStatus.APPROVED
-    assert reread.decision == {"value": True, "metadata": {"source": "inbox"}}
-    # `updated_at` cannot be asserted to advance here: the test fixture runs one
-    # outer transaction, and `func.now()` is transaction-start time.
-    assert reread.approved_at is not None
 
 
 @pytest.mark.anyio
@@ -2046,7 +1798,7 @@ async def test_approval_connection_failure_rolls_back_and_allows_retry(
                 "tracecat.agent.backends.base.get_temporal_client",
                 side_effect=RuntimeError("connect failed"),
             ),
-            pytest.raises(AgentControlRejected),
+            pytest.raises(TracecatConflictError),
         ):
             await service.run_turn(agent_session.id, continuation)
         execute_update.assert_not_awaited()

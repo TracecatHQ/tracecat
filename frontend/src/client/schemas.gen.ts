@@ -4755,6 +4755,13 @@ export const $AgentSessionRead = {
       description: "Whether the requesting actor can modify this session",
       default: false,
     },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
+    },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
     },
@@ -4986,6 +4993,13 @@ export const $AgentSessionReadVercel = {
       title: "Is Readonly",
       description: "Whether the requesting actor can modify this session",
       default: false,
+    },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -5226,6 +5240,13 @@ export const $AgentSessionReadWithMessages = {
       title: "Is Readonly",
       description: "Whether the requesting actor can modify this session",
       default: false,
+    },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
