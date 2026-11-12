@@ -37,6 +37,9 @@ export interface FilterOption<T extends string = string> {
   renderIcon?: () => ReactNode
 }
 
+/** Short option lists are scannable, so only longer ones get a search box. */
+const SEARCH_MIN_OPTIONS = 16
+
 export type FilterMode = "include" | "exclude"
 export type SortDirection = "asc" | "desc" | null
 
@@ -137,10 +140,12 @@ export function FilterMultiSelect<T extends string>({
           </div>
         </div>
         <Command>
-          <CommandInput
-            placeholder={`Search ${placeholder.toLowerCase()}...`}
-            className="text-xs"
-          />
+          {options.length >= SEARCH_MIN_OPTIONS && (
+            <CommandInput
+              placeholder={`Search ${placeholder.toLowerCase()}...`}
+              className="text-xs"
+            />
+          )}
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
