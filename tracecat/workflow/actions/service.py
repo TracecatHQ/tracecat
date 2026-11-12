@@ -8,7 +8,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import Position
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import ActionID, WorkflowID, WorkflowUUID
 from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.managed_resources.guard import ensure_unmanaged
@@ -94,11 +94,24 @@ class WorkflowActionService(BaseWorkspaceService):
 
     @require_scope("workflow:create")
     async def create_action(self, params: ActionCreate) -> Action:
+        workflow_id = WorkflowUUID.new(params.workflow_id)
+        workflow_exists = await self.session.scalar(
+            select(
+                select(Workflow.id)
+                .where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.id == workflow_id,
+                )
+                .exists()
+            )
+        )
+        if not workflow_exists:
+            raise TracecatNotFoundError(f"Workflow {workflow_id.short()} not found")
         await ensure_unmanaged(
             self.session,
             workspace_id=self.workspace_id,
             resource_type=SyncResourceType.WORKFLOW,
-            local_id=WorkflowUUID.new(params.workflow_id),
+            local_id=workflow_id,
         )
         control_flow = params.control_flow or ActionControlFlow()
         if PlatformAction.is_agent(params.type) and (
@@ -109,7 +122,7 @@ class WorkflowActionService(BaseWorkspaceService):
             control_flow.retry_policy.timeout = clamp_agent_timeout_seconds(None)
         action = Action(
             workspace_id=self.workspace_id,
-            workflow_id=WorkflowUUID.new(params.workflow_id),
+            workflow_id=workflow_id,
             type=params.type,
             title=params.title,
             description=params.description,

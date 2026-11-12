@@ -424,3 +424,23 @@ async def test_list_tags_skips_malformed_and_undatable_tags():
 
     assert [(t.name, t.commit_sha) for t in tags] == [("v2", SHA_B)]
     assert cursor is None
+
+
+@pytest.mark.anyio
+async def test_transport_errors_are_provider_errors_without_host():
+    """An unreachable host maps to BitbucketError (400), not an unhandled 500."""
+    transport = BitbucketDataCenterWorkspaceSyncTransport(
+        session=AsyncMock(), role=role()
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out connecting to example.test")
+
+    async with httpx.AsyncClient(
+        base_url="https://example.test/rest/api/1.0/",
+        transport=httpx.MockTransport(respond),
+    ) as client:
+        with pytest.raises(BitbucketError) as exc_info:
+            await transport._request(client, "GET", "projects/DEMO/repos/sync")
+    assert "example.test" not in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, httpx.ConnectTimeout)

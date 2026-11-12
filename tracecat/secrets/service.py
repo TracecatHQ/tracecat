@@ -486,7 +486,9 @@ class SecretsService(BaseOrgService):
             OrganizationSecret.id == secret_id,
         )
         result = await self.session.execute(statement)
-        return result.scalar_one()
+        if (secret := result.scalar_one_or_none()) is None:
+            raise TracecatNotFoundError(f"Organization secret {secret_id} not found")
+        return secret
 
     async def _get_org_secret_by_name(
         self,

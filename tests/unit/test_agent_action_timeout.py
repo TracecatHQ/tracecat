@@ -293,6 +293,7 @@ async def test_action_create_persists_agent_default_timeout() -> None:
     from tracecat.workflow.actions.service import WorkflowActionService
 
     session = MagicMock()
+    session.scalar = AsyncMock(return_value=True)  # workflow exists
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
     service = WorkflowActionService(

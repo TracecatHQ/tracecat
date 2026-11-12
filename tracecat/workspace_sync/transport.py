@@ -2206,7 +2206,13 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             or not target.path.startswith("/2.0/repositories/")
         ):
             raise BitbucketError("Invalid Bitbucket Cloud API URL")
-        response = await client.request(method, target, params=params, json=body)
+        try:
+            response = await client.request(method, target, params=params, json=body)
+        except httpx.HTTPError as e:
+            # The exception text can name the host; keep it out of the user message.
+            raise BitbucketError(
+                "Bitbucket Cloud API request failed: could not reach Bitbucket."
+            ) from e
         if not response.is_success:
             raise BitbucketError(
                 f"Bitbucket Cloud API request failed (HTTP {response.status_code}). Check token permissions and repository access.",
@@ -2583,7 +2589,14 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
             or target.fragment
         ):
             raise BitbucketError("Invalid Data Center API URL")
-        response = await client.request(method, target, params=params, json=body)
+        try:
+            response = await client.request(method, target, params=params, json=body)
+        except httpx.HTTPError as e:
+            # The exception text can name the host; keep it out of the user message.
+            raise BitbucketError(
+                "Bitbucket Data Center API request failed: could not reach the"
+                " Bitbucket host. Check the URL and network access."
+            ) from e
         if not response.is_success:
             raise BitbucketError(
                 f"Bitbucket Data Center API request failed (HTTP {response.status_code})",
