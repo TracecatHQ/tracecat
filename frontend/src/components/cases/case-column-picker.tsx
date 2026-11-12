@@ -15,51 +15,51 @@ import type {
   CaseFieldReadMinimal,
 } from "@/client"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
-import { CheckIndicator } from "@/components/ui/check-indicator"
-import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
 const MAX_VISIBLE_COLUMNS = 4
 
-function ColumnOption({
-  columnId,
-  searchValue,
-  label,
-  icon,
+const COLUMN_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground"
+
+interface ColumnOption {
+  columnId: string
+  label: string
+  icon: ReactNode
+}
+
+function ColumnPill({
+  option,
   isSelected,
   isDisabled,
   onToggle,
 }: {
-  columnId: string
-  searchValue: string
-  label: string
-  icon: ReactNode
+  option: ColumnOption
   isSelected: boolean
   isDisabled: boolean
   onToggle: (columnId: string) => void
 }) {
   return (
-    <CommandItem
-      key={columnId}
-      value={searchValue}
-      onSelect={() => !isDisabled && onToggle(columnId)}
+    <button
+      type="button"
+      aria-pressed={isSelected}
       disabled={isDisabled}
-      className="group text-xs"
+      title={isDisabled ? `Up to ${MAX_VISIBLE_COLUMNS} columns` : undefined}
+      onClick={() => onToggle(option.columnId)}
+      className={cn(
+        "flex h-6 max-w-full items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors hover:bg-muted/50",
+        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
+        isSelected && "border-primary/50 bg-primary/5"
+      )}
     >
-      <CheckIndicator checked={isSelected} disabled={isDisabled} />
-      {icon}
-      <span className="truncate">{label}</span>
-    </CommandItem>
+      {option.icon}
+      <span className="truncate">{option.label}</span>
+    </button>
   )
 }
 
@@ -86,33 +86,49 @@ export function CaseColumnPicker({
 }: CaseColumnPickerProps) {
   const [open, setOpen] = useState(false)
 
-  const nonReservedFields = useMemo(
-    () => fieldDefinitions?.filter((f) => !f.reserved) ?? [],
-    [fieldDefinitions]
-  )
+  const columnOptions = useMemo<ColumnOption[]>(() => {
+    const options: ColumnOption[] = []
+    for (const def of dropdownDefinitions ?? []) {
+      options.push({
+        columnId: `dropdown:${def.ref}`,
+        label: def.name,
+        icon: def.icon_name ? (
+          <DynamicLucideIcon
+            name={def.icon_name}
+            className={COLUMN_ICON_CLASS}
+            fallback={<ListIcon className={COLUMN_ICON_CLASS} />}
+          />
+        ) : (
+          <ListIcon className={COLUMN_ICON_CLASS} />
+        ),
+      })
+    }
+    for (const field of fieldDefinitions ?? []) {
+      if (field.reserved) continue
+      options.push({
+        columnId: `field:${field.id}`,
+        label: field.display_name,
+        icon: <TextIcon className={COLUMN_ICON_CLASS} />,
+      })
+    }
+    for (const def of durationDefinitions ?? []) {
+      options.push({
+        columnId: `duration:${def.id}`,
+        label: def.name,
+        icon: <TimerIcon className={COLUMN_ICON_CLASS} />,
+      })
+    }
+    return options
+  }, [dropdownDefinitions, fieldDefinitions, durationDefinitions])
 
-  // Build set of known column IDs so stale persisted IDs don't count
+  // Only count known column IDs so stale persisted IDs don't count
   // toward the max-4 limit or show in the badge count.
-  const knownColumnIds = useMemo(() => {
-    const ids = new Set<string>()
-    if (dropdownDefinitions) {
-      for (const d of dropdownDefinitions) ids.add(`dropdown:${d.ref}`)
-    }
-    for (const f of nonReservedFields) ids.add(`field:${f.id}`)
-    if (durationDefinitions) {
-      for (const d of durationDefinitions) ids.add(`duration:${d.id}`)
-    }
-    return ids
-  }, [dropdownDefinitions, nonReservedFields, durationDefinitions])
-
-  const selectedCount = visibleColumnIds.filter((id) =>
-    knownColumnIds.has(id)
+  const selectedCount = columnOptions.filter((option) =>
+    visibleColumnIds.includes(option.columnId)
   ).length
   const isAtLimit = selectedCount >= MAX_VISIBLE_COLUMNS
 
-  const hasOptions = knownColumnIds.size > 0 || Boolean(onIncludeSubCasesChange)
-
-  if (!hasOptions) {
+  if (columnOptions.length === 0 && !onIncludeSubCasesChange) {
     return null
   }
 
@@ -138,113 +154,54 @@ export function CaseColumnPicker({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-56 p-0 shadow-sm"
-        align="start"
+        className="w-72 divide-y p-0 shadow-sm"
+        align="end"
         sideOffset={4}
       >
-        <Command>
-          <CommandList>
-            {onIncludeSubCasesChange && (
-              <CommandGroup heading="View">
-                <CommandItem
-                  value="parents only top-level cases"
-                  onSelect={() =>
-                    !hierarchyDisabled &&
-                    onIncludeSubCasesChange(!includesSubCases)
-                  }
-                  disabled={hierarchyDisabled}
-                  className="group text-xs"
-                >
-                  <CheckIndicator
-                    checked={!includesSubCases}
-                    disabled={hierarchyDisabled}
+        {onIncludeSubCasesChange && (
+          <label
+            className={cn(
+              "flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-medium",
+              hierarchyDisabled
+                ? "cursor-not-allowed opacity-50"
+                : "cursor-pointer"
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <ListTreeIcon className={COLUMN_ICON_CLASS} />
+              Parents only
+            </span>
+            <Switch
+              checked={!includesSubCases}
+              disabled={hierarchyDisabled}
+              onCheckedChange={(checked) => onIncludeSubCasesChange(!checked)}
+            />
+          </label>
+        )}
+        {columnOptions.length > 0 && (
+          <div className="space-y-2 px-3 py-2.5">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Columns</span>
+              <span className="tabular-nums">
+                {selectedCount}/{MAX_VISIBLE_COLUMNS}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {columnOptions.map((option) => {
+                const isSelected = visibleColumnIds.includes(option.columnId)
+                return (
+                  <ColumnPill
+                    key={option.columnId}
+                    option={option}
+                    isSelected={isSelected}
+                    isDisabled={!isSelected && isAtLimit}
+                    onToggle={onToggle}
                   />
-                  <ListTreeIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">Parents only</span>
-                </CommandItem>
-              </CommandGroup>
-            )}
-
-            {dropdownDefinitions && dropdownDefinitions.length > 0 && (
-              <CommandGroup heading="Dropdowns">
-                {dropdownDefinitions.map((def) => {
-                  const columnId = `dropdown:${def.ref}`
-                  const isSelected = visibleColumnIds.includes(columnId)
-                  return (
-                    <ColumnOption
-                      key={columnId}
-                      columnId={columnId}
-                      searchValue={`dropdown ${def.name}`}
-                      label={def.name}
-                      icon={
-                        def.icon_name ? (
-                          <DynamicLucideIcon
-                            name={def.icon_name}
-                            className="mr-2 size-3.5 shrink-0 text-muted-foreground"
-                            fallback={
-                              <ListIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                            }
-                          />
-                        ) : (
-                          <ListIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                        )
-                      }
-                      isSelected={isSelected}
-                      isDisabled={!isSelected && isAtLimit}
-                      onToggle={onToggle}
-                    />
-                  )
-                })}
-              </CommandGroup>
-            )}
-
-            {nonReservedFields.length > 0 && (
-              <CommandGroup heading="Fields">
-                {nonReservedFields.map((field) => {
-                  const columnId = `field:${field.id}`
-                  const isSelected = visibleColumnIds.includes(columnId)
-                  return (
-                    <ColumnOption
-                      key={columnId}
-                      columnId={columnId}
-                      searchValue={`field ${field.display_name} ${field.id}`}
-                      label={field.display_name}
-                      icon={
-                        <TextIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                      }
-                      isSelected={isSelected}
-                      isDisabled={!isSelected && isAtLimit}
-                      onToggle={onToggle}
-                    />
-                  )
-                })}
-              </CommandGroup>
-            )}
-
-            {durationDefinitions && durationDefinitions.length > 0 && (
-              <CommandGroup heading="Durations">
-                {durationDefinitions.map((def) => {
-                  const columnId = `duration:${def.id}`
-                  const isSelected = visibleColumnIds.includes(columnId)
-                  return (
-                    <ColumnOption
-                      key={columnId}
-                      columnId={columnId}
-                      searchValue={`duration ${def.name}`}
-                      label={def.name}
-                      icon={
-                        <TimerIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                      }
-                      isSelected={isSelected}
-                      isDisabled={!isSelected && isAtLimit}
-                      onToggle={onToggle}
-                    />
-                  )
-                })}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   )

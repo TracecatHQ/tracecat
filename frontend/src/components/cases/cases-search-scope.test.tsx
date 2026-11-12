@@ -282,7 +282,7 @@ describe("exact-first case search UI", () => {
 
     await user.click(screen.getByRole("button", { name: /Display/ }))
     await user.click(
-      await screen.findByRole("option", { name: "Parents only" })
+      await screen.findByRole("switch", { name: "Parents only" })
     )
     await waitFor(() =>
       expect(casesQueryCases).toHaveBeenLastCalledWith(
@@ -291,7 +291,7 @@ describe("exact-first case search UI", () => {
         })
       )
     )
-    await user.click(screen.getByRole("option", { name: "Parents only" }))
+    await user.click(screen.getByRole("switch", { name: "Parents only" }))
     await waitFor(() =>
       expect(casesQueryCases).toHaveBeenLastCalledWith(
         expect.objectContaining({
