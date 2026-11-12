@@ -476,7 +476,14 @@ class _CasesAsync:
         fields: dict[str, Any] | None | Unset = ...,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = ...,
         create_missing_tags: bool = ...,
+        parent_case_id: str | Unset = ...,
     ) -> types.Case: ...
+    async def batch_set_parent(
+        self, *, case_ids: list[str], parent_case_id: str
+    ) -> types.CaseBatchResponse: ...
+    async def batch_clear_parent(
+        self, *, case_ids: list[str]
+    ) -> types.CaseBatchResponse: ...
     async def update_case_simple(
         self,
         case_id: str,
@@ -832,7 +839,12 @@ class _Cases:
         fields: dict[str, Any] | None | Unset = ...,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = ...,
         create_missing_tags: bool = ...,
+        parent_case_id: str | Unset = ...,
     ) -> types.Case: ...
+    def batch_set_parent(
+        self, *, case_ids: list[str], parent_case_id: str
+    ) -> types.CaseBatchResponse: ...
+    def batch_clear_parent(self, *, case_ids: list[str]) -> types.CaseBatchResponse: ...
     def update_case_simple(
         self,
         case_id: str,

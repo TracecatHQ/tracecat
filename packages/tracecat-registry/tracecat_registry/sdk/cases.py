@@ -726,6 +726,7 @@ class CasesClient:
         fields: dict[str, Any] | None | Unset = UNSET,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
         create_missing_tags: bool = False,
+        parent_case_id: str | Unset = UNSET,
     ) -> types.Case:
         """Create a new case and return simple dict format.
 
@@ -742,6 +743,8 @@ class CasesClient:
             tags: List of tag names or IDs to attach.
             fields: Custom field values.
             dropdown_values: Dropdown selections to set on the case.
+            parent_case_id: UUID or short ID of a top-level case to create
+                this case under as a sub-case.
 
         Returns:
             Created case data (CaseDict format).
@@ -767,8 +770,42 @@ class CasesClient:
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
         if create_missing_tags:
             data["create_missing_tags"] = create_missing_tags
+        if is_set(parent_case_id):
+            data["parent_case_id"] = parent_case_id
 
         return await self._client.post("/cases/simple", json=data)
+
+    async def batch_set_parent(
+        self, *, case_ids: list[str], parent_case_id: str
+    ) -> types.CaseBatchResponse:
+        """Group cases as sub-cases of a top-level parent case.
+
+        Args:
+            case_ids: UUIDs or short IDs of the cases to group (max 1000).
+            parent_case_id: UUID or short ID of the top-level parent case.
+
+        Returns:
+            Per-case results and aggregate counts.
+        """
+        return await self._client.post(
+            "/cases/batch-set-parent",
+            json={"case_ids": case_ids, "parent_case_id": parent_case_id},
+        )
+
+    async def batch_clear_parent(
+        self, *, case_ids: list[str]
+    ) -> types.CaseBatchResponse:
+        """Remove cases from their parent case, returning them to the top level.
+
+        Args:
+            case_ids: UUIDs or short IDs of the sub-cases to ungroup (max 1000).
+
+        Returns:
+            Per-case results and aggregate counts.
+        """
+        return await self._client.post(
+            "/cases/batch-clear-parent", json={"case_ids": case_ids}
+        )
 
     async def update_case_simple(
         self,
