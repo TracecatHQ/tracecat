@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import ColumnElement, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,3 +95,27 @@ async def enqueue_case_trigger(
             else None,
         )
     )
+
+
+async def enqueue_case_triggers(
+    session: AsyncSession, *, events: Sequence[CaseEvent]
+) -> None:
+    """Add outbox rows for many case events, checking each event type once."""
+    if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
+        return
+    online: dict[tuple[uuid.UUID, CaseEventType], bool] = {}
+    for event in events:
+        if is_workflow_originated(event):
+            continue
+        key = (event.workspace_id, CaseEventType(event.type))
+        if key not in online:
+            online[key] = await has_online_trigger(session, *key)
+        if online[key]:
+            session.add(
+                CaseTriggerOutbox(
+                    workspace_id=event.workspace_id,
+                    case_id=event.case_id,
+                    event_id=event.id,
+                    extras=None,
+                )
+            )
