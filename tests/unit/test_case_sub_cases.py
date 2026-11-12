@@ -12,9 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
+from tracecat.cases.dropdowns.schemas import (
+    CaseDropdownDefinitionCreate,
+    CaseDropdownOptionCreate,
+    CaseDropdownValueInput,
+)
+from tracecat.cases.dropdowns.service import (
+    CaseDropdownDefinitionsService,
+    CaseDropdownValuesService,
+)
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.hierarchy import CaseHierarchyService
-from tracecat.cases.schemas import CaseCreate
+from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
 from tracecat.db.models import Case, CaseEvent
 from tracecat.exceptions import (
@@ -387,3 +396,125 @@ async def test_parent_filter_rejects_top_level_hierarchy(
             parent_id=parent_id,
             hierarchy="top_level",
         )
+
+
+async def _required_resolution_dropdown(service: CasesService) -> None:
+    definitions = CaseDropdownDefinitionsService(
+        session=service.session, role=service.role
+    )
+    definition = await definitions.create_definition(
+        CaseDropdownDefinitionCreate(
+            name="Resolution",
+            ref="resolution",
+            is_ordered=False,
+            options=[],
+            required_on_closure=True,
+        )
+    )
+    await definitions.add_option(
+        definition.id,
+        CaseDropdownOptionCreate(label="Duplicate", ref="duplicate", position=0),
+    )
+
+
+@pytest.mark.anyio
+async def test_update_case_and_sub_cases_cascades_status_and_resolution(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    await _required_resolution_dropdown(cases_service)
+    parent = await _create(cases_service, "Parent")
+    children = [
+        await _create(cases_service, f"Child {i}", parent_id=parent.id)
+        for i in range(2)
+    ]
+    other = await _create(cases_service, "Other")
+    case_ids = [parent.id, *(c.id for c in children)]
+    other_id = other.id
+
+    await cases_service.update_case_and_sub_cases(
+        parent,
+        CaseUpdate(
+            status=CaseStatus.CLOSED,
+            priority=CasePriority.HIGH,
+            dropdown_values=[
+                CaseDropdownValueInput(
+                    definition_ref="resolution", option_ref="duplicate"
+                )
+            ],
+        ),
+    )
+
+    session.expire_all()
+    values = CaseDropdownValuesService(session=session, role=cases_service.role)
+    for case_id in case_ids:
+        case = await cases_service.get_case(case_id)
+        assert case is not None
+        assert case.status == CaseStatus.CLOSED
+        [value] = await values.list_values_for_case(case_id)
+        assert value.option_ref == "duplicate"
+        assert len(await _events(session, case_id, CaseEventType.CASE_CLOSED)) == 1
+    # Only status, fields, and dropdown values cascade.
+    child = await cases_service.get_case(case_ids[1])
+    assert child is not None and child.priority == CasePriority.MEDIUM
+    unrelated = await cases_service.get_case(other_id)
+    assert unrelated is not None and unrelated.status == CaseStatus.NEW
+
+
+@pytest.mark.anyio
+async def test_update_case_and_sub_cases_is_all_or_nothing(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    await _required_resolution_dropdown(cases_service)
+    parent = await _create(cases_service, "Parent")
+    parent_id = parent.id
+    child = await _create(cases_service, "Child", parent_id=parent_id)
+    child_id, child_short_id = child.id, child.short_id
+    await cases_service.update_case(
+        parent,
+        CaseUpdate(
+            dropdown_values=[
+                CaseDropdownValueInput(
+                    definition_ref="resolution", option_ref="duplicate"
+                )
+            ]
+        ),
+    )
+
+    # The parent meets its closure requirement but the sub-case does not.
+    with pytest.raises(TracecatValidationError, match=child_short_id):
+        await cases_service.update_case_and_sub_cases(
+            parent, CaseUpdate(status=CaseStatus.CLOSED)
+        )
+
+    session.expire_all()
+    for case_id in (parent_id, child_id):
+        case = await cases_service.get_case(case_id)
+        assert case is not None
+        assert case.status == CaseStatus.NEW
+
+
+@pytest.mark.anyio
+async def test_update_case_and_sub_cases_without_sub_cases(
+    cases_service: CasesService,
+) -> None:
+    case = await _create(cases_service, "Standalone")
+
+    updated = await cases_service.update_case_and_sub_cases(
+        case, CaseUpdate(status=CaseStatus.RESOLVED)
+    )
+
+    assert updated.status == CaseStatus.RESOLVED
+
+
+@pytest.mark.anyio
+async def test_update_case_and_sub_cases_requires_case_addons(
+    cases_service: CasesService,
+) -> None:
+    case = await _create(cases_service, "Parent")
+    with patch.object(
+        CasesService, "has_entitlement", new=AsyncMock(return_value=False)
+    ):
+        with pytest.raises(EntitlementRequired):
+            await cases_service.update_case_and_sub_cases(
+                case, CaseUpdate(status=CaseStatus.CLOSED)
+            )

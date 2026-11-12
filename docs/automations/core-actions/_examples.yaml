@@ -421,6 +421,44 @@ examples:
             Analyst note:
             - Escalated after credential theft indicators were confirmed.
 
+  cases-close-with-sub-cases:
+    title: Close a parent case and its sub-cases
+    language: yaml
+    code: |
+      - ref: close_investigation
+        action: core.cases.update_case
+        args:
+          case_id: CASE-0042
+          status: closed
+          dropdown_values:
+            - definition_ref: resolution
+              option_ref: duplicate
+          cascade_to_sub_cases: true
+
+  cases-set-parent:
+    title: Group cases under a parent case
+    language: yaml
+    code: |
+      - ref: group_phishing_cases
+        action: core.cases.set_case_parent
+        args:
+          parent_id: CASE-0042
+          case_ids:
+            - CASE-0043
+            - CASE-0044
+            - ${{ TRIGGER.case_id }}
+
+  cases-clear-parent:
+    title: Ungroup sub-cases
+    language: yaml
+    code: |
+      - ref: ungroup_cases
+        action: core.cases.clear_case_parent
+        args:
+          case_ids:
+            - CASE-0043
+            - CASE-0044
+
   cases-list:
     title: List cases
     language: yaml

@@ -1325,6 +1325,95 @@ class CasesService(BaseWorkspaceService):
         """Remove cases from their parent case, returning them to the top level."""
         return await self._change_parent(case_ids, None)
 
+    @require_scope("case:update")
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def update_case_and_sub_cases(self, case: Case, params: CaseUpdate) -> Case:
+        """Update a case and apply its status, fields, and dropdown values to its sub-cases.
+
+        Runs in one transaction: if any sub-case cannot be updated (for example
+        a field required on closure is empty), nothing changes. Other fields
+        of ``params`` update only the parent.
+
+        Raises:
+            TracecatValidationError: If the parent or any sub-case update fails.
+            TracecatConflictError: If the cases cannot be locked in time.
+        """
+        sub_case_params = CaseUpdate.model_validate(
+            params.model_dump(
+                include={"status", "fields", "dropdown_values"}, exclude_unset=True
+            )
+        )
+        try:
+            await self.session.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
+            )
+            try:
+                # Locking the parent blocks new sub-cases until this commits.
+                await self._lock_cases([case.id], key_share=True)
+                sub_case_ids = list(
+                    (
+                        await self.session.scalars(
+                            select(Case.id).where(
+                                Case.workspace_id == self.workspace_id,
+                                Case.parent_id == case.id,
+                            )
+                        )
+                    ).all()
+                )
+                sub_cases = (
+                    await self._lock_cases(
+                        sub_case_ids,
+                        load_dropdown_values=sub_case_params.status
+                        in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
+                        key_share=True,
+                    )
+                    if sub_case_ids and sub_case_params.model_fields_set
+                    else {}
+                )
+            except DBAPIError as exc:
+                if (
+                    getattr(exc.orig, "sqlstate", None)
+                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
+                ):
+                    raise TracecatConflictError(
+                        "Timed out waiting to lock the case and its sub-cases"
+                    ) from exc
+                raise
+            if {"summary", "description"} & params.model_fields_set:
+                await self.versions.lock_case(case.id)
+                await self.session.refresh(
+                    case, attribute_names=["summary", "description"]
+                )
+            await self._apply_case_update(case, params)
+            await self.agent_session_interactions.record_from_context(
+                case_id=case.id,
+                operation=CaseAgentSessionInteractionOperation.UPDATE,
+            )
+
+            async def apply(sub_case: Case) -> None:
+                await self._apply_case_update(sub_case, sub_case_params)
+                await self.agent_session_interactions.record_from_context(
+                    case_id=sub_case.id,
+                    operation=CaseAgentSessionInteractionOperation.UPDATE,
+                )
+
+            results = await self._apply_to_each_case(list(sub_cases), sub_cases, apply)
+            if failures := [
+                f"{sub_cases[result.case_id].short_id}: {result.error}"
+                for result in results
+                if not result.success
+            ]:
+                raise TracecatValidationError(
+                    "Could not update sub-cases, so no cases were changed. "
+                    + "; ".join(failures)
+                )
+            await self.session.commit()
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
+
     @require_scope("case:delete")
     async def batch_delete_cases(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
         """Delete multiple cases atomically with isolated per-case failures."""

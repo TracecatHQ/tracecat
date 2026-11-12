@@ -46,6 +46,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="parent_id" type="string | null">
+
+The ID or short ID (e.g. CASE-0042) of a top-level case to create this case under as a sub-case. Requires the case add-ons entitlement.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="payload" type="object | null">
 
 Payload for the case.
@@ -151,6 +159,14 @@ Default: `false`.
 
 </ParamField>
 
+<ParamField path="cascade_to_sub_cases" type="boolean">
+
+If true, also apply status, fields, and dropdown_values to every sub-case of this case, e.g. to close them with the same resolution. All or nothing: if any sub-case can't be updated, no case changes. Requires the case add-ons entitlement.
+
+Default: `false`.
+
+</ParamField>
+
 <ParamField path="create_missing_tags" type="boolean">
 
 If true, create any tags that do not already exist.
@@ -248,6 +264,85 @@ Default: `null`.
       - Escalated after credential theft indicators were confirmed.
 ```
 
+**Close a parent case and its sub-cases**
+
+```yaml
+- ref: close_investigation
+  action: core.cases.update_case
+  args:
+    case_id: CASE-0042
+    status: closed
+    dropdown_values:
+      - definition_ref: resolution
+        option_ref: duplicate
+    cascade_to_sub_cases: true
+```
+
+## `core.cases.set_case_parent`
+
+Group cases as sub-cases of a top-level parent case. Cases already under another parent are moved.
+
+Sub-cases are one level deep: the parent must be a top-level case, and
+a case that has its own sub-cases cannot be grouped. Requires the case
+add-ons entitlement.
+
+Use `ACTIONS.group_phishing_cases.result.results` to read each case's
+`success` and `error`.
+
+### Inputs
+
+<ParamField path="case_ids" type="array[string]" required>
+
+The IDs or short IDs (e.g. CASE-0042) of the cases to group (1-1000).
+
+</ParamField>
+
+<ParamField path="parent_id" type="string" required>
+
+The ID or short ID (e.g. CASE-0042) of the top-level parent case.
+
+</ParamField>
+
+### Examples
+
+**Group cases under a parent case**
+
+```yaml
+- ref: group_phishing_cases
+  action: core.cases.set_case_parent
+  args:
+    parent_id: CASE-0042
+    case_ids:
+      - CASE-0043
+      - CASE-0044
+      - ${{ TRIGGER.case_id }}
+```
+
+## `core.cases.clear_case_parent`
+
+Remove sub-cases from their parent case, returning them to the top level.
+
+### Inputs
+
+<ParamField path="case_ids" type="array[string]" required>
+
+The IDs or short IDs (e.g. CASE-0042) of the sub-cases to ungroup (1-1000).
+
+</ParamField>
+
+### Examples
+
+**Ungroup sub-cases**
+
+```yaml
+- ref: ungroup_cases
+  action: core.cases.clear_case_parent
+  args:
+    case_ids:
+      - CASE-0043
+      - CASE-0044
+```
+
 ## `core.cases.list_cases`
 
 List all cases.
@@ -262,6 +357,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="include_payload" type="boolean">
+
+Return the full payload when both payload selectors are omitted or empty.
+
+Default: `false`.
+
+</ParamField>
+
 <ParamField path="limit" type="integer">
 
 Maximum number of cases to return.
@@ -272,7 +375,7 @@ Default: `100`.
 
 <ParamField path="order_by" type="string | null">
 
-The field to order the cases by.
+The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last.
 
 Default: `null`.
 
@@ -283,6 +386,22 @@ Default: `null`.
 If true, return cursor pagination metadata along with items.
 
 Default: `false`.
+
+</ParamField>
+
+<ParamField path="payload_fields" type="array[string] | null">
+
+Return only these top-level payload keys, e.g. ['alert_id', 'score']. Automatically includes the subset regardless of include_payload. Dots are literal; selected objects are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="payload_paths" type="array[array[string]] | null">
+
+Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path contains 1 to 32 literal keys. Preserves nesting and combines with payload_fields, including the subset automatically. Selected parents include their whole value; missing paths are omitted and nulls preserved. Arrays are selected whole, without index traversal. An empty list is omitted.
+
+Default: `null`.
 
 </ParamField>
 
@@ -329,6 +448,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="case_id" type="string | null">
+
+Exact case UUID.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="cursor" type="string | null">
 
 Pagination cursor used to fetch a specific page when paginate=true.
@@ -353,6 +480,64 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="field_ids" type="array[string] | null">
+
+Include requested custom field values.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filters" type="object | null">
+
+Shared AND/OR/NOT JSON filter tree. Tags use in/contains/is_null; scalar exclusions omit unset values unless ORed with is_null. Payload equality: &#123;'field': 'payload.metadata.product.vendor_name', 'op': 'eq', 'value': 'Microsoft'&#125;. Payload paths support only eq/ne/is_null. Use dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Combine with and/or/not; JSON scalar types are preserved. is_null matches missing paths, not explicit JSON null.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="hierarchy" type="string">
+
+Case hierarchy scope.
+
+Default: `"all"`.
+
+Allowed values: `all`, `top_level`.
+
+</ParamField>
+
+<ParamField path="include_count" type="boolean">
+
+Include exact total_estimate.
+
+Default: `true`.
+
+</ParamField>
+
+<ParamField path="include_durations" type="boolean">
+
+Include duration values.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_payload" type="boolean">
+
+Return the full payload when both payload selectors are omitted or empty.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_rows" type="boolean">
+
+Include linked table rows.
+
+Default: `false`.
+
+</ParamField>
+
 <ParamField path="limit" type="integer">
 
 Maximum number of cases to return.
@@ -363,7 +548,7 @@ Default: `100`.
 
 <ParamField path="order_by" type="string | null">
 
-The field to order the cases by.
+The field to order by. Relevance requires search_mode='full_text' and descending sort. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last.
 
 Default: `null`.
 
@@ -374,6 +559,30 @@ Default: `null`.
 If true, return cursor pagination metadata along with items.
 
 Default: `false`.
+
+</ParamField>
+
+<ParamField path="parent_id" type="string | null">
+
+Return sub-cases of this parent UUID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="payload_fields" type="array[string] | null">
+
+Return only these top-level payload keys, e.g. ['alert_id', 'score']. Automatically includes the subset regardless of include_payload. Dots are literal; selected objects are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="payload_paths" type="array[array[string]] | null">
+
+Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path contains 1 to 32 literal keys. Preserves nesting and combines with payload_fields, including the subset automatically. Selected parents include their whole value; missing paths are omitted and nulls preserved. Arrays are selected whole, without index traversal. An empty list is omitted.
+
+Default: `null`.
 
 </ParamField>
 
@@ -393,6 +602,22 @@ Default: `false`.
 
 </ParamField>
 
+<ParamField path="search_columns" type="array[string] | null">
+
+Search selected text fields; requires an explicit search_mode. Omitted searches both.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search_mode" type="string | null">
+
+Explicit words/phrases or escaped substring. Omitted preserves legacy matching.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="search_term" type="string | null">
 
 Text to search for in case summary and description.
@@ -404,6 +629,14 @@ Default: `null`.
 <ParamField path="severity" type="string | array[string] | null">
 
 Filter by case severity.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="short_id" type="string | null">
+
+Exact short ID, such as CASE-0042 or 42.
 
 Default: `null`.
 

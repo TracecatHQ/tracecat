@@ -135,6 +135,22 @@ class CaseRead(TypedDict):
     updated_at: datetime
 
 
+class CaseBatchItemResult(TypedDict):
+    """Result of a batch operation for one case."""
+
+    case_id: UUID
+    success: bool
+    error: str | None
+
+
+class CaseBatchResponse(TypedDict):
+    """Per-case results and aggregate counts for a batch operation."""
+
+    results: list[CaseBatchItemResult]
+    succeeded: int
+    failed: int
+
+
 class CaseParentRead(TypedDict):
     """Summary of a case's parent."""
 
