@@ -444,6 +444,13 @@
       "description": "Start and manage Devin sessions, and ask questions about your repositories with Devin",
       "category": "Productivity",
       "icon": "https://devin.ai/favicon.svg"
+    },
+    {
+      "slug": "socket-mcp",
+      "name": "Socket",
+      "description": "Check dependency security scores, alerts, and threat feed data with Socket",
+      "category": "AppSec",
+      "icon": "https://socket.dev/apple-touch-icon.png"
     }
   ]
 }

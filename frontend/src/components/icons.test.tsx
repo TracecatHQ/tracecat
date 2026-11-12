@@ -4,6 +4,7 @@ import {
   DatabricksIcon,
   getIcon,
   getIconSource,
+  getMcpProviderIconId,
   getModelProviderIconId,
   MicrosoftGraphIcon,
   MicrosoftIcon,
@@ -245,6 +246,13 @@ describe("Spur registry icon mappings", () => {
 describe("Devin MCP catalog icon", () => {
   it("registers the Devin MCP catalog icon", () => {
     expect(providerIcons.devin_mcp).toBeDefined()
+  })
+})
+
+describe("Socket MCP catalog icon", () => {
+  it("resolves the Socket catalog slug to its icon", () => {
+    expect(providerIcons.socket_mcp).toBeDefined()
+    expect(getMcpProviderIconId("socket-mcp")).toBe("socket_mcp")
   })
 })
 
