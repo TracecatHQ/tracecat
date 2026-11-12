@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event"
 import { settingsUpdateGitSettings } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { OrgRegistryRepositoryRemoveSection } from "@/components/organization/org-registry-repository-remove"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { useOrgGitSettings, useRegistryRepositories } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
 
@@ -91,9 +92,17 @@ describe("OrgRegistryRepositoryRemoveSection", () => {
     } as unknown as ReturnType<typeof useRegistryRepositories>)
   })
 
-  async function removeRepository(origin: string) {
+  function renderSection() {
+    render(
+      <TooltipProvider>
+        <OrgRegistryRepositoryRemoveSection />
+      </TooltipProvider>
+    )
+  }
+
+  async function openRemoveDialog(origin: string) {
     const user = userEvent.setup()
-    render(<OrgRegistryRepositoryRemoveSection />)
+    renderSection()
     const row = screen.getByText(origin).closest("li")
     if (!row) {
       throw new Error(`No row for ${origin}`)
@@ -103,8 +112,30 @@ describe("OrgRegistryRepositoryRemoveSection", () => {
         (button) => button.textContent === "Remove"
       ) as HTMLButtonElement
     )
+    return user
+  }
+
+  async function removeRepository(origin: string) {
+    const user = await openRemoveDialog(origin)
+    await user.type(
+      screen.getByLabelText("Type the repository URL to confirm"),
+      origin
+    )
     await user.click(screen.getByRole("button", { name: "Remove" }))
   }
+
+  it("keeps Remove disabled until the repository URL is typed", async () => {
+    const user = await openRemoveDialog(ORPHANED_ORIGIN)
+    const confirm = screen.getByRole("button", { name: "Remove" })
+    expect(confirm).toBeDisabled()
+
+    await user.type(
+      screen.getByLabelText("Type the repository URL to confirm"),
+      CONNECTED_ORIGIN
+    )
+    expect(confirm).toBeDisabled()
+    expect(deleteRepo).not.toHaveBeenCalled()
+  })
 
   it("clears the repository URL before deleting the connected repository", async () => {
     await removeRepository(CONNECTED_ORIGIN)
@@ -145,7 +176,7 @@ describe("OrgRegistryRepositoryRemoveSection", () => {
   })
 
   it("lists only custom Git repositories", () => {
-    render(<OrgRegistryRepositoryRemoveSection />)
+    renderSection()
 
     expect(screen.getByText(CONNECTED_ORIGIN)).toBeTruthy()
     expect(screen.getByText(ORPHANED_ORIGIN)).toBeTruthy()

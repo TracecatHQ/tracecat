@@ -7,17 +7,8 @@ import {
   settingsUpdateGitSettings,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { isCustomRegistryOrigin } from "@/components/registry/utils"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail } from "@/lib/errors"
@@ -143,40 +134,34 @@ export function OrgRegistryRepositoryRemoveSection() {
         })}
       </ul>
 
-      <AlertDialog
+      <ConfirmDestructiveDialog
         open={repoPendingRemove !== null}
         onOpenChange={(open) => {
           if (!open) {
             setRepoPendingRemove(null)
           }
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove custom registry?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently deletes{" "}
-              <span className="break-all font-mono">
-                {repoPendingRemove?.origin}
-              </span>{" "}
-              with all of its synced versions and actions.
-              {pendingIsConfigured &&
-                " The repository URL is also cleared from these settings."}{" "}
-              Workflows that use its actions fail until you connect and sync a
-              repository again. The SSH key is kept.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmRemove}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Remove custom registry?"
+        description={
+          <p>
+            This permanently deletes the repository with all of its synced
+            versions and actions.
+            {pendingIsConfigured &&
+              " The repository URL is also cleared from these settings."}{" "}
+            Workflows that use its actions fail until you connect and sync a
+            repository again. The SSH key is kept.
+          </p>
+        }
+        identifier={
+          repoPendingRemove
+            ? { label: "Repository URL", value: repoPendingRemove.origin }
+            : undefined
+        }
+        confirmPhrase={repoPendingRemove?.origin ?? ""}
+        confirmLabel="Remove"
+        isPending={isRemoving}
+        onConfirm={handleConfirmRemove}
+      />
     </div>
   )
 }

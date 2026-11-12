@@ -4,21 +4,12 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { OrgRegistryRepositoryRemoveSection } from "@/components/organization/org-registry-repository-remove"
 import { OrgRegistrySshKeySection } from "@/components/organization/org-registry-ssh-key"
 import { CustomTagInput } from "@/components/tags-input"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -140,6 +131,9 @@ export function OrgSettingsCustomRegistryForm() {
       />
     )
   }
+  const currentOrigin = gitSettings.git_repo_url
+    ? toRegistryOrigin(gitSettings.git_repo_url)
+    : ""
 
   return (
     <div className="space-y-8">
@@ -233,41 +227,33 @@ export function OrgSettingsCustomRegistryForm() {
       >
         Save repository settings
       </Button>
-      <AlertDialog
+      <ConfirmDestructiveDialog
         open={pendingReplacement !== null}
         onOpenChange={(open) => {
           if (!open) {
             setPendingReplacement(null)
           }
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Replace repository?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Saving a new URL permanently deletes{" "}
-              <span className="break-all font-mono">
-                {gitSettings.git_repo_url}
-              </span>{" "}
-              with all of its synced versions and actions. Workflows that use
-              its actions fail until the new repository is synced.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (pendingReplacement) {
-                  void saveGitSettings(pendingReplacement)
-                }
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Replace repository
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Replace repository?"
+        description={
+          <p>
+            Saving a new URL permanently deletes the current repository with all
+            of its synced versions and actions. Workflows that use its actions
+            fail until the new repository is synced.
+          </p>
+        }
+        identifier={{ label: "Current repository URL", value: currentOrigin }}
+        confirmPhrase={currentOrigin}
+        confirmLabel="Replace repository"
+        isPending={updateGitSettingsIsPending}
+        onConfirm={async () => {
+          if (pendingReplacement) {
+            const data = pendingReplacement
+            setPendingReplacement(null)
+            await saveGitSettings(data)
+          }
+        }}
+      />
       <OrgRegistryRepositoryRemoveSection />
     </div>
   )
