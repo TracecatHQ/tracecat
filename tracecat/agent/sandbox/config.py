@@ -558,7 +558,10 @@ def build_agent_nsjail_config(
             "",
             f'cwd: "{JAILED_AGENT_JOB_DIR}"',
             "# Execution - standalone shim script",
-            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{JAILED_SHIM_ENTRYPOINT_PATH}" }}',
+            # The shim is stdlib-only. Isolated mode (-I -S) keeps PYTHONPATH and
+            # the persistent home's user site-packages from running code before
+            # its process cap; -B and -u replace the PYTHON* variables -I ignores.
+            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-I" arg: "-S" arg: "-B" arg: "-u" arg: "{JAILED_SHIM_ENTRYPOINT_PATH}" }}',
         ]
     )
 

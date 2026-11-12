@@ -2,16 +2,31 @@
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+from typing import Literal
+
+import pytest
 
 from tracecat.agent.mcp.stdio_probe import _SANDBOX_PROBE_SCRIPT
+from tracecat.agent.sandbox import shim_entrypoint
 from tracecat.agent.sandbox.config import (
     AgentResourceLimits,
     AgentSandboxConfig,
     build_agent_env_map,
     build_agent_nsjail_config,
 )
-from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
+from tracecat.sandbox.executor import (
+    _NSJAIL_LAUNCH_FAILURE_EXIT_CODE,
+    _WORKLOAD_LAUNCHER_NAME,
+    _WORKLOAD_LAUNCHER_SCRIPT,
+    _WORKLOAD_STARTED_MARKER,
+    ActionSandboxConfig,
+    NsjailExecutor,
+)
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
@@ -220,3 +235,167 @@ def test_trusted_entrypoints_enforce_nproc_limit() -> None:
     shim_source = Path(shim_entrypoint.__file__).read_text()
     assert "setrlimit" in shim_source
     assert NPROC_ENV_VAR in shim_source
+
+
+# --- Isolated entrypoint start ---
+
+_JAIL_PYTHON = "/usr/local/bin/python3"
+_EXEC_BIN_PATTERN = re.compile(
+    r'exec_bin \{ path: "(?P<path>[^"]+)"(?P<args>(?: arg: "[^"]*")*) \}'
+)
+# The base interpreter, outside the test venv, so user site-packages are live
+# exactly as they are for the jail's interpreter.
+_HOST_PYTHON = str(
+    Path(sys.base_prefix, "bin", f"python{sys.version_info[0]}.{sys.version_info[1]}")
+)
+
+
+def _exec_bin_argv(config_text: str) -> list[str]:
+    """Return the argv an nsjail config starts the jailed process with."""
+    match = _EXEC_BIN_PATTERN.search(config_text)
+    assert match is not None, config_text
+    return [match["path"], *re.findall(r'arg: "([^"]*)"', match["args"])]
+
+
+def _host_argv(argv: list[str], *, jail_dir: str, host_dir: Path) -> list[str]:
+    """Map a jailed argv onto the host interpreter and job directory."""
+    host_argv: list[str] = []
+    for arg in argv:
+        if arg == _JAIL_PYTHON:
+            host_argv.append(_HOST_PYTHON)
+        elif arg.startswith(f"{jail_dir}/"):
+            host_argv.append(str(host_dir / arg.removeprefix(f"{jail_dir}/")))
+        else:
+            host_argv.append(arg)
+    return host_argv
+
+
+def _hostile_env(tmp_path: Path, *, nproc: str) -> dict[str, str]:
+    """Return an env whose PYTHONPATH and user site hold self-announcing modules.
+
+    Each module writes ``HOSTILE-<name>`` to stderr when imported. ``pkgmod``
+    is an ordinary package module the workload is expected to import.
+    """
+    packages = tmp_path / "packages"
+    home = tmp_path / "home"
+    home.mkdir()
+    user_site = Path(
+        subprocess.run(
+            [_HOST_PYTHON, "-c", "import site; print(site.getusersitepackages())"],
+            env={"HOME": str(home)},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    )
+    for directory in (packages, user_site):
+        directory.mkdir(parents=True)
+        for module in ("sitecustomize", "usercustomize", "resource"):
+            (directory / f"{module}.py").write_text(
+                f"import os\nos.write(2, b'HOSTILE-{module}\\n')\nraise ImportError\n"
+            )
+    (packages / "pkgmod.py").write_text("import os\nos.write(2, b'PKGMOD\\n')\n")
+    return {"PYTHONPATH": str(packages), "HOME": str(home), NPROC_ENV_VAR: nproc}
+
+
+def _launcher_config(
+    tmp_path: Path, phase: Literal["execute", "install", "action"]
+) -> tuple[str, str]:
+    """Return a phase's nsjail config and the workload script it launches."""
+    executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
+    job_dir = tmp_path / "job"
+    if phase == "action":
+        config_text = executor._build_action_config(
+            job_dir=job_dir,
+            config=ActionSandboxConfig(
+                registry_paths=[tmp_path / "registry"],
+                tracecat_app_dir=tmp_path / "app",
+            ),
+        )
+        return config_text, "minimal_runner.py"
+    script_name = "install.py" if phase == "install" else "wrapper.py"
+    config_text = executor._build_config(
+        job_dir=job_dir,
+        phase=phase,
+        config=SandboxConfig(),
+        script_name=script_name,
+    )
+    return config_text, script_name
+
+
+def _run_launcher(
+    tmp_path: Path, phase: Literal["execute", "install", "action"], *, nproc: str
+) -> subprocess.CompletedProcess[bytes]:
+    """Start a phase's launcher as its nsjail config does, outside the jail."""
+    config_text, script_name = _launcher_config(tmp_path, phase)
+    env = _hostile_env(tmp_path, nproc=nproc)
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / _WORKLOAD_LAUNCHER_NAME).write_text(
+        _WORKLOAD_LAUNCHER_SCRIPT.replace(_JAIL_PYTHON, _HOST_PYTHON)
+    )
+    (work / script_name).write_text("import pkgmod\n")
+    argv = _host_argv(_exec_bin_argv(config_text), jail_dir="/work", host_dir=work)
+    return subprocess.run(
+        argv, cwd=work, env=env, capture_output=True, timeout=60, check=False
+    )
+
+
+@pytest.mark.parametrize("phase", ["execute", "install", "action"])
+def test_launcher_caps_processes_before_package_code_runs(
+    tmp_path: Path, phase: Literal["execute", "install", "action"]
+) -> None:
+    """No PYTHONPATH or user-site module runs before the cap and start marker.
+
+    PYTHONPATH sits ahead of the stdlib, so a package could ship a
+    sitecustomize or shadow ``resource``; the user site lives under HOME. The
+    launcher sees none of them, and the workload it execs still imports from
+    PYTHONPATH once the cap is in place.
+    """
+    proc = _run_launcher(tmp_path, phase, nproc="4096")
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stderr.startswith(_WORKLOAD_STARTED_MARKER), proc.stderr
+    assert b"PKGMOD" in proc.stderr
+
+
+@pytest.mark.parametrize("phase", ["execute", "install", "action"])
+def test_launcher_exits_255_without_marker_when_cap_fails(
+    tmp_path: Path, phase: Literal["execute", "install", "action"]
+) -> None:
+    """A cap the launcher cannot enforce stops it before any package code runs."""
+    proc = _run_launcher(tmp_path, phase, nproc="-5")
+
+    assert proc.returncode == _NSJAIL_LAUNCH_FAILURE_EXIT_CODE, proc.stderr
+    assert _WORKLOAD_STARTED_MARKER not in proc.stderr
+    assert b"HOSTILE" not in proc.stderr
+
+
+def test_agent_shim_caps_processes_before_package_code_runs(tmp_path: Path) -> None:
+    """The agent shim reaches its cap without running PYTHONPATH or user-site code.
+
+    The agent home persists across turns, so an earlier turn can leave a
+    usercustomize in its user site; the shim is stdlib-only and imports none.
+    """
+    config_text = build_agent_nsjail_config(
+        rootfs=tmp_path / "rootfs",
+        job_dir=tmp_path / "job",
+        socket_dir=tmp_path / "socket",
+        config=AgentSandboxConfig(),
+        site_packages_dir=tmp_path / "site-packages",
+        llm_socket_path=tmp_path / "llm.sock",
+    )
+    env = _hostile_env(tmp_path, nproc="-5")
+    job = tmp_path / "job"
+    job.mkdir()
+    shutil.copy(shim_entrypoint.__file__, job / "shim_entrypoint.py")
+    argv = _host_argv(
+        _exec_bin_argv(config_text), jail_dir="/run/tracecat/job", host_dir=job
+    )
+
+    proc = subprocess.run(
+        argv, cwd=job, env=env, capture_output=True, timeout=60, check=False
+    )
+
+    assert b"could not enforce RLIMIT_NPROC" in proc.stderr, proc.stderr
+    assert b"HOSTILE" not in proc.stderr
