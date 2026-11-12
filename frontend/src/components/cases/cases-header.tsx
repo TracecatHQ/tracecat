@@ -16,7 +16,9 @@ import {
   SignalHighIcon,
   SignalIcon,
   TagIcon,
+  TextCursorInputIcon,
   UserIcon,
+  WholeWordIcon,
 } from "lucide-react"
 import { type ComponentType, useEffect, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
@@ -70,6 +72,12 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type {
   CaseDateFilterValue,
   CaseDatePreset,
@@ -303,6 +311,39 @@ function isDefaultCaseSort(value: CaseSortValue): boolean {
   return (
     value.field === DEFAULT_CASE_SORT.field &&
     value.direction === DEFAULT_CASE_SORT.direction
+  )
+}
+
+const SEARCH_MODE_LABELS = {
+  full_text: "Full-text search",
+  literal: "Substring search",
+} as const
+
+function CaseSearchModeToggle({
+  value,
+  onChange,
+}: {
+  value: "full_text" | "literal"
+  onChange: (mode: "full_text" | "literal") => void
+}) {
+  const Icon = value === "literal" ? TextCursorInputIcon : WholeWordIcon
+  const next = value === "literal" ? "full_text" : "literal"
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={`${SEARCH_MODE_LABELS[value]}, switch to ${SEARCH_MODE_LABELS[next].toLowerCase()}`}
+            onClick={() => onChange(next)}
+            className="flex size-6 items-center justify-center rounded-md border border-input bg-transparent text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          >
+            <Icon className="size-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{SEARCH_MODE_LABELS[value]}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
 
@@ -670,26 +711,19 @@ export function CasesHeader({
           }
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-        >
-          {onSearchModeChange && (
-            <Select value={searchMode} onValueChange={onSearchModeChange}>
-              <SelectTrigger
-                aria-label="Case search mode"
-                className="h-7 w-[100px] shrink-0 px-2 text-xs shadow-none"
-              >
-                <span>
-                  {searchMode === "full_text" ? "Full-text" : "Substring"}
-                </span>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="full_text">Full-text</SelectItem>
-                <SelectItem value="literal">Substring</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-        </ListHeaderSearch>
+        />
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {displayCaseCount ?? totalCaseCount}{" "}
+            {displayCaseCount === null ? "loaded" : countNoun}
+          </span>
+          {onSearchModeChange && (
+            <CaseSearchModeToggle
+              value={searchMode}
+              onChange={onSearchModeChange}
+            />
+          )}
           {onToggleColumn && visibleColumnIds && (
             <CaseColumnPicker
               dropdownDefinitions={dropdownDefinitions}
@@ -699,10 +733,15 @@ export function CasesHeader({
               onToggle={onToggleColumn}
             />
           )}
-          <span className="min-w-20 text-right text-xs tabular-nums text-muted-foreground">
-            {displayCaseCount ?? totalCaseCount}{" "}
-            {displayCaseCount === null ? "loaded" : countNoun}
-          </span>
+          <CaseMoreFiltersMenu
+            dropdownDefinitions={dropdownDefinitions}
+            dropdownFilters={dropdownFilters}
+            onDropdownFilterChange={onDropdownFilterChange}
+            onDropdownSortDirectionChange={onDropdownSortDirectionChange}
+            includesSubCases={includesSubCases}
+            hierarchyDisabled={Boolean(appliedSearchQuery)}
+            onIncludeSubCasesChange={onIncludeSubCasesChange}
+          />
         </div>
       </header>
 
@@ -903,17 +942,6 @@ export function CasesHeader({
               <Cross2Icon className="size-3" />
             </button>
           )}
-          <div className="ml-auto">
-            <CaseMoreFiltersMenu
-              dropdownDefinitions={dropdownDefinitions}
-              dropdownFilters={dropdownFilters}
-              onDropdownFilterChange={onDropdownFilterChange}
-              onDropdownSortDirectionChange={onDropdownSortDirectionChange}
-              includesSubCases={includesSubCases}
-              hierarchyDisabled={Boolean(appliedSearchQuery)}
-              onIncludeSubCasesChange={onIncludeSubCasesChange}
-            />
-          </div>
         </fieldset>
       </div>
     </div>
