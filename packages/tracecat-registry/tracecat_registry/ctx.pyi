@@ -1402,6 +1402,7 @@ class _WorkflowsAsync:
         status: Literal["online", "offline"] | None = ...,
         event_types: list[str] | None = ...,
         tag_filters: list[str] | None = ...,
+        include_sub_cases: bool | None = ...,
     ) -> dict[str, Any]: ...
     async def publish(
         self,
@@ -1494,6 +1495,7 @@ class _Workflows:
         status: Literal["online", "offline"] | None = ...,
         event_types: list[str] | None = ...,
         tag_filters: list[str] | None = ...,
+        include_sub_cases: bool | None = ...,
     ) -> dict[str, Any]: ...
     def publish(
         self,

@@ -82,6 +82,7 @@ def workflow_spec_from_orm(
         status=workflow.case_trigger.status,
         event_types=workflow.case_trigger.event_types,
         tag_filters=workflow.case_trigger.tag_filters,
+        include_sub_cases=workflow.case_trigger.include_sub_cases,
     ):
         case_trigger = RemoteCaseTrigger(
             status=cast(Status, workflow.case_trigger.status),
@@ -90,6 +91,7 @@ def workflow_spec_from_orm(
                 for event_type in workflow.case_trigger.event_types
             ],
             tag_filters=workflow.case_trigger.tag_filters,
+            include_sub_cases=workflow.case_trigger.include_sub_cases or None,
         )
 
     remote_form = None

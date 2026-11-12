@@ -687,11 +687,14 @@ class WorkflowImportService(BaseWorkspaceService):
             status=remote_case_trigger.status,
             event_types=remote_case_trigger.event_types,
             tag_filters=remote_case_trigger.tag_filters,
+            include_sub_cases=bool(remote_case_trigger.include_sub_cases),
         ):
             await self._clear_case_trigger(workflow)
             return
         service = CaseTriggersService(session=self.session, role=self.role)
-        config = CaseTriggerConfig.model_validate(remote_case_trigger.model_dump())
+        config = CaseTriggerConfig.model_validate(
+            remote_case_trigger.model_dump(exclude_none=True)
+        )
         await service.sync_case_trigger(
             WorkflowUUID.new(workflow.id),
             config,
@@ -711,6 +714,7 @@ class WorkflowImportService(BaseWorkspaceService):
         case_trigger.status = "offline"
         case_trigger.event_types = []
         case_trigger.tag_filters = []
+        case_trigger.include_sub_cases = False
         self.session.add(case_trigger)
         await self.session.flush()
 

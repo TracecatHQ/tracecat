@@ -1167,6 +1167,7 @@ export function CaseTriggerControls({
   const [status, setStatus] = useState<"online" | "offline">("offline")
   const [eventTypes, setEventTypes] = useState<CaseEventType[]>([])
   const [tagFilters, setTagFilters] = useState<string[]>([])
+  const [includeSubCases, setIncludeSubCases] = useState(false)
 
   useEffect(() => {
     if (!caseTrigger) {
@@ -1175,21 +1176,24 @@ export function CaseTriggerControls({
     setStatus(caseTrigger.status)
     setEventTypes(caseTrigger.event_types ?? [])
     setTagFilters(caseTrigger.tag_filters ?? [])
+    setIncludeSubCases(caseTrigger.include_sub_cases ?? false)
   }, [caseTrigger])
 
   const persist = useCallback(
     async (
       nextStatus: "online" | "offline",
       nextEvents: CaseEventType[],
-      nextTags: string[]
+      nextTags: string[],
+      nextIncludeSubCases: boolean = includeSubCases
     ) => {
       await upsertCaseTrigger({
         status: nextStatus,
         event_types: nextEvents,
         tag_filters: nextTags,
+        include_sub_cases: nextIncludeSubCases,
       })
     },
-    [upsertCaseTrigger]
+    [includeSubCases, upsertCaseTrigger]
   )
 
   const handleStatusToggle = useCallback(
@@ -1270,6 +1274,25 @@ export function CaseTriggerControls({
     [eventTypes, persist, status, tagFilters]
   )
 
+  const handleIncludeSubCasesToggle = useCallback(
+    async (checked: boolean) => {
+      const previous = includeSubCases
+      setIncludeSubCases(checked)
+      try {
+        await persist(status, eventTypes, tagFilters, checked)
+        toast({
+          title: "Case trigger updated",
+          description: checked
+            ? "Sub-case events now fire this workflow."
+            : "Only top-level case events fire this workflow.",
+        })
+      } catch {
+        setIncludeSubCases(previous)
+      }
+    },
+    [eventTypes, includeSubCases, persist, status, tagFilters]
+  )
+
   const tagSuggestions = useMemo(() => {
     return (caseTags ?? []).map((tag) => ({
       id: tag.id,
@@ -1344,6 +1367,21 @@ export function CaseTriggerControls({
           Tag events match the added or removed tag; other events match current
           case tags. Workflow-originated events are ignored.
         </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Include sub-cases</Label>
+          <p className="text-xs text-muted-foreground">
+            Also fire on events from sub-cases. When off, only top-level cases
+            fire this workflow.
+          </p>
+        </div>
+        <Switch
+          checked={includeSubCases}
+          onCheckedChange={handleIncludeSubCasesToggle}
+          disabled={isUpdatingCaseTrigger}
+        />
       </div>
     </ReadOnlyFieldset>
   )

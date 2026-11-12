@@ -1925,6 +1925,13 @@ class CaseTrigger(WorkspaceModel):
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
+    include_sub_cases: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default=text("false"),
+        doc="Whether events on sub-cases fire the trigger, not only top-level cases.",
+    )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),

@@ -337,8 +337,8 @@ async def update_webhook(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Read a workflow's case-trigger config (status, event_types, tag_filters)."
-        + _WORKSPACE_CHAT_SKILL_GUIDANCE
+        "Read a workflow's case-trigger config (status, event_types, tag_filters, "
+        "include_sub_cases)." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Get workflow case trigger",
     display_group="Workflows",
@@ -357,7 +357,8 @@ async def get_case_trigger(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Configure a workflow's case trigger (status, event_types, tag_filters). "
+        "Configure a workflow's case trigger (status, event_types, tag_filters, "
+        "include_sub_cases). "
         "This is the ONLY way to set a case trigger — it is NOT editable via "
         "`edit_workflow` JSON patches. Returns the full merged config (no need "
         "to call `get_case_trigger` afterwards)." + _WORKSPACE_CHAT_SKILL_GUIDANCE
@@ -392,6 +393,14 @@ async def update_case_trigger(
             "Omit to leave unchanged."
         ),
     ] = None,
+    include_sub_cases: Annotated[
+        bool | None,
+        Doc(
+            "Whether events on sub-cases (cases with a parent case) also fire "
+            "the trigger. Off by default, so only top-level cases fire. Omit to "
+            "leave unchanged."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Configure a workflow's case trigger and return the merged config."""
     return await ctx.workflows.aio.update_case_trigger(
@@ -399,6 +408,7 @@ async def update_case_trigger(
         status=status,
         event_types=event_types,
         tag_filters=tag_filters,
+        include_sub_cases=include_sub_cases,
     )
 
 

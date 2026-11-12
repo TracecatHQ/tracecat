@@ -3321,6 +3321,7 @@ export type CaseTriggerConfig = {
   status?: "online" | "offline"
   event_types?: Array<CaseEventType>
   tag_filters?: Array<string>
+  include_sub_cases?: boolean
 }
 
 export type status3 = "online" | "offline"
@@ -3329,6 +3330,7 @@ export type CaseTriggerCreate = {
   status?: "online" | "offline"
   event_types?: Array<CaseEventType>
   tag_filters?: Array<string>
+  include_sub_cases?: boolean
 }
 
 export type CaseTriggerRead = {
@@ -3337,12 +3339,14 @@ export type CaseTriggerRead = {
   status: "online" | "offline"
   event_types: Array<CaseEventType>
   tag_filters: Array<string>
+  include_sub_cases: boolean
 }
 
 export type CaseTriggerUpdate = {
   status?: "online" | "offline" | null
   event_types?: Array<CaseEventType> | null
   tag_filters?: Array<string> | null
+  include_sub_cases?: boolean | null
 }
 
 export type CaseUpdate = {
