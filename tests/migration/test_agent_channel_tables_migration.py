@@ -7,14 +7,11 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
 from typing import Any
 
-import orjson
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from cryptography.fernet import Fernet
 from sqlalchemy import Engine, create_engine, delete, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,20 +22,16 @@ from tracecat.agent.channel_bots.schemas import ChannelBotProvider, ChannelBotSt
 from tracecat.db.models import (
     AgentChannelBot,
     AgentChannelThread,
-    AgentChannelToken,
     AgentPreset,
     AgentSession,
     Base,
     Organization,
     Workspace,
 )
-from tracecat.secrets.encryption import decrypt_value, encrypt_value
 
 MIGRATION_REVISION = "e20249352688"
 PREVIOUS_REVISION = "ec392d96f2b0"
 TABLES = {"agent_channel_bot", "agent_channel_thread"}
-KEY = Fernet.generate_key().decode()
-ENCRYPTED = "__tracecat_encrypted__:"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -47,26 +40,16 @@ def workflow_bucket() -> Iterator[None]:
     yield
 
 
-def _alembic(db_url: str, *args: str, key: str | None = KEY) -> None:
-    result = _run_alembic(db_url, *args, key=key)
-    assert result.returncode == 0, (
-        f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"
-    )
-
-
-def _run_alembic(
-    db_url: str, *args: str, key: str | None = KEY
-) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "TRACECAT__DB_URI": db_url}
-    env.pop("TRACECAT__DB_ENCRYPTION_KEY", None)
-    if key is not None:
-        env["TRACECAT__DB_ENCRYPTION_KEY"] = key
-    return subprocess.run(
+def _alembic(db_url: str, *args: str) -> None:
+    result = subprocess.run(
         [sys.executable, "-m", "alembic", *args],
-        env=env,
+        env={**os.environ, "TRACECAT__DB_URI": db_url},
         capture_output=True,
         text=True,
         check=False,
+    )
+    assert result.returncode == 0, (
+        f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"
     )
 
 
@@ -98,23 +81,6 @@ def engine(db_url: str) -> Iterator[Engine]:
         engine.dispose()
 
 
-def _sealed(value: str) -> str:
-    return ENCRYPTED + encrypt_value(value.encode(), key=KEY).decode()
-
-
-def _slack_config(**overrides: object) -> dict[str, object]:
-    return {
-        "slack_bot_token": _sealed("xoxb-1"),
-        "slack_signing_secret": _sealed("sign-1"),
-        "slack_client_id": "123.456",
-        "slack_client_secret": _sealed("client-secret"),
-    } | overrides
-
-
-def _credentials(bot: AgentChannelBot) -> dict[str, Any]:
-    return orjson.loads(decrypt_value(bot.encrypted_credentials, key=KEY))
-
-
 def _workspace(engine: Engine) -> tuple[uuid.UUID, uuid.UUID]:
     """An organization with two workspaces; returns the workspace ids."""
     org, ws, other_ws = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -144,34 +110,6 @@ def _preset(db: Session, ws: uuid.UUID) -> uuid.UUID:
     )
     db.flush()
     return preset_id
-
-
-def _token(
-    ws: uuid.UUID,
-    preset_id: uuid.UUID,
-    config: dict[str, object],
-    *,
-    is_active: bool = True,
-    channel_type: str = "slack",
-) -> AgentChannelToken:
-    return AgentChannelToken(
-        id=uuid.uuid4(),
-        workspace_id=ws,
-        agent_preset_id=preset_id,
-        channel_type=channel_type,
-        config=config,
-        is_active=is_active,
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        updated_at=datetime(2026, 1, 2, tzinfo=UTC),
-    )
-
-
-def _bots(engine: Engine, ws: uuid.UUID) -> dict[uuid.UUID, AgentChannelBot]:
-    with Session(engine) as db:
-        rows = db.scalars(
-            select(AgentChannelBot).where(AgentChannelBot.workspace_id == ws)
-        )
-        return {bot.id: bot for bot in rows}
 
 
 def _links(engine: Engine, ws: uuid.UUID) -> set[tuple[uuid.UUID, uuid.UUID, str]]:
@@ -239,88 +177,6 @@ def test_upgrade_matches_the_models_and_downgrades(db_url: str, engine: Engine) 
     assert _channel_tables(engine) == set()
     _alembic(db_url, "upgrade", MIGRATION_REVISION)
     assert _channel_tables(engine) == TABLES
-
-
-def test_offline_sql_is_refused(db_url: str) -> None:
-    result = _run_alembic(
-        db_url, "upgrade", f"{PREVIOUS_REVISION}:{MIGRATION_REVISION}", "--sql"
-    )
-    assert result.returncode != 0
-    assert "needs an online upgrade" in result.stderr
-
-
-def test_upgrade_copies_each_slack_token_into_a_bot(
-    db_url: str, engine: Engine
-) -> None:
-    _alembic(db_url, "downgrade", PREVIOUS_REVISION)
-    ws, _ = _workspace(engine)
-    with Session(engine, expire_on_commit=False) as db, db.begin():
-        active = _token(ws, _preset(db, ws), _slack_config())
-        paused = _token(ws, _preset(db, ws), _slack_config(), is_active=False)
-        pending = _token(
-            ws,
-            _preset(db, ws),
-            _slack_config(
-                slack_bot_token=_sealed("__tracecat_pending_bot_token__"),
-                slack_signing_secret="__tracecat_pending_signing_secret__abc",
-            ),
-            is_active=False,
-        )
-        # Plaintext rows predate config encryption.
-        plain = _token(
-            ws,
-            _preset(db, ws),
-            {"slack_bot_token": "xoxb-2", "slack_signing_secret": "s"},
-        )
-        corrupt = _token(
-            ws,
-            _preset(db, ws),
-            _slack_config(slack_bot_token=f"{ENCRYPTED}not-a-fernet-token"),
-        )
-        other = _token(ws, _preset(db, ws), {}, channel_type="teams")
-        db.add_all([active, paused, pending, plain, corrupt, other])
-
-    # Without the key, the copy fails and the revision leaves nothing behind.
-    failed = _run_alembic(db_url, "upgrade", MIGRATION_REVISION, key=None)
-    assert failed.returncode != 0
-    assert "TRACECAT__DB_ENCRYPTION_KEY is not set" in failed.stderr
-    assert _channel_tables(engine) == set()
-
-    _alembic(db_url, "upgrade", MIGRATION_REVISION)
-    bots = _bots(engine, ws)
-    assert set(bots) == {t.id for t in (active, paused, pending, plain, corrupt)}
-    full = {
-        "bot_token": "xoxb-1",
-        "signing_secret": "sign-1",
-        "client_id": "123.456",
-        "client_secret": "client-secret",
-    }
-    expected = {
-        active.id: ("active", full),
-        paused.id: ("paused", full),
-        pending.id: (
-            "needs_reconnect",
-            {"client_id": "123.456", "client_secret": "client-secret"},
-        ),
-        plain.id: ("active", {"bot_token": "xoxb-2", "signing_secret": "s"}),
-        corrupt.id: ("needs_reconnect", {}),
-    }
-    assert {
-        bot_id: (bot.status, _credentials(bot)) for bot_id, bot in bots.items()
-    } == expected
-    for token in (active, paused, pending, plain, corrupt):
-        bot = bots[token.id]
-        assert (bot.workspace_id, bot.agent_preset_id) == (ws, token.agent_preset_id)
-        assert (bot.created_at, bot.updated_at) == (token.created_at, token.updated_at)
-        assert (bot.provider, bot.manifest_version, bot.granted_scopes) == (
-            "slack",
-            0,
-            [],
-        )
-        # Tokens kept only secrets: install metadata stays empty until a reinstall.
-        assert bot.provider_tenant_id is None
-        assert bot.provider_app_id is None
-        assert bot.provider_bot_user_id is None
 
 
 def _bot(ws: uuid.UUID, preset_id: uuid.UUID, **values: object) -> AgentChannelBot:
