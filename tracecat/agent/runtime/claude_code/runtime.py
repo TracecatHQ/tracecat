@@ -54,6 +54,7 @@ from tracecat.agent.common.config import (
     AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
     TRACECAT__EXECUTOR_BACKEND,
+    is_agent_runtime_protected_env_var,
 )
 from tracecat.agent.common.exceptions import (
     AgentPreparationError,
@@ -107,6 +108,7 @@ from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_NAME
 from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
+from tracecat.process_env import is_loader_env_var
 from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 from tracecat.sandbox.file_io import (
@@ -614,17 +616,21 @@ class ClaudeAgentRuntime:
                 if sanitized_args:
                     server_config["args"] = sanitized_args
             if env := stdio_config.get("env"):
+                # Loader keys are counted, not named: a prefix match is not a known
+                # constant and could be a resolved secret.
                 protected_env_keys = AGENT_RUNTIME_PROTECTED_ENV_VARS & env.keys()
-                if protected_env_keys:
+                loader_env_key_count = sum(1 for key in env if is_loader_env_var(key))
+                if protected_env_keys or loader_env_key_count:
                     logger.warning(
                         "Ignoring protected stdio MCP environment variables",
                         server_name=server_name,
                         env_keys=sorted(protected_env_keys),
+                        loader_env_key_count=loader_env_key_count,
                     )
                 if sanitized_env := {
                     key: value
                     for key, value in env.items()
-                    if key not in AGENT_RUNTIME_PROTECTED_ENV_VARS
+                    if not is_agent_runtime_protected_env_var(key)
                 }:
                     server_config["env"] = sanitized_env
             if (timeout := stdio_config.get("timeout")) is not None:
