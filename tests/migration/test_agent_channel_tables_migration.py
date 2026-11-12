@@ -32,6 +32,7 @@ from tracecat.db.models import (
 MIGRATION_REVISION = "e20249352688"
 PREVIOUS_REVISION = "ec392d96f2b0"
 TABLES = {"agent_channel_bot", "agent_channel_thread"}
+_POSTGRESQL_ENUM_DIFFS = frozenset({"create_enum", "drop_enum", "change_enum_variants"})
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -137,9 +138,20 @@ def _only_channel_tables(
 def _model_drift(engine: Engine) -> list[Any]:
     with engine.connect() as conn:
         context = MigrationContext.configure(
-            conn, opts={"include_object": _only_channel_tables}
+            conn,
+            opts={
+                "include_object": _only_channel_tables,
+                "compare_type": True,
+                "compare_server_default": True,
+            },
         )
-        return list(compare_metadata(context, Base.metadata))
+        # alembic_postgresql_enum, once imported by any test, adds
+        # database-wide enum diffs that `include_object` cannot filter.
+        return [
+            diff
+            for diff in compare_metadata(context, Base.metadata)
+            if not (isinstance(diff, tuple) and diff[0] in _POSTGRESQL_ENUM_DIFFS)
+        ]
 
 
 def _rls_tables(engine: Engine) -> set[str]:
@@ -289,3 +301,19 @@ def test_bot_checks_match_the_api_enums(db_url: str, engine: Engine) -> None:
         ):
             db.add(_bot(ws, preset_id, **bogus))
         assert _violated(exc) == constraint
+
+
+def test_one_bot_per_installed_app(db_url: str, engine: Engine) -> None:
+    _alembic(db_url, "upgrade", MIGRATION_REVISION)
+    ws, _ = _workspace(engine)
+    app = {"provider_tenant_id": "T1", "provider_app_id": "A1"}
+    with Session(engine) as db, db.begin():
+        preset_id = _preset(db, ws)
+        db.add(_bot(ws, preset_id, **app))
+    with (
+        pytest.raises(IntegrityError) as exc,
+        Session(engine) as db,
+        db.begin(),
+    ):
+        db.add(_bot(ws, preset_id, **app))
+    assert _violated(exc) == "uq_agent_channel_bot_provider_tenant_app"
