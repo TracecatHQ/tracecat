@@ -3,6 +3,7 @@
 import {
   ChevronDown,
   ListIcon,
+  ListTreeIcon,
   SlidersHorizontalIcon,
   TextIcon,
   TimerIcon,
@@ -68,16 +69,22 @@ interface CaseColumnPickerProps {
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   fieldDefinitions?: CaseFieldReadMinimal[]
   durationDefinitions?: CaseDurationDefinitionRead[]
-  visibleColumnIds: string[]
-  onToggle: (columnId: string) => void
+  visibleColumnIds?: string[]
+  onToggle?: (columnId: string) => void
+  includesSubCases?: boolean
+  hierarchyDisabled?: boolean
+  onIncludeSubCasesChange?: (value: boolean) => void
 }
 
 export function CaseColumnPicker({
   dropdownDefinitions,
   fieldDefinitions,
   durationDefinitions,
-  visibleColumnIds,
-  onToggle,
+  visibleColumnIds = [],
+  onToggle = () => {},
+  includesSubCases = false,
+  hierarchyDisabled = false,
+  onIncludeSubCasesChange,
 }: CaseColumnPickerProps) {
   const [open, setOpen] = useState(false)
 
@@ -105,7 +112,7 @@ export function CaseColumnPicker({
   ).length
   const isAtLimit = selectedCount >= MAX_VISIBLE_COLUMNS
 
-  const hasOptions = knownColumnIds.size > 0
+  const hasOptions = knownColumnIds.size > 0 || Boolean(onIncludeSubCasesChange)
 
   if (!hasOptions) {
     return null
@@ -146,6 +153,27 @@ export function CaseColumnPicker({
             <CommandEmpty className="py-3 text-center text-xs text-muted-foreground">
               No columns found.
             </CommandEmpty>
+
+            {onIncludeSubCasesChange && (
+              <CommandGroup heading="View">
+                <CommandItem
+                  value="parents only top-level cases"
+                  onSelect={() =>
+                    !hierarchyDisabled &&
+                    onIncludeSubCasesChange(!includesSubCases)
+                  }
+                  disabled={hierarchyDisabled}
+                  className="group text-xs"
+                >
+                  <CheckIndicator
+                    checked={!includesSubCases}
+                    disabled={hierarchyDisabled}
+                  />
+                  <ListTreeIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">Parents only</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
 
             {dropdownDefinitions && dropdownDefinitions.length > 0 && (
               <CommandGroup heading="Dropdowns">

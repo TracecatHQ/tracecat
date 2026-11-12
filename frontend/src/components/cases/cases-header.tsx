@@ -724,13 +724,17 @@ export function CasesHeader({
               onChange={onSearchModeChange}
             />
           )}
-          {onToggleColumn && visibleColumnIds && (
+          {((onToggleColumn && visibleColumnIds) ||
+            onIncludeSubCasesChange) && (
             <CaseColumnPicker
               dropdownDefinitions={dropdownDefinitions}
               fieldDefinitions={fieldDefinitions}
               durationDefinitions={durationDefinitions}
               visibleColumnIds={visibleColumnIds}
               onToggle={onToggleColumn}
+              includesSubCases={includesSubCases}
+              hierarchyDisabled={Boolean(appliedSearchQuery)}
+              onIncludeSubCasesChange={onIncludeSubCasesChange}
             />
           )}
           <CaseMoreFiltersMenu
@@ -738,9 +742,6 @@ export function CasesHeader({
             dropdownFilters={dropdownFilters}
             onDropdownFilterChange={onDropdownFilterChange}
             onDropdownSortDirectionChange={onDropdownSortDirectionChange}
-            includesSubCases={includesSubCases}
-            hierarchyDisabled={Boolean(appliedSearchQuery)}
-            onIncludeSubCasesChange={onIncludeSubCasesChange}
           />
         </div>
       </header>

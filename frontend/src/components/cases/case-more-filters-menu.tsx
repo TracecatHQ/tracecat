@@ -6,7 +6,6 @@ import {
   CircleIcon,
   ListFilterIcon,
   ListIcon,
-  ListTreeIcon,
 } from "lucide-react"
 import type { CaseDropdownDefinitionRead } from "@/client"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
@@ -94,30 +93,23 @@ interface CaseMoreFiltersMenuProps {
   dropdownFilters: Record<string, DropdownFilterState>
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
-  includesSubCases: boolean
-  hierarchyDisabled: boolean
-  onIncludeSubCasesChange?: (value: boolean) => void
 }
 
-/** Filter icon menu for custom dropdown fields and the sub-case scope. */
+/** Filter icon menu for custom dropdown fields. */
 export function CaseMoreFiltersMenu({
   dropdownDefinitions,
   dropdownFilters,
   onDropdownFilterChange,
   onDropdownSortDirectionChange,
-  includesSubCases,
-  hierarchyDisabled,
-  onIncludeSubCasesChange,
 }: CaseMoreFiltersMenuProps) {
   const definitions = dropdownDefinitions ?? []
-  if (definitions.length === 0 && !onIncludeSubCasesChange) {
+  if (definitions.length === 0) {
     return null
   }
 
-  const activeCount =
-    definitions.filter((def) =>
-      isDropdownFilterActive(dropdownFilters[def.ref])
-    ).length + (onIncludeSubCasesChange && includesSubCases ? 1 : 0)
+  const activeCount = definitions.filter((def) =>
+    isDropdownFilterActive(dropdownFilters[def.ref])
+  ).length
 
   return (
     <DropdownMenu>
@@ -141,20 +133,6 @@ export function CaseMoreFiltersMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
-        {onIncludeSubCasesChange && (
-          <DropdownMenuCheckboxItem
-            checked={!includesSubCases}
-            disabled={hierarchyDisabled}
-            onSelect={(event) => event.preventDefault()}
-            onCheckedChange={(checked) => onIncludeSubCasesChange(!checked)}
-          >
-            <ListTreeIcon className="mr-2 size-3.5 text-muted-foreground" />
-            Parents only
-          </DropdownMenuCheckboxItem>
-        )}
-        {onIncludeSubCasesChange && definitions.length > 0 && (
-          <DropdownMenuSeparator />
-        )}
         {definitions.map((def) => (
           <DropdownFilterSubMenu
             key={def.id}

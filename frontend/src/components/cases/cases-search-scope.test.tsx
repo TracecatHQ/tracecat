@@ -262,7 +262,7 @@ describe("exact-first case search UI", () => {
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
   })
 
-  it("moves the parent scope into the filter menu and drops Conditions", async () => {
+  it("moves the parent scope into the Display menu and drops Conditions", async () => {
     const user = userEvent.setup()
     setup()
     await waitFor(() => expect(casesQueryCases).toHaveBeenCalledTimes(1))
@@ -276,12 +276,14 @@ describe("exact-first case search UI", () => {
     ).not.toBeInTheDocument()
     expect(screen.queryByText("Parents only")).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: "More filters" }))
-    const parentsOnly = await screen.findByRole("menuitemcheckbox", {
-      name: "Parents only",
-    })
-    expect(parentsOnly).toHaveAttribute("aria-checked", "true")
-    await user.click(parentsOnly)
+    expect(
+      screen.queryByRole("button", { name: "More filters" })
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: /Display/ }))
+    await user.click(
+      await screen.findByRole("option", { name: "Parents only" })
+    )
     await waitFor(() =>
       expect(casesQueryCases).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -289,9 +291,14 @@ describe("exact-first case search UI", () => {
         })
       )
     )
-    expect(
-      screen.getByRole("menuitemcheckbox", { name: "Parents only" })
-    ).toHaveAttribute("aria-checked", "false")
+    await user.click(screen.getByRole("option", { name: "Parents only" }))
+    await waitFor(() =>
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({ hierarchy: "top_level" }),
+        })
+      )
+    )
   })
 
   it("uses one search request for a complete ID and keeps the view constraints", async () => {
