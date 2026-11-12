@@ -1183,12 +1183,15 @@ class TestClaudeAgentRuntimeRun:
                     "ENABLE_TOOL_SEARCH": "true",
                     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
                 },
-                set(),
+                {"CLAUDE_CODE_ATTRIBUTION_HEADER"},
                 id="anthropic",
             ),
             pytest.param(
                 {"model_provider": "bedrock"},
-                {"ENABLE_TOOL_SEARCH": "false"},
+                {
+                    "ENABLE_TOOL_SEARCH": "false",
+                    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+                },
                 set(),
                 id="bedrock",
             ),
