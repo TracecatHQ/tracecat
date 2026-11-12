@@ -17,6 +17,13 @@ class ChannelBotProvider(StrEnum):
     SLACK = "slack"
 
 
+class ChannelBotTransport(StrEnum):
+    """How a bot's events arrive: Slack posts them, or a Socket Mode socket reads them."""
+
+    HTTP = "http"
+    SOCKET = "socket"
+
+
 def oauth_callback_path(provider: ChannelBotProvider) -> str:
     """The public path a provider sends the browser back to after OAuth consent."""
     return OAUTH_CALLBACK_ROUTE.format(provider=provider.value)
@@ -81,6 +88,7 @@ class SlackBotDetails(BaseModel):
     """Secrets are reported only as present or not."""
 
     provider: Literal[ChannelBotProvider.SLACK]
+    transport: ChannelBotTransport
     provider_enterprise_id: str | None
     provider_bot_user_id: str | None
     granted_scopes: list[str]
@@ -138,6 +146,14 @@ class SlackBotInstall(ChannelBotInstallBase):
     client_id: str = Field(..., min_length=1)
     client_secret: str = Field(..., min_length=1)
     signing_secret: str = Field(..., min_length=1)
+    app_token: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "App-level token with connections:write. Required when the deployment"
+            " receives Slack events over Socket Mode; rejected otherwise."
+        ),
+    )
     return_url: str = Field(..., min_length=1)
 
 

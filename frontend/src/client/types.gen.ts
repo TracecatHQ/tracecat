@@ -3549,6 +3549,11 @@ export type ChannelBotStatus =
   | "needs_reconnect"
 
 /**
+ * How a bot's events arrive: Slack posts them, or a Socket Mode socket reads them.
+ */
+export type ChannelBotTransport = "http" | "socket"
+
+/**
  * Supported external channel types.
  */
 export type ChannelType = "slack"
@@ -11092,6 +11097,7 @@ export type SlackBotCredentialsUpdate = {
  */
 export type SlackBotDetails = {
   provider: "slack"
+  transport: ChannelBotTransport
   provider_enterprise_id: string | null
   provider_bot_user_id: string | null
   granted_scopes: Array<string>
@@ -11121,6 +11127,10 @@ export type SlackBotInstall = {
   client_id: string
   client_secret: string
   signing_secret: string
+  /**
+   * App-level token with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.
+   */
+  app_token?: string | null
   return_url: string
 }
 

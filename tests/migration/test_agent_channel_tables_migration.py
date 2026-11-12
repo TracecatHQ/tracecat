@@ -18,7 +18,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider, ChannelBotStatus
+from tracecat.agent.channel_bots.schemas import (
+    ChannelBotProvider,
+    ChannelBotStatus,
+    ChannelBotTransport,
+)
 from tracecat.db.models import (
     AgentChannelBot,
     AgentChannelThread,
@@ -286,13 +290,21 @@ def test_bot_checks_match_the_api_enums(db_url: str, engine: Engine) -> None:
     with Session(engine) as db, db.begin():
         preset_id = _preset(db, ws)
         db.add_all(
-            _bot(ws, preset_id, provider=provider.value, status=status.value)
+            _bot(
+                ws,
+                preset_id,
+                provider=provider.value,
+                status=status.value,
+                transport=transport.value,
+            )
             for provider in ChannelBotProvider
             for status in ChannelBotStatus
+            for transport in ChannelBotTransport
         )
     for bogus, constraint in (
         ({"provider": "teams"}, "ck_agent_channel_bot_provider"),
         ({"status": "deleted"}, "ck_agent_channel_bot_status"),
+        ({"transport": "webhook"}, "ck_agent_channel_bot_transport"),
     ):
         with (
             pytest.raises(IntegrityError) as exc,
