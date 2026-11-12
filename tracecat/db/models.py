@@ -4704,7 +4704,12 @@ class AgentChannelBot(TimestampMixin, Base):
 
     __tablename__ = "agent_channel_bot"
     __table_args__ = (
-        UniqueConstraint("provider", "provider_tenant_id", "provider_app_id"),
+        UniqueConstraint(
+            "provider",
+            "provider_tenant_id",
+            "provider_app_id",
+            name="uq_agent_channel_bot_provider_tenant_app",
+        ),
         # Target of the thread link's composite key: a link never crosses workspaces.
         UniqueConstraint("id", "workspace_id"),
         CheckConstraint("provider IN ('slack')", name="provider"),
@@ -4734,7 +4739,7 @@ class AgentChannelBot(TimestampMixin, Base):
     provider_tenant_id: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
-        doc="Install team; null until installed (legacy token copies, reserved bots)",
+        doc="Install team; null until installed",
     )
     provider_enterprise_id: Mapped[str | None] = mapped_column(String, nullable=True)
     provider_app_id: Mapped[str | None] = mapped_column(

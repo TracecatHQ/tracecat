@@ -89,9 +89,7 @@ def upgrade() -> None:
             "provider",
             "provider_tenant_id",
             "provider_app_id",
-            name=op.f(
-                "uq_agent_channel_bot_provider_provider_tenant_id_provider_app_id"
-            ),
+            name=op.f("uq_agent_channel_bot_provider_tenant_app"),
         ),
     )
     op.create_index(
