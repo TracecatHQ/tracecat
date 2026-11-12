@@ -18,9 +18,7 @@ import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
@@ -145,15 +143,7 @@ export function CaseColumnPicker({
         sideOffset={4}
       >
         <Command>
-          <CommandInput
-            placeholder="Search columns..."
-            className="h-8 text-xs"
-          />
           <CommandList>
-            <CommandEmpty className="py-3 text-center text-xs text-muted-foreground">
-              No columns found.
-            </CommandEmpty>
-
             {onIncludeSubCasesChange && (
               <CommandGroup heading="View">
                 <CommandItem
