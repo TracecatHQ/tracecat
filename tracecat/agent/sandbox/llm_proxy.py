@@ -52,6 +52,7 @@ from tracecat.agent.error_policy import (
     agent_llm_budget_exceeded,
     agent_llm_gateway_auth_failed,
     agent_llm_gateway_unavailable,
+    agent_llm_gateway_unreachable,
     agent_llm_model_not_enabled,
     agent_llm_provider_auth_failed,
     agent_llm_provider_rejected_request,
@@ -439,6 +440,8 @@ def _transport_error_classification(
         return agent_llm_read_timeout(error)
     if route_is_direct:
         return user_agent_execution_failed(error, retryable=True)
+    if isinstance(error, httpx.ConnectError | httpx.ConnectTimeout):
+        return agent_llm_gateway_unreachable(error)
     if isinstance(error, httpx.TimeoutException):
         return agent_executor_timed_out(error)
     return agent_executor_unclassified(error)
@@ -1846,10 +1849,12 @@ class LLMSocketProxy:
                         httpx.RemoteProtocolError,
                         httpx.ReadError,
                         httpx.ConnectError,
+                        httpx.ConnectTimeout,
                     ) as exc:
                         # Nothing has reached the runtime yet. A pooled socket the
-                        # gateway closed while idle, or a gateway pod that stopped
-                        # listening during a rollout, fails here; retry it once.
+                        # gateway closed while idle, a gateway pod that stopped
+                        # listening during a rollout, or a connect that stalled
+                        # past its timeout fails here; retry it once.
                         if (
                             headers_received
                             or route.is_direct

@@ -384,7 +384,32 @@ async def test_forward_request_classifies_connect_failure_as_platform(
     assert attempts == 2
     assert len(errors) == 1
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
+    )
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_forward_request_classifies_connect_timeout_as_gateway_unavailable(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ConnectTimeout("connect timed out", request=request)
+
+    _, errors = await _forward(tmp_path, handler, _request())
+
+    assert attempts == 2
+    assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
+    )
+    assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
 _ROUTE_FAILURE_ATTRIBUTION = pytest.mark.parametrize(
@@ -2583,7 +2608,7 @@ async def test_forward_request_retries_managed_connect_error_once(
 
 
 @pytest.mark.anyio
-async def test_forward_request_does_not_retry_direct_connect_error(
+async def test_forward_request_retries_managed_connect_timeout_once(
     tmp_path: Path,
 ) -> None:
     attempts = 0
@@ -2591,13 +2616,38 @@ async def test_forward_request_does_not_retry_direct_connect_error(
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
         attempts += 1
-        raise httpx.ConnectError("connection refused", request=request)
+        if attempts == 1:
+            raise httpx.ConnectTimeout("connect timed out", request=request)
+        return httpx.Response(200, json={"ok": True})
+
+    response_text, errors = await _forward(tmp_path, handler)
+
+    assert attempts == 2
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert errors == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error_type", [httpx.ConnectError, httpx.ConnectTimeout], ids=["connect", "timeout"]
+)
+async def test_forward_request_does_not_retry_direct_connect_failure(
+    tmp_path: Path,
+    error_type: type[httpx.TransportError],
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise error_type("connect failed", request=request)
 
     request, plan = _direct_or_managed(True)
     _, errors = await _forward(tmp_path, handler, request, routing_plan=plan)
 
     assert attempts == 1
     assert len(errors) == 1
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
 
 
 @pytest.mark.anyio
