@@ -100,8 +100,8 @@ The [Cases actions](/automations/core-actions/case-actions/cases) support sub-ca
 | --- | --- |
 | `core.cases.search_cases` | Pass `parent_id` to list a parent's sub-cases. |
 | `core.cases.create_case` | Pass `parent_id` to create the case as a sub-case. |
-| `core.cases.set_case_parent` | Group up to 1000 cases under a top-level parent. |
-| `core.cases.clear_case_parent` | Return up to 1000 sub-cases to the top level. |
+| `core.cases.add_sub_cases` | Group up to 1000 cases under a top-level parent. |
+| `core.cases.remove_sub_cases` | Return up to 1000 sub-cases to the top level. |
 
 Each action accepts case UUIDs or short IDs such as `CASE-0042`.
 

@@ -384,20 +384,6 @@ async def test_sub_cases_require_case_addons(cases_service: CasesService) -> Non
     assert refreshed.parent_id == parent_id
 
 
-@pytest.mark.anyio
-async def test_parent_filter_rejects_top_level_hierarchy(
-    cases_service: CasesService,
-) -> None:
-    parent_id = (await _create(cases_service, "Parent")).id
-    # The shared request rejects conflicting constraints before query execution.
-    with pytest.raises(ValidationError, match="cannot be combined"):
-        await cases_service.search_cases(
-            CursorPaginationParams(limit=10),
-            parent_id=parent_id,
-            hierarchy="top_level",
-        )
-
-
 async def _required_resolution_dropdown(service: CasesService) -> None:
     definitions = CaseDropdownDefinitionsService(
         session=service.session, role=service.role
@@ -582,3 +568,17 @@ async def test_closing_parent_skips_sub_cases_without_case_addons(
     session.expire_all()
     child = await cases_service.get_case(child_id)
     assert child is not None and child.status == CaseStatus.NEW
+
+
+@pytest.mark.anyio
+async def test_parent_filter_rejects_top_level_hierarchy(
+    cases_service: CasesService,
+) -> None:
+    parent_id = (await _create(cases_service, "Parent")).id
+    # The shared request rejects conflicting constraints before query execution.
+    with pytest.raises(ValidationError, match="cannot be combined"):
+        await cases_service.search_cases(
+            CursorPaginationParams(limit=10),
+            parent_id=parent_id,
+            hierarchy="top_level",
+        )
