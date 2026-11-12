@@ -615,22 +615,26 @@ export function CasesHeader({
           </div>
         ),
       },
-      ...(workspaceMembers || []),
+      ...(workspaceMembers ?? []).sort((a, b) =>
+        a.label.localeCompare(b.label)
+      ),
     ]
   }, [members])
 
   const tagOptions = useMemo<FilterOption<string>[]>(() => {
     return (
-      tags?.map((tag) => ({
-        value: tag.ref,
-        label: tag.name,
-        renderIcon: () => (
-          <div
-            className="size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: tag.color || undefined }}
-          />
-        ),
-      })) ?? []
+      tags
+        ?.map((tag) => ({
+          value: tag.ref,
+          label: tag.name,
+          renderIcon: () => (
+            <div
+              className="size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: tag.color || undefined }}
+            />
+          ),
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)) ?? []
     )
   }, [tags])
 
@@ -741,7 +745,6 @@ export function CasesHeader({
             dropdownDefinitions={dropdownDefinitions}
             dropdownFilters={dropdownFilters}
             onDropdownFilterChange={onDropdownFilterChange}
-            onDropdownSortDirectionChange={onDropdownSortDirectionChange}
           />
         </div>
       </header>
@@ -810,9 +813,6 @@ export function CasesHeader({
             options={priorityOptions}
             mode={priorityMode}
             onModeChange={onPriorityModeChange}
-            showSort
-            sortDirection={prioritySortDirection}
-            onSortDirectionChange={onPrioritySortDirectionChange}
           />
 
           <FilterMultiSelect
@@ -823,9 +823,6 @@ export function CasesHeader({
             options={severityOptions}
             mode={severityMode}
             onModeChange={onSeverityModeChange}
-            showSort
-            sortDirection={severitySortDirection}
-            onSortDirectionChange={onSeveritySortDirectionChange}
           />
 
           <FilterMultiSelect
@@ -837,9 +834,6 @@ export function CasesHeader({
             mode={assigneeMode}
             onModeChange={onAssigneeModeChange}
             allowExclude={false}
-            showSort
-            sortDirection={assigneeSortDirection}
-            onSortDirectionChange={onAssigneeSortDirectionChange}
             emptyMessage={
               members && members.length > 0
                 ? "No matching assignees."
@@ -856,9 +850,6 @@ export function CasesHeader({
             mode={tagMode}
             onModeChange={onTagModeChange}
             allowExclude={false}
-            showSort
-            sortDirection={tagSortDirection}
-            onSortDirectionChange={onTagSortDirectionChange}
             emptyMessage={
               tags && tags.length > 0 ? "No matching tags." : "No tags found."
             }
@@ -881,11 +872,6 @@ export function CasesHeader({
                   mode={state.mode}
                   onModeChange={(mode) => onDropdownModeChange(def.ref, mode)}
                   allowExclude={false}
-                  showSort={def.is_ordered}
-                  sortDirection={state.sortDirection}
-                  onSortDirectionChange={(dir) =>
-                    onDropdownSortDirectionChange(def.ref, dir)
-                  }
                 />
               )
             })}

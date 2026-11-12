@@ -1,18 +1,9 @@
 "use client"
 
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  CircleIcon,
-  ListFilterIcon,
-  ListIcon,
-} from "lucide-react"
+import { CircleIcon, ListFilterIcon, ListIcon } from "lucide-react"
 import type { CaseDropdownDefinitionRead } from "@/client"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
-import type {
-  FilterOption,
-  SortDirection,
-} from "@/components/filters/filter-multi-select"
+import type { FilterOption } from "@/components/filters/filter-multi-select"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -81,18 +72,17 @@ export function DropdownDefinitionIcon({
   )
 }
 
-/** Whether a custom dropdown filter narrows or sorts the current view. */
+/** Whether a custom dropdown filter narrows the current view. */
 export function isDropdownFilterActive(
   state: DropdownFilterState | undefined
 ): boolean {
-  return Boolean(state && (state.values.length > 0 || state.sortDirection))
+  return Boolean(state && state.values.length > 0)
 }
 
 interface CaseMoreFiltersMenuProps {
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   dropdownFilters: Record<string, DropdownFilterState>
   onDropdownFilterChange: (ref: string, values: string[]) => void
-  onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
 }
 
 /** Filter icon menu for custom dropdown fields. */
@@ -100,7 +90,6 @@ export function CaseMoreFiltersMenu({
   dropdownDefinitions,
   dropdownFilters,
   onDropdownFilterChange,
-  onDropdownSortDirectionChange,
 }: CaseMoreFiltersMenuProps) {
   const definitions = dropdownDefinitions ?? []
   if (definitions.length === 0) {
@@ -139,9 +128,6 @@ export function CaseMoreFiltersMenu({
             definition={def}
             state={dropdownFilters[def.ref]}
             onChange={(values) => onDropdownFilterChange(def.ref, values)}
-            onSortDirectionChange={(direction) =>
-              onDropdownSortDirectionChange(def.ref, direction)
-            }
           />
         ))}
       </DropdownMenuContent>
@@ -153,15 +139,12 @@ function DropdownFilterSubMenu({
   definition,
   state,
   onChange,
-  onSortDirectionChange,
 }: {
   definition: CaseDropdownDefinitionRead
   state: DropdownFilterState | undefined
   onChange: (values: string[]) => void
-  onSortDirectionChange: (direction: SortDirection) => void
 }) {
   const values = state?.values ?? []
-  const sortDirection = state?.sortDirection ?? null
   const valueSet = new Set(values)
   const options = getDropdownFilterOptions(definition)
 
@@ -177,28 +160,6 @@ function DropdownFilterSubMenu({
         )}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="max-h-80 w-52 overflow-y-auto">
-        {definition.is_ordered && (
-          <>
-            {(["asc", "desc"] as const).map((direction) => (
-              <DropdownMenuCheckboxItem
-                key={direction}
-                checked={sortDirection === direction}
-                onSelect={(event) => event.preventDefault()}
-                onCheckedChange={(checked) =>
-                  onSortDirectionChange(checked ? direction : null)
-                }
-              >
-                {direction === "asc" ? (
-                  <ArrowUpIcon className="mr-2 size-3.5 text-muted-foreground" />
-                ) : (
-                  <ArrowDownIcon className="mr-2 size-3.5 text-muted-foreground" />
-                )}
-                {direction === "asc" ? "Sort ascending" : "Sort descending"}
-              </DropdownMenuCheckboxItem>
-            ))}
-            <DropdownMenuSeparator />
-          </>
-        )}
         {options.length === 0 && (
           <p className="px-2 py-1 text-xs text-muted-foreground">No options</p>
         )}

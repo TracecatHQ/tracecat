@@ -1,13 +1,7 @@
 "use client"
 
 import { Cross2Icon } from "@radix-ui/react-icons"
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  ChevronDown,
-  Minus,
-  Plus,
-} from "lucide-react"
+import { ChevronDown, Minus, Plus } from "lucide-react"
 import {
   type ComponentType,
   type CSSProperties,
@@ -58,17 +52,11 @@ interface FilterMultiSelectProps<T extends string> {
   onModeChange: (mode: FilterMode) => void
   className?: string
   emptyMessage?: string
-  /** Enable sort controls in the dropdown */
-  showSort?: boolean
-  /** Current sort direction (null means no sorting applied) */
-  sortDirection?: SortDirection
-  /** Callback when sort direction changes */
-  onSortDirectionChange?: (direction: SortDirection) => void
   allowExclude?: boolean
   modeLabel?: string
 }
 
-/** Dropdown for filters and optional sorting of their associated column. */
+/** Multi-select dropdown for filtering by a column's values. */
 export function FilterMultiSelect<T extends string>({
   placeholder,
   icon: Icon,
@@ -80,9 +68,6 @@ export function FilterMultiSelect<T extends string>({
   onModeChange,
   className,
   emptyMessage = "No results found.",
-  showSort = false,
-  sortDirection = null,
-  onSortDirectionChange,
   allowExclude = true,
   modeLabel,
 }: FilterMultiSelectProps<T>) {
@@ -90,12 +75,6 @@ export function FilterMultiSelect<T extends string>({
   const valueSet = useMemo(() => new Set(value), [value])
 
   const selectedCount = value.length
-
-  const handleSortClick = (direction: "asc" | "desc") => {
-    if (!onSortDirectionChange) return
-    // Toggle off if already selected, otherwise set the direction
-    onSortDirectionChange(sortDirection === direction ? null : direction)
-  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -105,7 +84,6 @@ export function FilterMultiSelect<T extends string>({
           className={cn(
             "flex h-6 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors",
             "hover:bg-muted/50",
-            sortDirection && "border-primary/50 bg-primary/5",
             className
           )}
         >
@@ -116,15 +94,6 @@ export function FilterMultiSelect<T extends string>({
           {selectedCount > 0 && (
             <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">
               {selectedCount}
-            </span>
-          )}
-          {sortDirection && (
-            <span className="ml-0.5">
-              {sortDirection === "asc" ? (
-                <ArrowUpIcon className="size-3 text-muted-foreground" />
-              ) : (
-                <ArrowDownIcon className="size-3 text-muted-foreground" />
-              )}
             </span>
           )}
           <ChevronDown className="size-3 opacity-50" />
@@ -167,41 +136,6 @@ export function FilterMultiSelect<T extends string>({
             ))}
           </div>
         </div>
-        {showSort && (
-          <div className="flex items-center justify-between border-b px-2 py-1.5">
-            <span className="text-[11px] font-medium tracking-wide text-muted-foreground">
-              Sort
-            </span>
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                className={cn(
-                  "flex size-6 items-center justify-center rounded text-xs transition-colors",
-                  sortDirection === "asc"
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/50"
-                )}
-                aria-label="Sort ascending"
-                onClick={() => handleSortClick("asc")}
-              >
-                <ArrowUpIcon className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "flex size-6 items-center justify-center rounded text-xs transition-colors",
-                  sortDirection === "desc"
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/50"
-                )}
-                aria-label="Sort descending"
-                onClick={() => handleSortClick("desc")}
-              >
-                <ArrowDownIcon className="size-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
         <Command>
           <CommandInput
             placeholder={`Search ${placeholder.toLowerCase()}...`}
