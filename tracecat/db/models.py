@@ -4700,7 +4700,7 @@ class AgentChannelToken(WorkspaceModel):
 
 
 class AgentChannelBot(TimestampMixin, Base):
-    """One installed provider app (a Slack bot), targeting one agent preset."""
+    """One installed provider app (a Slack or Teams bot), targeting one agent preset."""
 
     __tablename__ = "agent_channel_bot"
     __table_args__ = (
@@ -4712,7 +4712,7 @@ class AgentChannelBot(TimestampMixin, Base):
         ),
         # Target of the thread link's composite key: a link never crosses workspaces.
         UniqueConstraint("id", "workspace_id"),
-        CheckConstraint("provider IN ('slack')", name="provider"),
+        CheckConstraint("provider IN ('slack', 'teams')", name="provider"),
         CheckConstraint(
             "status IN ('active', 'paused', 'disconnected', 'needs_reconnect')",
             name="status",
@@ -4733,7 +4733,7 @@ class AgentChannelBot(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    provider: Mapped[Literal["slack"]] = mapped_column(String, nullable=False)
+    provider: Mapped[Literal["slack", "teams"]] = mapped_column(String, nullable=False)
     status: Mapped[Literal["active", "paused", "disconnected", "needs_reconnect"]] = (
         mapped_column(String, nullable=False, server_default="active")
     )

@@ -14,6 +14,7 @@ import httpx
 import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from tests._route_utils import iter_effective_api_routes
 from tracecat import config
@@ -31,6 +32,8 @@ from tracecat.agent.channel_bots.schemas import (
     ChannelBotTransport,
     SlackBotDetails,
     SlackBotInstall,
+    TeamsBotDetails,
+    TeamsBotInstall,
     oauth_callback_path,
 )
 from tracecat.api import extensions
@@ -79,6 +82,13 @@ INSTALL_BODY = {
     "client_secret": "secret",
     "signing_secret": "signing",
     "return_url": f"{APP_URL}/agents/1",
+}
+TEAMS_INSTALL_BODY = {
+    "provider": "teams",
+    "agent_preset_id": str(uuid.uuid4()),
+    "app_id": str(uuid.uuid4()),
+    "tenant_id": str(uuid.uuid4()),
+    "client_secret": "secret",
 }
 
 
@@ -201,6 +211,26 @@ def bot_read() -> AgentChannelBotRead:
             has_signing_secret=True,
             has_client_secret=True,
             oauth_redirect_url="https://api.example.com/agent/channel-bots/slack/oauth/callback",
+        ),
+    )
+
+
+def teams_bot_read() -> AgentChannelBotRead:
+    now = datetime.now(UTC)
+    app_id, tenant_id = TEAMS_INSTALL_BODY["app_id"], TEAMS_INSTALL_BODY["tenant_id"]
+    return AgentChannelBotRead(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        agent_preset_id=uuid.UUID(TEAMS_INSTALL_BODY["agent_preset_id"]),
+        provider=ChannelBotProvider.TEAMS,
+        status=ChannelBotStatus.ACTIVE,
+        provider_tenant_id=tenant_id,
+        provider_app_id=app_id,
+        endpoint_url="https://api.example.com/agent/channels/teams/x",
+        created_at=now,
+        updated_at=now,
+        details=TeamsBotDetails(
+            provider=ChannelBotProvider.TEAMS, has_client_secret=True
         ),
     )
 
@@ -387,6 +417,43 @@ def test_install_hands_the_parsed_provider_request_to_the_admin(
     )
 
 
+def test_teams_install_reaches_the_admin_and_reads_back_teams_details(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    expected = ChannelBotInstallResult(bot=teams_bot_read(), authorization_url=None)
+    admin.install.return_value = expected
+
+    response = client.post("/agent/channel-bots/install", json=TEAMS_INSTALL_BODY)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == expected.model_dump(mode="json")
+    assert body["bot"]["details"] == {"provider": "teams", "has_client_secret": True}
+    session, role, params = admin.install.await_args.args
+    assert (session, role) == (SESSION, ROLE)
+    assert isinstance(params, TeamsBotInstall)
+    assert params == TeamsBotInstall.model_validate(TEAMS_INSTALL_BODY)
+
+
+@pytest.mark.parametrize(
+    ("provider", "details"),
+    [
+        (
+            ChannelBotProvider.SLACK,
+            TeamsBotDetails(provider=ChannelBotProvider.TEAMS, has_client_secret=True),
+        ),
+        (ChannelBotProvider.TEAMS, bot_read().details),
+    ],
+    ids=["slack-bot-teams-details", "teams-bot-slack-details"],
+)
+def test_details_for_another_provider_are_refused(
+    provider: ChannelBotProvider, details: SlackBotDetails | TeamsBotDetails
+) -> None:
+    fields = bot_read().model_dump() | {"provider": provider, "details": details}
+    with pytest.raises(ValidationError, match="details must be for the bot's provider"):
+        AgentChannelBotRead.model_validate(fields)
+
+
 def test_install_refuses_a_blank_app_token(
     client: TestClient, admin: AsyncMock
 ) -> None:
@@ -483,6 +550,13 @@ def test_a_bad_cursor_keeps_its_error_code(
             id="credentials",
         ),
         pytest.param("POST", "/install", {**INSTALL_BODY, "x": 1}, "x", id="install"),
+        pytest.param(
+            "POST",
+            "/install",
+            {**TEAMS_INSTALL_BODY, "x": 1},
+            "x",
+            id="teams-install",
+        ),
     ],
 )
 def test_request_models_reject_unknown_fields(

@@ -3524,9 +3524,9 @@ export type CatalogMappingSelection = {
 
 export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate
 
-export type ChannelBotDetails = SlackBotDetails
+export type ChannelBotDetails = SlackBotDetails | TeamsBotDetails
 
-export type ChannelBotInstall = SlackBotInstall
+export type ChannelBotInstall = SlackBotInstall | TeamsBotInstall
 
 export type ChannelBotInstallResult = {
   bot: AgentChannelBotRead
@@ -3536,7 +3536,7 @@ export type ChannelBotInstallResult = {
   authorization_url: string | null
 }
 
-export type ChannelBotProvider = "slack"
+export type ChannelBotProvider = "slack" | "teams"
 
 /**
  * The statuses an admin sets directly; the others follow install and uninstall.
@@ -11092,7 +11092,8 @@ export type SkillVersionReadMinimal = {
 /**
  * Slack app credentials to replace; unset fields keep their stored value.
  *
- * No bot token: only OAuth sets one, together with the install it belongs to.
+ * No bot token: only OAuth sets one, together with the install it belongs to. A Teams
+ * bot's credentials are replaced by installing it again.
  */
 export type SlackBotCredentialsUpdate = {
   provider: "slack"
@@ -12101,6 +12102,35 @@ export type TaskWorkflowChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Secrets are reported only as present or not.
+ */
+export type TeamsBotDetails = {
+  provider: "teams"
+  has_client_secret: boolean
+}
+
+/**
+ * Connect a customer-owned Azure Bot, or replace a Teams bot's credentials.
+ */
+export type TeamsBotInstall = {
+  /**
+   * Bot to install into; it must already target agent_preset_id. If omitted, creates one.
+   */
+  bot_id?: string | null
+  agent_preset_id: string
+  provider: "teams"
+  /**
+   * The Azure Bot's Microsoft App ID.
+   */
+  app_id: string
+  /**
+   * The Microsoft Entra tenant the single-tenant app belongs to.
+   */
+  tenant_id: string
+  client_secret: string
 }
 
 export type TemplateAction = {
