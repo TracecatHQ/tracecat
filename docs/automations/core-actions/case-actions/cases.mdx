@@ -839,6 +839,7 @@ Group cases as sub-cases of a top-level parent case, e.g. to collect duplicates 
 
 The result has one item per case with `success` and `error`, plus
 `succeeded` and `failed` counts. A case that fails does not stop the others.
+An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
 If `case_ids` includes the parent case, that one item fails with
 "A case cannot be its own parent" and the other cases are still grouped.
 
@@ -876,6 +877,7 @@ Remove cases from their parent case, returning them to the top level. Returns a 
 
 The result has one item per case with `success` and `error`, plus
 `succeeded` and `failed` counts. A case that fails does not stop the others.
+An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
 
 ### Inputs
 
