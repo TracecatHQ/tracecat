@@ -8,6 +8,7 @@ export type SettingsSection =
   | "security"
   | "workspace-general"
   | "workspace-runtime"
+  | "workspace-cases"
   | "workspace-models"
   | "workspace-files"
 
