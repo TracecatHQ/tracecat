@@ -2213,6 +2213,9 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         try:
             response = await client.request(method, target, params=params, json=body)
         except httpx.HTTPError as e:
+            self.logger.warning(
+                "Bitbucket Cloud API request failed", error_type=type(e).__name__
+            )
             # The exception text can name the host; keep it out of the user message.
             raise BitbucketTransportError(
                 "Bitbucket Cloud API request failed: could not reach Bitbucket."
@@ -2596,6 +2599,9 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
         try:
             response = await client.request(method, target, params=params, json=body)
         except httpx.HTTPError as e:
+            self.logger.warning(
+                "Bitbucket Data Center API request failed", error_type=type(e).__name__
+            )
             # The exception text can name the host; keep it out of the user message.
             raise BitbucketTransportError(
                 "Bitbucket Data Center API request failed: could not reach the"
