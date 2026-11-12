@@ -130,6 +130,7 @@ from tracecat.db.models import (
     CaseCommentMention,
     CaseDropdownDefinition,
     CaseDropdownOption,
+    CaseDropdownValue,
     CaseFields,
     CaseTask,
     User,
@@ -201,6 +202,7 @@ def _is_field_value_empty(value: Any) -> bool:
 
 CASE_BATCH_LOCK_TIMEOUT = "5s"
 CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
+CASE_DONE_STATUSES = (CaseStatus.CLOSED, CaseStatus.RESOLVED)
 PENDING_CASE_NUMBER = 0
 
 
@@ -946,9 +948,11 @@ class CasesService(BaseWorkspaceService):
                 )
 
         # Check for status changes
+        closing = False
         if new_status := set_fields.pop("status", None):
             old_status = case.status
             if old_status != new_status:
+                closing = new_status in CASE_DONE_STATUSES
                 case.status = new_status
                 # Record status change with detailed information about previous and new status
                 if new_status == CaseStatus.CLOSED:
@@ -1069,6 +1073,147 @@ class CasesService(BaseWorkspaceService):
         # If there are any remaining changed fields, record a general update activity
         for event in events:
             await self.events.create_event(case=case, event=event)
+
+        if closing and case.parent_id is None:
+            await self._close_sub_cases_with_parent(case, params)
+
+    async def _close_sub_cases_with_parent(
+        self, parent: Case, params: CaseUpdate
+    ) -> None:
+        """Copy a closing parent's status and resolution to its open sub-cases.
+
+        Runs only when the workspace enables ``close_sub_cases_with_parent``.
+        Sub-cases get the parent's new status, any fields and dropdown values
+        set in the same update, and the parent's values for fields and
+        dropdowns required on closure. Sub-cases that are already closed or
+        resolved are left alone.
+
+        Raises:
+            TracecatValidationError: If any sub-case cannot be updated. The
+                caller's transaction must roll back so no case changes.
+            TracecatConflictError: If the sub-cases cannot be locked in time.
+        """
+        settings = await self.session.scalar(
+            select(Workspace.settings).where(Workspace.id == self.workspace_id)
+        )
+        if not (settings or {}).get("close_sub_cases_with_parent"):
+            return
+        if not await self.has_entitlement(Entitlement.CASE_ADDONS):
+            return
+
+        try:
+            await self.session.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
+            )
+            # Locking the parent blocks new sub-cases until this commits.
+            await self.session.execute(
+                select(Case.id)
+                .where(Case.id == parent.id)
+                .with_for_update(key_share=True)
+            )
+            sub_case_ids = list(
+                (
+                    await self.session.scalars(
+                        select(Case.id).where(
+                            Case.workspace_id == self.workspace_id,
+                            Case.parent_id == parent.id,
+                            Case.status.not_in(CASE_DONE_STATUSES),
+                        )
+                    )
+                ).all()
+            )
+            if not sub_case_ids:
+                return
+            locked = await self._lock_cases(
+                sub_case_ids, load_dropdown_values=True, key_share=True
+            )
+        except DBAPIError as exc:
+            if (
+                getattr(exc.orig, "sqlstate", None)
+                == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
+            ):
+                raise TracecatConflictError(
+                    "Timed out waiting to lock the case's sub-cases"
+                ) from exc
+            raise
+        sub_cases = {
+            case_id: case
+            for case_id, case in locked.items()
+            if case.status not in CASE_DONE_STATUSES
+        }
+        sub_case_params = await self._sub_case_closure_update(parent, params)
+
+        async def apply(sub_case: Case) -> None:
+            await self._apply_case_update(sub_case, sub_case_params)
+            await self.agent_session_interactions.record_from_context(
+                case_id=sub_case.id,
+                operation=CaseAgentSessionInteractionOperation.UPDATE,
+            )
+
+        results = await self._apply_to_each_case(list(sub_cases), sub_cases, apply)
+        if failures := [
+            f"{sub_cases[result.case_id].short_id}: {result.error}"
+            for result in results
+            if not result.success
+        ]:
+            raise TracecatValidationError(
+                "Could not close sub-cases with their parent, so no cases were "
+                "changed. " + "; ".join(failures)
+            )
+
+    async def _sub_case_closure_update(
+        self, parent: Case, params: CaseUpdate
+    ) -> CaseUpdate:
+        """Build the update that closes a sub-case the same way as its parent."""
+        fields = dict(params.fields or {})
+        required_fields = [
+            name
+            for name, meta in (await self.fields.get_field_schema()).items()
+            if meta.get("required_on_closure") and name not in fields
+        ]
+        if required_fields:
+            parent_fields = await self.fields.get_fields(parent) or {}
+            for name in required_fields:
+                value = parent_fields.get(name)
+                if not _is_field_value_empty(value):
+                    fields[name] = value
+
+        dropdown_values = list(params.dropdown_values or [])
+        set_definition_ids = {v.definition_id for v in dropdown_values}
+        set_definition_refs = {v.definition_ref for v in dropdown_values}
+        parent_selections = await self.session.execute(
+            select(
+                CaseDropdownDefinition.id,
+                CaseDropdownDefinition.ref,
+                CaseDropdownValue.option_id,
+            )
+            .join(
+                CaseDropdownValue,
+                CaseDropdownValue.definition_id == CaseDropdownDefinition.id,
+            )
+            .where(
+                CaseDropdownDefinition.workspace_id == self.workspace_id,
+                CaseDropdownDefinition.required_on_closure.is_(True),
+                CaseDropdownValue.case_id == parent.id,
+                CaseDropdownValue.option_id.is_not(None),
+            )
+        )
+        for definition_id, definition_ref, option_id in parent_selections.tuples():
+            if (
+                definition_id in set_definition_ids
+                or definition_ref in set_definition_refs
+            ):
+                continue
+            dropdown_values.append(
+                CaseDropdownValueInput(definition_id=definition_id, option_id=option_id)
+            )
+
+        update: dict[str, Any] = {"status": parent.status}
+        if fields:
+            update["fields"] = fields
+        if dropdown_values:
+            update["dropdown_values"] = dropdown_values
+        return CaseUpdate.model_validate(update)
 
     async def _audit_batch_event(
         self,
@@ -1234,7 +1379,12 @@ class CasesService(BaseWorkspaceService):
                 with queue.checkpointed():
                     async with self.session.begin_nested():
                         await apply(case)
-            except (TracecatNotFoundError, TracecatValidationError, ValueError) as exc:
+            except (
+                TracecatConflictError,
+                TracecatNotFoundError,
+                TracecatValidationError,
+                ValueError,
+            ) as exc:
                 error = str(exc)
             except DBAPIError:
                 error = "Database operation failed"
@@ -1324,95 +1474,6 @@ class CasesService(BaseWorkspaceService):
     async def batch_clear_parent(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
         """Remove cases from their parent case, returning them to the top level."""
         return await self._change_parent(case_ids, None)
-
-    @require_scope("case:update")
-    @requires_entitlement(Entitlement.CASE_ADDONS)
-    async def update_case_and_sub_cases(self, case: Case, params: CaseUpdate) -> Case:
-        """Update a case and apply its status, fields, and dropdown values to its sub-cases.
-
-        Runs in one transaction: if any sub-case cannot be updated (for example
-        a field required on closure is empty), nothing changes. Other fields
-        of ``params`` update only the parent.
-
-        Raises:
-            TracecatValidationError: If the parent or any sub-case update fails.
-            TracecatConflictError: If the cases cannot be locked in time.
-        """
-        sub_case_params = CaseUpdate.model_validate(
-            params.model_dump(
-                include={"status", "fields", "dropdown_values"}, exclude_unset=True
-            )
-        )
-        try:
-            await self.session.execute(
-                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
-            )
-            try:
-                # Locking the parent blocks new sub-cases until this commits.
-                await self._lock_cases([case.id], key_share=True)
-                sub_case_ids = list(
-                    (
-                        await self.session.scalars(
-                            select(Case.id).where(
-                                Case.workspace_id == self.workspace_id,
-                                Case.parent_id == case.id,
-                            )
-                        )
-                    ).all()
-                )
-                sub_cases = (
-                    await self._lock_cases(
-                        sub_case_ids,
-                        load_dropdown_values=sub_case_params.status
-                        in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
-                        key_share=True,
-                    )
-                    if sub_case_ids and sub_case_params.model_fields_set
-                    else {}
-                )
-            except DBAPIError as exc:
-                if (
-                    getattr(exc.orig, "sqlstate", None)
-                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
-                ):
-                    raise TracecatConflictError(
-                        "Timed out waiting to lock the case and its sub-cases"
-                    ) from exc
-                raise
-            if {"summary", "description"} & params.model_fields_set:
-                await self.versions.lock_case(case.id)
-                await self.session.refresh(
-                    case, attribute_names=["summary", "description"]
-                )
-            await self._apply_case_update(case, params)
-            await self.agent_session_interactions.record_from_context(
-                case_id=case.id,
-                operation=CaseAgentSessionInteractionOperation.UPDATE,
-            )
-
-            async def apply(sub_case: Case) -> None:
-                await self._apply_case_update(sub_case, sub_case_params)
-                await self.agent_session_interactions.record_from_context(
-                    case_id=sub_case.id,
-                    operation=CaseAgentSessionInteractionOperation.UPDATE,
-                )
-
-            results = await self._apply_to_each_case(list(sub_cases), sub_cases, apply)
-            if failures := [
-                f"{sub_cases[result.case_id].short_id}: {result.error}"
-                for result in results
-                if not result.success
-            ]:
-                raise TracecatValidationError(
-                    "Could not update sub-cases, so no cases were changed. "
-                    + "; ".join(failures)
-                )
-            await self.session.commit()
-            await self.session.refresh(case)
-            return case
-        except Exception:
-            await self.session.rollback()
-            raise
 
     @require_scope("case:delete")
     async def batch_delete_cases(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:

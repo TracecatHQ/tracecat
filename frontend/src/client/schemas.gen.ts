@@ -46865,6 +46865,17 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Validate Attachment Magic Number",
     },
+    close_sub_cases_with_parent: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Sub Cases With Parent",
+    },
     effective_allowed_attachment_extensions: {
       items: {
         type: "string",
@@ -46988,6 +46999,19 @@ export const $WorkspaceSettingsUpdate = {
       title: "Validate Attachment Magic Number",
       description:
         "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    },
+    close_sub_cases_with_parent: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Sub Cases With Parent",
+      description:
+        "When a parent case is closed or resolved, apply its status and closure values to its open sub-cases. Defaults to false.",
     },
   },
   type: "object",

@@ -1393,8 +1393,6 @@ class CaseUpdateWithTags(CaseUpdate):
     tags: list[str] | None = None
     create_missing_tags: bool = False
     append_description: bool = False
-    cascade_to_sub_cases: bool = False
-    """Also apply ``status``, ``fields``, and ``dropdown_values`` to sub-cases."""
 
 
 class CaseSetParentRequest(Schema):
@@ -1574,12 +1572,7 @@ async def update_case_simple(
         update_params["payload"] = params.payload
 
     try:
-        if params.cascade_to_sub_cases:
-            updated_case = await service.update_case_and_sub_cases(
-                case, CaseUpdate(**update_params)
-            )
-        else:
-            updated_case = await service.update_case(case, CaseUpdate(**update_params))
+        updated_case = await service.update_case(case, CaseUpdate(**update_params))
 
         # Update tags if provided (replace all existing tags)
         if params.tags is not None:

@@ -48,6 +48,12 @@ Pass the required values in the same call:
 If a value is still missing, the action fails with a `closure_requirements_not_met` error that lists `missing_fields` and `missing_dropdowns` by name.
 The case keeps its previous status.
 
+## Close sub-cases with their parent
+
+Turn on `Close sub-cases with parent` at the top of the closure requirements view to close a parent's open sub-cases when the parent is closed or resolved.
+Sub-cases get the parent's values for required fields and dropdowns.
+See [Sub-cases](/automations/cases/sub-cases#closing-a-parent-case) for details.
+
 ## What counts as a value
 
 Tracecat treats `null`, whitespace-only text, empty lists, and empty objects as missing.

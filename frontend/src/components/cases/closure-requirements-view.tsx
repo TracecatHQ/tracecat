@@ -6,6 +6,7 @@ import {
   type CaseFieldReadMinimal,
   caseDropdownsUpdateDropdownDefinition,
   casesUpdateField,
+  type WorkspaceRead,
 } from "@/client"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
@@ -23,7 +24,11 @@ import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
-import { useCaseDropdownDefinitions, useCaseFields } from "@/lib/hooks"
+import {
+  useCaseDropdownDefinitions,
+  useCaseFields,
+  useWorkspaceSettings,
+} from "@/lib/hooks"
 import { useMutation, useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -240,6 +245,7 @@ export function ClosureRequirementsView() {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
+          <CloseSubCasesSetting workspace={workspace} />
           <Empty className="h-full">
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -283,6 +289,7 @@ export function ClosureRequirementsView() {
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
+        <CloseSubCasesSetting workspace={workspace} />
         <div className="space-y-4">
           <DataTable
             data={rows}
@@ -351,6 +358,30 @@ export function ClosureRequirementsView() {
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+function CloseSubCasesSetting({ workspace }: { workspace: WorkspaceRead }) {
+  const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-md border p-4">
+      <div className="space-y-1">
+        <div className="text-sm font-medium">Close sub-cases with parent</div>
+        <div className="text-xs text-muted-foreground">
+          When a parent case is closed or resolved, apply its status and
+          resolution to its open sub-cases.
+        </div>
+      </div>
+      <Switch
+        checked={workspace.settings?.close_sub_cases_with_parent ?? false}
+        disabled={isUpdating}
+        onCheckedChange={(checked) =>
+          updateWorkspace({
+            settings: { close_sub_cases_with_parent: checked },
+          })
+        }
+      />
     </div>
   )
 }

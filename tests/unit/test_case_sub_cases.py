@@ -25,7 +25,7 @@ from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, Case
 from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
-from tracecat.db.models import Case, CaseEvent
+from tracecat.db.models import Case, CaseEvent, Workspace
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatNotFoundError,
@@ -417,104 +417,168 @@ async def _required_resolution_dropdown(service: CasesService) -> None:
     )
 
 
+async def _enable_close_sub_cases(session: AsyncSession, service: CasesService) -> None:
+    await session.execute(
+        sa.update(Workspace)
+        .where(Workspace.id == service.workspace_id)
+        .values(settings={"close_sub_cases_with_parent": True})
+    )
+    await session.commit()
+
+
+def _resolve_as_duplicate() -> list[CaseDropdownValueInput]:
+    return [CaseDropdownValueInput(definition_ref="resolution", option_ref="duplicate")]
+
+
+async def _resolution(
+    session: AsyncSession, role: Role, case_id: uuid.UUID
+) -> str | None:
+    values = CaseDropdownValuesService(session=session, role=role)
+    return next(
+        (v.option_ref for v in await values.list_values_for_case(case_id)), None
+    )
+
+
 @pytest.mark.anyio
-async def test_update_case_and_sub_cases_cascades_status_and_resolution(
+async def test_closing_parent_leaves_sub_cases_open_by_default(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    parent = await _create(cases_service, "Parent")
+    child_id = (await _create(cases_service, "Child", parent_id=parent.id)).id
+
+    await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.CLOSED))
+
+    session.expire_all()
+    child = await cases_service.get_case(child_id)
+    assert child is not None and child.status == CaseStatus.NEW
+
+
+@pytest.mark.anyio
+async def test_closing_parent_closes_open_sub_cases_when_enabled(
     cases_service: CasesService, session: AsyncSession
 ) -> None:
     await _required_resolution_dropdown(cases_service)
+    await _enable_close_sub_cases(session, cases_service)
     parent = await _create(cases_service, "Parent")
-    children = [
-        await _create(cases_service, f"Child {i}", parent_id=parent.id)
+    open_ids = [
+        (await _create(cases_service, f"Child {i}", parent_id=parent.id)).id
         for i in range(2)
     ]
-    other = await _create(cases_service, "Other")
-    case_ids = [parent.id, *(c.id for c in children)]
-    other_id = other.id
+    resolved = await _create(cases_service, "Resolved child", parent_id=parent.id)
+    resolved_id = resolved.id
+    await cases_service.update_case(
+        resolved,
+        CaseUpdate(status=CaseStatus.RESOLVED, dropdown_values=_resolve_as_duplicate()),
+    )
+    other_id = (await _create(cases_service, "Other")).id
+    parent_id = parent.id
 
-    await cases_service.update_case_and_sub_cases(
+    await cases_service.update_case(
         parent,
         CaseUpdate(
             status=CaseStatus.CLOSED,
             priority=CasePriority.HIGH,
-            dropdown_values=[
-                CaseDropdownValueInput(
-                    definition_ref="resolution", option_ref="duplicate"
-                )
-            ],
+            dropdown_values=_resolve_as_duplicate(),
         ),
     )
 
     session.expire_all()
-    values = CaseDropdownValuesService(session=session, role=cases_service.role)
-    for case_id in case_ids:
+    role = cases_service.role
+    for case_id in (parent_id, *open_ids):
         case = await cases_service.get_case(case_id)
-        assert case is not None
-        assert case.status == CaseStatus.CLOSED
-        [value] = await values.list_values_for_case(case_id)
-        assert value.option_ref == "duplicate"
+        assert case is not None and case.status == CaseStatus.CLOSED
+        assert await _resolution(session, role, case_id) == "duplicate"
         assert len(await _events(session, case_id, CaseEventType.CASE_CLOSED)) == 1
-    # Only status, fields, and dropdown values cascade.
-    child = await cases_service.get_case(case_ids[1])
+    # Parent-only changes stay on the parent.
+    child = await cases_service.get_case(open_ids[0])
     assert child is not None and child.priority == CasePriority.MEDIUM
+    # Sub-cases that are already done keep their status.
+    done = await cases_service.get_case(resolved_id)
+    assert done is not None and done.status == CaseStatus.RESOLVED
+    assert not await _events(session, resolved_id, CaseEventType.CASE_CLOSED)
     unrelated = await cases_service.get_case(other_id)
     assert unrelated is not None and unrelated.status == CaseStatus.NEW
 
 
 @pytest.mark.anyio
-async def test_update_case_and_sub_cases_is_all_or_nothing(
+async def test_closing_parent_copies_resolution_set_earlier(
     cases_service: CasesService, session: AsyncSession
 ) -> None:
     await _required_resolution_dropdown(cases_service)
+    await _enable_close_sub_cases(session, cases_service)
+    parent = await _create(cases_service, "Parent")
+    child_id = (await _create(cases_service, "Child", parent_id=parent.id)).id
+    await cases_service.update_case(
+        parent, CaseUpdate(dropdown_values=_resolve_as_duplicate())
+    )
+
+    await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.RESOLVED))
+
+    session.expire_all()
+    child = await cases_service.get_case(child_id)
+    assert child is not None and child.status == CaseStatus.RESOLVED
+    assert await _resolution(session, cases_service.role, child_id) == "duplicate"
+
+
+@pytest.mark.anyio
+async def test_closing_parent_is_all_or_nothing(
+    cases_service: CasesService, session: AsyncSession
+) -> None:
+    await _enable_close_sub_cases(session, cases_service)
     parent = await _create(cases_service, "Parent")
     parent_id = parent.id
     child = await _create(cases_service, "Child", parent_id=parent_id)
     child_id, child_short_id = child.id, child.short_id
-    await cases_service.update_case(
-        parent,
-        CaseUpdate(
-            dropdown_values=[
-                CaseDropdownValueInput(
-                    definition_ref="resolution", option_ref="duplicate"
-                )
-            ]
-        ),
-    )
+    original = CasesService._validate_closure_requirements
 
-    # The parent meets its closure requirement but the sub-case does not.
-    with pytest.raises(TracecatValidationError, match=child_short_id):
-        await cases_service.update_case_and_sub_cases(
-            parent, CaseUpdate(status=CaseStatus.CLOSED)
-        )
+    async def fail_for_child(self, case, *args, **kwargs):
+        if case.id == child_id:
+            raise TracecatValidationError("closure_requirements_not_met")
+        return await original(self, case, *args, **kwargs)
+
+    with patch.object(CasesService, "_validate_closure_requirements", fail_for_child):
+        with pytest.raises(TracecatValidationError, match=child_short_id):
+            await cases_service.update_case(
+                parent, CaseUpdate(status=CaseStatus.CLOSED)
+            )
 
     session.expire_all()
     for case_id in (parent_id, child_id):
         case = await cases_service.get_case(case_id)
-        assert case is not None
-        assert case.status == CaseStatus.NEW
+        assert case is not None and case.status == CaseStatus.NEW
 
 
 @pytest.mark.anyio
-async def test_update_case_and_sub_cases_without_sub_cases(
-    cases_service: CasesService,
+async def test_batch_closing_parent_closes_sub_cases_when_enabled(
+    cases_service: CasesService, session: AsyncSession
 ) -> None:
-    case = await _create(cases_service, "Standalone")
+    await _enable_close_sub_cases(session, cases_service)
+    parent_id = (await _create(cases_service, "Parent")).id
+    child_id = (await _create(cases_service, "Child", parent_id=parent_id)).id
 
-    updated = await cases_service.update_case_and_sub_cases(
-        case, CaseUpdate(status=CaseStatus.RESOLVED)
+    response = await cases_service.batch_update_cases(
+        [parent_id], CaseUpdate(status=CaseStatus.CLOSED)
     )
 
-    assert updated.status == CaseStatus.RESOLVED
+    assert response.succeeded == 1
+    session.expire_all()
+    child = await cases_service.get_case(child_id)
+    assert child is not None and child.status == CaseStatus.CLOSED
 
 
 @pytest.mark.anyio
-async def test_update_case_and_sub_cases_requires_case_addons(
-    cases_service: CasesService,
+async def test_closing_parent_skips_sub_cases_without_case_addons(
+    cases_service: CasesService, session: AsyncSession
 ) -> None:
-    case = await _create(cases_service, "Parent")
+    await _enable_close_sub_cases(session, cases_service)
+    parent = await _create(cases_service, "Parent")
+    child_id = (await _create(cases_service, "Child", parent_id=parent.id)).id
+
     with patch.object(
         CasesService, "has_entitlement", new=AsyncMock(return_value=False)
     ):
-        with pytest.raises(EntitlementRequired):
-            await cases_service.update_case_and_sub_cases(
-                case, CaseUpdate(status=CaseStatus.CLOSED)
-            )
+        await cases_service.update_case(parent, CaseUpdate(status=CaseStatus.CLOSED))
+
+    session.expire_all()
+    child = await cases_service.get_case(child_id)
+    assert child is not None and child.status == CaseStatus.NEW

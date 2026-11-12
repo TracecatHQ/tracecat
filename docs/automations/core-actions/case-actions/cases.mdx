@@ -159,14 +159,6 @@ Default: `false`.
 
 </ParamField>
 
-<ParamField path="cascade_to_sub_cases" type="boolean">
-
-If true, also apply status, fields, and dropdown_values to every sub-case of this case, e.g. to close them with the same resolution. All or nothing: if any sub-case can't be updated, no case changes. Requires the case add-ons entitlement.
-
-Default: `false`.
-
-</ParamField>
-
 <ParamField path="create_missing_tags" type="boolean">
 
 If true, create any tags that do not already exist.
@@ -262,20 +254,6 @@ Default: `null`.
     description: |
       Analyst note:
       - Escalated after credential theft indicators were confirmed.
-```
-
-**Close a parent case and its sub-cases**
-
-```yaml
-- ref: close_investigation
-  action: core.cases.update_case
-  args:
-    case_id: CASE-0042
-    status: closed
-    dropdown_values:
-      - definition_ref: resolution
-        option_ref: duplicate
-    cascade_to_sub_cases: true
 ```
 
 ## `core.cases.set_case_parent`

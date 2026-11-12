@@ -422,26 +422,6 @@ class TestCoreUpdate:
         )
         assert result == updated_case
 
-    async def test_update_case_cascade_to_sub_cases(
-        self, mock_cases_client: AsyncMock, mock_case_dict
-    ):
-        """Test cascading a parent's status to its sub-cases when requested."""
-        mock_cases_client.update_case_simple.return_value = mock_case_dict
-
-        case_id = mock_case_dict["id"]
-        result = await update_case(
-            case_id=case_id,
-            status="closed",
-            cascade_to_sub_cases=True,
-        )
-
-        mock_cases_client.update_case_simple.assert_called_once_with(
-            case_id,
-            status="closed",
-            cascade_to_sub_cases=True,
-        )
-        assert result == mock_case_dict
-
     async def test_update_partial_base_data(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):

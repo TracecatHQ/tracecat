@@ -504,7 +504,6 @@ class _CasesAsync:
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = ...,
         append_description: bool = ...,
         create_missing_tags: bool = ...,
-        cascade_to_sub_cases: bool = ...,
     ) -> types.Case: ...
     async def create_comment_simple(
         self,
@@ -872,7 +871,6 @@ class _Cases:
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = ...,
         append_description: bool = ...,
         create_missing_tags: bool = ...,
-        cascade_to_sub_cases: bool = ...,
     ) -> types.Case: ...
     def create_comment_simple(
         self,

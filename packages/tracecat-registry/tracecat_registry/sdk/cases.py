@@ -820,7 +820,6 @@ class CasesClient:
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
         append_description: bool = False,
         create_missing_tags: bool = False,
-        cascade_to_sub_cases: bool = False,
     ) -> types.Case:
         """Update a case and return simple dict format.
 
@@ -839,8 +838,6 @@ class CasesClient:
             tags: List of tag IDs or refs to set (replaces existing).
             dropdown_values: Dropdown selections to set or clear.
             append_description: If True, append description to existing.
-            cascade_to_sub_cases: If True, also apply status, fields, and
-                dropdown values to the case's sub-cases, all or nothing.
 
         Returns:
             Updated case data (CaseDict format).
@@ -872,8 +869,6 @@ class CasesClient:
             data["append_description"] = append_description
         if create_missing_tags:
             data["create_missing_tags"] = create_missing_tags
-        if cascade_to_sub_cases:
-            data["cascade_to_sub_cases"] = cascade_to_sub_cases
 
         return await self._client.patch(f"/cases/{case_id}/simple", json=data)
 

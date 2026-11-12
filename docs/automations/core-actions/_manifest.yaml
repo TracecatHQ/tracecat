@@ -441,7 +441,6 @@ pages:
       - id: core.cases.update_case
         examples:
           - cases-update
-          - cases-close-with-sub-cases
       - id: core.cases.set_case_parent
         info: |
           Sub-cases are one level deep: the parent must be a top-level case, and

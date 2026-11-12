@@ -62,14 +62,22 @@ You can also remove a single sub-case from the sub-cases tab of its parent.
 
 ## Closing a parent case
 
-Closing or resolving a parent case in the app does not change its sub-cases.
+By default, closing or resolving a parent case does not change its sub-cases.
 Sub-cases keep their own status, and open sub-cases don't block closing the parent.
-Close each sub-case separately, or select them in the cases list and set `Status` in bulk.
 
-From a workflow, set `cascade_to_sub_cases: true` on `core.cases.update_case` to close the parent and its sub-cases in one step.
-The parent's `status`, `fields`, and `dropdown_values` (such as a resolution dropdown) are applied to every sub-case; other inputs only change the parent.
-The update is all or nothing: if any sub-case can't be updated, for example because a field required on closure is empty, no case changes and the error lists the sub-cases that failed.
-Reopening a parent does not reopen its sub-cases unless you set `cascade_to_sub_cases` again.
+To close sub-cases with their parent, go to `Cases`, open the closure requirements view from the header toolbar, and turn on `Close sub-cases with parent`.
+The setting applies to the whole workspace and to every way a case is closed: the app, bulk status changes, workflows, and MCP.
+
+When a parent moves to `Closed` or `Resolved`, each of its open sub-cases gets:
+
+- The parent's new status.
+- Any custom field and dropdown values set in the same change, such as a resolution dropdown.
+- The parent's values for the fields and dropdowns that are [required on closure](/automations/cases/closure-requirements).
+
+Other changes, such as priority or assignee, only apply to the parent.
+Sub-cases that are already `Closed` or `Resolved` are left as they are.
+The change is all or nothing: if any sub-case can't be closed, the parent keeps its status too and the error lists the sub-cases that failed.
+Reopening a parent does not reopen its sub-cases.
 
 ## Use sub-cases from MCP
 
@@ -92,7 +100,6 @@ The [Cases actions](/automations/core-actions/case-actions/cases) support sub-ca
 | --- | --- |
 | `core.cases.search_cases` | Pass `parent_id` to list a parent's sub-cases. |
 | `core.cases.create_case` | Pass `parent_id` to create the case as a sub-case. |
-| `core.cases.update_case` | Pass `cascade_to_sub_cases: true` to apply the case's status, fields, and dropdown values to its sub-cases. |
 | `core.cases.set_case_parent` | Group up to 1000 cases under a top-level parent. |
 | `core.cases.clear_case_parent` | Return up to 1000 sub-cases to the top level. |
 

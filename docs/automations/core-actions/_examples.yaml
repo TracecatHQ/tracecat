@@ -421,20 +421,6 @@ examples:
             Analyst note:
             - Escalated after credential theft indicators were confirmed.
 
-  cases-close-with-sub-cases:
-    title: Close a parent case and its sub-cases
-    language: yaml
-    code: |
-      - ref: close_investigation
-        action: core.cases.update_case
-        args:
-          case_id: CASE-0042
-          status: closed
-          dropdown_values:
-            - definition_ref: resolution
-              option_ref: duplicate
-          cascade_to_sub_cases: true
-
   cases-set-parent:
     title: Group cases under a parent case
     language: yaml

@@ -23,6 +23,7 @@ class WorkspaceSettings(TypedDict):
     allowed_attachment_extensions: NotRequired[list[str] | None]
     allowed_attachment_mime_types: NotRequired[list[str] | None]
     validate_attachment_magic_number: NotRequired[bool | None]
+    close_sub_cases_with_parent: NotRequired[bool | None]
 
 
 # Schema
@@ -34,6 +35,7 @@ class WorkspaceSettingsRead(Schema):
     allowed_attachment_extensions: list[str] | None = None
     allowed_attachment_mime_types: list[str] | None = None
     validate_attachment_magic_number: bool | None = None
+    close_sub_cases_with_parent: bool | None = None
 
     @computed_field
     @property
@@ -75,6 +77,10 @@ class WorkspaceSettingsUpdate(Schema):
     validate_attachment_magic_number: bool | None = Field(
         default=None,
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    )
+    close_sub_cases_with_parent: bool | None = Field(
+        default=None,
+        description="When a parent case is closed or resolved, apply its status and closure values to its open sub-cases. Defaults to false.",
     )
 
     @model_validator(mode="after")

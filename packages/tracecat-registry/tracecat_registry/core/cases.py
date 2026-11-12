@@ -385,15 +385,6 @@ async def update_case(
             "If true, append the provided description to the existing description when it is not empty."
         ),
     ] = False,
-    cascade_to_sub_cases: Annotated[
-        bool,
-        Doc(
-            "If true, also apply status, fields, and dropdown_values to every "
-            "sub-case of this case, e.g. to close them with the same resolution. "
-            "All or nothing: if any sub-case can't be updated, no case changes. "
-            "Requires the case add-ons entitlement."
-        ),
-    ] = False,
 ) -> types.Case:
     client_params: dict[str, Any] = {}
     if summary is not None:
@@ -421,8 +412,6 @@ async def update_case(
         client_params["create_missing_tags"] = create_missing_tags
     if append and description is not None:
         client_params["append_description"] = True
-    if cascade_to_sub_cases:
-        client_params["cascade_to_sub_cases"] = True
     return await ctx.cases.aio.update_case_simple(case_id, **client_params)
 
 
