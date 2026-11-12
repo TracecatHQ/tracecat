@@ -57,6 +57,10 @@ def _validate_backend(identifier: str, backend: AgentBackend[Any, Any]) -> None:
             raise TypeError(f"Agent backend {identifier}: {flag} must be a bool")
     if backend.steering and type(backend).steer is AgentBackend.steer:
         raise TypeError(f"Agent backend {identifier}: steering requires a steer method")
+    if backend.steering and type(backend).steered_into is AgentBackend.steered_into:
+        raise TypeError(
+            f"Agent backend {identifier}: steering requires a steered_into method"
+        )
     if backend.withdrawing and type(backend).withdraw is AgentBackend.withdraw:
         raise TypeError(
             f"Agent backend {identifier}: withdrawing requires a withdraw method"
