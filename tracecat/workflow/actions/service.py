@@ -95,17 +95,16 @@ class WorkflowActionService(BaseWorkspaceService):
     @require_scope("workflow:create")
     async def create_action(self, params: ActionCreate) -> Action:
         workflow_id = WorkflowUUID.new(params.workflow_id)
-        workflow_exists = await self.session.scalar(
-            select(
-                select(Workflow.id)
-                .where(
-                    Workflow.workspace_id == self.workspace_id,
-                    Workflow.id == workflow_id,
-                )
-                .exists()
+        # KEY SHARE holds off a concurrent workflow delete until this insert commits.
+        locked_workflow_id = await self.session.scalar(
+            select(Workflow.id)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow_id,
             )
+            .with_for_update(read=True, key_share=True)
         )
-        if not workflow_exists:
+        if locked_workflow_id is None:
             raise TracecatNotFoundError(f"Workflow {workflow_id.short()} not found")
         await ensure_unmanaged(
             self.session,
