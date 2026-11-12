@@ -1,12 +1,23 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { OrgRegistrySshKeySection } from "@/components/organization/org-registry-ssh-key"
 import { CustomTagInput } from "@/components/tags-input"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -43,6 +54,21 @@ export const gitFormSchema = z.object({
 
 type GitFormValues = z.infer<typeof gitFormSchema>
 
+function toRegistryOrigin(url: string): string {
+  return url.trim().split(/[?#]/)[0]
+}
+
+/** Whether saving `nextUrl` replaces, and so deletes, the repository of `previousUrl`. */
+export function isRepositoryUrlReplaced(
+  previousUrl: string | null | undefined,
+  nextUrl: string | null | undefined
+): boolean {
+  if (!previousUrl?.trim() || !nextUrl?.trim()) {
+    return false
+  }
+  return toRegistryOrigin(previousUrl) !== toRegistryOrigin(nextUrl)
+}
+
 /**
  * Lets the SSH key section sit between the form fields and the submit
  * button without nesting its dialogs inside the Git settings form.
@@ -75,7 +101,10 @@ export function OrgSettingsCustomRegistryForm() {
     // when a field already has an error, re-validate it on change too
     reValidateMode: "onChange",
   })
-  const onSubmit = async (data: GitFormValues) => {
+  const [pendingReplacement, setPendingReplacement] =
+    useState<GitFormValues | null>(null)
+
+  const saveGitSettings = async (data: GitFormValues) => {
     try {
       await updateGitSettings({
         requestBody: {
@@ -89,6 +118,14 @@ export function OrgSettingsCustomRegistryForm() {
     } catch {
       console.error("Failed to update Git settings")
     }
+  }
+
+  const onSubmit = async (data: GitFormValues) => {
+    if (isRepositoryUrlReplaced(gitSettings?.git_repo_url, data.git_repo_url)) {
+      setPendingReplacement(data)
+      return
+    }
+    await saveGitSettings(data)
   }
 
   if (gitSettingsIsLoading) {
@@ -195,6 +232,41 @@ export function OrgSettingsCustomRegistryForm() {
       >
         Save repository settings
       </Button>
+      <AlertDialog
+        open={pendingReplacement !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingReplacement(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace repository?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Saving a new URL permanently deletes{" "}
+              <span className="break-all font-mono">
+                {gitSettings.git_repo_url}
+              </span>{" "}
+              with all of its synced versions and actions. Workflows that use
+              its actions fail until the new repository is synced.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingReplacement) {
+                  void saveGitSettings(pendingReplacement)
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Replace repository
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

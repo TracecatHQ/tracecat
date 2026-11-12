@@ -1,5 +1,8 @@
 import type { ZodIssue } from "zod"
-import { gitFormSchema as customRegistryFormSchema } from "@/components/organization/org-settings-custom-registry"
+import {
+  gitFormSchema as customRegistryFormSchema,
+  isRepositoryUrlReplaced,
+} from "@/components/organization/org-settings-custom-registry"
 
 const baseFormData = {
   git_allowed_domains: [{ id: "0", text: "github.com" }],
@@ -95,5 +98,23 @@ describe("gitFormSchema git_repo_url superRefine", () => {
         "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)"
       )
     }
+  })
+})
+
+describe("isRepositoryUrlReplaced", () => {
+  const oldUrl = "git+ssh://git@github.com/acme/old-actions.git"
+  const newUrl = "git+ssh://git@github.com/acme/new-actions.git"
+
+  it("is true when a saved URL changes to a different repository", () => {
+    expect(isRepositoryUrlReplaced(oldUrl, newUrl)).toBe(true)
+  })
+
+  it.each([
+    ["no previous URL", null, newUrl],
+    ["URL cleared", oldUrl, null],
+    ["same URL", oldUrl, oldUrl],
+    ["only the ref changes", oldUrl, `${oldUrl}?ref=dev`],
+  ])("is false when %s", (_label, previousUrl, nextUrl) => {
+    expect(isRepositoryUrlReplaced(previousUrl, nextUrl)).toBe(false)
   })
 })
