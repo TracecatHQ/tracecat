@@ -224,7 +224,8 @@ async def test_import_table_from_csv_in_folder(
 ) -> None:
     """A CSV import lands in the given folder, and at the root without one."""
     folder = await folder_service.create_folder(name="imports", parent_path="/")
-    tables = TablesService(session=folder_service.session, role=svc_role)
+    role = svc_role.model_copy(update={"scopes": frozenset({"table:create"})})
+    tables = TablesService(session=folder_service.session, role=role)
     contents = b"name,count\nalpha,1\n"
 
     in_folder, _, _ = await tables.import_table_from_csv(
