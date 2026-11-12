@@ -885,16 +885,6 @@ export function CasesHeader({
             onChange={onCreatedAfterChange}
           />
 
-          <CaseMoreFiltersMenu
-            dropdownDefinitions={dropdownDefinitions}
-            dropdownFilters={dropdownFilters}
-            onDropdownFilterChange={onDropdownFilterChange}
-            onDropdownSortDirectionChange={onDropdownSortDirectionChange}
-            includesSubCases={includesSubCases}
-            hierarchyDisabled={Boolean(appliedSearchQuery)}
-            onIncludeSubCasesChange={onIncludeSubCasesChange}
-          />
-
           <CaseSortSelect
             value={sortBy}
             onChange={onSortByChange}
@@ -913,6 +903,17 @@ export function CasesHeader({
               <Cross2Icon className="size-3" />
             </button>
           )}
+          <div className="ml-auto">
+            <CaseMoreFiltersMenu
+              dropdownDefinitions={dropdownDefinitions}
+              dropdownFilters={dropdownFilters}
+              onDropdownFilterChange={onDropdownFilterChange}
+              onDropdownSortDirectionChange={onDropdownSortDirectionChange}
+              includesSubCases={includesSubCases}
+              hierarchyDisabled={Boolean(appliedSearchQuery)}
+              onIncludeSubCasesChange={onIncludeSubCasesChange}
+            />
+          </div>
         </fieldset>
       </div>
     </div>

@@ -140,7 +140,7 @@ export function CaseMoreFiltersMenu({
           )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="end" className="w-52">
         {onIncludeSubCasesChange && (
           <DropdownMenuCheckboxItem
             checked={!includesSubCases}
