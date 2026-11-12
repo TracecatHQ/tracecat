@@ -52,6 +52,7 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_WORK_DIR,
     job_uv_state_dir,
 )
+from tracecat.process_env import LOADER_ENV_VAR_ERROR, is_loader_env_var
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -587,6 +588,8 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
     for key, value in config.env_vars.items():
         _validate_env_key(key)
         _validate_env_value(key, value)
+        if is_loader_env_var(key):
+            raise AgentSandboxValidationError(LOADER_ENV_VAR_ERROR)
         if key in AGENT_SANDBOX_BASE_ENV or key in AGENT_RUNTIME_PROTECTED_ENV_VARS:
             raise AgentSandboxValidationError(
                 f"Cannot override protected env var: {key}"

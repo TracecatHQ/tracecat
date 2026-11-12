@@ -23,6 +23,7 @@ from tracecat.config import (
 )
 from tracecat.logger import logger
 from tracecat.observability.otel import platform_span, record_platform_span
+from tracecat.process_env import LOADER_ENV_VAR_ERROR, is_loader_env_var
 from tracecat.sandbox.exceptions import (
     SandboxValidationError,
 )
@@ -101,7 +102,11 @@ SANDBOX_BASE_ENV = {
 }
 
 SANDBOX_PROTECTED_ENV_VARS = frozenset({"TRACECAT__SANDBOX_RLIMIT_NPROC"})
-"""Host-injected sandbox environment variables users cannot override."""
+"""Host-injected sandbox environment variables users cannot override.
+
+Loader variables (``is_loader_env_var``) are also refused: the env map becomes
+nsjail's own process environment before any jail exists.
+"""
 
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
@@ -679,6 +684,8 @@ class NsjailExecutor:
             if key == "PYTHONPATH":
                 continue
             _validate_env_key(key)
+            if is_loader_env_var(key):
+                raise SandboxValidationError(LOADER_ENV_VAR_ERROR)
             if key in SANDBOX_PROTECTED_ENV_VARS:
                 raise SandboxValidationError(
                     f"Cannot override protected sandbox env var: {key}"
@@ -1095,6 +1102,8 @@ class NsjailExecutor:
         # Add user-provided env vars (SDK context, NOT DB credentials)
         for key, value in config.env_vars.items():
             _validate_env_key(key)
+            if is_loader_env_var(key):
+                raise SandboxValidationError(LOADER_ENV_VAR_ERROR)
             if key in SANDBOX_PROTECTED_ENV_VARS:
                 raise SandboxValidationError(
                     f"Cannot override protected sandbox env var: {key}"
