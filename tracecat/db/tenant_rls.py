@@ -102,6 +102,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "agent_session_command",
     "workspace_sync_operation",
     "case_search_word",
+    "table_folder",
     "managed_detached_copy",
     "case_trigger_outbox",
 )
