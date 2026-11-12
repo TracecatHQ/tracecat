@@ -13101,6 +13101,14 @@ export const $ChannelBotStatus = {
   title: "ChannelBotStatus",
 } as const
 
+export const $ChannelBotTransport = {
+  type: "string",
+  enum: ["http", "socket"],
+  title: "ChannelBotTransport",
+  description:
+    "How a bot's events arrive: Slack posts them, or a Socket Mode socket reads them.",
+} as const
+
 export const $ChannelType = {
   type: "string",
   enum: ["slack"],
@@ -36470,6 +36478,9 @@ export const $SlackBotDetails = {
       const: "slack",
       title: "Provider",
     },
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
     provider_enterprise_id: {
       anyOf: [
         {
@@ -36547,6 +36558,7 @@ export const $SlackBotDetails = {
   type: "object",
   required: [
     "provider",
+    "transport",
     "provider_enterprise_id",
     "provider_bot_user_id",
     "granted_scopes",
@@ -36603,6 +36615,20 @@ export const $SlackBotInstall = {
       type: "string",
       minLength: 1,
       title: "Signing Secret",
+    },
+    app_token: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Token",
+      description:
+        "App-level token with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.",
     },
     return_url: {
       type: "string",
