@@ -283,6 +283,28 @@ def test_caller_owned_turns_require_a_turn_result_parser():
         registry.get_agent_backends()
 
 
+@pytest.mark.parametrize("missing", ["steer", "steered_into"])
+def test_steering_requires_steer_and_steered_into(missing: str):
+    class SteeringBackend(DefaultBackend):
+        steering = True
+
+        async def steer(self, run_id: UUID, message_id: UUID, text: str) -> bool:
+            return True
+
+        async def steered_into(self, session_id: UUID, message_id: UUID) -> UUID | None:
+            return None
+
+    # Reset to the base method, as an installed backend that skips it.
+    setattr(SteeringBackend, missing, getattr(AgentBackend, missing))
+    with (
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", SteeringBackend)]
+        ),
+        pytest.raises(TypeError, match=f"steering requires a {missing} method"),
+    ):
+        registry.get_agent_backends()
+
+
 def test_backends_do_not_parse_turn_results_unless_they_opt_in():
     class OptedOutBackend(DefaultBackend):
         caller_owned_turns = False
