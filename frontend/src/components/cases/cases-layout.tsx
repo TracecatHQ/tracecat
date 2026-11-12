@@ -9,7 +9,6 @@ import type {
   CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CasePriority,
-  CaseQuery,
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseSeverity,
@@ -95,7 +94,6 @@ interface CasesLayoutProps {
   durationDefinitions?: CaseDurationDefinitionRead[]
   visibleColumnIds?: string[]
   onToggleColumn?: (columnId: string) => void
-  onStructuredFiltersChange?: (filters: CaseQuery["filters"]) => void
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
@@ -145,7 +143,6 @@ export function CasesLayout({
   durationDefinitions,
   visibleColumnIds,
   onToggleColumn,
-  onStructuredFiltersChange,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
@@ -468,8 +465,6 @@ export function CasesLayout({
     visibleColumnIds,
     onToggleColumn,
     dropdownFilters: filters.dropdownFilters,
-    structuredFilters: filters.structuredFilters,
-    onStructuredFiltersChange,
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,
