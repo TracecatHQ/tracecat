@@ -6111,7 +6111,8 @@ class TestMCPProviderOAuth:
             requested_scopes: list[str],
             public_client_supported: bool = False,
         ) -> integration_service_module.MCPOAuthRegistrationResult:
-            _ = client_name, token_auth_method, requested_scopes
+            _ = token_auth_method, requested_scopes
+            assert client_name == "Tracecat"
             assert registration_endpoint == f"{self_hosted}/oauth/client"
             return integration_service_module.MCPOAuthRegistrationResult(
                 client_id="self-hosted-client",

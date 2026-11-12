@@ -245,6 +245,8 @@ class _AuthorizeUrlKwargs(TypedDict, total=False):
 
 
 _CUSTOM_MCP_OAUTH_PROVIDER_PREFIX = "custom_mcp_"
+# Some servers reserve their own name, so DCR identifies the client as Tracecat.
+_MCP_OAUTH_DCR_CLIENT_NAME = "Tracecat"
 _TUNNELED_MCP_OAUTH_PROVIDER_ERROR = (
     "MCP servers behind a tunnel must be authorized through their own OAuth "
     "flow. Reconnect the server instead of reusing an existing OAuth connection."
@@ -1579,7 +1581,7 @@ class IntegrationService(BaseWorkspaceService):
                 )
             registration = await self._perform_mcp_dynamic_registration(
                 registration_endpoint=endpoints.registration_endpoint,
-                client_name=params.name,
+                client_name=_MCP_OAUTH_DCR_CLIENT_NAME,
                 token_auth_method=self._select_mcp_registration_auth_method(
                     endpoints.token_methods
                 ),
