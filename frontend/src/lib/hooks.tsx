@@ -392,7 +392,10 @@ import {
   hasActiveCaseCommentThreadInvocations,
   invalidateCaseCommentQueries,
 } from "@/lib/cases/comment-queries"
-import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import {
+  invalidateCaseActivityQueries,
+  invalidateCaseHierarchy,
+} from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
 import {
   getApiErrorDetail,
@@ -4051,6 +4054,10 @@ export function useUpdateCase({
         exact: false,
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
+      // Closing a parent can also close its sub-cases.
+      if (params.status !== undefined) {
+        void invalidateCaseHierarchy(queryClient)
+      }
       if (params.summary !== undefined || params.description !== undefined) {
         queryClient.invalidateQueries({
           queryKey: ["case-versions", workspaceId, caseId],
