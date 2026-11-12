@@ -18,7 +18,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.db.models import Base
 
 MIGRATION_REVISION = "ec392d96f2b0"
-PREVIOUS_REVISION = "4ea30f9ea491"
+PREVIOUS_REVISION = "7c2d9e4f1a3b"
 CONSTRAINT = "uq_agent_session_id_workspace_id"
 
 

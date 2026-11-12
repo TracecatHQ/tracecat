@@ -1,7 +1,7 @@
 """Add a unique key on agent_session (id, workspace_id).
 
 Revision ID: ec392d96f2b0
-Revises: 4ea30f9ea491
+Revises: 7c2d9e4f1a3b
 Create Date: 2026-11-05 10:00:00.000000
 
 The target of composite foreign keys from enterprise channel tables, so a row
@@ -17,7 +17,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "ec392d96f2b0"
-down_revision: str | None = "4ea30f9ea491"
+down_revision: str | None = "7c2d9e4f1a3b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
