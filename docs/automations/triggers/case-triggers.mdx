@@ -62,7 +62,9 @@ One or more case events must be selected before the trigger is enabled. Supporte
 
 ## Tag allowlist
 
-Restrict runs to matching tags. If the allowlist is empty, no tag filtering is applied. Tag add and remove events match the tag that was added or removed. All other events match the case's current tags.
+Restrict runs to matching tags. If the allowlist is empty, no tag filtering is applied. Tag add and remove events match the tag that was added or removed. All other events match the tags the case has when Tracecat starts the run.
+
+Tracecat saves the tags you pass when creating a case together with the case, so `case_created` matches them unless the case's tags change before the run starts. Tags you add after creating the case fire `tag_added`. To filter `case_created` on a tag, set the tag in the create call.
 
 ## Important behavior
 

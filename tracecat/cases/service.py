@@ -635,7 +635,26 @@ class CasesService(BaseWorkspaceService):
 
     @require_scope("case:create")
     @audit_log(resource_type="case", action="create")
-    async def create_case(self, params: CaseCreate) -> Case:
+    async def create_case(
+        self,
+        params: CaseCreate,
+        *,
+        tags: Sequence[str] = (),
+        create_missing_tags: bool = False,
+    ) -> Case:
+        """Create a case, its tags, and its ``CASE_CREATED`` event in one commit.
+
+        Args:
+            params: The case to create.
+            tags: Tag IDs, refs, or names to add to the case. They commit with the
+                case, so case triggers dispatched for ``CASE_CREATED`` always see
+                them.
+            create_missing_tags: Create tags that don't exist instead of failing.
+
+        Raises:
+            NoResultFound: If a tag doesn't exist and ``create_missing_tags`` is
+                false. No case is created.
+        """
         try:
             await _validate_case_assignee(self.session, params.assignee_id)
             # Ensure the workspace-scoped `case_fields` schema/table exists before we
@@ -643,6 +662,11 @@ class CasesService(BaseWorkspaceService):
             # deadlocks under concurrency when schema initialization requires a
             # ShareRowExclusiveLock on the referenced `case` table.
             await self.fields._ensure_schema_ready()
+
+            # Resolve tags before writing the case so an unknown tag fails fast.
+            resolved_tags = await self.tags.resolve_tags(
+                tags, create_if_missing=create_missing_tags
+            )
 
             parent = (
                 await self.hierarchy.lock_parent_for_new_sub_case(params.parent_id)
@@ -688,6 +712,9 @@ class CasesService(BaseWorkspaceService):
                 event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
             )
 
+            for tag in resolved_tags:
+                await self.tags.link_tag(case, tag)
+
             if params.dropdown_values is not None:
                 # Write paths use `dropdown_values` because they persist per-case
                 # selections (definition_id -> option_id) on the case record.
@@ -712,7 +739,7 @@ class CasesService(BaseWorkspaceService):
                 operation=CaseAgentSessionInteractionOperation.CREATE,
             )
 
-            # Commit once to persist case, fields, and event atomically
+            # Commit once to persist case, fields, tags, and events atomically
             await self.session.commit()
             # Make sure to refresh the case to get the fields relationship loaded
             await self.session.refresh(case)
