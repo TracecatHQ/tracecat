@@ -219,6 +219,29 @@ async def test_create_table_in_folder_commits_once(
 
 
 @pytest.mark.anyio
+async def test_import_table_from_csv_in_folder(
+    folder_service: TableFolderService, svc_role: Role
+) -> None:
+    """A CSV import lands in the given folder, and at the root without one."""
+    folder = await folder_service.create_folder(name="imports", parent_path="/")
+    role = svc_role.model_copy(update={"scopes": frozenset({"table:create"})})
+    tables = TablesService(session=folder_service.session, role=role)
+    contents = b"name,count\nalpha,1\n"
+
+    in_folder, _, _ = await tables.import_table_from_csv(
+        contents=contents, table_name="in_folder", folder_id=folder.id
+    )
+    at_root, _, _ = await tables.import_table_from_csv(
+        contents=contents, table_name="at_root"
+    )
+
+    assert in_folder.folder_id == folder.id
+    assert at_root.folder_id is None
+    items = await folder_service.get_directory_items("/imports/")
+    assert [(item.type, item.name) for item in items] == [("table", "in_folder")]
+
+
+@pytest.mark.anyio
 async def test_parent_delete_waits_for_a_child_create(svc_role: Role) -> None:
     """A parent can't be deleted out from under a child being created.
 

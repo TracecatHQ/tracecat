@@ -2187,6 +2187,7 @@ class TablesService(BaseTablesService):
         contents: bytes,
         filename: str | None = None,
         table_name: str | None = None,
+        folder_id: UUID | None = None,
         chunk_size: int = 1000,
     ) -> tuple[Table, int, list[InferredCSVColumn]]:
         """Create a new table by inferring schema and rows from a CSV file."""
@@ -2222,7 +2223,8 @@ class TablesService(BaseTablesService):
             for column in inferred_columns
         ]
         table = await self.create_table(
-            TableCreate(name=unique_table_name, columns=column_defs)
+            TableCreate(name=unique_table_name, columns=column_defs),
+            folder_id=folder_id,
         )
 
         second_pass = StringIO(csv_text)
