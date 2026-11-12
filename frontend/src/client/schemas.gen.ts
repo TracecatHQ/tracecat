@@ -1524,14 +1524,13 @@ export const $AgentChannelBotCreate = {
     },
     provider: {
       $ref: "#/components/schemas/ChannelBotProvider",
-      default: "slack",
     },
   },
+  additionalProperties: false,
   type: "object",
-  required: ["agent_preset_id"],
+  required: ["agent_preset_id", "provider"],
   title: "AgentChannelBotCreate",
-  description:
-    "Reserve a bot and its endpoint URL before the provider app exists.",
+  description: "Reserve a bot before the provider app exists.",
 } as const
 
 export const $AgentChannelBotRead = {
@@ -1568,17 +1567,6 @@ export const $AgentChannelBotRead = {
       ],
       title: "Provider Tenant Id",
     },
-    provider_enterprise_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Enterprise Id",
-    },
     provider_app_id: {
       anyOf: [
         {
@@ -1590,71 +1578,18 @@ export const $AgentChannelBotRead = {
       ],
       title: "Provider App Id",
     },
-    provider_bot_user_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Bot User Id",
-    },
-    granted_scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Granted Scopes",
-    },
-    missing_scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Missing Scopes",
-      description:
-        "Required scopes the install did not grant; reinstall to add them.",
-    },
-    update_needed: {
-      type: "boolean",
-      title: "Update Needed",
-    },
-    manifest_version: {
-      type: "integer",
-      title: "Manifest Version",
-    },
-    client_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Id",
-    },
-    has_bot_token: {
-      type: "boolean",
-      title: "Has Bot Token",
-    },
-    has_signing_secret: {
-      type: "boolean",
-      title: "Has Signing Secret",
-    },
-    has_client_secret: {
-      type: "boolean",
-      title: "Has Client Secret",
-    },
     endpoint_url: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Endpoint Url",
-    },
-    oauth_redirect_url: {
-      type: "string",
-      title: "Oauth Redirect Url",
+      description:
+        "Inbound event URL; None for a provider that delivers events over a socket.",
     },
     created_at: {
       type: "string",
@@ -1666,6 +1601,9 @@ export const $AgentChannelBotRead = {
       format: "date-time",
       title: "Updated At",
     },
+    details: {
+      $ref: "#/components/schemas/ChannelBotDetails",
+    },
   },
   type: "object",
   required: [
@@ -1675,25 +1613,13 @@ export const $AgentChannelBotRead = {
     "provider",
     "status",
     "provider_tenant_id",
-    "provider_enterprise_id",
     "provider_app_id",
-    "provider_bot_user_id",
-    "granted_scopes",
-    "missing_scopes",
-    "update_needed",
-    "manifest_version",
-    "client_id",
-    "has_bot_token",
-    "has_signing_secret",
-    "has_client_secret",
     "endpoint_url",
-    "oauth_redirect_url",
     "created_at",
     "updated_at",
+    "details",
   ],
   title: "AgentChannelBotRead",
-  description:
-    "A bot with its install metadata. Secrets are reported only as present or not.",
 } as const
 
 export const $AgentChannelBotUpdate = {
@@ -1725,17 +1651,18 @@ export const $AgentChannelBotUpdate = {
     credentials: {
       anyOf: [
         {
-          $ref: "#/components/schemas/SlackBotCredentialsUpdate",
+          $ref: "#/components/schemas/ChannelBotCredentialsUpdate",
         },
         {
           type: "null",
         },
       ],
+      description: "Must name the bot's provider.",
     },
   },
+  additionalProperties: false,
   type: "object",
   title: "AgentChannelBotUpdate",
-  description: "Retarget, pause or resume, or replace credentials.",
 } as const
 
 export const $AgentChannelTokenCreate = {
@@ -13075,6 +13002,72 @@ export const $CatalogMappingSelection = {
   title: "CatalogMappingSelection",
   description:
     "User-selected target catalog row for one source catalog reference.",
+} as const
+
+export const $ChannelBotCredentialsUpdate = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotCredentialsUpdate",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotCredentialsUpdate",
+    },
+  },
+} as const
+
+export const $ChannelBotDetails = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotDetails",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotDetails",
+    },
+  },
+} as const
+
+export const $ChannelBotInstall = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotInstall",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotInstall",
+    },
+  },
+} as const
+
+export const $ChannelBotInstallResult = {
+  properties: {
+    bot: {
+      $ref: "#/components/schemas/AgentChannelBotRead",
+    },
+    authorization_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Url",
+      description:
+        "Where to send the browser to finish the install; None when the provider has no browser step.",
+    },
+  },
+  type: "object",
+  required: ["bot", "authorization_url"],
+  title: "ChannelBotInstallResult",
 } as const
 
 export const $ChannelBotProvider = {
@@ -36382,6 +36375,11 @@ export const $SkillVersionReadMinimal = {
 
 export const $SlackBotCredentialsUpdate = {
   properties: {
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
     signing_secret: {
       anyOf: [
         {
@@ -36419,14 +36417,116 @@ export const $SlackBotCredentialsUpdate = {
       title: "Client Secret",
     },
   },
+  additionalProperties: false,
   type: "object",
+  required: ["provider"],
   title: "SlackBotCredentialsUpdate",
   description: `Slack app credentials to replace; unset fields keep their stored value.
 
 No bot token: only OAuth sets one, together with the install it belongs to.`,
 } as const
 
-export const $SlackBotOAuthStartRequest = {
+export const $SlackBotDetails = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    provider_enterprise_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Enterprise Id",
+    },
+    provider_bot_user_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Bot User Id",
+    },
+    granted_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Granted Scopes",
+    },
+    missing_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Scopes",
+      description:
+        "Required scopes the install did not grant; reinstall to add them.",
+    },
+    update_needed: {
+      type: "boolean",
+      title: "Update Needed",
+    },
+    manifest_version: {
+      type: "integer",
+      title: "Manifest Version",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    has_bot_token: {
+      type: "boolean",
+      title: "Has Bot Token",
+    },
+    has_signing_secret: {
+      type: "boolean",
+      title: "Has Signing Secret",
+    },
+    has_client_secret: {
+      type: "boolean",
+      title: "Has Client Secret",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "provider_enterprise_id",
+    "provider_bot_user_id",
+    "granted_scopes",
+    "missing_scopes",
+    "update_needed",
+    "manifest_version",
+    "client_id",
+    "has_bot_token",
+    "has_signing_secret",
+    "has_client_secret",
+    "oauth_redirect_url",
+  ],
+  title: "SlackBotDetails",
+  description: "Secrets are reported only as present or not.",
+} as const
+
+export const $SlackBotInstall = {
   properties: {
     bot_id: {
       anyOf: [
@@ -36439,12 +36539,18 @@ export const $SlackBotOAuthStartRequest = {
         },
       ],
       title: "Bot Id",
-      description: "Bot to install into. If omitted, creates one.",
+      description:
+        "Bot to install into; it must already target agent_preset_id. If omitted, creates one.",
     },
     agent_preset_id: {
       type: "string",
       format: "uuid",
       title: "Agent Preset Id",
+    },
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
     },
     client_id: {
       type: "string",
@@ -36467,31 +36573,18 @@ export const $SlackBotOAuthStartRequest = {
       title: "Return Url",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: [
     "agent_preset_id",
+    "provider",
     "client_id",
     "client_secret",
     "signing_secret",
     "return_url",
   ],
-  title: "SlackBotOAuthStartRequest",
-  description: "Start installing a customer-owned Slack app over OAuth.",
-} as const
-
-export const $SlackBotOAuthStartResponse = {
-  properties: {
-    authorization_url: {
-      type: "string",
-      title: "Authorization Url",
-    },
-    bot: {
-      $ref: "#/components/schemas/AgentChannelBotRead",
-    },
-  },
-  type: "object",
-  required: ["authorization_url", "bot"],
-  title: "SlackBotOAuthStartResponse",
+  title: "SlackBotInstall",
+  description: "Install a customer-owned Slack app over OAuth.",
 } as const
 
 export const $SlackChannelTokenConfig = {

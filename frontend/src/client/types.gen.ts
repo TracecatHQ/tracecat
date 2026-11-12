@@ -462,16 +462,13 @@ export type AgentCatalogRead = {
 }
 
 /**
- * Reserve a bot and its endpoint URL before the provider app exists.
+ * Reserve a bot before the provider app exists.
  */
 export type AgentChannelBotCreate = {
   agent_preset_id: string
-  provider?: ChannelBotProvider
+  provider: ChannelBotProvider
 }
 
-/**
- * A bot with its install metadata. Secrets are reported only as present or not.
- */
 export type AgentChannelBotRead = {
   id: string
   workspace_id: string
@@ -479,36 +476,26 @@ export type AgentChannelBotRead = {
   provider: ChannelBotProvider
   status: ChannelBotStatus
   provider_tenant_id: string | null
-  provider_enterprise_id: string | null
   provider_app_id: string | null
-  provider_bot_user_id: string | null
-  granted_scopes: Array<string>
   /**
-   * Required scopes the install did not grant; reinstall to add them.
+   * Inbound event URL; None for a provider that delivers events over a socket.
    */
-  missing_scopes: Array<string>
-  update_needed: boolean
-  manifest_version: number
-  client_id: string | null
-  has_bot_token: boolean
-  has_signing_secret: boolean
-  has_client_secret: boolean
-  endpoint_url: string
-  oauth_redirect_url: string
+  endpoint_url: string | null
   created_at: string
   updated_at: string
+  details: ChannelBotDetails
 }
 
-/**
- * Retarget, pause or resume, or replace credentials.
- */
 export type AgentChannelBotUpdate = {
   /**
    * New target. Existing threads stay on the agent they started with.
    */
   agent_preset_id?: string | null
   status?: ChannelBotRunState | null
-  credentials?: SlackBotCredentialsUpdate | null
+  /**
+   * Must name the bot's provider.
+   */
+  credentials?: ChannelBotCredentialsUpdate | null
 }
 
 /**
@@ -3532,6 +3519,20 @@ export type CatalogMappingRequirementReason = "ambiguous" | "invalid_selection"
 export type CatalogMappingSelection = {
   source_catalog_id: string
   target_catalog_id: string
+}
+
+export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate
+
+export type ChannelBotDetails = SlackBotDetails
+
+export type ChannelBotInstall = SlackBotInstall
+
+export type ChannelBotInstallResult = {
+  bot: AgentChannelBotRead
+  /**
+   * Where to send the browser to finish the install; None when the provider has no browser step.
+   */
+  authorization_url: string | null
 }
 
 export type ChannelBotProvider = "slack"
@@ -11080,29 +11081,47 @@ export type SkillVersionReadMinimal = {
  * No bot token: only OAuth sets one, together with the install it belongs to.
  */
 export type SlackBotCredentialsUpdate = {
+  provider: "slack"
   signing_secret?: string | null
   client_id?: string | null
   client_secret?: string | null
 }
 
 /**
- * Start installing a customer-owned Slack app over OAuth.
+ * Secrets are reported only as present or not.
  */
-export type SlackBotOAuthStartRequest = {
+export type SlackBotDetails = {
+  provider: "slack"
+  provider_enterprise_id: string | null
+  provider_bot_user_id: string | null
+  granted_scopes: Array<string>
   /**
-   * Bot to install into. If omitted, creates one.
+   * Required scopes the install did not grant; reinstall to add them.
+   */
+  missing_scopes: Array<string>
+  update_needed: boolean
+  manifest_version: number
+  client_id: string | null
+  has_bot_token: boolean
+  has_signing_secret: boolean
+  has_client_secret: boolean
+  oauth_redirect_url: string
+}
+
+/**
+ * Install a customer-owned Slack app over OAuth.
+ */
+export type SlackBotInstall = {
+  /**
+   * Bot to install into; it must already target agent_preset_id. If omitted, creates one.
    */
   bot_id?: string | null
   agent_preset_id: string
+  provider: "slack"
   client_id: string
   client_secret: string
   signing_secret: string
   return_url: string
-}
-
-export type SlackBotOAuthStartResponse = {
-  authorization_url: string
-  bot: AgentChannelBotRead
 }
 
 /**
@@ -16353,13 +16372,12 @@ export type AgentChannelBotsDisconnectBotData = {
 
 export type AgentChannelBotsDisconnectBotResponse = AgentChannelBotRead
 
-export type AgentChannelBotsStartSlackBotOauthData = {
-  requestBody: SlackBotOAuthStartRequest
+export type AgentChannelBotsInstallBotData = {
+  requestBody: ChannelBotInstall
   workspaceId: string
 }
 
-export type AgentChannelBotsStartSlackBotOauthResponse =
-  SlackBotOAuthStartResponse
+export type AgentChannelBotsInstallBotResponse = ChannelBotInstallResult
 
 export type AgentPresetsListAgentPresetsData = {
   useInChat?: boolean | null
@@ -23207,14 +23225,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/agent/channel-bots/slack/oauth/start": {
+  "/workspaces/{workspace_id}/agent/channel-bots/install": {
     post: {
-      req: AgentChannelBotsStartSlackBotOauthData
+      req: AgentChannelBotsInstallBotData
       res: {
         /**
          * Successful Response
          */
-        200: SlackBotOAuthStartResponse
+        200: ChannelBotInstallResult
         /**
          * Validation Error
          */

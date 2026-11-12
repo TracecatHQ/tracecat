@@ -1,4 +1,4 @@
-"""Channel bot admin routes; without the enterprise provider they answer "requires Enterprise".
+"""Channel bot admin routes; without the enterprise admin they answer "requires Enterprise".
 
 `/agent/channels/...` keeps the legacy token API until ENG-2380.
 """
@@ -10,21 +10,21 @@ from collections.abc import Awaitable
 from typing import Annotated
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 
 from tracecat import config
 from tracecat.agent.channel_bots.provider import ChannelBotAdmin, get_channel_bot_admin
 from tracecat.agent.channel_bots.schemas import (
     CHANNEL_BOTS_PREFIX,
-    SLACK_OAUTH_CALLBACK_PATH,
+    OAUTH_CALLBACK_ROUTE,
     AgentChannelBotCreate,
     AgentChannelBotRead,
     AgentChannelBotUpdate,
+    ChannelBotInstall,
+    ChannelBotInstallResult,
+    ChannelBotOAuthCallback,
     ChannelBotProvider,
-    SlackBotOAuthCallback,
-    SlackBotOAuthStartRequest,
-    SlackBotOAuthStartResponse,
 )
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
@@ -40,13 +40,13 @@ from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
 
-def _require_provider() -> ChannelBotAdmin:
-    if (provider := get_channel_bot_admin()) is None:
+def _require_admin() -> ChannelBotAdmin:
+    if (admin := get_channel_bot_admin()) is None:
         raise EntitlementRequired(
             Entitlement.AGENT_CHANNELS.value,
             message="Channel bots require Tracecat Enterprise",
         )
-    return provider
+    return admin
 
 
 async def _require_agent_channels_entitlement(
@@ -56,7 +56,7 @@ async def _require_agent_channels_entitlement(
     await check_entitlement(session, role, Entitlement.AGENT_CHANNELS)
 
 
-Admin = Annotated[ChannelBotAdmin, Depends(_require_provider)]
+Admin = Annotated[ChannelBotAdmin, Depends(_require_admin)]
 
 router = APIRouter(
     prefix=CHANNEL_BOTS_PREFIX,
@@ -157,24 +157,24 @@ async def disconnect_bot(
     return await _call(admin.disconnect_bot(session, role, bot_id))
 
 
-@router.post("/slack/oauth/start", response_model=SlackBotOAuthStartResponse)
+@router.post("/install", response_model=ChannelBotInstallResult)
 @require_scope("agent:update")
-async def start_slack_bot_oauth(
+async def install_bot(
     *,
-    params: SlackBotOAuthStartRequest,
+    params: Annotated[ChannelBotInstall, Body()],
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,
-) -> SlackBotOAuthStartResponse:
-    return await _call(admin.start_slack_oauth(session, role, params))
+) -> ChannelBotInstallResult:
+    return await _call(admin.install(session, role, params))
 
 
 def _redirect(base_url: str, *, ok: bool, message: str | None) -> RedirectResponse:
     parsed = urlparse(base_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query["slack_connect"] = "success" if ok else "error"
+    query["channel_bot_install"] = "success" if ok else "error"
     if message:
-        query["slack_message"] = message
+        query["channel_bot_message"] = message
     return RedirectResponse(urlunparse(parsed._replace(query=urlencode(query))))
 
 
@@ -183,46 +183,47 @@ def _same_app_or_default(return_url: str | None) -> str:
     if return_url is None:
         return default_url
     try:
-        parsed = urlparse(return_url)
+        app_url, target = urlparse(default_url), urlparse(return_url)
     except ValueError:
         return default_url
-    if (
-        parsed.scheme not in {"http", "https"}
-        or parsed.netloc != urlparse(default_url).netloc
-    ):
+    web_schemes = {"http", "https"}
+    # A blank or hostless app URL must not let a hostless return URL match it.
+    if app_url.scheme not in web_schemes or not app_url.netloc:
+        return default_url
+    # Schemes may differ: a TLS-terminating proxy serves an http app URL over https.
+    if target.scheme not in web_schemes or target.netloc != app_url.netloc:
         return default_url
     return return_url
 
 
-@public_router.get(SLACK_OAUTH_CALLBACK_PATH, include_in_schema=False)
-async def handle_slack_bot_oauth_callback(
+@public_router.get(OAUTH_CALLBACK_ROUTE, include_in_schema=False)
+async def handle_bot_oauth_callback(
     *,
-    state: str,
-    code: str | None = Query(default=None),
-    error: str | None = Query(default=None),
-    error_description: str | None = Query(default=None),
+    provider: ChannelBotProvider,
+    callback: Annotated[ChannelBotOAuthCallback, Query()],
 ) -> RedirectResponse:
-    callback = SlackBotOAuthCallback(
-        state=state, code=code, error=error, error_description=error_description
-    )
-    try:
-        if (admin := get_channel_bot_admin()) is None:
-            return _redirect(
-                config.TRACECAT__PUBLIC_APP_URL,
-                ok=False,
-                message="Channel bots require Tracecat Enterprise",
-            )
-        outcome = await admin.complete_slack_oauth(callback)
-    except Exception as exc:
-        # The error can carry the OAuth code or provider response.
-        logger.error("Slack bot OAuth callback failed", error_type=type(exc).__name__)
+    if (admin := get_channel_bot_admin()) is None:
         return _redirect(
             config.TRACECAT__PUBLIC_APP_URL,
             ok=False,
-            message="Slack OAuth callback failed",
+            message="Channel bots require Tracecat Enterprise",
+        )
+    try:
+        result = await admin.complete_oauth(provider, callback)
+    except Exception as exc:
+        # The error can carry the OAuth code or provider response.
+        logger.error(
+            "Channel bot OAuth callback failed",
+            provider=provider.value,
+            error_type=type(exc).__name__,
+        )
+        return _redirect(
+            config.TRACECAT__PUBLIC_APP_URL,
+            ok=False,
+            message="OAuth callback failed",
         )
     return _redirect(
-        _same_app_or_default(outcome.return_url),
-        ok=outcome.ok,
-        message=outcome.message,
+        _same_app_or_default(result.return_url),
+        ok=result.ok,
+        message=result.message,
     )

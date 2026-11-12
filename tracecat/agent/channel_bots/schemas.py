@@ -5,15 +5,21 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import StrEnum
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CHANNEL_BOTS_PREFIX = "/agent/channel-bots"
-SLACK_OAUTH_CALLBACK_PATH = f"{CHANNEL_BOTS_PREFIX}/slack/oauth/callback"
+OAUTH_CALLBACK_ROUTE = f"{CHANNEL_BOTS_PREFIX}/{{provider}}/oauth/callback"
 
 
 class ChannelBotProvider(StrEnum):
     SLACK = "slack"
+
+
+def oauth_callback_path(provider: ChannelBotProvider) -> str:
+    """The public path a provider sends the browser back to after OAuth consent."""
+    return OAUTH_CALLBACK_ROUTE.format(provider=provider.value)
 
 
 class ChannelBotStatus(StrEnum):
@@ -36,40 +42,46 @@ class SlackBotCredentialsUpdate(BaseModel):
     No bot token: only OAuth sets one, together with the install it belongs to.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal[ChannelBotProvider.SLACK]
     signing_secret: str | None = Field(default=None, min_length=1)
     client_id: str | None = Field(default=None, min_length=1)
     client_secret: str | None = Field(default=None, min_length=1)
 
 
+type ChannelBotCredentialsUpdate = Annotated[
+    SlackBotCredentialsUpdate, Field(discriminator="provider")
+]
+
+
 class AgentChannelBotCreate(BaseModel):
-    """Reserve a bot and its endpoint URL before the provider app exists."""
+    """Reserve a bot before the provider app exists."""
+
+    model_config = ConfigDict(extra="forbid")
 
     agent_preset_id: uuid.UUID
-    provider: ChannelBotProvider = ChannelBotProvider.SLACK
+    provider: ChannelBotProvider
 
 
 class AgentChannelBotUpdate(BaseModel):
-    """Retarget, pause or resume, or replace credentials."""
+    model_config = ConfigDict(extra="forbid")
 
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
         description="New target. Existing threads stay on the agent they started with.",
     )
-    status: ChannelBotRunState | None = None
-    credentials: SlackBotCredentialsUpdate | None = None
+    status: ChannelBotRunState | None = Field(default=None)
+    credentials: ChannelBotCredentialsUpdate | None = Field(
+        default=None, description="Must name the bot's provider."
+    )
 
 
-class AgentChannelBotRead(BaseModel):
-    """A bot with its install metadata. Secrets are reported only as present or not."""
+class SlackBotDetails(BaseModel):
+    """Secrets are reported only as present or not."""
 
-    id: uuid.UUID
-    workspace_id: uuid.UUID
-    agent_preset_id: uuid.UUID
-    provider: ChannelBotProvider
-    status: ChannelBotStatus
-    provider_tenant_id: str | None
+    provider: Literal[ChannelBotProvider.SLACK]
     provider_enterprise_id: str | None
-    provider_app_id: str | None
     provider_bot_user_id: str | None
     granted_scopes: list[str]
     missing_scopes: list[str] = Field(
@@ -81,44 +93,80 @@ class AgentChannelBotRead(BaseModel):
     has_bot_token: bool
     has_signing_secret: bool
     has_client_secret: bool
-    endpoint_url: str
     oauth_redirect_url: str
+
+
+type ChannelBotDetails = Annotated[SlackBotDetails, Field(discriminator="provider")]
+
+
+class AgentChannelBotRead(BaseModel):
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    agent_preset_id: uuid.UUID
+    provider: ChannelBotProvider
+    status: ChannelBotStatus
+    provider_tenant_id: str | None
+    provider_app_id: str | None
+    endpoint_url: str | None = Field(
+        description="Inbound event URL; None for a provider that delivers events over a socket."
+    )
     created_at: datetime
     updated_at: datetime
+    details: ChannelBotDetails
+
+    @model_validator(mode="after")
+    def _details_match_provider(self) -> Self:
+        if self.details.provider != self.provider:
+            raise ValueError("details must be for the bot's provider")
+        return self
 
 
-class SlackBotOAuthStartRequest(BaseModel):
-    """Start installing a customer-owned Slack app over OAuth."""
+class ChannelBotInstallBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
     bot_id: uuid.UUID | None = Field(
-        default=None, description="Bot to install into. If omitted, creates one."
+        default=None,
+        description="Bot to install into; it must already target agent_preset_id. If omitted, creates one.",
     )
     agent_preset_id: uuid.UUID
+
+
+class SlackBotInstall(ChannelBotInstallBase):
+    """Install a customer-owned Slack app over OAuth."""
+
+    provider: Literal[ChannelBotProvider.SLACK]
     client_id: str = Field(..., min_length=1)
     client_secret: str = Field(..., min_length=1)
     signing_secret: str = Field(..., min_length=1)
     return_url: str = Field(..., min_length=1)
 
 
-class SlackBotOAuthStartResponse(BaseModel):
-    authorization_url: str
+type ChannelBotInstall = Annotated[SlackBotInstall, Field(discriminator="provider")]
+
+
+class ChannelBotInstallResult(BaseModel):
     bot: AgentChannelBotRead
+    authorization_url: str | None = Field(
+        description="Where to send the browser to finish the install; None when the provider has no browser step.",
+    )
 
 
-class SlackBotOAuthCallback(BaseModel):
-    """Slack's redirect back to Tracecat after the user approves or cancels."""
+class ChannelBotOAuthCallback(BaseModel):
+    """A provider's redirect back to Tracecat after the user approves or cancels."""
+
+    # Provider-specific redirect parameters reach the provider as `model_extra`
+    # strings (a list when repeated) for it to validate.
+    model_config = ConfigDict(extra="allow")
 
     state: str
-    code: str | None = None
-    error: str | None = None
-    error_description: str | None = None
+    code: str | None = Field(default=None)
+    error: str | None = Field(default=None)
+    error_description: str | None = Field(default=None)
 
 
-class SlackBotOAuthOutcome(BaseModel):
-    """Where to send the browser, and whether the install succeeded."""
-
+class ChannelBotOAuthResult(BaseModel):
     return_url: str | None = Field(
         description="The caller's return URL from the state; None when the state is invalid."
     )
     ok: bool
-    message: str | None = None
+    message: str | None = Field(default=None)

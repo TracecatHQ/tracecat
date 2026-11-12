@@ -51,6 +51,7 @@ from tracecat.agent.access.router import router as agent_model_access_router
 from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
+from tracecat.agent.channel_bots.provider import get_channel_bot_admin
 from tracecat.agent.channel_bots.router import (
     public_router as agent_channel_bots_public_router,
 )
@@ -942,6 +943,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_api_route("/info", info, methods=["GET"], include_in_schema=False)
     app.add_api_route("/health", check_health, methods=["GET"], tags=["public"])
     include_api_extension_routers(app)
+    get_channel_bot_admin()  # Fail startup on two installed channel bot admins.
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)

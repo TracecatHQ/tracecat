@@ -155,12 +155,12 @@ import type {
   AgentChannelBotsCreateBotResponse,
   AgentChannelBotsDisconnectBotData,
   AgentChannelBotsDisconnectBotResponse,
+  AgentChannelBotsInstallBotData,
+  AgentChannelBotsInstallBotResponse,
   AgentChannelBotsListBotsData,
   AgentChannelBotsListBotsResponse,
   AgentChannelBotsRotateBotEndpointData,
   AgentChannelBotsRotateBotEndpointResponse,
-  AgentChannelBotsStartSlackBotOauthData,
-  AgentChannelBotsStartSlackBotOauthResponse,
   AgentChannelBotsUpdateBotData,
   AgentChannelBotsUpdateBotResponse,
   AgentChannelsCreateChannelTokenData,
@@ -6825,19 +6825,19 @@ export const agentChannelBotsDisconnectBot = (
 }
 
 /**
- * Start Slack Bot Oauth
+ * Install Bot
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns SlackBotOAuthStartResponse Successful Response
+ * @returns ChannelBotInstallResult Successful Response
  * @throws ApiError
  */
-export const agentChannelBotsStartSlackBotOauth = (
-  data: AgentChannelBotsStartSlackBotOauthData
-): CancelablePromise<AgentChannelBotsStartSlackBotOauthResponse> => {
+export const agentChannelBotsInstallBot = (
+  data: AgentChannelBotsInstallBotData
+): CancelablePromise<AgentChannelBotsInstallBotResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workspaces/{workspace_id}/agent/channel-bots/slack/oauth/start",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/install",
     path: {
       workspace_id: data.workspaceId,
     },
