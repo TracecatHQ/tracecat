@@ -51,6 +51,11 @@ from tracecat.agent.access.router import router as agent_model_access_router
 from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
+from tracecat.agent.channel_bots.provider import get_channel_bot_admin
+from tracecat.agent.channel_bots.router import (
+    public_router as agent_channel_bots_public_router,
+)
+from tracecat.agent.channel_bots.router import router as agent_channel_bots_router
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
@@ -759,6 +764,7 @@ def create_app(**kwargs) -> FastAPI:
     # Routers
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
+    app.include_router(agent_channel_bots_public_router)
     app.include_router(workspaces_router)
     app.include_router(embedding_configuration_router)
     app.include_router(workspace_service_accounts_router)
@@ -791,6 +797,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_custom_provider_router)
     _include_workspace_scoped_router(app, agent_workspace_router)
     _include_workspace_scoped_router(app, agent_channels_management_router)
+    _include_workspace_scoped_router(app, agent_channel_bots_router)
     _include_workspace_scoped_router(app, agent_preset_router)
     _include_workspace_scoped_router(app, agent_preset_tags_router)
     _include_workspace_scoped_router(app, agent_folders_router)
@@ -936,6 +943,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_api_route("/info", info, methods=["GET"], include_in_schema=False)
     app.add_api_route("/health", check_health, methods=["GET"], tags=["public"])
     include_api_extension_routers(app)
+    get_channel_bot_admin()  # Fail startup on two installed channel bot admins.
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)

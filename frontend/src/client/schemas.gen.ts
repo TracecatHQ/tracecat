@@ -1515,6 +1515,156 @@ export const $AgentCatalogRead = {
   description: "Single catalog model entry.",
 } as const
 
+export const $AgentChannelBotCreate = {
+  properties: {
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["agent_preset_id", "provider"],
+  title: "AgentChannelBotCreate",
+  description: "Reserve a bot before the provider app exists.",
+} as const
+
+export const $AgentChannelBotRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    status: {
+      $ref: "#/components/schemas/ChannelBotStatus",
+    },
+    provider_tenant_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Tenant Id",
+    },
+    provider_app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider App Id",
+    },
+    endpoint_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Url",
+      description:
+        "Inbound event URL; None for a provider that delivers events over a socket.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    details: {
+      $ref: "#/components/schemas/ChannelBotDetails",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "agent_preset_id",
+    "provider",
+    "status",
+    "provider_tenant_id",
+    "provider_app_id",
+    "endpoint_url",
+    "created_at",
+    "updated_at",
+    "details",
+  ],
+  title: "AgentChannelBotRead",
+} as const
+
+export const $AgentChannelBotUpdate = {
+  properties: {
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "New target. Existing threads stay on the agent they started with.",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelBotRunState",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    credentials: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelBotCredentialsUpdate",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Must name the bot's provider.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "AgentChannelBotUpdate",
+} as const
+
 export const $AgentChannelTokenCreate = {
   properties: {
     agent_preset_id: {
@@ -12865,6 +13015,92 @@ export const $CatalogMappingSelection = {
     "User-selected target catalog row for one source catalog reference.",
 } as const
 
+export const $ChannelBotCredentialsUpdate = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotCredentialsUpdate",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotCredentialsUpdate",
+    },
+  },
+} as const
+
+export const $ChannelBotDetails = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotDetails",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotDetails",
+    },
+  },
+} as const
+
+export const $ChannelBotInstall = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotInstall",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotInstall",
+    },
+  },
+} as const
+
+export const $ChannelBotInstallResult = {
+  properties: {
+    bot: {
+      $ref: "#/components/schemas/AgentChannelBotRead",
+    },
+    authorization_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Url",
+      description:
+        "Where to send the browser to finish the install; None when the provider has no browser step.",
+    },
+  },
+  type: "object",
+  required: ["bot", "authorization_url"],
+  title: "ChannelBotInstallResult",
+} as const
+
+export const $ChannelBotProvider = {
+  type: "string",
+  enum: ["slack"],
+  title: "ChannelBotProvider",
+} as const
+
+export const $ChannelBotRunState = {
+  type: "string",
+  enum: ["active", "paused"],
+  title: "ChannelBotRunState",
+  description:
+    "The statuses an admin sets directly; the others follow install and uninstall.",
+} as const
+
+export const $ChannelBotStatus = {
+  type: "string",
+  enum: ["active", "paused", "disconnected", "needs_reconnect"],
+  title: "ChannelBotStatus",
+} as const
+
 export const $ChannelType = {
   type: "string",
   enum: ["slack"],
@@ -14178,6 +14414,69 @@ export const $CursorPaginatedResponse_AdminOrgInvitationRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AdminOrgInvitationRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentChannelBotRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelBotRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentChannelBotRead]",
 } as const
 
 export const $CursorPaginatedResponse_AgentFolderRead_ = {
@@ -36083,6 +36382,220 @@ export const $SkillVersionReadMinimal = {
   title: "SkillVersionReadMinimal",
   description:
     "Summary response model for published skill versions in list endpoints.",
+} as const
+
+export const $SlackBotCredentialsUpdate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    signing_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signing Secret",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider"],
+  title: "SlackBotCredentialsUpdate",
+  description: `Slack app credentials to replace; unset fields keep their stored value.
+
+No bot token: only OAuth sets one, together with the install it belongs to.`,
+} as const
+
+export const $SlackBotDetails = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    provider_enterprise_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Enterprise Id",
+    },
+    provider_bot_user_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Bot User Id",
+    },
+    granted_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Granted Scopes",
+    },
+    missing_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Scopes",
+      description:
+        "Required scopes the install did not grant; reinstall to add them.",
+    },
+    update_needed: {
+      type: "boolean",
+      title: "Update Needed",
+    },
+    manifest_version: {
+      type: "integer",
+      title: "Manifest Version",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    has_bot_token: {
+      type: "boolean",
+      title: "Has Bot Token",
+    },
+    has_signing_secret: {
+      type: "boolean",
+      title: "Has Signing Secret",
+    },
+    has_client_secret: {
+      type: "boolean",
+      title: "Has Client Secret",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "provider_enterprise_id",
+    "provider_bot_user_id",
+    "granted_scopes",
+    "missing_scopes",
+    "update_needed",
+    "manifest_version",
+    "client_id",
+    "has_bot_token",
+    "has_signing_secret",
+    "has_client_secret",
+    "oauth_redirect_url",
+  ],
+  title: "SlackBotDetails",
+  description: "Secrets are reported only as present or not.",
+} as const
+
+export const $SlackBotInstall = {
+  properties: {
+    bot_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bot Id",
+      description:
+        "Bot to install into; it must already target agent_preset_id. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Client Secret",
+    },
+    signing_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Signing Secret",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: [
+    "agent_preset_id",
+    "provider",
+    "client_id",
+    "client_secret",
+    "signing_secret",
+    "return_url",
+  ],
+  title: "SlackBotInstall",
+  description: "Install a customer-owned Slack app over OAuth.",
 } as const
 
 export const $SlackChannelTokenConfig = {
