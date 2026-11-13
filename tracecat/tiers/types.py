@@ -118,3 +118,11 @@ class EntitlementsDict(TypedDict, total=False):
             " agent_runtime_preview",
         ),
     ]
+    agent_channels_preview: Annotated[
+        bool,
+        Field(
+            title="Agent channels preview",
+            description="Whether the organization uses the channel bot API in place"
+            " of legacy agent channels",
+        ),
+    ]
