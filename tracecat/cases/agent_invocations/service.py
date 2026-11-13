@@ -206,7 +206,6 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
                 CaseCommentMention.comment_id,
                 CaseComment.case_id,
                 CaseComment.parent_id,
-                CaseComment.deleted_at,
             )
             .join(
                 CaseCommentAgentInvocation,
@@ -224,9 +223,7 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
         if source is None:
             return None
 
-        invoking_comment_id, case_id, parent_id, deleted_at = source
-        if deleted_at is not None:
-            raise TracecatConflictError("Cannot run an agent on a deleted comment")
+        invoking_comment_id, case_id, parent_id = source
         thread_root_id = parent_id or invoking_comment_id
         reply_invocation = aliased(CaseCommentAgentInvocation)
         thread_statement = (
@@ -253,6 +250,14 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
             .order_by(CaseComment.created_at, CaseComment.surrogate_id)
         )
         rows = (await self.session.execute(thread_statement)).tuples().all()
+        # Check deletion on the same rows the prompt is built from. A deleted
+        # invoking reply is filtered out above; a deleted root is not.
+        invoking = next(
+            (comment for comment, _, _ in rows if comment.id == invoking_comment_id),
+            None,
+        )
+        if invoking is None or invoking.deleted_at is not None:
+            raise TracecatConflictError("Cannot run an agent on a deleted comment")
         entries = tuple(
             CommentThreadEntry(
                 id=comment.id,

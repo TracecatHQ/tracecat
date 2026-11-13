@@ -978,21 +978,32 @@ class TestCaseCommentsService:
         preset = await _create_agent_preset(
             session, case_comments_service.workspace_id, name="Deleted source agent"
         )
-        invoking = await case_comments_service.create_comment(
-            test_case,
-            CaseCommentCreate(
-                content=_mention_token("Deleted source agent", preset.id)
-            ),
+        mention = _mention_token("Deleted source agent", preset.id)
+        root = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content=mention)
         )
-        [invocation] = await _load_comment_invocations(session, invoking.id)
-        await case_comments_service.delete_comment(invoking)
+        reply = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content=mention, parent_id=root.id)
+        )
+        invocation_service = CaseCommentAgentInvocationService(
+            session, case_comments_service.role
+        )
 
+        # A deleted invoking reply is refused; its root's thread still loads.
+        [reply_invocation] = await _load_comment_invocations(session, reply.id)
+        await case_comments_service.delete_comment(reply)
         with pytest.raises(
             TracecatConflictError, match="Cannot run an agent on a deleted comment"
         ):
-            await CaseCommentAgentInvocationService(
-                session, case_comments_service.role
-            ).load_thread_context(invocation.id)
+            await invocation_service.load_thread_context(reply_invocation.id)
+
+        [root_invocation] = await _load_comment_invocations(session, root.id)
+        assert await invocation_service.load_thread_context(root_invocation.id)
+        await case_comments_service.delete_comment(root)
+        with pytest.raises(
+            TracecatConflictError, match="Cannot run an agent on a deleted comment"
+        ):
+            await invocation_service.load_thread_context(root_invocation.id)
 
     async def test_agent_completion_rejects_deleted_thread_root(
         self,
