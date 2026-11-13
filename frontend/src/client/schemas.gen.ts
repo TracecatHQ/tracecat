@@ -17297,6 +17297,13 @@ export const $EffectiveEntitlements = {
         "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
       default: false,
     },
+    agent_channels_preview: {
+      type: "boolean",
+      title: "Agent channels preview",
+      description:
+        "Whether the organization uses the channel bot API in place of legacy agent channels",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -17549,6 +17556,12 @@ export const $EntitlementsDict = {
       title: "Agent runtime for workflows",
       description:
         "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
+    },
+    agent_channels_preview: {
+      type: "boolean",
+      title: "Agent channels preview",
+      description:
+        "Whether the organization uses the channel bot API in place of legacy agent channels",
     },
   },
   type: "object",
