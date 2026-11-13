@@ -149,7 +149,7 @@ Tracecat gets tokens from `DefaultAzureCredential`, which caches each token and 
 
 ## Kubernetes with PgDog
 
-The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadIdentity`. Every Tracecat workload, the agent runtime included, then logs in to PgDog with a token, which PgDog passes through to the database. PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to the database with it, as `pgdog.serverUser`, so `serverUser` must be the workloads' username. The token modes need [database roles](/self-hosting/database-roles): the migrations Job logs in directly, as `migrator` with a token of its own (see [Migrations](#migrations)), and no workload needs `externalPostgres.auth.existingSecret`.
+The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadIdentity`. Every Tracecat workload, the agent runtime included, then logs in to PgDog with a token, which PgDog passes through to the database. PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to the database with it, as `pgdog.serverUser`, so `serverUser` must be the workloads' username. The token modes need [database roles](/self-hosting/database-roles): the migrations Job logs in directly, as `migrator` with a token of its own (see [Migrations](#migrations)), and no workload needs `externalPostgres.auth.existingSecret`. Once the token login works, delete that Secret from the cluster and rotate the admin's password, and keep the admin login with whoever manages the database.
 
 Both modes need:
 
@@ -282,7 +282,7 @@ With `REDIS_AUTH_MODE` set to `aws_iam` or `azure_entra`, Tracecat logs in to Re
     REDIS_AZURE_CLIENT_ID=<app-client-id>
     ```
 
-    With the Helm chart, list the components that log in this way. Components you don't list keep `externalRedis.auth.existingSecret`'s URL; once you list every component, remove it. `clientId` defaults to `externalPostgres.auth.azureWorkloadIdentity.clientId`:
+    With the Helm chart, list the components that log in this way. Components you don't list keep `externalRedis.auth.existingSecret`'s URL; once you list every component, remove it from your values and delete the Secret. `clientId` defaults to `externalPostgres.auth.azureWorkloadIdentity.clientId`:
 
     ```yaml
     externalRedis:
@@ -304,7 +304,7 @@ On Azure Cache for Redis, turn on Microsoft Entra authentication and add a data 
 ## Limitations
 
 - The AWS Fargate Terraform doesn't set `TRACECAT__DB_AUTH_MODE` yet; Fargate deployments keep password login.
-- Self-hosted Temporal still logs in to its own database with a password. A fully passwordless install needs Temporal Cloud or another external Temporal.
+- Self-hosted Temporal still logs in to its own database with a password. Give it its own database role and Secret, never the admin's. A fully passwordless install needs Temporal Cloud or another external Temporal.
 
 ## Related pages
 
