@@ -11,8 +11,10 @@ import {
   type CaseViewFilters,
   columnsEqual,
   filtersToViewQuery,
+  mergeViewQuery,
   sortToView,
   viewQueriesEqual,
+  viewSaveBlocker,
   viewToFilters,
 } from "@/lib/case-views"
 
@@ -101,6 +103,8 @@ export interface CaseViewControls {
   saveAsNew: (name: string, visibility: CaseViewVisibility) => Promise<void>
   reset: () => void
   isSaving: boolean
+  /** Why the current search cannot be saved, or null when it can. */
+  saveBlockedReason: string | null
 }
 
 /**
@@ -150,12 +154,14 @@ export function useCaseViewControls({
   }, [active.viewId, appliedKey, setAppliedKey, setColumns])
 
   const currentQuery = useMemo(
-    () => ({
-      ...(mapped?.extraQuery ?? {}),
-      ...filtersToViewQuery(cases.filters),
-    }),
+    () =>
+      mergeViewQuery(
+        mapped?.extraQuery ?? {},
+        filtersToViewQuery(cases.filters)
+      ),
     [cases.filters, mapped]
   )
+  const saveBlockedReason = viewSaveBlocker(cases.filters, mapped?.staleRules)
   const currentSort = sortToView(cases.filters)
 
   const isModified = useMemo(() => {
@@ -165,12 +171,12 @@ export function useCaseViewControls({
     const savedOrder = view.order_by ?? DEFAULT_CASE_SORT.field
     const savedSort = view.sort ?? DEFAULT_CASE_SORT.direction
     return (
-      !viewQueriesEqual(currentQuery, view.query) ||
+      !viewQueriesEqual(currentQuery, mapped?.savedQuery ?? view.query) ||
       currentSort.order_by !== savedOrder ||
       currentSort.sort !== savedSort ||
       (columns !== null && !columnsEqual(columns, view.columns))
     )
-  }, [view, active.isApplied, currentQuery, currentSort, columns])
+  }, [view, mapped, active.isApplied, currentQuery, currentSort, columns])
 
   const viewColumns =
     view && columns !== null
@@ -204,7 +210,7 @@ export function useCaseViewControls({
   )
 
   const save = useCallback(async () => {
-    if (!view || !view.can_edit) {
+    if (!view || !view.can_edit || saveBlockedReason) {
       return
     }
     await updateView.mutateAsync({
@@ -216,10 +222,13 @@ export function useCaseViewControls({
         columns: columns ?? view.columns ?? null,
       },
     })
-  }, [view, updateView, currentQuery, currentSort, columns])
+  }, [view, updateView, currentQuery, currentSort, columns, saveBlockedReason])
 
   const saveAsNew = useCallback(
     async (name: string, visibility: CaseViewVisibility) => {
+      if (saveBlockedReason) {
+        return
+      }
       const created = await createView.mutateAsync({
         name,
         visibility,
@@ -238,6 +247,7 @@ export function useCaseViewControls({
       view,
       personalColumns,
       active,
+      saveBlockedReason,
     ]
   )
 
@@ -258,5 +268,6 @@ export function useCaseViewControls({
     saveAsNew,
     reset,
     isSaving: createView.isPending || updateView.isPending,
+    saveBlockedReason,
   }
 }

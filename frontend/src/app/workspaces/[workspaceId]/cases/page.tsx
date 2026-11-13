@@ -119,6 +119,7 @@ export default function CasesPage() {
     includeDurations,
     persist: activeView.viewId === null,
     extraQuery: activeView.mapped?.extraQuery,
+    staleRules: activeView.mapped?.staleRules,
     enabled: activeView.isApplied,
   })
   const viewControls = useCaseViewControls({

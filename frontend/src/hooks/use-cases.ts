@@ -146,6 +146,8 @@ export interface UseCasesOptions {
   persist?: boolean
   /** Conditions the filter bar cannot show, sent with every request. */
   extraQuery?: Omit<CaseQuery_Input, "view_id">
+  /** Rules of an open view whose values were all deleted; they match nothing. */
+  staleRules?: StaleViewRules
 }
 
 export interface UseCasesResult {
@@ -268,6 +270,34 @@ export const DEFAULT_CREATED_PRESET: CaseDatePreset = "1m"
 export const DEFAULT_CREATED_FILTER: CaseDateFilterValue = {
   type: "preset",
   value: DEFAULT_CREATED_PRESET,
+}
+
+/**
+ * Rules in an open view whose values were all deleted, such as its only tag.
+ * Dropping such a rule would widen the view, so it matches nothing until the
+ * user picks new values for it.
+ */
+export interface StaleViewRules {
+  tags: boolean
+  dropdownRefs: string[]
+}
+
+/** Whether a stale rule still has no values, so the search matches nothing. */
+export function staleRulesMatchNone(
+  rules: StaleViewRules | undefined,
+  filters: Pick<UseCasesFilters, "tagFilter" | "dropdownFilters">
+): boolean {
+  if (!rules) return false
+  if (rules.tags && filters.tagFilter.length === 0) return true
+  return rules.dropdownRefs.some(
+    (ref) => (filters.dropdownFilters[ref]?.values.length ?? 0) === 0
+  )
+}
+
+/** Whether a date filter sets a preset or a range. */
+function isDateFilterActive(filter: CaseDateFilterValue): boolean {
+  if (filter.type === "preset") return filter.value !== null
+  return Boolean(filter.value.from || filter.value.to)
 }
 
 /** The filter bar's state with nothing selected. */
@@ -682,6 +712,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     includeDurations = false,
     persist = true,
     extraQuery,
+    staleRules,
   } = options
   const workspaceId = useWorkspaceId()
   const normalizedFieldIds = useMemo(
@@ -1063,12 +1094,23 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         tags:
           tagFilter.length > 0 && tagMode === "include" ? tagFilter : undefined,
         dropdown: dropdownIncludes.length > 0 ? dropdownIncludes : undefined,
-        created_within: createdWindow ?? undefined,
+        // A view's own window applies until the filter bar sets a date.
+        created_within:
+          createdWindow ??
+          (isDateFilterActive(createdAfter)
+            ? undefined
+            : extraQuery?.created_within) ??
+          undefined,
         start_time: createdBounds.start?.toISOString(),
         end_time: createdBounds.end
           ? toEndOfDay(createdBounds.end).toISOString()
           : undefined,
-        updated_within: updatedWindow ?? undefined,
+        updated_within:
+          updatedWindow ??
+          (isDateFilterActive(updatedAfter)
+            ? undefined
+            : extraQuery?.updated_within) ??
+          undefined,
         updated_after: updatedBounds.start?.toISOString(),
         updated_before: updatedBounds.end
           ? toEndOfDay(updatedBounds.end).toISOString()
@@ -1081,7 +1123,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       hasImpossibleEnumFilter:
         resolvedStatus.matchesNone ||
         resolvedPriority.matchesNone ||
-        resolvedSeverity.matchesNone,
+        resolvedSeverity.matchesNone ||
+        staleRulesMatchNone(staleRules, { tagFilter, dropdownFilters }),
     }
   }, [
     appliedSearchQuery,
@@ -1101,6 +1144,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     createdAfter,
     includeSubCases,
     extraQuery,
+    staleRules,
   ])
 
   const effectiveSortBy: CaseSortValue =

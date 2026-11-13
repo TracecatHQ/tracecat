@@ -23,6 +23,8 @@ import {
   getCaseSearchTerm,
   presetToWindow,
   resolveEnumIncludeFilter,
+  type StaleViewRules,
+  staleRulesMatchNone,
   type UseCasesFilters,
 } from "@/hooks/use-cases"
 
@@ -60,6 +62,10 @@ export interface CaseViewFilters {
   extraQuery: CaseViewQuery
   /** Short labels for {@link extraQuery}, such as "Created by me". */
   extraLabels: string[]
+  /** Rules whose values were all deleted; they match nothing until refilled. */
+  staleRules: StaleViewRules
+  /** The view's query without deleted tags or options, for change tracking. */
+  savedQuery: CaseViewQuery
 }
 
 function windowToPreset(window: RelativeTimeWindow): CaseDatePreset | null {
@@ -218,7 +224,33 @@ function hasValue(value: unknown): boolean {
  * window that is not one of the filter-bar presets stays in `extraQuery`.
  */
 export function viewToFilters(view: CaseViewRead): CaseViewFilters {
-  const query = view.query
+  const staleValues = new Set(
+    (view.stale_refs ?? []).map((ref) => `${ref.kind}:${ref.value}`)
+  )
+  const keptTags = (view.query.tags ?? []).filter(
+    (tag) => !staleValues.has(`tag:${tag}`)
+  )
+  const keptDropdown = (view.query.dropdown ?? []).filter(
+    (entry) => !staleValues.has(`dropdown:${entry}`)
+  )
+  const keptDropdownRefs = new Set(
+    keptDropdown.map((entry) => entry.split(":", 1)[0])
+  )
+  const staleRules: StaleViewRules = {
+    tags: (view.query.tags?.length ?? 0) > 0 && keptTags.length === 0,
+    dropdownRefs: [
+      ...new Set(
+        (view.query.dropdown ?? [])
+          .map((entry) => entry.split(":", 1)[0])
+          .filter((ref) => !keptDropdownRefs.has(ref))
+      ),
+    ],
+  }
+  const query: CaseQuery_Output = {
+    ...view.query,
+    tags: keptTags,
+    dropdown: keptDropdown,
+  }
   const extraQuery: Record<string, unknown> = {}
   const extraLabels: string[] = []
   for (const [field, value] of Object.entries(query)) {
@@ -289,7 +321,72 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
       sortBy.field === "assignee" ? sortBy.direction : null,
     tagSortDirection: sortBy.field === "tags" ? sortBy.direction : null,
   }
-  return { filters, extraQuery: extraQuery as CaseViewQuery, extraLabels }
+  return {
+    filters,
+    extraQuery: extraQuery as CaseViewQuery,
+    extraLabels,
+    staleRules,
+    savedQuery: query as CaseViewQuery,
+  }
+}
+
+/**
+ * Combine a view's hidden conditions with the filter bar's query.
+ *
+ * A date the user sets in the filter bar replaces the view's own window.
+ */
+export function mergeViewQuery(
+  extraQuery: CaseViewQuery,
+  barQuery: CaseViewQuery
+): CaseViewQuery {
+  const merged: CaseViewQuery = { ...extraQuery, ...barQuery }
+  if (barQuery.start_time || barQuery.end_time || barQuery.created_within) {
+    merged.created_within = barQuery.created_within
+  }
+  if (
+    barQuery.updated_after ||
+    barQuery.updated_before ||
+    barQuery.updated_within
+  ) {
+    merged.updated_within = barQuery.updated_within
+  }
+  return merged
+}
+
+/**
+ * Explain why the current search cannot be saved, or return null.
+ *
+ * A search that matches nothing would be saved without its impossible rule
+ * and match every case instead, so saving waits until it matches something.
+ */
+export function viewSaveBlocker(
+  filters: UseCasesFilters,
+  staleRules: StaleViewRules | undefined
+): string | null {
+  const excludesEverything = [
+    resolveEnumIncludeFilter(
+      filters.statusFilter,
+      filters.statusMode,
+      ALL_CASE_STATUSES
+    ),
+    resolveEnumIncludeFilter(
+      filters.priorityFilter,
+      filters.priorityMode,
+      ALL_CASE_PRIORITIES
+    ),
+    resolveEnumIncludeFilter(
+      filters.severityFilter,
+      filters.severityMode,
+      ALL_CASE_SEVERITIES
+    ),
+  ].some((resolved) => resolved.matchesNone)
+  if (excludesEverything) {
+    return "These filters exclude every value, so they match no cases."
+  }
+  if (staleRulesMatchNone(staleRules, filters)) {
+    return "Pick new values for the deleted tags or options first."
+  }
+  return null
 }
 
 /** Order-insensitive JSON for comparing two queries. */

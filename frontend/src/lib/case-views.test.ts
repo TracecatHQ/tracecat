@@ -3,8 +3,10 @@ import { DEFAULT_CASES_FILTERS, type UseCasesFilters } from "@/hooks/use-cases"
 import {
   columnsEqual,
   filtersToViewQuery,
+  mergeViewQuery,
   sortToView,
   viewQueriesEqual,
+  viewSaveBlocker,
   viewToFilters,
 } from "@/lib/case-views"
 
@@ -138,5 +140,84 @@ describe("columnsEqual", () => {
   it("treats a missing list as no columns and respects order", () => {
     expect(columnsEqual(null, [])).toBe(true)
     expect(columnsEqual(["a", "b"], ["b", "a"])).toBe(false)
+  })
+})
+
+describe("deleted tags and options", () => {
+  const staleView = makeView({
+    query: {
+      tags: ["phishing", "retired"],
+      dropdown: ["verdict:gone"],
+    },
+    stale_refs: [
+      { kind: "tag", value: "retired" },
+      { kind: "dropdown", value: "verdict:gone" },
+    ],
+  })
+
+  it("drops deleted values from the filter bar and the saved query", () => {
+    const { filters, savedQuery, staleRules } = viewToFilters(staleView)
+
+    expect(filters.tagFilter).toEqual(["phishing"])
+    expect(filters.dropdownFilters.verdict).toBeUndefined()
+    expect(savedQuery.tags).toEqual(["phishing"])
+    expect(savedQuery.dropdown).toEqual([])
+    expect(staleRules).toEqual({ tags: false, dropdownRefs: ["verdict"] })
+  })
+
+  it("marks a rule whose values were all deleted, and blocks saving it", () => {
+    const { filters, staleRules } = viewToFilters(
+      makeView({
+        query: { tags: ["retired"] },
+        stale_refs: [{ kind: "tag", value: "retired" }],
+      })
+    )
+
+    expect(staleRules.tags).toBe(true)
+    expect(viewSaveBlocker(filters, staleRules)).toMatch(/deleted tags/)
+    expect(
+      viewSaveBlocker({ ...filters, tagFilter: ["phishing"] }, staleRules)
+    ).toBeNull()
+  })
+})
+
+describe("mergeViewQuery", () => {
+  const custom = { created_within: { amount: 14, unit: "day" as const } }
+
+  it("keeps a view's custom window when the filter bar sets no date", () => {
+    expect(mergeViewQuery(custom, { tags: ["phishing"] })).toEqual({
+      created_within: { amount: 14, unit: "day" },
+      tags: ["phishing"],
+    })
+  })
+
+  it("lets a filter-bar date replace the view's window", () => {
+    const merged = mergeViewQuery(custom, {
+      start_time: "2026-11-01T00:00:00.000Z",
+    })
+
+    expect(merged.created_within).toBeUndefined()
+    expect(merged.start_time).toBe("2026-11-01T00:00:00.000Z")
+  })
+})
+
+describe("viewSaveBlocker", () => {
+  it("blocks saving a search that excludes every status", () => {
+    const filters: UseCasesFilters = {
+      ...DEFAULT_CASES_FILTERS,
+      statusFilter: [
+        "unknown",
+        "new",
+        "in_progress",
+        "on_hold",
+        "resolved",
+        "closed",
+        "other",
+      ],
+      statusMode: "exclude",
+    }
+
+    expect(viewSaveBlocker(filters, undefined)).toMatch(/match no cases/)
+    expect(viewSaveBlocker(DEFAULT_CASES_FILTERS, undefined)).toBeNull()
   })
 })

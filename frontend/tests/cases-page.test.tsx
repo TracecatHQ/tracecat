@@ -76,6 +76,32 @@ jest.mock("@/lib/hooks", () => ({
   }),
 }))
 
+jest.mock("@/hooks/use-case-view-state", () => ({
+  // No saved view is open: the page uses the personal column selection.
+  useActiveCaseView: () => ({
+    viewId: null,
+    view: null,
+    mapped: null,
+    isApplied: true,
+    columns: null,
+  }),
+  useCaseViewControls: ({
+    personalColumns,
+    togglePersonalColumn,
+  }: {
+    personalColumns: string[]
+    togglePersonalColumn: (columnId: string) => void
+  }) => ({
+    visibleColumnIds: personalColumns,
+    toggleColumn: togglePersonalColumn,
+  }),
+}))
+
+jest.mock("@/components/cases/case-view-switcher", () => ({
+  CaseViewChips: () => null,
+  CaseViewSwitcher: () => null,
+}))
+
 jest.mock("@/components/cases/cases-layout", () => ({
   CasesLayout: () => null,
 }))

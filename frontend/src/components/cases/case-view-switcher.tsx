@@ -84,7 +84,8 @@ export function CaseViewSwitcher({
   workspaceId,
   controls,
 }: CaseViewSwitcherProps) {
-  const { active, isModified, isSaving } = controls
+  const { active, isModified, isSaving, saveBlockedReason } = controls
+  const cannotSave = isSaving || saveBlockedReason !== null
   const views = useCaseViews(workspaceId)
   const { updateView, deleteView, pinView, unpinView } =
     useCaseViewMutations(workspaceId)
@@ -182,6 +183,8 @@ export function CaseViewSwitcher({
               <CommandGroup>
                 <CommandItem
                   value="save current filters as a view"
+                  disabled={saveBlockedReason !== null}
+                  title={saveBlockedReason ?? undefined}
                   onSelect={() => {
                     setOpen(false)
                     setDialog({ kind: "create" })
@@ -223,7 +226,8 @@ export function CaseViewSwitcher({
               size="sm"
               variant="outline"
               className="h-6 px-2 text-xs"
-              disabled={isSaving}
+              disabled={cannotSave}
+              title={saveBlockedReason ?? undefined}
               onClick={() => void controls.save()}
             >
               Save
@@ -233,7 +237,8 @@ export function CaseViewSwitcher({
             size="sm"
             variant="ghost"
             className="h-6 px-2 text-xs"
-            disabled={isSaving}
+            disabled={cannotSave}
+            title={saveBlockedReason ?? undefined}
             onClick={() => setDialog({ kind: "duplicate", view })}
           >
             Save as new
