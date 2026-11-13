@@ -56,6 +56,7 @@ from tracecat.agent.backends.types import (
     AgentControlRejected,
     SessionCleanup,
     SessionDeleteContext,
+    SessionDispatchUncertain,
     SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnActiveError,
@@ -2406,9 +2407,14 @@ class AgentSessionService(BaseWorkspaceService):
         await self._admit_message(agent_session)
         # The loaded row may name a run that has since released the session.
         await self.session.refresh(agent_session, ["curr_run_id"])
-        # A duplicate delivery may have started this message's run since the lookup.
+        # A duplicate delivery may have reserved this message's run since the lookup.
+        # The row proves only the reservation; never steer into it.
         if agent_session.curr_run_id == message_run:
-            return RunStarted(run_id=message_run)
+            if await backend.turn_start_state(message_run) == "started":
+                return RunStarted(run_id=message_run)
+            raise SessionDispatchUncertain(
+                "This message's run is reserved but its start is unconfirmed"
+            )
         lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
         if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
             return lifecycle
