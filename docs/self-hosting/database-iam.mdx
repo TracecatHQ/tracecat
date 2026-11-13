@@ -150,7 +150,7 @@ Tracecat gets tokens from `DefaultAzureCredential`, which caches each token and 
 
 ## Kubernetes with PgDog
 
-The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadIdentity`. Every Tracecat workload, the agent runtime included, then logs in to PgDog with a token, which PgDog passes through to the database. PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to the database with it, as `pgdog.serverUser`, so `serverUser` must be the workloads' username. The token modes need [database roles](/self-hosting/database-roles): the migrations Job logs in directly, as `migrator` with a token of its own (see [Migrations](#migrations)), and no workload needs `externalPostgres.auth.existingSecret`. Once the token login works, delete that Secret from the cluster and rotate the admin's password, and keep the admin login with whoever manages the database.
+The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadIdentity`. Every Tracecat workload, the agent runtime included, then logs in to PgDog with a token, which PgDog passes through to the database. PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to the database with it, as `pgdog.serverUser`, so `serverUser` must be the workloads' username. The token modes need [database roles](/self-hosting/database-roles): the migrations Job logs in directly, as `migrator` with a token of its own (see [Migrations](#migrations)), and no workload needs `externalPostgres.auth.existingSecret`. Once the token login works, delete that Secret from the cluster and rotate the admin's password, and keep the admin login with whoever manages the database. Delete any old `externalPostgres.auth.appSecret` and `migrations.migrator.passwordSecret` Secrets too.
 
 Both modes need:
 
@@ -281,6 +281,7 @@ With `REDIS_AUTH_MODE` set to `aws_iam` or `azure_entra`, Tracecat logs in to Re
     REDIS_AUTH_MODE=azure_entra
     REDIS_URL=rediss://<cache-name>.<region>.redis.azure.net:10000
     REDIS_AZURE_CLIENT_ID=<app-client-id>
+    AZURE_TOKEN_CREDENTIALS=WorkloadIdentityCredential
     ```
 
     With the Helm chart, list the components that log in this way. Components you don't list keep `externalRedis.auth.existingSecret`'s URL; once you list every component, remove it from your values and delete the Secret. `clientId` defaults to `externalPostgres.auth.azureWorkloadIdentity.clientId`:

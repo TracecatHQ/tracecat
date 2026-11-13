@@ -362,7 +362,7 @@ Agent-controlled code runs in the same sandbox as the agent, so generated code c
 
 Local `stdio` MCP is the exception. Its credentials enter the shared sandbox, so treat them as readable by agent-controlled code.
 
-Token database login is the other exception. With the Helm chart's `awsIam` or `azureWorkloadIdentity` mode, the agent runtime holds a short-lived database token for the `app` login, which agent-controlled code could read and use to log in to the database directly until it expires. See [Database IAM login](/self-hosting/database-iam#kubernetes-with-pgdog).
+The agent runtime's database login is another exception. The runtime holds its database credential, which agent-controlled code could read: a password with password login, or with the Helm chart's `awsIam` or `azureWorkloadIdentity` mode a short-lived token for the `app` login that the database accepts directly until it expires. See [Database IAM login](/self-hosting/database-iam#kubernetes-with-pgdog).
 
 ## Agent and MCP control plane
 
