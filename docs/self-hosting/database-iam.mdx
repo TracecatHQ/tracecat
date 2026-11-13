@@ -148,9 +148,17 @@ Tracecat signs each token locally with the service's AWS credentials and reuses 
 
 Tracecat gets tokens from `DefaultAzureCredential`, which caches each token and renews it before it expires.
 
+If `app`, `migrator` or `agent_runtime` had a password before, clear it as the admin once the token login works, since Azure keeps password login on for these roles. Then unset `TRACECAT__DB_APP_PASSWORD`, `TRACECAT__DB_MIGRATOR_PASSWORD` and `TRACECAT__DB_AGENT_RUNTIME_PASSWORD` and delete them wherever you store them:
+
+```sql
+ALTER ROLE app PASSWORD NULL;
+ALTER ROLE migrator PASSWORD NULL;
+ALTER ROLE agent_runtime PASSWORD NULL;
+```
+
 ## Kubernetes with PgDog
 
-The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadIdentity`. Every Tracecat workload, the agent runtime included, then logs in to PgDog with a token, which PgDog passes through to the database. PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to the database with it, as `pgdog.serverUser`, so `serverUser` must be the workloads' username. The token modes need [database roles](/self-hosting/database-roles): the migrations Job logs in directly, as `migrator` with a token of its own (see [Migrations](#migrations)), and no workload needs `externalPostgres.auth.existingSecret`. Once the token login works, delete that Secret from the cluster and rotate the admin's password, and keep the admin login with whoever manages the database. Delete any old `externalPostgres.auth.appSecret` and `migrations.migrator.passwordSecret` Secrets too, along with whatever provisions them, and as the admin clear the old passwords with `ALTER ROLE app PASSWORD NULL;` and `ALTER ROLE migrator PASSWORD NULL;`.
+The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadIdentity`. Every Tracecat workload, the agent runtime included, then logs in to PgDog with a token, which PgDog passes through to the database. PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to the database with it, as `pgdog.serverUser`, so `serverUser` must be the workloads' username. The token modes need [database roles](/self-hosting/database-roles): the migrations Job logs in directly, as `migrator` with a token of its own (see [Migrations](#migrations)), and no workload needs `externalPostgres.auth.existingSecret`. Once the token login works, delete that Secret from the cluster and rotate the admin's password, and keep the admin login with whoever manages the database. Delete any old `externalPostgres.auth.appSecret` and `migrations.migrator.passwordSecret` Secrets too, along with whatever provisions them. On Azure, also [clear the roles' old passwords](#azure-database-for-postgresql).
 
 Both modes need:
 
