@@ -152,7 +152,7 @@ The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadId
 Both modes need:
 
 - PgDog v0.1.65 or newer, which has the token-cache fix (pgdog#1989). Set `pgdog.image.tag` if your chart's default is older.
-- `externalPostgres.sslMode: require` or stricter, and `externalPostgres.tls.verifyCA` with the database's CA in `caCert`.
+- `externalPostgres.sslMode: require`, and `externalPostgres.tls.verifyCA` with the database's CA in `caCert`. PgDog verifies the database with that CA; the chart rejects `verify-ca` and `verify-full` with PgDog.
 - `agentRuntime.durable.database.dsnSecret` left empty, so the agent runtime logs in as the workloads do.
 - An agent runtime image (`agentRuntime.image.tag`) with token login. Check with the Tracecat team that your chart's default includes it.
 
