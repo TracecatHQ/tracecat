@@ -54,6 +54,7 @@ async def _require_agent_channels_entitlement(
     session: AsyncDBSession,
 ) -> None:
     await check_entitlement(session, role, Entitlement.AGENT_CHANNELS)
+    await check_entitlement(session, role, Entitlement.AGENT_CHANNELS_PREVIEW)
 
 
 Admin = Annotated[ChannelBotAdmin, Depends(_require_admin)]
