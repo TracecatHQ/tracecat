@@ -14,12 +14,22 @@ from sqlalchemy.sql.elements import ColumnElement
 from tracecat.authz.controls import has_scope
 from tracecat.cases.enums import CaseViewVisibility
 from tracecat.cases.query import DROPDOWN_PREFIX
-from tracecat.cases.search_adapters import iter_case_filter_conditions
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder
+from tracecat.cases.search_adapters import (
+    format_dropdown_entry,
+    iter_case_filter_conditions,
+    parse_dropdown_entry,
+    requesting_user_id,
+)
+from tracecat.cases.search_schemas import (
+    CaseQuery,
+    CaseSearchOrder,
+    CaseSearchRequest,
+)
 from tracecat.cases.tags.search import split_case_tag_filters
 from tracecat.cases.views.builtins import BUILTIN_CASE_VIEWS
 from tracecat.cases.views.schemas import (
     CaseViewCreate,
+    CaseViewEmptyRules,
     CaseViewRead,
     CaseViewStaleRef,
     CaseViewUpdate,
@@ -39,14 +49,19 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
+from tracecat.query.filters import AndClause
 from tracecat.service import BaseWorkspaceService
 
 CASE_VIEW_QUERY_VERSION = 1
 SHARED_VIEW_SCOPE = "case:update"
 
 # Matching fields a request may not combine with ``view_id``. ``filters`` is
-# allowed and ANDed with the view's own tree.
-_VIEW_EXCLUSIVE_FIELDS = frozenset(CaseQuery.model_fields) - {"view_id", "filters"}
+# allowed and ANDed with the view's own tree; ``match_none`` is ORed.
+_VIEW_EXCLUSIVE_FIELDS = frozenset(CaseQuery.model_fields) - {
+    "view_id",
+    "filters",
+    "match_none",
+}
 
 
 class CaseViewNotFoundError(TracecatNotFoundError):
@@ -75,7 +90,20 @@ class ResolvedCaseView:
 class _CleanedQuery:
     query: CaseQuery
     stale_refs: list[CaseViewStaleRef]
-    match_none: bool
+    empty_rules: CaseViewEmptyRules
+
+    @property
+    def match_none(self) -> bool:
+        rules = self.empty_rules
+        return rules.tags or bool(rules.dropdown_refs) or rules.filters
+
+
+def _saved_view_id(view_id: str | uuid.UUID, builtin_message: str) -> uuid.UUID:
+    """Return a saved view's UUID, rejecting built-in IDs with ``builtin_message``."""
+    parsed = parse_view_id(view_id)
+    if not isinstance(parsed, uuid.UUID):
+        raise TracecatValidationError(builtin_message)
+    return parsed
 
 
 def parse_view_id(view_id: str | uuid.UUID) -> uuid.UUID | BuiltinCaseViewId:
@@ -99,7 +127,8 @@ class CaseViewsService(BaseWorkspaceService):
 
     @property
     def _user_id(self) -> uuid.UUID | None:
-        return self.role.user_id
+        # Only user roles own personal views; workflows see shared views only.
+        return requesting_user_id(self.role)
 
     @property
     def _can_edit_shared(self) -> bool:
@@ -167,15 +196,28 @@ class CaseViewsService(BaseWorkspaceService):
         )
 
     async def get_view(self, view_id: str | uuid.UUID) -> CaseViewRead:
-        """Return one view, including any references to deleted tags or options."""
+        """Return one view in the form it runs in.
+
+        Deleted tags and options are removed from ``query`` and listed in
+        ``stale_refs``. Rules left with nothing to match are in ``empty_rules``,
+        and make the view match no cases until they get new values.
+        """
         parsed = parse_view_id(view_id)
         if not isinstance(parsed, uuid.UUID):
-            return self._builtin_read(parsed)
+            return self._builtin_read(parsed).model_copy(
+                update={"stale_refs": [], "empty_rules": CaseViewEmptyRules()}
+            )
         view = await self._get_visible(parsed)
         position = await self._pin_position(view.id)
         read = self._custom_read(view, position)
         cleaned = await self._clean_query(read.query)
-        return read.model_copy(update={"stale_refs": cleaned.stale_refs})
+        return read.model_copy(
+            update={
+                "query": cleaned.query,
+                "stale_refs": cleaned.stale_refs,
+                "empty_rules": cleaned.empty_rules,
+            }
+        )
 
     async def resolve_for_search(self, view_id: str | uuid.UUID) -> ResolvedCaseView:
         """Load a visible view's query so a search can run it."""
@@ -264,10 +306,9 @@ class CaseViewsService(BaseWorkspaceService):
     ) -> CaseViewRead:
         """Show a saved view in the requesting user's sidebar."""
         user_id = self._require_user()
-        parsed = parse_view_id(view_id)
-        if not isinstance(parsed, uuid.UUID):
-            raise TracecatValidationError("Built-in views are always shown")
-        view = await self._get_visible(parsed)
+        view = await self._get_visible(
+            _saved_view_id(view_id, "Built-in views are always shown")
+        )
         # An upsert, so two pin requests at once cannot both insert and hit
         # the unique (user_id, view_id) constraint. Without an explicit
         # position, an existing pin keeps its place.
@@ -296,9 +337,7 @@ class CaseViewsService(BaseWorkspaceService):
     async def unpin_view(self, view_id: str | uuid.UUID) -> None:
         """Remove a view from the requesting user's sidebar."""
         user_id = self._require_user()
-        parsed = parse_view_id(view_id)
-        if not isinstance(parsed, uuid.UUID):
-            raise TracecatValidationError("Built-in views are always shown")
+        parsed = _saved_view_id(view_id, "Built-in views are always shown")
         await self.session.execute(
             sa.delete(CaseViewPin).where(
                 CaseViewPin.workspace_id == self.workspace_id,
@@ -310,25 +349,26 @@ class CaseViewsService(BaseWorkspaceService):
 
     # Running a view
 
-    async def apply_to_query[QueryT: CaseQuery](
-        self, request: QueryT
-    ) -> tuple[QueryT, ResolvedCaseView | None]:
-        """Replace a request's matching criteria with its view's, if it names one.
+    async def apply_to_query[QueryT: CaseQuery](self, request: QueryT) -> QueryT:
+        """Return the request to run, with its view (if any) applied.
 
-        The request keeps its own pagination and result options. Its
-        ``filters`` tree, if any, is ANDed with the view's. The caller applies
-        the view's saved order when the request sets no ``order_by``; a
-        request ``sort`` still sets the direction.
-
-        Returns:
-            The request to run, and the resolved view (``None`` without one).
+        The view's criteria replace the request's. The request's ``filters``
+        tree is ANDed with the view's, and its pagination and result options
+        stay. A search request with no ``order_by`` takes the view's saved
+        order; an explicit request ``sort`` still sets the direction. The
+        result is validated again, so the merge cannot produce an order the
+        search contract forbids.
 
         Raises:
             TracecatValidationError: The request also sets other matching fields.
+            ValueError: The merged request is invalid, such as relevance
+                ordering without a full-text term.
         """
         if request.view_id is None:
-            return request, None
+            return request
         defaults = CaseQuery()
+        # Field names come from the model, so dynamic attribute access is the
+        # only way to compare every matching field without listing them.
         conflicting = sorted(
             field
             for field in _VIEW_EXCLUSIVE_FIELDS
@@ -346,13 +386,25 @@ class CaseViewsService(BaseWorkspaceService):
             filters = (
                 request.filters
                 if filters is None
-                else CaseQuery.model_validate(
-                    {"filters": {"and": [filters, request.filters]}}
-                ).filters
+                else AndClause.model_validate({"and": [filters, request.filters]})
             )
-        update = {field: getattr(view_query, field) for field in _VIEW_EXCLUSIVE_FIELDS}
-        update.update(view_id=None, filters=filters)
-        return request.model_copy(update=update), resolved
+        update: dict[str, object] = {
+            field: getattr(view_query, field) for field in _VIEW_EXCLUSIVE_FIELDS
+        }
+        update.update(
+            view_id=None,
+            filters=filters,
+            match_none=request.match_none or resolved.match_none,
+        )
+        if (
+            isinstance(request, CaseSearchRequest)
+            and request.order_by is None
+            and resolved.order_by is not None
+        ):
+            update["order_by"] = resolved.order_by
+            if request.sort is None:
+                update["sort"] = resolved.sort
+        return type(request).model_validate({**request.model_dump(), **update})
 
     # Helpers
 
@@ -389,6 +441,10 @@ class CaseViewsService(BaseWorkspaceService):
 
     @staticmethod
     def _stored_query(view: CaseView) -> CaseQuery:
+        if view.query_version > CASE_VIEW_QUERY_VERSION:
+            raise TracecatValidationError(
+                f"Case view {view.name!r} was saved by a newer version of Tracecat"
+            )
         try:
             return CaseQuery.model_validate(view.query)
         except ValueError as exc:
@@ -445,10 +501,9 @@ class CaseViewsService(BaseWorkspaceService):
         return view
 
     async def _get_editable(self, view_id: str | uuid.UUID) -> CaseView:
-        parsed = parse_view_id(view_id)
-        if not isinstance(parsed, uuid.UUID):
-            raise TracecatValidationError("Built-in views cannot be changed")
-        view = await self._get_visible(parsed)
+        view = await self._get_visible(
+            _saved_view_id(view_id, "Built-in views cannot be changed")
+        )
         if not self._can_edit(view):
             raise CaseViewPermissionError("You cannot change this view")
         return view
@@ -467,11 +522,11 @@ class CaseViewsService(BaseWorkspaceService):
     async def _clean_query(self, query: CaseQuery) -> _CleanedQuery:
         """Drop deleted tags and dropdown options from a stored query.
 
-        A rule left with no values would otherwise widen the results, so it
-        marks the whole view as matching nothing instead.
+        A rule left with no values would otherwise widen the results, so it is
+        reported in ``empty_rules`` and makes the view match nothing instead.
         """
         stale: list[CaseViewStaleRef] = []
-        match_none = False
+        empty = CaseViewEmptyRules()
         update: dict[str, object] = {}
 
         if query.tags:
@@ -486,7 +541,7 @@ class CaseViewsService(BaseWorkspaceService):
                 kept = [
                     tag for tag in query.tags if tag.strip() and tag not in missing_tags
                 ]
-                match_none = match_none or not kept
+                empty.tags = not kept
                 update["tags"] = kept or None
 
         if query.dropdown:
@@ -500,9 +555,9 @@ class CaseViewsService(BaseWorkspaceService):
                     for entry in missing_options
                 )
                 kept = [entry for entry in query.dropdown if entry in existing]
-                definitions = {entry.split(":", 1)[0] for entry in query.dropdown}
-                kept_definitions = {entry.split(":", 1)[0] for entry in kept}
-                match_none = match_none or definitions != kept_definitions
+                definitions = {parse_dropdown_entry(e)[0] for e in query.dropdown}
+                kept_definitions = {parse_dropdown_entry(e)[0] for e in kept}
+                empty.dropdown_refs = sorted(definitions - kept_definitions)
                 update["dropdown"] = kept or None
 
         tree_stale = await self._stale_filter_tree_refs(query)
@@ -510,11 +565,11 @@ class CaseViewsService(BaseWorkspaceService):
             # Rewriting an AND/OR/NOT tree could widen it, so a tree naming a
             # deleted tag or option matches nothing until the view is fixed.
             stale.extend(tree_stale)
-            match_none = True
+            empty.filters = True
             update["filters"] = None
 
         cleaned = query.model_copy(update=update) if update else query
-        return _CleanedQuery(query=cleaned, stale_refs=stale, match_none=match_none)
+        return _CleanedQuery(query=cleaned, stale_refs=stale, empty_rules=empty)
 
     async def _stale_filter_tree_refs(self, query: CaseQuery) -> list[CaseViewStaleRef]:
         """Find deleted tag refs and dropdown options named in the filter tree."""
@@ -531,7 +586,9 @@ class CaseViewsService(BaseWorkspaceService):
                 tag_refs.update(names)
             elif condition.field.startswith(DROPDOWN_PREFIX):
                 ref = condition.field.removeprefix(DROPDOWN_PREFIX)
-                dropdown_entries.update(f"{ref}:{name}" for name in names)
+                dropdown_entries.update(
+                    format_dropdown_entry(ref, name) for name in names
+                )
         stale: list[CaseViewStaleRef] = []
         if tag_refs:
             existing_tags = set(
@@ -557,7 +614,7 @@ class CaseViewsService(BaseWorkspaceService):
         return stale
 
     async def _existing_dropdown_options(self, entries: list[str]) -> set[str]:
-        definition_refs = {entry.split(":", 1)[0] for entry in entries if ":" in entry}
+        definition_refs = {parse_dropdown_entry(entry)[0] for entry in entries}
         if not definition_refs:
             return set()
         rows = (
@@ -573,4 +630,6 @@ class CaseViewsService(BaseWorkspaceService):
                 )
             )
         ).tuples()
-        return {f"{definition}:{option}" for definition, option in rows}
+        return {
+            format_dropdown_entry(definition, option) for definition, option in rows
+        }

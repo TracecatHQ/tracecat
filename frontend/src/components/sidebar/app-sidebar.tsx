@@ -57,6 +57,7 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { VIEW_PARAM } from "@/hooks/use-case-view-state"
 import { useCaseViews } from "@/hooks/use-case-views"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
@@ -223,7 +224,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewCases = useScopeCheck("case:read")
   const caseViews = useCaseViews(workspaceId, canViewCases === true)
   const activeCaseViewId = pathname?.startsWith(`${basePath}/cases`)
-    ? (searchParams?.get("view") ?? null)
+    ? (searchParams?.get(VIEW_PARAM) ?? null)
     : null
   const caseViewItems = useMemo(
     () =>

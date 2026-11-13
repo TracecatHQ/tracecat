@@ -100,7 +100,6 @@ from tracecat.cases.schemas import (
     CaseHierarchyFilter,
     CaseReadMinimal,
     CaseSearchAggregateRead,
-    CaseStatusGroupCounts,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
@@ -417,25 +416,9 @@ class CasesService(BaseWorkspaceService):
         A ``view_id`` runs that saved view: its criteria and sort replace the
         request's, and the request's ``filters`` narrow it further.
         """
-        request, view = await CaseViewsService(self.session, self.role).apply_to_query(
+        request = await CaseViewsService(self.session, self.role).apply_to_query(
             request
         )
-        if view is not None:
-            update: dict[str, object] = {
-                "match_none": request.match_none or view.match_none
-            }
-            # The view's saved order applies when the request sets none. An
-            # explicit request sort still wins over the view's direction.
-            if request.order_by is None and view.order_by is not None:
-                update["order_by"] = view.order_by
-                if request.sort is None:
-                    update["sort"] = view.sort
-            # model_copy skips validators. Re-validate the merged request so a
-            # view cannot produce an order the search contract forbids, such
-            # as relevance without a full-text term.
-            request = CaseSearchRequest.model_validate(
-                request.model_copy(update=update).model_dump()
-            )
         return await self._search_service().query_cases(
             request,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
@@ -444,13 +427,7 @@ class CasesService(BaseWorkspaceService):
     @require_scope("case:read")
     async def query_case_aggregates(self, query: CaseQuery) -> CaseSearchAggregateRead:
         """Count the same authorized population as canonical search."""
-        query, view = await CaseViewsService(self.session, self.role).apply_to_query(
-            query
-        )
-        if view is not None and view.match_none:
-            return CaseSearchAggregateRead(
-                total=0, status_groups=CaseStatusGroupCounts()
-            )
+        query = await CaseViewsService(self.session, self.role).apply_to_query(query)
         return await self._search_service().query_aggregates(
             query,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),

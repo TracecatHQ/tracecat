@@ -95,10 +95,34 @@ class RelativeTimeWindow(BaseModel):
     unit: RelativeTimeUnit
 
 
+def check_relevance_order(
+    search_mode: SearchMode | None, order_by: str | None, sort: str | None
+) -> None:
+    """Reject an order that relevance ranking cannot produce.
+
+    Full-text search sorts by relevance unless an explicit column is given.
+    Relevance needs a full-text term and always sorts descending. Searches and
+    saved views both use this rule.
+
+    Raises:
+        ValueError: The order does not fit the search.
+    """
+    relevance = order_by == "relevance" or (
+        order_by is None and search_mode == SearchMode.FULL_TEXT
+    )
+    if relevance and search_mode != SearchMode.FULL_TEXT:
+        raise ValueError("Relevance ordering requires full_text search")
+    if relevance and sort == "asc":
+        raise ValueError("Relevance ordering must be descending")
+
+
+type CaseQueryErrorCode = Literal["current_user_required"]
+
+
 class CaseQueryErrorDetail(BaseModel):
     """A case query error with a machine-readable code."""
 
-    code: Literal["current_user_required"]
+    code: CaseQueryErrorCode
     message: str
 
 
@@ -182,6 +206,9 @@ class CaseQuery(BaseModel):
         default=None,
         description="Updated within this window, ending at the time the query runs.",
     )
+    match_none: bool = Field(
+        default=False, description="The ordinary filter population matches no cases."
+    )
 
     @field_validator("search_term", "short_id")
     @classmethod
@@ -249,18 +276,9 @@ class CaseSearchRequest(CaseQuery, CursorPaginationParams):
         default=False,
         description="Place complete case references before filtered text matches within the authorized workspace.",
     )
-    match_none: bool = Field(
-        default=False, description="The ordinary filter population matches no cases."
-    )
 
     @model_validator(mode="after")
     def validate_relevance(self) -> Self:
         """Relevance is a descending full-text order; explicit columns keep theirs."""
-        relevance = self.order_by == "relevance" or (
-            self.order_by is None and self.search_mode == SearchMode.FULL_TEXT
-        )
-        if relevance and self.search_mode != SearchMode.FULL_TEXT:
-            raise ValueError("Relevance ordering requires full_text search")
-        if relevance and self.sort == "asc":
-            raise ValueError("Relevance ordering must be descending")
+        check_relevance_order(self.search_mode, self.order_by, self.sort)
         return self

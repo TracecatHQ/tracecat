@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy import cast, func, or_, select
+from sqlalchemy.dialects.postgresql import INTERVAL
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, raiseload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
@@ -41,13 +42,14 @@ from tracecat.cases.search_adapters import (
     UNASSIGNED_IDENTIFIERS,
     iter_case_filter_conditions,
     legacy_case_filters,
+    parse_dropdown_entry,
+    requesting_user_id,
     resolve_user_refs,
 )
 from tracecat.cases.search_metadata import validate_case_filter_metadata
 from tracecat.cases.search_schemas import (
     CaseQuery,
     CaseSearchRequest,
-    RelativeTimeUnit,
     RelativeTimeWindow,
 )
 from tracecat.cases.sorting import case_relationship_sort_key
@@ -99,19 +101,22 @@ def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement
 def relative_window_start(window: RelativeTimeWindow) -> ColumnElement[Any]:
     """Return SQL for ``now() - window``, using calendar arithmetic for months.
 
-    For example ``{amount: 1, unit: "month"}`` on 31 March gives 28 or 29
-    February, as Postgres interval subtraction does.
+    The window is one bound interval such as ``'1 month'``, so its value is the
+    same on every page and the pagination cursor fingerprint matches. One month
+    before 31 March is 28 or 29 February, as Postgres interval math gives.
     """
-    # make_interval(years, months, weeks, days, hours) takes positional parts.
-    parts = {
-        RelativeTimeUnit.MONTH: 1,
-        RelativeTimeUnit.WEEK: 2,
-        RelativeTimeUnit.DAY: 3,
-        RelativeTimeUnit.HOUR: 4,
-    }
-    arguments: list[Any] = [0] * 5
-    arguments[parts[window.unit]] = window.amount
-    return func.now() - func.make_interval(*arguments)
+    interval = sa.cast(sa.literal(f"{window.amount} {window.unit.value}"), INTERVAL)
+    return func.now() - interval
+
+
+def _require_resolved_view(query: CaseQuery) -> None:
+    """Fail loudly if a saved view reaches the search layer unresolved.
+
+    ``CasesService`` resolves ``view_id`` through ``CaseViewsService``; the
+    search layer would otherwise silently ignore it.
+    """
+    if query.view_id is not None:
+        raise ValueError("Resolve view_id with CaseViewsService before searching")
 
 
 def case_identity_predicates(query: CaseQuery) -> list[ColumnElement[bool]]:
@@ -203,14 +208,13 @@ class CaseSearchService(BaseWorkspaceService):
         )
         dropdowns: dict[str, list[str]] = {}
         for entry in query.dropdown or []:
-            if ":" not in entry:
-                raise TracecatValidationError(
-                    f"Invalid dropdown filter format: {entry!r}. Expected 'definition_ref:option_ref'."
-                )
-            ref, option = entry.split(":", 1)
+            try:
+                ref, option = parse_dropdown_entry(entry)
+            except ValueError as exc:
+                raise TracecatValidationError(str(exc)) from exc
             dropdowns.setdefault(ref, []).append(option)
         assignees = query.assignee_id or []
-        user_id = self.role.user_id
+        user_id = requesting_user_id(self.role)
         return legacy_case_filters(
             status=query.status,
             priority=query.priority,
@@ -336,6 +340,7 @@ class CaseSearchService(BaseWorkspaceService):
         exclude_case_id: uuid.UUID | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Own lexical execution/rollback while preserving the legacy read path."""
+        _require_resolved_view(request)
         lexical = self.parse_lexical_query(request)
         if lexical is None:
             return await self._query_cases(
@@ -822,6 +827,7 @@ class CaseSearchService(BaseWorkspaceService):
         legacy_filters: Filter | None = None,
     ) -> CaseSearchAggregateRead:
         """Count the identical lexical predicate under the same execution limits."""
+        _require_resolved_view(query)
         lexical = self.parse_lexical_query(query)
         if lexical is None:
             return await self._query_aggregates(
@@ -865,6 +871,8 @@ class CaseSearchService(BaseWorkspaceService):
             legacy_filters=legacy_filters,
             lexical=lexical,
         )
+        if query.match_none:
+            filters.append(sa.false())
         aggregate_stmt = select(
             func.count(Case.id).label("total"),
             func.coalesce(

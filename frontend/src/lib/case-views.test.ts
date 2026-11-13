@@ -155,40 +155,71 @@ describe("columnsEqual", () => {
 })
 
 describe("deleted tags and options", () => {
-  const staleView = makeView({
-    query: {
-      tags: ["phishing", "retired"],
-      dropdown: ["verdict:gone"],
-    },
-    stale_refs: [
-      { kind: "tag", value: "retired" },
-      { kind: "dropdown", value: "verdict:gone" },
-    ],
-  })
-
-  it("drops deleted values from the filter bar and the saved query", () => {
-    const { filters, savedQuery, staleRules } = viewToFilters(staleView)
+  it("uses the server's cleaned query and empty rules", () => {
+    // The server returns the query without deleted values, and lists rules
+    // that were left empty.
+    const view = makeView({
+      query: { tags: ["phishing"] },
+      stale_refs: [{ kind: "dropdown", value: "verdict:gone" }],
+      empty_rules: { tags: false, dropdown_refs: ["verdict"], filters: false },
+    })
+    const { filters, savedQuery, emptyRules } = viewToFilters(view)
 
     expect(filters.tagFilter).toEqual(["phishing"])
     expect(filters.dropdownFilters.verdict).toBeUndefined()
-    expect(savedQuery.tags).toEqual(["phishing"])
-    expect(savedQuery.dropdown).toEqual([])
-    expect(staleRules).toEqual({ tags: false, dropdownRefs: ["verdict"] })
+    expect(savedQuery).toEqual({ tags: ["phishing"] })
+    expect(emptyRules?.dropdown_refs).toEqual(["verdict"])
   })
 
-  it("marks a rule whose values were all deleted, and blocks saving it", () => {
-    const { filters, staleRules } = viewToFilters(
+  it("blocks saving until an emptied rule gets new values", () => {
+    const { filters, emptyRules } = viewToFilters(
       makeView({
-        query: { tags: ["retired"] },
+        query: {},
         stale_refs: [{ kind: "tag", value: "retired" }],
+        empty_rules: { tags: true, dropdown_refs: [], filters: false },
       })
     )
 
-    expect(staleRules.tags).toBe(true)
-    expect(viewSaveBlocker(filters, staleRules)).toMatch(/deleted tags/)
+    expect(viewSaveBlocker(filters, emptyRules)).toMatch(/deleted tags/)
     expect(
-      viewSaveBlocker({ ...filters, tagFilter: ["phishing"] }, staleRules)
+      viewSaveBlocker({ ...filters, tagFilter: ["phishing"] }, emptyRules)
     ).toBeNull()
+  })
+
+  it("always blocks saving when the filter tree names something deleted", () => {
+    const { filters, emptyRules } = viewToFilters(
+      makeView({
+        query: {},
+        empty_rules: { tags: false, dropdown_refs: [], filters: true },
+      })
+    )
+
+    expect(viewSaveBlocker(filters, emptyRules)).not.toBeNull()
+  })
+})
+
+describe("mergeViewQuery search and hierarchy groups", () => {
+  it("drops a view's search columns when the bar searches", () => {
+    const merged = mergeViewQuery(
+      {
+        search_term: "phish",
+        search_mode: "full_text",
+        search_columns: ["summary"],
+      },
+      { search_term: "invoice", search_mode: "full_text" }
+    )
+
+    expect(merged.search_columns).toBeUndefined()
+    expect(merged.search_term).toBe("invoice")
+  })
+
+  it("does not send top-level-only with a parent", () => {
+    const merged = mergeViewQuery(
+      { parent_id: "00000000-0000-4000-8000-000000000009" },
+      { hierarchy: "top_level" }
+    )
+
+    expect(merged.hierarchy).toBeUndefined()
   })
 })
 

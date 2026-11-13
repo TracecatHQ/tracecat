@@ -163,7 +163,7 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.cases.views.schemas import CaseViewRead
+from tracecat.cases.views.schemas import CaseViewListRead
 from tracecat.cases.views.service import CaseViewsService
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
@@ -7050,24 +7050,23 @@ async def list_case_views(
     cursor: str | None = None,
     pinned: bool = False,
     include_builtins: bool = True,
-) -> CursorPaginatedResponse[CaseViewRead]:
+) -> CaseViewListRead:
     """List case views you can see, to run with search_cases(view_id=...).
 
-    Saved views are personal (only you) or shared with the workspace. The
-    read-only built-in view, assigned_to_me, is defined by Tracecat and comes
-    first on the first unpinned page when include_builtins is true.
+    Saved views are personal (only you) or shared with the workspace and come
+    back one page at a time in ``saved``. The read-only built-in view,
+    assigned_to_me, is defined by Tracecat and comes back separately in
+    ``builtins``; built-ins cannot be pinned, so ``pinned`` leaves it empty.
 
     Args:
         workspace_id: The workspace ID.
         limit: Maximum saved views per page.
         cursor: Cursor for the next page of saved views.
         pinned: Only views you pinned to your sidebar, in pin order.
-        include_builtins: Put the built-in views before the first page.
-            Built-in views are never included when ``pinned`` is true, since
-            they cannot be pinned.
+        include_builtins: Return the built-in views in ``builtins``.
 
-    Returns a paginated list of views. Each view has its ``id``, ``name``,
-    ``visibility``, and the ``query`` it runs.
+    Returns ``builtins`` and a paginated ``saved`` list. Each view has its
+    ``id``, ``name``, ``visibility``, and the ``query`` it runs.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -7081,10 +7080,9 @@ async def list_case_views(
             cursor=cursor,
         )
         async with CaseViewsService.with_session(role=role) as svc:
-            page = await svc.list_views(page_params, pinned_only=pinned)
-            if include_builtins and cursor is None and not pinned:
-                page.items = [*svc.list_builtins(), *page.items]
-            return page
+            saved = await svc.list_views(page_params, pinned_only=pinned)
+            builtins = svc.list_builtins() if include_builtins and not pinned else []
+            return CaseViewListRead(builtins=builtins, saved=saved)
     except ScopeDeniedError as e:
         raise ToolError(
             f"Missing required scope: {', '.join(e.required_scopes)}"

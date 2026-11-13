@@ -11091,6 +11091,12 @@ export const $CaseQuery_Input = {
       description:
         "Updated within this window, ending at the time the query runs.",
     },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
   },
   additionalProperties: false,
   type: "object",
@@ -11418,6 +11424,12 @@ export const $CaseQuery_Output = {
       description:
         "Updated within this window, ending at the time the query runs.",
     },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
   },
   additionalProperties: false,
   type: "object",
@@ -11437,12 +11449,15 @@ Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
 unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
 } as const
 
+export const $CaseQueryErrorCode = {
+  type: "string",
+  const: "current_user_required",
+} as const
+
 export const $CaseQueryErrorDetail = {
   properties: {
     code: {
-      type: "string",
-      const: "current_user_required",
-      title: "Code",
+      $ref: "#/components/schemas/CaseQueryErrorCode",
     },
     message: {
       type: "string",
@@ -12186,6 +12201,12 @@ export const $CaseSearchRequest = {
       description:
         "Updated within this window, ending at the time the query runs.",
     },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
     order_by: {
       anyOf: [
         {
@@ -12282,12 +12303,6 @@ export const $CaseSearchRequest = {
       title: "Promote Exact Match",
       description:
         "Place complete case references before filtered text matches within the authorized workspace.",
-      default: false,
-    },
-    match_none: {
-      type: "boolean",
-      title: "Match None",
-      description: "The ordinary filter population matches no cases.",
       default: false,
     },
   },
@@ -13301,10 +13316,7 @@ export const $CaseViewColumns = {
 export const $CaseViewCreate = {
   properties: {
     name: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Name",
+      $ref: "#/components/schemas/CaseViewName",
     },
     visibility: {
       $ref: "#/components/schemas/CaseViewVisibility",
@@ -13351,9 +13363,43 @@ export const $CaseViewCreate = {
   description: "Save a case search as a named view.",
 } as const
 
+export const $CaseViewEmptyRules = {
+  properties: {
+    tags: {
+      type: "boolean",
+      title: "Tags",
+      default: false,
+    },
+    dropdown_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Dropdown Refs",
+    },
+    filters: {
+      type: "boolean",
+      title: "Filters",
+      description: "The advanced filter tree names something deleted.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "CaseViewEmptyRules",
+  description: `Rules of a view left with nothing to match after deletions.
+
+Each one makes the view match no cases until it is given new values.`,
+} as const
+
 export const $CaseViewKind = {
   type: "string",
   enum: ["builtin", "custom"],
+} as const
+
+export const $CaseViewName = {
+  type: "string",
+  maxLength: 255,
+  minLength: 1,
 } as const
 
 export const $CaseViewPinUpdate = {
@@ -13409,6 +13455,8 @@ export const $CaseViewRead = {
     },
     query: {
       $ref: "#/components/schemas/CaseQuery-Output",
+      description:
+        "The view's criteria. When reading one view, deleted tags and options are removed; see stale_refs and empty_rules.",
     },
     order_by: {
       anyOf: [
@@ -13491,13 +13539,31 @@ export const $CaseViewRead = {
       title: "Updated At",
     },
     stale_refs: {
-      items: {
-        $ref: "#/components/schemas/CaseViewStaleRef",
-      },
-      type: "array",
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseViewStaleRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Stale Refs",
       description:
-        "Deleted tags or dropdown options the query still names. Only filled when reading a single view.",
+        "Deleted tags or dropdown options the stored query names. Null when not computed, which is the case in list responses.",
+    },
+    empty_rules: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewEmptyRules",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Rules left with nothing to match. Null when not computed.",
     },
   },
   type: "object",
@@ -13527,9 +13593,8 @@ export const $CaseViewStaleRef = {
   type: "object",
   required: ["kind", "value"],
   title: "CaseViewStaleRef",
-  description: `A reference in a view's query to something that no longer exists.
-
-When the view runs, a stale reference matches nothing.`,
+  description:
+    "A reference in a view's query to something that no longer exists.",
 } as const
 
 export const $CaseViewUpdate = {
@@ -13537,15 +13602,12 @@ export const $CaseViewUpdate = {
     name: {
       anyOf: [
         {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
+          $ref: "#/components/schemas/CaseViewName",
         },
         {
           type: "null",
         },
       ],
-      title: "Name",
     },
     visibility: {
       anyOf: [
@@ -37924,6 +37986,10 @@ export const $StepStartUIPart = {
   required: ["type"],
   title: "StepStartUIPart",
   description: "A step boundary part of a message.",
+} as const
+
+export const $StoredCaseQuery = {
+  $ref: "#/components/schemas/CaseQuery-Input",
 } as const
 
 export const $StreamEvent = {

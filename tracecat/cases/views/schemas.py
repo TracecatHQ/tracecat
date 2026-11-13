@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from tracecat.cases.enums import CaseViewVisibility
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder
-from tracecat.query.lexical_types import SearchMode
+from tracecat.cases.search_adapters import parse_dropdown_entry
+from tracecat.cases.search_schemas import (
+    CaseQuery,
+    CaseSearchOrder,
+    check_relevance_order,
+)
+from tracecat.pagination import CursorPaginatedResponse
 
 MAX_CASE_VIEW_COLUMNS = 100
 MAX_CASE_VIEW_COLUMN_LENGTH = 200
@@ -19,49 +24,57 @@ type CaseViewKind = Literal["builtin", "custom"]
 type CaseViewSort = Literal["asc", "desc"]
 
 
-def _validate_stored_query(query: CaseQuery | None) -> CaseQuery | None:
-    if query is None:
-        return None
+def _validate_stored_query(query: CaseQuery) -> CaseQuery:
+    """A stored query holds criteria only, in a form the view can keep running."""
     if query.view_id is not None:
         raise ValueError("A saved view's query cannot reference another view")
+    if query.match_none:
+        raise ValueError("A saved view's query cannot set match_none")
     # A malformed entry would later look like a deleted option, so reject it.
     for entry in query.dropdown or []:
-        definition, separator, option = entry.partition(":")
-        if not separator or not definition or not option:
-            raise ValueError(
-                f"Invalid dropdown filter {entry!r}. Expected 'definition_ref:option_ref'."
-            )
+        parse_dropdown_entry(entry)
     return query
 
 
-def validate_view_order(
-    query: CaseQuery, order_by: str | None, sort: str | None
-) -> None:
-    """Reject a relevance sort that the view's query cannot produce.
-
-    Relevance needs a full-text search term and always sorts descending.
-
-    Raises:
-        ValueError: The order does not fit the query.
-    """
-    if order_by != "relevance":
-        return
-    if query.search_mode != SearchMode.FULL_TEXT:
-        raise ValueError("Relevance ordering requires a full_text search term")
-    if sort == "asc":
-        raise ValueError("Relevance ordering must be descending")
-
-
-def _strip_name(name: str | None) -> str | None:
-    if name is None:
-        return None
+def _strip_name(name: str) -> str:
     stripped = name.strip()
     if not stripped:
         raise ValueError("View name cannot be blank")
     return stripped
 
 
-type CaseViewColumns = list[str]  # Column IDs owned by the UI; validated for size only.
+def _validate_columns(columns: list[str]) -> list[str]:
+    if any(
+        not column or len(column) > MAX_CASE_VIEW_COLUMN_LENGTH for column in columns
+    ):
+        raise ValueError(
+            f"Column IDs must be 1 to {MAX_CASE_VIEW_COLUMN_LENGTH} characters"
+        )
+    return list(dict.fromkeys(columns))
+
+
+type CaseViewName = Annotated[
+    str, Field(min_length=1, max_length=255), AfterValidator(_strip_name)
+]
+type StoredCaseQuery = Annotated[CaseQuery, AfterValidator(_validate_stored_query)]
+type CaseViewColumns = Annotated[
+    list[str],
+    Field(max_length=MAX_CASE_VIEW_COLUMNS),
+    AfterValidator(_validate_columns),
+]
+"""Column IDs owned by the UI; validated for size only."""
+
+
+def validate_view_order(
+    query: CaseQuery, order_by: str | None, sort: str | None
+) -> None:
+    """Reject an order the view's query cannot produce, such as relevance
+    without a full-text term.
+
+    Raises:
+        ValueError: The order does not fit the query.
+    """
+    check_relevance_order(query.search_mode, order_by, sort)
 
 
 class CaseViewCreate(BaseModel):
@@ -69,23 +82,12 @@ class CaseViewCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1, max_length=255)
+    name: CaseViewName
     visibility: CaseViewVisibility = Field(default=CaseViewVisibility.PERSONAL)
-    query: CaseQuery = Field(default_factory=CaseQuery)
+    query: StoredCaseQuery = Field(default_factory=CaseQuery)
     order_by: CaseSearchOrder | None = Field(default=None)
     sort: CaseViewSort | None = Field(default=None)
-    columns: CaseViewColumns | None = Field(
-        default=None, max_length=MAX_CASE_VIEW_COLUMNS
-    )
-
-    _strip = field_validator("name")(_strip_name)
-    _no_nested_view = field_validator("query")(_validate_stored_query)
-
-    @field_validator("columns")
-    @classmethod
-    def validate_columns(cls, columns: list[str] | None) -> list[str] | None:
-        """Bound each UI column ID."""
-        return _validate_columns(columns)
+    columns: CaseViewColumns | None = Field(default=None)
 
     @model_validator(mode="after")
     def validate_order(self) -> Self:
@@ -102,53 +104,45 @@ class CaseViewUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    name: CaseViewName | None = Field(default=None)
     visibility: CaseViewVisibility | None = Field(default=None)
-    query: CaseQuery | None = Field(default=None)
+    query: StoredCaseQuery | None = Field(default=None)
     order_by: CaseSearchOrder | None = Field(default=None)
     sort: CaseViewSort | None = Field(default=None)
-    columns: CaseViewColumns | None = Field(
-        default=None, max_length=MAX_CASE_VIEW_COLUMNS
-    )
-
-    _strip = field_validator("name")(_strip_name)
-    _no_nested_view = field_validator("query")(_validate_stored_query)
-
-    @field_validator("columns")
-    @classmethod
-    def validate_columns(cls, columns: list[str] | None) -> list[str] | None:
-        """Bound each UI column ID."""
-        return _validate_columns(columns)
+    columns: CaseViewColumns | None = Field(default=None)
 
     @model_validator(mode="after")
     def reject_null_required_fields(self) -> Self:
         """``name``, ``visibility``, and ``query`` can change but not be cleared."""
-        for field in ("name", "visibility", "query"):
-            if field in self.model_fields_set and getattr(self, field) is None:
-                raise ValueError(f"{field} cannot be null")
+        sent = self.model_fields_set
+        if "name" in sent and self.name is None:
+            raise ValueError("name cannot be null")
+        if "visibility" in sent and self.visibility is None:
+            raise ValueError("visibility cannot be null")
+        if "query" in sent and self.query is None:
+            raise ValueError("query cannot be null")
         return self
 
 
-def _validate_columns(columns: list[str] | None) -> list[str] | None:
-    if columns is None:
-        return None
-    if any(
-        not column or len(column) > MAX_CASE_VIEW_COLUMN_LENGTH for column in columns
-    ):
-        raise ValueError(
-            f"Column IDs must be 1 to {MAX_CASE_VIEW_COLUMN_LENGTH} characters"
-        )
-    return list(dict.fromkeys(columns))
-
-
 class CaseViewStaleRef(BaseModel):
-    """A reference in a view's query to something that no longer exists.
-
-    When the view runs, a stale reference matches nothing.
-    """
+    """A reference in a view's query to something that no longer exists."""
 
     kind: Literal["tag", "dropdown"]
     value: str = Field(description="The identifier as stored in the view's query.")
+
+
+class CaseViewEmptyRules(BaseModel):
+    """Rules of a view left with nothing to match after deletions.
+
+    Each one makes the view match no cases until it is given new values.
+    """
+
+    tags: bool = Field(default=False)
+    dropdown_refs: list[str] = Field(default_factory=list)
+    filters: bool = Field(
+        default=False,
+        description="The advanced filter tree names something deleted.",
+    )
 
 
 class CaseViewRead(BaseModel):
@@ -159,7 +153,10 @@ class CaseViewRead(BaseModel):
     name: str
     visibility: CaseViewVisibility
     owner_id: UUID | None = Field(default=None)
-    query: CaseQuery
+    query: CaseQuery = Field(
+        description="The view's criteria. When reading one view, deleted tags "
+        "and options are removed; see stale_refs and empty_rules."
+    )
     order_by: CaseSearchOrder | None = Field(default=None)
     sort: CaseViewSort | None = Field(default=None)
     columns: list[str] | None = Field(default=None)
@@ -170,11 +167,26 @@ class CaseViewRead(BaseModel):
     pin_position: int | None = Field(default=None)
     created_at: datetime | None = Field(default=None)
     updated_at: datetime | None = Field(default=None)
-    stale_refs: list[CaseViewStaleRef] = Field(
-        default_factory=list,
-        description="Deleted tags or dropdown options the query still names. "
-        "Only filled when reading a single view.",
+    stale_refs: list[CaseViewStaleRef] | None = Field(
+        default=None,
+        description="Deleted tags or dropdown options the stored query names. "
+        "Null when not computed, which is the case in list responses.",
     )
+    empty_rules: CaseViewEmptyRules | None = Field(
+        default=None,
+        description="Rules left with nothing to match. Null when not computed.",
+    )
+
+
+class CaseViewListRead(BaseModel):
+    """Built-in views, and one page of saved views, kept apart.
+
+    Built-ins are a fixed set and are never paginated, so ``saved`` always
+    holds at most the requested page size.
+    """
+
+    builtins: list[CaseViewRead]
+    saved: CursorPaginatedResponse[CaseViewRead]
 
 
 class CaseViewPinUpdate(BaseModel):

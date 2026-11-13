@@ -47,6 +47,7 @@ from tracecat_registry.core.cases import (
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
+from tracecat_registry.sdk.types import UNSET
 
 
 @pytest.fixture
@@ -1546,7 +1547,7 @@ class TestCoreListCaseViews:
         mock_cases_client.list_views.return_value = {"items": [saved]}
 
         assert await list_case_views(limit=10) == [builtin, saved]
-        mock_cases_client.list_views.assert_called_once_with(limit=10)
+        mock_cases_client.list_views.assert_called_once_with(limit=10, cursor=UNSET)
 
     async def test_can_skip_builtins(self, mock_cases_client: AsyncMock) -> None:
         saved = {"id": "00000000-0000-0000-0000-000000000003", "kind": "custom"}

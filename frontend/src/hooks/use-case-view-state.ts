@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import type { CaseViewRead, CaseViewVisibility } from "@/client"
 import { DEFAULT_CASE_SORT } from "@/components/cases/case-sort"
 import { normalizeVisibleColumnIds } from "@/hooks/use-case-column-visibility"
@@ -9,7 +9,6 @@ import { useCaseView, useCaseViewMutations } from "@/hooks/use-case-views"
 import type { UseCasesResult } from "@/hooks/use-cases"
 import {
   type CaseViewFilters,
-  type CaseViewQuery,
   columnsEqual,
   filtersToViewQuery,
   mergeViewQuery,
@@ -19,7 +18,8 @@ import {
   viewToFilters,
 } from "@/lib/case-views"
 
-const VIEW_PARAM = "view"
+/** The URL search parameter that names the open case view. */
+export const VIEW_PARAM = "view"
 
 /** The view named in the URL, loaded and split for the filter bar. */
 export interface ActiveCaseView {
@@ -30,33 +30,15 @@ export interface ActiveCaseView {
   isLoading: boolean
   /** The view could not be loaded, for example because it was deleted. */
   isError: boolean
-  /** The open view's filters are in the filter bar, so results can load. */
-  isApplied: boolean
-  appliedKey: string | null
-  setAppliedKey: (key: string | null) => void
-  /** Columns chosen for the open view, or null to use the user's own. */
-  columns: string[] | null
-  setColumns: (columns: string[] | null) => void
   selectView: (viewId: string | null) => void
-}
-
-interface AppliedSnapshot {
-  query: CaseViewQuery
-  orderBy: string
-  sort: string
-  columns: string[] | null
-}
-
-function appliedKeyFor(view: CaseViewRead): string {
-  return `${view.id}:${view.updated_at ?? ""}`
 }
 
 /**
  * Read `?view=` from the URL and load that case view.
  *
- * Call this before `useCases`, and pass `persist: viewId === null` and
- * `enabled: isApplied` so a view's results never mix with the user's own
- * filters.
+ * The cases page mounts its list once per view (keyed by `viewId`) with the
+ * view's filters as the starting state, so nothing here has to be applied
+ * or undone later.
  */
 export function useActiveCaseView(workspaceId: string): ActiveCaseView {
   const searchParams = useSearchParams()
@@ -66,8 +48,6 @@ export function useActiveCaseView(workspaceId: string): ActiveCaseView {
   const { data, isLoading, isError } = useCaseView(workspaceId, viewId)
   const view = viewId !== null && data?.id === viewId ? data : null
   const mapped = useMemo(() => (view ? viewToFilters(view) : null), [view])
-  const [appliedKey, setAppliedKey] = useState<string | null>(null)
-  const [columns, setColumns] = useState<string[] | null>(null)
 
   const selectView = useCallback(
     (nextViewId: string | null) => {
@@ -83,147 +63,42 @@ export function useActiveCaseView(workspaceId: string): ActiveCaseView {
     [pathname, router, searchParams]
   )
 
-  return {
-    viewId,
-    view,
-    mapped,
-    isLoading,
-    isError,
-    isApplied:
-      viewId === null ||
-      (appliedKey !== null && appliedKey.startsWith(`${viewId}:`)),
-    appliedKey,
-    setAppliedKey,
-    columns,
-    setColumns,
-    selectView,
-  }
+  return { viewId, view, mapped, isLoading, isError, selectView }
 }
 
-/** What the cases page needs to show and change the open view. */
-export interface CaseViewControls {
-  active: ActiveCaseView
-  /** The open view's filters, sort, or columns differ from its saved ones. */
-  isModified: boolean
+/** The columns the list shows, and how to change them. */
+export interface ViewColumns {
+  /** Columns chosen for the open view, or null to use the user's own. */
+  columns: string[] | null
+  /** The normalized columns to show and fetch. */
   visibleColumnIds: string[]
   toggleColumn: (columnId: string) => void
-  save: () => Promise<void>
-  saveAsNew: (name: string, visibility: CaseViewVisibility) => Promise<void>
-  reset: () => void
-  isSaving: boolean
-  /** Why the current search cannot be saved, or null when it can. */
-  saveBlockedReason: string | null
+  /** Go back to the view's saved columns. */
+  resetColumns: () => void
 }
 
 /**
- * Apply the open view to the filter bar and track changes against it.
+ * Track the visible columns for the open view, or the user's own without one.
  *
- * @param personalColumns - The user's own visible columns, used without a view.
- * @param knownColumnIds - Valid column IDs, for dropping stale saved ones.
+ * A view keeps its own column choice; changing it marks the view as modified
+ * rather than changing the user's browser setting.
  */
-export function useCaseViewControls({
-  workspaceId,
-  active,
-  cases,
+export function useViewColumns({
+  view,
   personalColumns,
   togglePersonalColumn,
   knownColumnIds,
 }: {
-  workspaceId: string
-  active: ActiveCaseView
-  cases: Pick<UseCasesResult, "filters" | "replaceFilters">
+  view: CaseViewRead | null
   personalColumns: string[]
   togglePersonalColumn: (columnId: string) => void
   knownColumnIds?: Set<string>
-}): CaseViewControls {
-  const { createView, updateView } = useCaseViewMutations(workspaceId)
-  const { view, mapped, appliedKey, setAppliedKey, columns, setColumns } =
-    active
-  const { replaceFilters } = cases
-
-  useEffect(() => {
-    if (active.viewId === null && appliedKey !== null) {
-      setAppliedKey(null)
-      setColumns(null)
-    }
-  }, [active.viewId, appliedKey, setAppliedKey, setColumns])
-
-  const currentQuery = useMemo(
-    () =>
-      mergeViewQuery(
-        mapped?.extraQuery ?? {},
-        filtersToViewQuery(cases.filters)
-      ),
-    [cases.filters, mapped]
-  )
-  const saveBlockedReason = viewSaveBlocker(cases.filters, mapped?.staleRules)
-  const currentSort = sortToView(cases.filters)
-
-  // What the filter bar held when the open view was last applied. When a newer
-  // version of the same view arrives (after a save here or elsewhere), local
-  // edits made since then are kept rather than replaced.
-  const appliedSnapshotRef = useRef<AppliedSnapshot | null>(null)
-  useEffect(() => {
-    if (!view || !mapped) {
-      return
-    }
-    const key = appliedKeyFor(view)
-    if (appliedKey === key) {
-      return
-    }
-    const snapshot = appliedSnapshotRef.current
-    const isNewerVersionOfOpenView =
-      appliedKey !== null && appliedKey.startsWith(`${view.id}:`)
-    const hasLocalEdits =
-      isNewerVersionOfOpenView &&
-      snapshot !== null &&
-      (!viewQueriesEqual(currentQuery, snapshot.query) ||
-        currentSort.order_by !== snapshot.orderBy ||
-        currentSort.sort !== snapshot.sort ||
-        !columnsEqual(columns, snapshot.columns))
-    if (!hasLocalEdits) {
-      replaceFilters(mapped.filters)
-      setColumns(view.columns ?? null)
-    }
-    appliedSnapshotRef.current = {
-      query: mapped.savedQuery,
-      orderBy: view.order_by ?? DEFAULT_CASE_SORT.field,
-      sort: view.sort ?? DEFAULT_CASE_SORT.direction,
-      columns: view.columns ?? null,
-    }
-    setAppliedKey(key)
-  }, [
-    view,
-    mapped,
-    appliedKey,
-    currentQuery,
-    currentSort.order_by,
-    currentSort.sort,
-    columns,
-    replaceFilters,
-    setAppliedKey,
-    setColumns,
-  ])
-
-  const isModified = useMemo(() => {
-    if (!view || !active.isApplied) {
-      return false
-    }
-    const savedOrder = view.order_by ?? DEFAULT_CASE_SORT.field
-    const savedSort = view.sort ?? DEFAULT_CASE_SORT.direction
-    return (
-      !viewQueriesEqual(currentQuery, mapped?.savedQuery ?? view.query) ||
-      currentSort.order_by !== savedOrder ||
-      currentSort.sort !== savedSort ||
-      (columns !== null && !columnsEqual(columns, view.columns))
-    )
-  }, [view, mapped, active.isApplied, currentQuery, currentSort, columns])
-
-  const viewColumns =
+}): ViewColumns {
+  const [columns, setColumns] = useState<string[] | null>(view?.columns ?? null)
+  const visibleColumnIds =
     view && columns !== null
       ? normalizeVisibleColumnIds(columns, knownColumnIds)
-      : null
-  const visibleColumnIds = viewColumns ?? personalColumns
+      : personalColumns
 
   const toggleColumn = useCallback(
     (columnId: string) => {
@@ -235,20 +110,80 @@ export function useCaseViewControls({
         columns ?? personalColumns,
         knownColumnIds
       )
-      const next = base.includes(columnId)
-        ? base.filter((id) => id !== columnId)
-        : normalizeVisibleColumnIds([...base, columnId], knownColumnIds)
-      setColumns(next)
+      setColumns(
+        base.includes(columnId)
+          ? base.filter((id) => id !== columnId)
+          : normalizeVisibleColumnIds([...base, columnId], knownColumnIds)
+      )
     },
-    [
-      view,
-      columns,
-      personalColumns,
-      knownColumnIds,
-      setColumns,
-      togglePersonalColumn,
-    ]
+    [view, columns, personalColumns, knownColumnIds, togglePersonalColumn]
   )
+  const resetColumns = useCallback(
+    () => setColumns(view?.columns ?? null),
+    [view]
+  )
+
+  return { columns, visibleColumnIds, toggleColumn, resetColumns }
+}
+
+/** What the cases page needs to show and change the open view. */
+export interface CaseViewControls {
+  active: ActiveCaseView
+  /** The open view's filters, sort, or columns differ from its saved ones. */
+  isModified: boolean
+  save: () => Promise<void>
+  saveAsNew: (name: string, visibility: CaseViewVisibility) => Promise<void>
+  reset: () => void
+  isSaving: boolean
+  /** Why the current search cannot be saved, or null when it can. */
+  saveBlockedReason: string | null
+}
+
+/** Track changes against the open view, and save, duplicate, or reset it. */
+export function useCaseViewControls({
+  workspaceId,
+  active,
+  cases,
+  viewColumns,
+  personalColumns,
+}: {
+  workspaceId: string
+  active: ActiveCaseView
+  cases: Pick<UseCasesResult, "filters" | "replaceFilters">
+  viewColumns: ViewColumns
+  personalColumns: string[]
+}): CaseViewControls {
+  const { createView, updateView } = useCaseViewMutations(workspaceId)
+  const { view, mapped } = active
+  const { replaceFilters } = cases
+  const { columns, resetColumns } = viewColumns
+
+  // The same merge builds the search request in useCases, so what a view
+  // saves is exactly what the list searched.
+  const currentQuery = useMemo(
+    () =>
+      mergeViewQuery(
+        mapped?.extraQuery ?? {},
+        filtersToViewQuery(cases.filters)
+      ),
+    [cases.filters, mapped]
+  )
+  const saveBlockedReason = viewSaveBlocker(cases.filters, mapped?.emptyRules)
+  const currentSort = sortToView(cases.filters)
+
+  const isModified = useMemo(() => {
+    if (!view || !mapped) {
+      return false
+    }
+    const savedOrder = view.order_by ?? DEFAULT_CASE_SORT.field
+    const savedSort = view.sort ?? DEFAULT_CASE_SORT.direction
+    return (
+      !viewQueriesEqual(currentQuery, mapped.savedQuery) ||
+      currentSort.order_by !== savedOrder ||
+      currentSort.sort !== savedSort ||
+      (columns !== null && !columnsEqual(columns, view.columns))
+    )
+  }, [view, mapped, currentQuery, currentSort, columns])
 
   const save = useCallback(async () => {
     if (!view || !view.can_edit || saveBlockedReason) {
@@ -293,18 +228,16 @@ export function useCaseViewControls({
   )
 
   const reset = useCallback(() => {
-    if (!view || !mapped) {
+    if (!mapped) {
       return
     }
     replaceFilters(mapped.filters)
-    setColumns(view.columns ?? null)
-  }, [view, mapped, replaceFilters, setColumns])
+    resetColumns()
+  }, [mapped, replaceFilters, resetColumns])
 
   return {
     active,
     isModified,
-    visibleColumnIds,
-    toggleColumn,
     save,
     saveAsNew,
     reset,

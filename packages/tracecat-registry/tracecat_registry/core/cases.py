@@ -9,6 +9,7 @@ import httpx
 from typing_extensions import Doc
 
 from tracecat_registry import config, ctx, registry, types
+from tracecat_registry.sdk.types import UNSET
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
@@ -1009,7 +1010,7 @@ async def list_case_views(
     cursor: str | None = None
     while len(saved) < limit:
         page = await ctx.cases.aio.list_views(
-            limit=limit - len(saved), **({"cursor": cursor} if cursor else {})
+            limit=limit - len(saved), cursor=cursor or UNSET
         )
         saved.extend(page["items"])
         cursor = page.get("next_cursor")

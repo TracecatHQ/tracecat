@@ -18,6 +18,7 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseViewVisibility,
 )
+from tracecat.cases.search_adapters import CurrentUserRequiredError
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
 from tracecat.cases.service import CasesService
 from tracecat.cases.views.schemas import (
@@ -307,7 +308,9 @@ async def test_deleted_tag_is_reported_and_matches_nothing(
     await session.flush()
 
     view = await _views(session, actors.owner).get_view(view_id)
-    assert [(ref.kind, ref.value) for ref in view.stale_refs] == [("tag", "phishing")]
+    assert [(ref.kind, ref.value) for ref in view.stale_refs or []] == [
+        ("tag", "phishing")
+    ]
     # Dropping the only tag would widen the view to every open case.
     assert await _run_view(session, actors.owner, view_id) == set()
     counts = await CasesService(session, actors.owner).query_case_aggregates(
@@ -410,7 +413,9 @@ async def test_deleted_tag_in_filter_tree_matches_nothing(
     await session.flush()
 
     view = await _views(session, actors.owner).get_view(view_id)
-    assert [(ref.kind, ref.value) for ref in view.stale_refs] == [("tag", "phishing")]
+    assert [(ref.kind, ref.value) for ref in view.stale_refs or []] == [
+        ("tag", "phishing")
+    ]
     # Rewriting the tree could widen it, so the view matches nothing instead.
     assert await _run_view(session, actors.owner, view_id) == set()
 
@@ -439,3 +444,17 @@ async def test_pinning_twice_keeps_one_pin(
     assert moved.pin_position == 5
     pinned = await views.list_views(PageParams(), pinned_only=True)
     assert [view.id for view in pinned.items] == [view_id]
+
+
+async def test_workflow_role_with_triggering_user_sees_shared_views_only(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    """A service role acting for a user still gets no personal views or "me",
+    so a workflow behaves the same whether a person or a schedule starts it."""
+    personal = await _create(session, actors.owner)
+    on_behalf = actors.workflow.model_copy(update={"user_id": actors.owner.user_id})
+
+    with pytest.raises(CaseViewNotFoundError):
+        await _views(session, on_behalf).get_view(personal)
+    with pytest.raises(CurrentUserRequiredError):
+        await _run_view(session, on_behalf, "assigned_to_me")

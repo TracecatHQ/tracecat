@@ -4,7 +4,6 @@ from fastapi import APIRouter, Query
 
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
-from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.cases.views.router import raise_case_view_error
 from tracecat.cases.views.schemas import CaseViewRead
@@ -12,12 +11,6 @@ from tracecat.cases.views.service import CaseViewNotFoundError, CaseViewsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, PageParams
-
-
-def _shared_only(role: Role) -> Role:
-    """Drop any on-behalf-of user so workflows only ever see shared views."""
-    return role.model_copy(update={"user_id": None})
-
 
 router = APIRouter(
     prefix="/internal/case-views",
@@ -40,7 +33,7 @@ async def executor_list_case_views(
     cursor: str | None = Query(None),
 ) -> CursorPaginatedResponse[CaseViewRead]:
     """List shared saved views. Workflows have no user, so no personal views."""
-    return await CaseViewsService(session, _shared_only(role)).list_views(
+    return await CaseViewsService(session, role).list_views(
         PageParams(limit=limit, cursor=cursor)
     )
 
@@ -61,6 +54,6 @@ async def executor_get_case_view(
 ) -> CaseViewRead:
     """Get one shared or built-in view."""
     try:
-        return await CaseViewsService(session, _shared_only(role)).get_view(view_id)
+        return await CaseViewsService(session, role).get_view(view_id)
     except (CaseViewNotFoundError, TracecatValidationError) as exc:
         raise_case_view_error(exc)

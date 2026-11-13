@@ -1,18 +1,26 @@
 "use client"
 
 import { useEffect, useMemo } from "react"
+import type {
+  CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
+  CaseTagRead,
+  WorkspaceMember,
+} from "@/client"
 import {
   CaseViewChips,
   CaseViewSwitcher,
 } from "@/components/cases/case-view-switcher"
 import { CasesLayout } from "@/components/cases/cases-layout"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { Button } from "@/components/ui/button"
+import { useCaseColumnVisibility } from "@/hooks/use-case-column-visibility"
 import {
-  normalizeVisibleColumnIds,
-  useCaseColumnVisibility,
-} from "@/hooks/use-case-column-visibility"
-import {
+  type ActiveCaseView,
   useActiveCaseView,
   useCaseViewControls,
+  useViewColumns,
 } from "@/hooks/use-case-view-state"
 import { useCases } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -91,13 +99,91 @@ export default function CasesPage() {
     toggleColumn: togglePersonalColumn,
   } = useCaseColumnVisibility(workspaceId, knownColumnIds)
   const activeView = useActiveCaseView(workspaceId)
-  // Normalize like the view controls do, so stale or unknown view columns
-  // never trigger field or duration fetches.
-  const viewColumnIds =
-    activeView.view && activeView.columns !== null
-      ? normalizeVisibleColumnIds(activeView.columns, knownColumnIds)
-      : null
-  const visibleColumnIds = viewColumnIds ?? personalColumnIds
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      document.title = "Cases"
+    }
+  }, [])
+
+  // A ?view= link waits for its view before mounting the list, so the list
+  // starts from the view's filters and never shows another search first.
+  if (activeView.viewId !== null && !activeView.mapped) {
+    return (
+      <div className="flex size-full items-center justify-center">
+        {activeView.isError ? (
+          <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+            <span>View not found</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => activeView.selectView(null)}
+            >
+              Back to cases
+            </Button>
+          </div>
+        ) : (
+          <CenteredSpinner />
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <CasesPageBody
+      // One list per view: switching views starts fresh from that view's
+      // filters, and closing a view starts again from the user's own.
+      key={activeView.viewId ?? "personal"}
+      workspaceId={workspaceId}
+      activeView={activeView}
+      caseAddonsEnabled={caseAddonsEnabled}
+      members={members}
+      caseTags={caseTags}
+      dropdownDefinitions={dropdownDefinitions}
+      caseFields={caseFields}
+      caseDurationDefinitions={caseDurationDefinitions}
+      knownColumnIds={knownColumnIds}
+      personalColumnIds={personalColumnIds}
+      togglePersonalColumn={togglePersonalColumn}
+    />
+  )
+}
+
+interface CasesPageBodyProps {
+  workspaceId: string
+  activeView: ActiveCaseView
+  caseAddonsEnabled: boolean
+  members: WorkspaceMember[] | undefined
+  caseTags: CaseTagRead[] | undefined
+  dropdownDefinitions: CaseDropdownDefinitionRead[] | undefined
+  caseFields: CaseFieldReadMinimal[] | undefined
+  caseDurationDefinitions: CaseDurationDefinitionRead[] | undefined
+  knownColumnIds: Set<string> | undefined
+  personalColumnIds: string[]
+  togglePersonalColumn: (columnId: string) => void
+}
+
+/** The case list for one view, or for the user's own filters. */
+function CasesPageBody({
+  workspaceId,
+  activeView,
+  caseAddonsEnabled,
+  members,
+  caseTags,
+  dropdownDefinitions,
+  caseFields,
+  caseDurationDefinitions,
+  knownColumnIds,
+  personalColumnIds,
+  togglePersonalColumn,
+}: CasesPageBodyProps) {
+  const viewColumns = useViewColumns({
+    view: activeView.view,
+    personalColumns: personalColumnIds,
+    togglePersonalColumn,
+    knownColumnIds,
+  })
+  const { visibleColumnIds } = viewColumns
 
   const selectedFieldIds = useMemo(() => {
     const validFieldIds = new Set(
@@ -124,18 +210,16 @@ export default function CasesPage() {
   const casesResult = useCases({
     fieldIds: selectedFieldIds,
     includeDurations,
-    persist: activeView.viewId === null,
+    initialFilters: activeView.mapped?.filters,
     extraQuery: activeView.mapped?.extraQuery,
-    staleRules: activeView.mapped?.staleRules,
-    enabled: activeView.isApplied,
+    emptyRules: activeView.mapped?.emptyRules,
   })
   const viewControls = useCaseViewControls({
     workspaceId,
     active: activeView,
     cases: casesResult,
+    viewColumns,
     personalColumns: personalColumnIds,
-    togglePersonalColumn,
-    knownColumnIds,
   })
   const {
     cases,
@@ -178,19 +262,11 @@ export default function CasesPage() {
     fetchNextPage,
   } = casesResult
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      document.title = "Cases"
-    }
-  }, [])
-
   return (
     <div className="size-full overflow-hidden">
       <CasesLayout
         cases={cases}
-        // A ?view= link shows as loading until its filters are applied, not
-        // as an empty result.
-        isLoading={isLoading || !activeView.isApplied}
+        isLoading={isLoading}
         error={error}
         filters={filters}
         appliedSearchQuery={appliedSearchQuery}
@@ -227,8 +303,8 @@ export default function CasesPage() {
         durationDefinitions={
           caseAddonsEnabled ? caseDurationDefinitions : undefined
         }
-        visibleColumnIds={viewControls.visibleColumnIds}
-        onToggleColumn={viewControls.toggleColumn}
+        visibleColumnIds={visibleColumnIds}
+        onToggleColumn={viewColumns.toggleColumn}
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}

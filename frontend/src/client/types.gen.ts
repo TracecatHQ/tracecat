@@ -3071,6 +3071,10 @@ export type CaseQuery_Input = {
    * Updated within this window, ending at the time the query runs.
    */
   updated_within?: RelativeTimeWindow | null
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
 }
 
 export type hierarchy = "all" | "top_level"
@@ -3134,13 +3138,19 @@ export type CaseQuery_Output = {
    * Updated within this window, ending at the time the query runs.
    */
   updated_within?: RelativeTimeWindow | null
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
 }
+
+export type CaseQueryErrorCode = "current_user_required"
 
 /**
  * A case query error with a machine-readable code.
  */
 export type CaseQueryErrorDetail = {
-  code: "current_user_required"
+  code: CaseQueryErrorCode
   message: string
 }
 
@@ -3302,6 +3312,10 @@ export type CaseSearchRequest = {
    * Updated within this window, ending at the time the query runs.
    */
   updated_within?: RelativeTimeWindow | null
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
   order_by?: CaseSearchOrder | null
   sort?: "asc" | "desc" | null
   include_rows?: boolean
@@ -3315,10 +3329,6 @@ export type CaseSearchRequest = {
    * Place complete case references before filtered text matches within the authorized workspace.
    */
   promote_exact_match?: boolean
-  /**
-   * The ordinary filter population matches no cases.
-   */
-  match_none?: boolean
 }
 
 /**
@@ -3585,7 +3595,7 @@ export type CaseViewColumns = Array<string>
  * Save a case search as a named view.
  */
 export type CaseViewCreate = {
-  name: string
+  name: CaseViewName
   visibility?: CaseViewVisibility
   query?: CaseQuery_Input
   order_by?: CaseSearchOrder | null
@@ -3593,7 +3603,23 @@ export type CaseViewCreate = {
   columns?: CaseViewColumns | null
 }
 
+/**
+ * Rules of a view left with nothing to match after deletions.
+ *
+ * Each one makes the view match no cases until it is given new values.
+ */
+export type CaseViewEmptyRules = {
+  tags?: boolean
+  dropdown_refs?: Array<string>
+  /**
+   * The advanced filter tree names something deleted.
+   */
+  filters?: boolean
+}
+
 export type CaseViewKind = "builtin" | "custom"
+
+export type CaseViewName = string
 
 /**
  * Where to put a pinned view in the sidebar.
@@ -3617,6 +3643,9 @@ export type CaseViewRead = {
   name: string
   visibility: CaseViewVisibility
   owner_id?: string | null
+  /**
+   * The view's criteria. When reading one view, deleted tags and options are removed; see stale_refs and empty_rules.
+   */
   query: CaseQuery_Output
   order_by?: CaseSearchOrder | null
   sort?: CaseViewSort | null
@@ -3630,17 +3659,19 @@ export type CaseViewRead = {
   created_at?: string | null
   updated_at?: string | null
   /**
-   * Deleted tags or dropdown options the query still names. Only filled when reading a single view.
+   * Deleted tags or dropdown options the stored query names. Null when not computed, which is the case in list responses.
    */
-  stale_refs?: Array<CaseViewStaleRef>
+  stale_refs?: Array<CaseViewStaleRef> | null
+  /**
+   * Rules left with nothing to match. Null when not computed.
+   */
+  empty_rules?: CaseViewEmptyRules | null
 }
 
 export type CaseViewSort = "asc" | "desc"
 
 /**
  * A reference in a view's query to something that no longer exists.
- *
- * When the view runs, a stale reference matches nothing.
  */
 export type CaseViewStaleRef = {
   kind: "tag" | "dropdown"
@@ -3658,7 +3689,7 @@ export type kind = "tag" | "dropdown"
  * ``order_by``, ``sort``, and ``columns`` accept ``null`` to clear them.
  */
 export type CaseViewUpdate = {
-  name?: string | null
+  name?: CaseViewName | null
   visibility?: CaseViewVisibility | null
   query?: CaseQuery_Input | null
   order_by?: CaseSearchOrder | null
@@ -11559,6 +11590,8 @@ export type StatusChangedEventRead = {
 export type StepStartUIPart = {
   type: "step-start"
 }
+
+export type StoredCaseQuery = CaseQuery_Input
 
 export type StreamEvent = {
   uuid: string

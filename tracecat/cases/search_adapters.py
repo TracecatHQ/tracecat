@@ -8,7 +8,9 @@ from enum import StrEnum
 from typing import assert_never
 from uuid import UUID
 
+from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.search_schemas import CaseQueryErrorCode
 from tracecat.exceptions import TracecatValidationError
 from tracecat.query.filters import (
     AndClause,
@@ -23,16 +25,46 @@ CURRENT_USER = "me"
 UNASSIGNED_IDENTIFIERS = frozenset({"unassigned", "__UNASSIGNED__"})
 
 
+def parse_dropdown_entry(entry: str) -> tuple[str, str]:
+    """Split a ``definition_ref:option_ref`` dropdown filter into its refs.
+
+    Raises:
+        ValueError: The entry is not in that form.
+    """
+    definition, separator, option = entry.partition(":")
+    if not separator or not definition or not option:
+        raise ValueError(
+            f"Invalid dropdown filter {entry!r}. Expected 'definition_ref:option_ref'."
+        )
+    return definition, option
+
+
+def format_dropdown_entry(definition: str, option: str) -> str:
+    """Join refs into a ``definition_ref:option_ref`` dropdown filter."""
+    return f"{definition}:{option}"
+
+
 class CurrentUserRequiredError(TracecatValidationError):
     """A query says "me", but the caller is not a user (for example a workflow)."""
 
-    code = "current_user_required"
+    code: CaseQueryErrorCode = "current_user_required"
 
     def __init__(self) -> None:
         super().__init__(
             'This query uses "me", which needs a signed-in user. '
             "Workflows and service callers must pass explicit user IDs."
         )
+
+
+def requesting_user_id(role: Role) -> UUID | None:
+    """Return the user a query runs as, or ``None`` for non-user callers.
+
+    Only user roles (the UI, the API, and MCP) have a "me". A workflow runs
+    as a service role, even when it carries the user who triggered it, so it
+    never resolves "me" or sees personal views. This keeps a workflow's
+    results the same whether a person or a schedule starts it.
+    """
+    return role.user_id if role.type == "user" else None
 
 
 def resolve_user_refs(

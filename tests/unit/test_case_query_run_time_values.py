@@ -28,22 +28,23 @@ NOW = datetime(2026, 3, 31, 12, 30, tzinfo=UTC)
 @pytest.mark.parametrize(
     ("amount", "unit", "expected"),
     [
-        (6, RelativeTimeUnit.HOUR, [0, 0, 0, 0, 6]),
-        (30, RelativeTimeUnit.DAY, [0, 0, 0, 30, 0]),
-        (2, RelativeTimeUnit.WEEK, [0, 0, 2, 0, 0]),
-        (1, RelativeTimeUnit.MONTH, [0, 1, 0, 0, 0]),
+        (6, RelativeTimeUnit.HOUR, "6 hour"),
+        (30, RelativeTimeUnit.DAY, "30 day"),
+        (2, RelativeTimeUnit.WEEK, "2 week"),
+        (1, RelativeTimeUnit.MONTH, "1 month"),
     ],
 )
 def test_relative_window_resolves_in_sql_with_fixed_binds(
-    amount: int, unit: RelativeTimeUnit, expected: list[int]
+    amount: int, unit: RelativeTimeUnit, expected: str
 ) -> None:
-    """The window becomes now() - make_interval(...), so bind values stay the
-    same on every page and the pagination cursor fingerprint matches."""
+    """The window becomes now() - interval, so the bind value is the same on
+    every page and the pagination cursor fingerprint matches."""
     expression = relative_window_start(RelativeTimeWindow(amount=amount, unit=unit))
     compiled = expression.compile(dialect=postgresql.dialect())
 
-    assert "now() - make_interval(" in str(compiled)
-    assert list(compiled.params.values()) == expected
+    assert "now() - CAST(" in str(compiled)
+    assert "AS INTERVAL)" in str(compiled)
+    assert list(compiled.params.values()) == [expected]
 
 
 @pytest.mark.parametrize("amount", [0, -1, 1001])

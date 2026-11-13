@@ -46,7 +46,9 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
-from tracecat.cases.search_schemas import CaseSearchRequest
+from tracecat.cases.enums import CaseViewVisibility
+from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.views.schemas import CaseViewRead
 from tracecat.db.models import Schedule, Workflow
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
@@ -4154,7 +4156,7 @@ async def test_search_cases_forwards_view_id(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.anyio
-async def test_list_case_views_puts_builtins_on_the_first_page_only(
+async def test_list_case_views_returns_builtins_separately(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -4166,8 +4168,22 @@ async def test_list_case_views_puts_builtins_on_the_first_page_only(
         organization_id=uuid.uuid4(),
         scopes=frozenset({"case:read"}),
     )
-    builtin = SimpleNamespace(id="assigned_to_me")
-    saved = SimpleNamespace(id=str(uuid.uuid4()))
+    builtin = CaseViewRead(
+        id="assigned_to_me",
+        kind="builtin",
+        name="Assigned to me",
+        visibility=CaseViewVisibility.WORKSPACE,
+        query=CaseQuery(),
+        can_edit=False,
+    )
+    saved = CaseViewRead(
+        id=str(uuid.uuid4()),
+        kind="custom",
+        name="Synthetic view",
+        visibility=CaseViewVisibility.PERSONAL,
+        query=CaseQuery(),
+        can_edit=True,
+    )
     list_views = AsyncMock(
         side_effect=lambda *_args, **_kwargs: CursorPaginatedResponse(items=[saved])
     )
@@ -4193,9 +4209,12 @@ async def test_list_case_views_puts_builtins_on_the_first_page_only(
         workspace_id=workspace_id, pinned=True
     )
 
-    assert [view.id for view in first.items] == ["assigned_to_me", saved.id]
-    assert [view.id for view in later.items] == [saved.id]
-    assert [view.id for view in pinned.items] == [saved.id]
+    # Built-ins come back separately, so saved pages keep their size.
+    assert [view.id for view in first.builtins] == ["assigned_to_me"]
+    assert [view.id for view in first.saved.items] == [saved.id]
+    assert [view.id for view in later.saved.items] == [saved.id]
+    assert pinned.builtins == []
+    assert [view.id for view in pinned.saved.items] == [saved.id]
     assert [call.kwargs for call in list_views.await_args_list] == [
         {"pinned_only": False},
         {"pinned_only": False},

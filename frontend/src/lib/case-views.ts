@@ -2,6 +2,7 @@ import type {
   CaseQuery_Input,
   CaseQuery_Output,
   CaseStatus,
+  CaseViewEmptyRules,
   CaseViewRead,
   CaseViewSort,
   RelativeTimeWindow,
@@ -20,13 +21,15 @@ import {
   DEFAULT_CASES_FILTERS,
   DEFAULT_DATE_FILTER,
   type DropdownFilterState,
+  emptyRulesMatchNone,
+  formatDropdownEntry,
   getCaseSearchTerm,
+  parseDropdownEntry,
   presetToWindow,
   resolveEnumIncludeFilter,
-  type StaleViewRules,
-  staleRulesMatchNone,
+  toEndOfDay,
   type UseCasesFilters,
-} from "@/hooks/use-cases"
+} from "@/lib/case-query"
 
 const DATE_PRESETS: NonNullable<CaseDatePreset>[] = ["1d", "3d", "1w", "1m"]
 
@@ -62,9 +65,12 @@ export interface CaseViewFilters {
   extraQuery: CaseViewQuery
   /** Short labels for {@link extraQuery}, such as "Created by me". */
   extraLabels: string[]
-  /** Rules whose values were all deleted; they match nothing until refilled. */
-  staleRules: StaleViewRules
-  /** The view's query without deleted tags or options, for change tracking. */
+  /**
+   * Rules left empty by deletions, as the server reports them. They match
+   * nothing until refilled. Null when the view was not read on its own.
+   */
+  emptyRules: CaseViewEmptyRules | null
+  /** The view's query as it runs (deleted refs removed), for change tracking. */
   savedQuery: CaseViewQuery
 }
 
@@ -76,12 +82,6 @@ function windowToPreset(window: RelativeTimeWindow): CaseDatePreset | null {
     }
   }
   return null
-}
-
-function toEndOfDay(date: Date): Date {
-  const end = new Date(date)
-  end.setHours(23, 59, 59, 999)
-  return end
 }
 
 function dateFilterToQuery(filter: CaseDateFilterValue): {
@@ -133,12 +133,19 @@ export function filtersToViewQuery(filters: UseCasesFilters): CaseViewQuery {
   if (status.values) query.status = status.values
   if (priority.values) query.priority = priority.values
   if (severity.values) query.severity = severity.values
-  if (filters.assigneeFilter.length > 0) {
+  // The filter bar only offers "include" for these; an old stored "exclude"
+  // selection is ignored, as the search request always did.
+  if (filters.assigneeFilter.length > 0 && filters.assigneeMode === "include") {
     query.assignee_id = filters.assigneeFilter
   }
-  if (filters.tagFilter.length > 0) query.tags = filters.tagFilter
+  if (filters.tagFilter.length > 0 && filters.tagMode === "include") {
+    query.tags = filters.tagFilter
+  }
   const dropdown = Object.entries(filters.dropdownFilters).flatMap(
-    ([ref, state]) => state.values.map((option) => `${ref}:${option}`)
+    ([ref, state]) =>
+      state.mode === "include"
+        ? state.values.map((option) => formatDropdownEntry(ref, option))
+        : []
   )
   if (dropdown.length > 0) query.dropdown = dropdown
 
@@ -235,6 +242,8 @@ function extraLabel(field: string, query: CaseQuery_Output): string {
       return "Updated in a fixed range"
     case "legacy_search":
       return `Text contains "${query.search_term ?? ""}"`
+    case "top_level_search":
+      return "Top-level cases only"
     default:
       return field.replaceAll("_", " ")
   }
@@ -253,33 +262,9 @@ function hasValue(value: unknown): boolean {
  * window that is not one of the filter-bar presets stays in `extraQuery`.
  */
 export function viewToFilters(view: CaseViewRead): CaseViewFilters {
-  const staleValues = new Set(
-    (view.stale_refs ?? []).map((ref) => `${ref.kind}:${ref.value}`)
-  )
-  const keptTags = (view.query.tags ?? []).filter(
-    (tag) => !staleValues.has(`tag:${tag}`)
-  )
-  const keptDropdown = (view.query.dropdown ?? []).filter(
-    (entry) => !staleValues.has(`dropdown:${entry}`)
-  )
-  const keptDropdownRefs = new Set(
-    keptDropdown.map((entry) => entry.split(":", 1)[0])
-  )
-  const staleRules: StaleViewRules = {
-    tags: (view.query.tags?.length ?? 0) > 0 && keptTags.length === 0,
-    dropdownRefs: [
-      ...new Set(
-        (view.query.dropdown ?? [])
-          .map((entry) => entry.split(":", 1)[0])
-          .filter((ref) => !keptDropdownRefs.has(ref))
-      ),
-    ],
-  }
-  const query: CaseQuery_Output = {
-    ...view.query,
-    tags: keptTags,
-    dropdown: keptDropdown,
-  }
+  // The server has already removed deleted tags and options from the query
+  // it returns for a single view, and lists rules left empty.
+  const query: CaseQuery_Output = view.query
   const extraQuery: Record<string, unknown> = {}
   const extraLabels: string[] = []
   for (const [field, value] of Object.entries(query)) {
@@ -331,20 +316,24 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
     extraQuery.search_term = query.search_term
     extraLabels.push(extraLabel("legacy_search", query))
   }
+  // A search always shows sub-cases in the filter bar. A view that searches
+  // top-level cases only keeps that as a view condition.
+  if (query.search_term && query.hierarchy === "top_level") {
+    extraQuery.hierarchy = "top_level"
+    extraLabels.push(extraLabel("top_level_search", query))
+  }
 
   const dropdownFilters: Record<string, DropdownFilterState> = {}
   for (const entry of query.dropdown ?? []) {
-    const separator = entry.indexOf(":")
-    if (separator < 0) continue
-    const ref = entry.slice(0, separator)
-    const option = entry.slice(separator + 1)
-    const state = dropdownFilters[ref] ?? {
+    const parsed = parseDropdownEntry(entry)
+    if (!parsed) continue
+    const state = dropdownFilters[parsed.definition] ?? {
       values: [],
       mode: "include",
       sortDirection: null,
     }
-    state.values.push(option)
-    dropdownFilters[ref] = state
+    state.values.push(parsed.option)
+    dropdownFilters[parsed.definition] = state
   }
 
   const sortBy = viewSort(view)
@@ -375,7 +364,7 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
     filters,
     extraQuery: extraQuery as CaseViewQuery,
     extraLabels,
-    staleRules,
+    emptyRules: view.empty_rules ?? null,
     savedQuery: query as CaseViewQuery,
   }
 }
@@ -393,7 +382,7 @@ export function mergeViewQuery(
   const groups: (keyof CaseViewQuery)[][] = [
     ["created_within", "start_time", "end_time"],
     ["updated_within", "updated_after", "updated_before"],
-    ["search_term", "search_mode"],
+    ["search_term", "search_mode", "search_columns"],
   ]
   for (const group of groups) {
     if (group.some((field) => barQuery[field] !== undefined)) {
@@ -403,6 +392,8 @@ export function mergeViewQuery(
       }
     }
   }
+  // A parent's sub-cases cannot also be top-level only.
+  if (merged.parent_id) delete merged.hierarchy
   return merged
 }
 
@@ -414,7 +405,7 @@ export function mergeViewQuery(
  */
 export function viewSaveBlocker(
   filters: UseCasesFilters,
-  staleRules: StaleViewRules | undefined
+  emptyRules: CaseViewEmptyRules | null | undefined
 ): string | null {
   const excludesEverything = [
     resolveEnumIncludeFilter(
@@ -436,7 +427,7 @@ export function viewSaveBlocker(
   if (excludesEverything) {
     return "These filters exclude every value, so they match no cases."
   }
-  if (staleRulesMatchNone(staleRules, filters)) {
+  if (emptyRulesMatchNone(emptyRules, filters)) {
     return "Pick new values for the deleted tags or options first."
   }
   return null
