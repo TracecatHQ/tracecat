@@ -227,7 +227,7 @@ externalRedis:
 
 The `url` key should be a full Redis connection string, e.g. `rediss://:password@host:6379`. Use `rediss://` (double s) for TLS.
 
-To log in with ElastiCache IAM or Microsoft Entra ID tokens instead of a password, list the components in `externalRedis.auth.awsIam` or `externalRedis.auth.azureWorkloadIdentity`. See [Database IAM login](/self-hosting/database-iam#redis).
+To log in with ElastiCache IAM or Microsoft Entra ID tokens instead of a password, list the components in `externalRedis.auth.awsIam` or `externalRedis.auth.azureWorkloadIdentity`. Components you don't list keep the `url` Secret; once you list every component, remove `externalRedis.auth.existingSecret`. See [Database IAM login](/self-hosting/database-iam#redis).
 
 ### S3
 

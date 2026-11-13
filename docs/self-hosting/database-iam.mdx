@@ -91,7 +91,7 @@ Tracecat signs each token locally with the service's AWS credentials and reuses 
     On the flexible server, enable Microsoft Entra authentication and set an Entra administrator. On AKS, turn on the cluster's OIDC issuer and Workload Identity.
   </Step>
   <Step title="Create a managed identity for Tracecat">
-    Create a user-assigned managed identity for `app` and federate it with each Kubernetes service account that Tracecat runs as (Workload Identity). Run this once per service account, with a credential name unique to each:
+    Create a user-assigned managed identity for `app` and federate it with each Kubernetes service account that Tracecat runs as (Workload Identity). With [database roles](/self-hosting/database-roles), create two more the same way: one for `migrator`, federated with the migrations Job's service account, and one for `agent_runtime`, with no federated credential. Run this once per identity and service account, with a credential name unique to each:
 
     ```bash
     az identity federated-credential create --name <service-account> \
@@ -100,7 +100,7 @@ Tracecat signs each token locally with the service's AWS credentials and reuses 
       --subject system:serviceaccount:<namespace>:<service-account>
     ```
 
-    Note the identity's client ID and object ID; the next steps use both:
+    Note each identity's client ID and object ID; the next steps use both:
 
     ```bash
     az identity show --name <identity-name> --resource-group <resource-group> \
@@ -110,13 +110,13 @@ Tracecat signs each token locally with the service's AWS credentials and reuses 
     Label the pods `azure.workload.identity/use: "true"` and give them the client ID, in `TRACECAT__DB_AZURE_CLIENT_ID` or the service account annotation `azure.workload.identity/client-id`. Never assign the identity to the node pool: every pod on the node could then log in as `app`.
   </Step>
   <Step title="Create the database users">
-    As the Entra administrator, connected to the `postgres` database, map each database role to the object ID of the identity that logs in as it:
+    As the Entra administrator, connected to the `postgres` database, map each database role to the object ID of the identity that logs in as it. Without database roles, create `app` only:
 
     ```sql
     SELECT * FROM pgaadauth_create_principal_with_oid('app', '<app-object-id>', 'service', false, false);
     ```
 
-    With [database roles](/self-hosting/database-roles) (`tracecat db roles upgrade --login azure_entra`), create all three login roles first; role setup then grants their privileges. `migrator` maps to the migrations Job's identity and `app` to the services' identity. The agent runtime logs in as `app` too. Role setup needs `agent_runtime` to exist, but nothing logs in as it yet, so map it to an identity of its own that no workload uses:
+    With [database roles](/self-hosting/database-roles) (`tracecat db roles upgrade --login azure_entra`), create all three login roles instead; role setup then grants their privileges. `migrator` maps to the migrations Job's identity and `app` to the services' identity. The agent runtime logs in as `app` too. Role setup needs `agent_runtime` to exist, but nothing logs in as it yet, so map it to its own identity that no workload uses:
 
     ```sql
     SELECT * FROM pgaadauth_create_principal_with_oid('migrator', '<migrations-object-id>', 'service', false, false);
@@ -142,7 +142,7 @@ Tracecat gets tokens from `DefaultAzureCredential`, which caches each token and 
 
 ## Kubernetes with PgDog
 
-The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadIdentity`. Every Tracecat workload, the agent runtime included, then signs its own token and logs in to PgDog, which passes the token through to the database. PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to the database with it, as `pgdog.serverUser`, so `serverUser` must be the workloads' username. The migrations Job logs in directly, as `migrator` with a token of its own (see [Migrations](#migrations)).
+The Helm chart's `externalPostgres.auth.mode` takes `awsIam` or `azureWorkloadIdentity`. Every Tracecat workload, the agent runtime included, then signs its own token and logs in to PgDog, which passes the token through to the database. PgDog's user takes `auth_type = "external_token"`: PgDog checks each new token once by logging in to the database with it, as `pgdog.serverUser`, so `serverUser` must be the workloads' username. The token modes need [database roles](/self-hosting/database-roles): the migrations Job logs in directly, as `migrator` with a token of its own (see [Migrations](#migrations)), and no workload needs `externalPostgres.auth.existingSecret`.
 
 Both modes need:
 
@@ -230,7 +230,7 @@ helm template tracecat tracecat/tracecat -f values.yaml \
   | yq 'select(.kind == "ServiceAccount") | .metadata.name'
 ```
 
-The workloads use `<release>-app` unless you create dedicated service accounts, PgDog uses `<release>-pgdog` and the migrations Job `<release>-migrations`.
+The workloads use `<release>-app` unless you create dedicated service accounts, and PgDog uses `<release>-pgdog`. With `migrations.migrator` on, the migrations Job runs as its own `<release>-migrations`, which `migrations.serviceAccount.annotations` annotates.
 
 ## Migrations
 
@@ -272,7 +272,7 @@ With `REDIS_AUTH_MODE` set to `aws_iam` or `azure_entra`, Tracecat logs in to Re
     REDIS_AZURE_CLIENT_ID=<app-client-id>
     ```
 
-    With the Helm chart, list the components that log in this way instead of setting the URL Secret. `clientId` defaults to `externalPostgres.auth.azureWorkloadIdentity.clientId`:
+    With the Helm chart, list the components that log in this way. Components you don't list keep `externalRedis.auth.existingSecret`'s URL; once you list every component, remove it. `clientId` defaults to `externalPostgres.auth.azureWorkloadIdentity.clientId`:
 
     ```yaml
     externalRedis:
