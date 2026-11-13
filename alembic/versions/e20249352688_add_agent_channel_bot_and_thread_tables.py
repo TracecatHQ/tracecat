@@ -151,6 +151,12 @@ def upgrade() -> None:
             name=op.f("uq_agent_channel_thread_bot_id_thread_key"),
         ),
     )
+    op.create_index(
+        op.f("ix_agent_channel_thread_workspace_id"),
+        "agent_channel_thread",
+        ["workspace_id"],
+        unique=False,
+    )
     for table in TABLES:
         op.execute(enable_workspace_table_rls(table))
 
@@ -159,6 +165,9 @@ def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '10s'")
     for table in reversed(TABLES):
         op.execute(disable_workspace_table_rls(table))
+    op.drop_index(
+        op.f("ix_agent_channel_thread_workspace_id"), table_name="agent_channel_thread"
+    )
     op.drop_table("agent_channel_thread")
     op.drop_index(
         op.f("ix_agent_channel_bot_workspace_id"), table_name="agent_channel_bot"

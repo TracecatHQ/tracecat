@@ -162,6 +162,10 @@ def _rls_tables(engine: Engine) -> set[str]:
                 " ON p.tablename = c.relname AND p.policyname = 'rls_policy_' || c.relname"
                 " WHERE c.relrowsecurity AND c.relname LIKE 'agent_channel_%'"
                 " AND c.relname <> 'agent_channel_token'"
+                # Both predicates scope to the workspace, not just a policy by that name.
+                " AND p.cmd = 'ALL'"
+                " AND p.qual LIKE '%workspace_id = %app.current_workspace_id%'"
+                " AND p.with_check LIKE '%workspace_id = %app.current_workspace_id%'"
             )
         )
         return set(rows.scalars())
