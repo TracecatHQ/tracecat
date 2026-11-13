@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
@@ -54,3 +54,22 @@ async def executor_create_case_tag(
             detail="Case tag already exists",
         ) from err
     return CaseTagRead.model_validate(tag, from_attributes=True)
+
+
+@router.delete("/{tag_identifier}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("case:delete")
+async def executor_delete_case_tag(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    tag_identifier: str,
+) -> None:
+    service = CaseTagsService(session=session, role=role)
+    try:
+        tag = await service.get_tag_by_ref_or_id(tag_identifier)
+    except NoResultFound as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tag not found",
+        ) from err
+    await service.delete_tag(tag)

@@ -2172,6 +2172,7 @@ class CaseCommentsService(BaseWorkspaceService):
         comment_id: uuid.UUID,
         parent_id: uuid.UUID | None,
         delete_mode: Literal["soft", "hard"],
+        author_id: uuid.UUID | None,
         wf_exec_id: str | None = None,
     ) -> CommentDeletedEvent | CommentReplyDeletedEvent:
         kwargs = {
@@ -2181,6 +2182,7 @@ class CaseCommentsService(BaseWorkspaceService):
                 comment_id=comment_id, parent_id=parent_id
             ),
             "delete_mode": delete_mode,
+            "author_id": author_id,
             "wf_exec_id": wf_exec_id,
         }
         if parent_id is None:
@@ -2194,6 +2196,7 @@ class CaseCommentsService(BaseWorkspaceService):
         comment_id: uuid.UUID,
         parent_id: uuid.UUID | None,
         delete_mode: Literal["soft", "hard"] | None = None,
+        author_id: uuid.UUID | None = None,
         workflow: Workflow | None = None,
         wf_exec_id: str | None = None,
         workflow_status: CaseCommentWorkflowStatus | None = None,
@@ -2211,6 +2214,7 @@ class CaseCommentsService(BaseWorkspaceService):
         }
         if delete_mode is not None:
             data["delete_mode"] = delete_mode
+            data["author_id"] = str(author_id) if author_id is not None else None
         if workflow is not None:
             data["workflow_id"] = str(workflow.id)
             data["is_workflow_comment"] = True
@@ -2917,13 +2921,11 @@ class CaseCommentsService(BaseWorkspaceService):
             case: The case the comment belongs to
             comment_id: The ID of the comment to delete
 
-        Raises:
-            TracecatNotFoundError: If the comment doesn't exist
-            TracecatAuthorizationError: If the user doesn't own the comment
+        Any role with ``case:delete`` (workspace admins, org owners/admins and
+        workflows) may delete any comment, not just its own. The case event
+        records the comment author so deletions of other users' comments are
+        attributable.
         """
-
-        if self.role.user_id is None or comment.user_id != self.role.user_id:
-            raise TracecatAuthorizationError("You can only delete your own comments")
 
         has_replies = comment.parent_id is None and await self._comment_has_replies(
             comment.id
@@ -2937,6 +2939,7 @@ class CaseCommentsService(BaseWorkspaceService):
             comment_id=comment.id,
             parent_id=comment.parent_id,
             delete_mode=delete_mode,
+            author_id=comment.user_id,
         )
         await self._audit_comment_event(
             action="delete",
@@ -2958,6 +2961,7 @@ class CaseCommentsService(BaseWorkspaceService):
                         comment_id=comment.id,
                         parent_id=comment.parent_id,
                         delete_mode=delete_mode,
+                        author_id=comment.user_id,
                     ),
                 )
                 await self.session.commit()
@@ -2970,6 +2974,7 @@ class CaseCommentsService(BaseWorkspaceService):
                         comment_id=comment.id,
                         parent_id=comment.parent_id,
                         delete_mode=delete_mode,
+                        author_id=comment.user_id,
                     ),
                 )
                 await self.session.delete(comment)

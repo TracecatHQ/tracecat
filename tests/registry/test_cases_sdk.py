@@ -518,3 +518,25 @@ async def test_run_task_omits_unset_inputs(
     mock_tracecat_client.post.assert_awaited_once_with(
         "/cases/CASE-0001/tasks/task/run", json={}
     )
+
+
+@pytest.mark.anyio
+async def test_delete_case_tag_uses_internal_case_tags_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-tags.sock")
+    await client.cases.delete_case_tag("needs-triage")
+
+    assert len(requests) == 1
+    assert requests[0].method == "DELETE"
+    assert requests[0].url.path.endswith("/internal/case-tags/needs-triage")

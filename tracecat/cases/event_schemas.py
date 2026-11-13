@@ -139,6 +139,9 @@ class CommentUpdatedEvent(CaseCommentEventBase):
 class CommentDeletedEvent(CaseCommentEventBase):
     type: Literal[CaseEventType.COMMENT_DELETED] = CaseEventType.COMMENT_DELETED
     delete_mode: CaseCommentDeleteMode
+    author_id: uuid.UUID | None = Field(
+        default=None, description="The author of the deleted comment."
+    )
 
 
 class CommentReplyCreatedEvent(CaseCommentEventBase):
@@ -158,6 +161,9 @@ class CommentReplyDeletedEvent(CaseCommentEventBase):
         CaseEventType.COMMENT_REPLY_DELETED
     )
     delete_mode: CaseCommentDeleteMode
+    author_id: uuid.UUID | None = Field(
+        default=None, description="The author of the deleted comment."
+    )
 
 
 class TableRowLinkedEvent(CaseEventBase):

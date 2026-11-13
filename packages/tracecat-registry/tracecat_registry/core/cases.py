@@ -501,7 +501,10 @@ async def update_comment(
 @registry.register(
     default_title="Delete case comment",
     display_group="Cases",
-    description="Delete a case comment. Only the comment author can delete it.",
+    description=(
+        "Delete a case comment. Workspace admins and workflows can delete any "
+        "comment, not just their own."
+    ),
     namespace="core.cases",
 )
 async def delete_comment(
@@ -1169,6 +1172,24 @@ async def remove_case_tag(
     ],
 ) -> None:
     await ctx.cases.aio.remove_tag(case_id, tag_id=tag)
+
+
+@registry.register(
+    default_title="Delete case tag",
+    display_group="Cases",
+    description=(
+        "Delete a case tag from the workspace by tag ID or ref. "
+        "This also removes the tag from every case."
+    ),
+    namespace="core.cases",
+)
+async def delete_case_tag(
+    tag: Annotated[
+        str,
+        Doc("The tag identifier (ID or ref) to delete."),
+    ],
+) -> None:
+    await ctx.cases.aio.delete_case_tag(tag)
 
 
 async def _upload_attachment(

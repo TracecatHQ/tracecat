@@ -227,11 +227,15 @@ function CaseFeedEvent({
         )}
 
         {event.type === "comment_deleted" && (
-          <CommentDeletedEvent event={event} actor={actor} />
+          <CommentDeletedEvent event={event} actor={actor} userMap={users} />
         )}
 
         {event.type === "comment_reply_deleted" && (
-          <CommentReplyDeletedEvent event={event} actor={actor} />
+          <CommentReplyDeletedEvent
+            event={event}
+            actor={actor}
+            userMap={users}
+          />
         )}
 
         {event.type === "dropdown_value_changed" && (

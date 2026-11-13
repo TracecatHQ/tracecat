@@ -313,6 +313,8 @@
 
 <ResponseField name="delete_case_comment" type="tool">
   Delete a comment from a case.
+
+  Workspace admins (``case:delete``) can delete any comment, including other users' comments. Top-level comments with replies are soft-deleted so the thread is kept. Each deletion is recorded as a case event.
 </ResponseField>
 
 <ResponseField name="list_case_tasks" type="tool">

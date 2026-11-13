@@ -133,6 +133,8 @@ from tracecat.cases.enums import (
 from tracecat.cases.event_schemas import (
     AssigneeChangedEventRead,
     CaseEventRead,
+    CommentDeletedEventRead,
+    CommentReplyDeletedEventRead,
     TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.schemas import (
@@ -182,6 +184,7 @@ from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
     ScopeDeniedError,
+    TracecatAuthorizationError,
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -2860,8 +2863,8 @@ Loops: `core.loop.start`, `core.loop.end`
 Workflow: `core.workflow.create_workflow`, `core.workflow.edit_workflow`,
 `core.workflow.execute`, `core.workflow.get_authoring_context`,
 `core.workflow.get_case_trigger`, `core.workflow.get_status`,
-`core.workflow.get_webhook`, `core.workflow.get_workflow`,
-`core.workflow.list_executions`, `core.workflow.publish`,
+`core.workflow.delete_workflow_tag`, `core.workflow.get_webhook`,
+`core.workflow.get_workflow`, `core.workflow.list_executions`, `core.workflow.publish`,
 `core.workflow.run`, `core.workflow.update_case_trigger`,
 `core.workflow.update_webhook`
 
@@ -2877,7 +2880,7 @@ Cases: `core.cases.add_case_tag`, `core.cases.add_sub_cases`,
 `core.cases.assign_user_by_email`, `core.cases.create_case`,
 `core.cases.create_comment`, `core.cases.create_task`,
 `core.cases.delete_attachment`, `core.cases.delete_case`,
-`core.cases.delete_comment`, `core.cases.delete_task`, `core.cases.download_attachment`,
+`core.cases.delete_case_tag`, `core.cases.delete_comment`, `core.cases.delete_task`, `core.cases.download_attachment`,
 `core.cases.get_attachment`, `core.cases.get_attachment_download_url`,
 `core.cases.get_case`, `core.cases.get_case_metrics`,
 `core.cases.get_comment_thread`, `core.cases.get_linked_case_rows`,
@@ -7549,6 +7552,10 @@ async def delete_case_comment(
 ) -> MCPMessageResponse:
     """Delete a comment from a case.
 
+    Workspace admins (``case:delete``) can delete any comment, including
+    other users' comments. Top-level comments with replies are soft-deleted
+    so the thread is kept. Each deletion is recorded as a case event.
+
     Args:
         workspace_id: The workspace ID.
         case_id: Case UUID.
@@ -7575,7 +7582,11 @@ async def delete_case_comment(
             )
     except ToolError:
         raise
-    except (TracecatValidationError, TracecatNotFoundError) as e:
+    except (
+        TracecatAuthorizationError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+    ) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -7953,6 +7964,13 @@ async def list_case_events(
                         user_ids.add(root_evt.old)
                     if root_evt.new is not None:
                         user_ids.add(root_evt.new)
+                if (
+                    isinstance(
+                        root_evt, CommentDeletedEventRead | CommentReplyDeletedEventRead
+                    )
+                    and root_evt.author_id is not None
+                ):
+                    user_ids.add(root_evt.author_id)
                 if root_evt.user_id is not None:
                     user_ids.add(root_evt.user_id)
                 events.append(evt)

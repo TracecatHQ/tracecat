@@ -3900,6 +3900,10 @@ export type CommentDeletedEventRead = {
   type?: "comment_deleted"
   delete_mode: CaseCommentDeleteMode
   /**
+   * The author of the deleted comment.
+   */
+  author_id?: string | null
+  /**
    * The user who performed the action.
    */
   user_id?: string | null
@@ -3944,6 +3948,10 @@ export type CommentReplyDeletedEventRead = {
   thread_root_id: string
   type?: "comment_reply_deleted"
   delete_mode: CaseCommentDeleteMode
+  /**
+   * The author of the deleted comment.
+   */
+  author_id?: string | null
   /**
    * The user who performed the action.
    */
